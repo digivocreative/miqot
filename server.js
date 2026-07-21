@@ -4289,9 +4289,30 @@ function isCommunityLinkPreviewSchemaMissing(error) {
 function isCommunityThreadSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
-  if (!['42703', 'PGRST204'].includes(code)) return false;
-  return /parent_post_id|root_post_id|is_reply/i.test(message)
-    && /does not exist|could not find|schema cache/i.test(message);
+  // Kelas galat relasi: embed `parent:community_posts!parent_post_id!inner`
+  // (commentQuery di loadTerasNotificationSources) bisa gagal diresolusi
+  // PostgREST — mis. schema cache belum sinkron — bukan cuma kolomnya
+  // benar-benar tidak ada.
+  if (['42P01', 'PGRST205', 'PGRST200'].includes(code)) {
+    return /parent_post_id|root_post_id|is_reply/i.test(message);
+  }
+  if (['42703', 'PGRST204'].includes(code)) {
+    return /parent_post_id|root_post_id|is_reply/i.test(message)
+      && /does not exist|could not find|schema cache/i.test(message);
+  }
+  // PGRST201: PostgREST menganggap embed AMBIGU kalau lebih dari satu relasi
+  // ditemukan antara dua tabel. `community_posts` kini punya TIGA FK ke
+  // dirinya sendiri (quoted_post_id, parent_post_id, root_post_id), dan embed
+  // self-referential `parent:community_posts!parent_post_id!inner` di
+  // loadTerasNotificationSources adalah satu-satunya tempat error ini bisa
+  // muncul. Pesan PGRST201 tidak selalu menyebut nama kolom (cth. "more than
+  // one relationship was found for 'community_posts' and 'community_posts'"),
+  // jadi mensyaratkan kecocokan regex bisa meleset dan tetap melempar 500 —
+  // mematikan /api/community/notifications DAN /head sekaligus (lonceng total,
+  // termasuk mention & broadcast yang tak berhubungan dengan thread).
+  // Toleransi tanpa syarat pesan.
+  if (code === 'PGRST201') return true;
+  return false;
 }
 
 // Jalankan query daftar dengan filter "bukan segmen lanjutan". Kalau migrasi
@@ -5026,33 +5047,76 @@ async function writeTerasNotifSeenAt(agentId, iso) {
   if (updateError) throw updateError;
 }
 
+// Muat baris mention, degradasi anggun kalau embed comment belum bisa
+// diresolusi. Balasan kini baris community_posts dan FK
+// community_mentions.comment_id menunjuk ke sana (migrasi rekonsiliasi), jadi
+// embed comment memakai `community_posts`. Selama jendela migrasi belum
+// diterapkan, embed `comment:` bisa gagal (PGRST200) dan menyeret seluruh
+// mentionQuery. Mention pada balasan tetap baris nyata di community_mentions,
+// jadi ia harus tetap sampai ke lonceng selama jendela itu — hanya tanpa
+// cuplikan isi — alih-alih sumber mention diam-diam jadi kosong. Coba ulang
+// sekali tanpa embed kalau query utama gagal karena alasan skema/relasi.
+async function loadCommunityMentionRows(agent, { since, limit }) {
+  const baseSelect = `id, post_id, comment_id, created_at,
+      author:agents!community_mentions_author_agent_id_fkey(name, photo),
+      post:community_posts!community_mentions_post_id_fkey(body, deleted_at)`;
+  const fullSelect = `${baseSelect},
+      comment:community_posts!community_mentions_comment_id_fkey(body, deleted_at)`;
+
+  const build = (select) => {
+    let query = supabase
+      .from('community_mentions')
+      .select(select)
+      .eq('mentioned_agent_id', agent.id)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (since) query = query.gt('created_at', since);
+    return query;
+  };
+
+  let result = await build(fullSelect);
+  let hasCommentEmbed = true;
+  if (result.error && isCommunityMentionSchemaMissing(result.error)) {
+    hasCommentEmbed = false;
+    result = await build(baseSelect);
+  }
+  return { ...result, hasCommentEmbed };
+}
+
 // Fetch the four sources in parallel. `since` narrows every source to rows
 // newer than the watermark (badge path); pass null to fetch the latest N
-// regardless (list path). Mentions tolerate a missing table, and broadcasts
-// tolerate a missing `mentions_everyone` column, so the bell still works on
-// an environment where those migrations were never applied.
+// regardless (list path). Mentions tolerate a missing table / unresolvable
+// comment embed (loadCommunityMentionRows), comments tolerate an unresolvable
+// parent embed (isCommunityThreadSchemaMissing), and broadcasts tolerate a
+// missing `mentions_everyone` column, so the bell still works on an
+// environment where those migrations were never applied. Every source stays
+// gated behind the per-agent bell preferences (bellSourceFlags).
 async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
   const flags = bellSourceFlags(prefs);
 
-  const mentionQuery = !flags.mentions ? null : supabase
-    .from('community_mentions')
-    .select(`id, post_id, comment_id, created_at,
-      author:agents!community_mentions_author_agent_id_fkey(name, photo),
-      post:community_posts!community_mentions_post_id_fkey(body, deleted_at),
-      comment:community_post_comments!community_mentions_comment_id_fkey(body, deleted_at)`)
-    .eq('mentioned_agent_id', agent.id)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const mentionResultPromise = !flags.mentions
+    ? Promise.resolve({ data: [], error: null, hasCommentEmbed: true })
+    : loadCommunityMentionRows(agent, { since, limit });
 
+  // Balasan atas kiriman (atau balasan) saya. Balasan kini baris
+  // community_posts, jadi relasi induknya dicek lewat parent_post_id. Hanya
+  // balasan (`is_reply=true`) yang jadi notifikasi comment — segmen lanjutan
+  // utas (is_reply=false) tidak, meski juga ber-parent_post_id. Petunjuk embed
+  // memakai NAMA KOLOM (`!parent_post_id`), bukan nama constraint: nama kolom
+  // dijamin migrasi, nama constraint cuma tebakan yang kalau salah membalas
+  // PGRST200 dan mematikan seluruh endpoint notifikasi. Petakan
+  // parent_post_id -> post_id di bawah supaya mergeNotifications() tak berubah.
   const commentQuery = !flags.comments ? null : supabase
-    .from('community_post_comments')
-    .select(`id, post_id, created_at, body,
-      author:agents(name, photo),
-      post:community_posts!inner(agent_id, deleted_at)`)
-    .eq('post.agent_id', agent.id)
+    .from('community_posts')
+    .select(`id, parent_post_id, created_at, body,
+      author:agents!community_posts_agent_id_fkey(name, photo),
+      parent:community_posts!parent_post_id!inner(agent_id, deleted_at)`)
+    .eq('parent.agent_id', agent.id)
+    .eq('is_reply', true)
     .neq('agent_id', agent.id)
+    .not('parent_post_id', 'is', null)
     .is('deleted_at', null)
-    .is('post.deleted_at', null)
+    .is('parent.deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -5085,15 +5149,16 @@ async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
     return query;
   });
 
+  // `since` untuk mention diterapkan di dalam loadCommunityMentionRows; untuk
+  // broadcast di dalam runCommunityRootQuery. Sisanya di sini.
   if (since) {
-    mentionQuery?.gt('created_at', since);
     commentQuery?.gt('created_at', since);
     reactionQuery?.gt('created_at', since);
   }
 
   const empty = { data: [], error: null };
   const [mentionResult, commentResult, reactionResult, broadcastResult] = await Promise.all([
-    mentionQuery ?? empty,
+    mentionResultPromise,
     commentQuery ?? empty,
     reactionQuery ?? empty,
     broadcastQuery ?? empty,
@@ -5102,14 +5167,46 @@ async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
   if (mentionResult.error && !isCommunityMentionSchemaMissing(mentionResult.error)) {
     throw mentionResult.error;
   }
-  if (commentResult.error) throw commentResult.error;
+  if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) {
+    throw commentResult.error;
+  }
   if (reactionResult.error) throw reactionResult.error;
   if (broadcastResult.error && !isCommunityBroadcastSchemaMissing(broadcastResult.error)) {
     throw broadcastResult.error;
   }
 
+  // Balasan adalah baris community_posts. mergeNotifications()
+  // (lib/community-notifications.js) masih memakai bentuk lama (post_id =
+  // induk langsung), jadi petakan parent_post_id -> post_id di sini tanpa
+  // menyentuh helper itu.
+  const commentRows = (commentResult.error ? [] : (commentResult.data || []))
+    .map(row => ({ ...row, post_id: row.parent_post_id }));
+  // Kalau baris comment untuk balasan yang sama sudah tersedia di sini (dengan
+  // cuplikan isi lengkap), baris mention yang sepadan dibuang di cabang
+  // degradasi mention di bawah supaya sumber comment yang menangani.
+  const commentRowIds = new Set(commentRows.map(row => row.id));
+
   const mentions = (mentionResult.error ? [] : (mentionResult.data || []))
     .map(row => {
+      if (row.comment_id && !mentionResult.hasCommentEmbed) {
+        // Embed comment belum bisa diresolusi sekarang (lihat
+        // loadCommunityMentionRows). Kalau balasan yang sama sudah muncul
+        // sebagai baris comment, biarkan sumber comment (bersnippet lengkap)
+        // yang menangani, bukan baris mention bersnippet kosong ini.
+        if (commentRowIds.has(row.comment_id)) return null;
+        // deleted_at balasan itu sendiri tak bisa dicek tanpa embed, tapi
+        // mention-nya tetap nyata — tampilkan tanpa cuplikan alih-alih dibuang.
+        // Cek deleted_at level post induk tetap dihormati (FK-nya utuh).
+        if (row.post?.deleted_at) return null;
+        return {
+          id: row.id,
+          post_id: row.post_id,
+          comment_id: row.comment_id,
+          created_at: row.created_at,
+          actor: communityAuthorProfile(row.author),
+          snippet: '',
+        };
+      }
       const source = row.comment_id ? row.comment : row.post;
       // deleting a post doesn't cascade to its comments, so a comment mention needs its parent post checked too
       if (!source || source.deleted_at || row.post?.deleted_at) return null; // hide mentions on deleted content
@@ -5124,7 +5221,7 @@ async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
     })
     .filter(Boolean);
 
-  const comments = (commentResult.data || []).map(row => ({
+  const comments = commentRows.map(row => ({
     id: row.id,
     post_id: row.post_id,
     created_at: row.created_at,
