@@ -248,10 +248,10 @@ function CommentRow({
             }}
             aria-label={`Lihat profil ${commentAuthorName}`}
           >
-            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
+            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
           </a>
         ) : (
-          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
+          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
         )}
         {showRail && (
           <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
