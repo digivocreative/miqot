@@ -59,8 +59,10 @@ import {
   type MentionMember,
 } from '../lib/communityMentions';
 import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-broadcast.js';
+import { emptyReactionCounts, sumReactions } from '../../lib/community-reactions.js';
+import type { ReactionType, ReactionCounts } from '../../lib/community-reactions.js';
 
-export type ReactionType = 'suka' | 'selamat' | 'aamiin';
+export type { ReactionType } from '../../lib/community-reactions.js';
 type CommunityMediaType = 'image' | 'video';
 
 interface TerasAgent {
@@ -74,12 +76,6 @@ interface CommunityAuthor {
   name: string | null;
   slug: string | null;
   photo: string | null;
-}
-
-interface ReactionCounts {
-  suka: number;
-  selamat: number;
-  aamiin: number;
 }
 
 interface CommunityPost {
@@ -492,9 +488,9 @@ function buildCommentReactionMaps(comments: CommunityComment[]): {
   const myReactions: Record<string, ReactionType | null> = {};
   const reactionCounts: Record<string, number> = {};
   const apply = (comment: CommunityComment) => {
-    const reactions = comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
+    const reactions = comment.reactions ?? emptyReactionCounts();
     myReactions[comment.id] = comment.my_reaction ?? null;
-    reactionCounts[comment.id] = reactions.suka + reactions.selamat + reactions.aamiin;
+    reactionCounts[comment.id] = sumReactions(reactions);
   };
   for (const comment of comments) {
     apply(comment);
@@ -3316,7 +3312,7 @@ export default function TerasPage({
     const snapshot = panel && findCommentInPanel(panel.comments, commentId);
     if (!snapshot) return;
     const previousReaction = snapshot.my_reaction ?? null;
-    const previousReactions = snapshot.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
+    const previousReactions = snapshot.reactions ?? emptyReactionCounts();
 
     commentReactionPendingRef.current.add(commentId);
     setCommentPanels(current => {
@@ -3327,7 +3323,7 @@ export default function TerasPage({
         [postId]: {
           ...currentPanel,
           comments: mapCommentInPanel(currentPanel.comments, commentId, comment => {
-            const reactions = { ...(comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 }) };
+            const reactions = { ...(comment.reactions ?? emptyReactionCounts()) };
             if (previousReaction) reactions[previousReaction] = Math.max(0, reactions[previousReaction] - 1);
             if (nextReaction) reactions[nextReaction] += 1;
             return { ...comment, my_reaction: nextReaction, reactions };
@@ -4244,7 +4240,7 @@ export default function TerasPage({
             // segmen akar di detail), bukan ke segmen yang sedang dirender.
             const activeCommentReplyTarget = replyTarget && replyTarget.postId === commentTargetId ? replyTarget : null;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
-            const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
+            const totalReactions = sumReactions(post.reactions);
             const reactionIsBusy = reactionBusy.has(post.id);
             const likePopped = likePopId === post.id && !!post.my_reaction && !reduceMotion;
             const postMedia = normalizePostMedia(post);
