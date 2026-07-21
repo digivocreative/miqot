@@ -6548,6 +6548,46 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
   }
 });
 
+app.get('/api/community/posts/:id/reactions', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    const LIMIT = 200;
+    const { data, error, count } = await supabase
+      .from('community_post_reactions')
+      .select('reaction, created_at, agent:agents(name, slug, photo)', { count: 'exact' })
+      .eq('post_id', post.id)
+      .order('created_at', { ascending: true })
+      .limit(LIMIT);
+    if (error) throw error;
+
+    const reactions = (data || [])
+      .filter(row => COMMUNITY_REACTION_TYPES.includes(row.reaction))
+      .map(row => ({
+        agent: communityAuthorProfile(row.agent),
+        reaction: row.reaction,
+        created_at: row.created_at,
+      }));
+    const truncated = typeof count === 'number' && count > LIMIT;
+    if (truncated) {
+      console.warn(`[community] reaction list truncated: db count=${count} cap=${LIMIT} at GET /api/community/posts/${post.id}/reactions`);
+    }
+
+    res.json({ data: { reactions, truncated } });
+  } catch (err) {
+    console.error('[community] reaction list error:', err);
+    res.status(500).json({ error: 'Gagal memuat daftar reaksi' });
+  }
+});
+
 app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
