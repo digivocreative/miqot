@@ -112,6 +112,38 @@ export function useTerasNotifications(enabled: boolean) {
     }).catch(() => {});
   }, [enabled]);
 
+  // Tandai semua terbaca tanpa mengosongkan daftar: hapus sorotan `unread` pada
+  // item yang tampil dan nolkan badge. Membuka panel sudah memajukan watermark
+  // seen, tapi item yang sedang tampil menahan sorotannya sampai refetch — tombol
+  // ini menuntaskannya seketika. POST /seen lagi (idempoten, monotonik) untuk
+  // menutup kemungkinan item baru masuk sejak panel dibuka.
+  const markAllRead = useCallback(() => {
+    setItems(prev => prev.some(it => it.unread) ? prev.map(it => (it.unread ? { ...it, unread: false } : it)) : prev);
+    setUnread(0);
+    void fetch('/api/community/notifications/seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({}),
+    }).catch(() => {});
+  }, []);
+
+  // Bersihkan panel. Baru mengosongkan UI SETELAH server menerima — clear yang
+  // gagal tidak boleh menyapu daftar seakan berhasil. Notifikasi baru tetap masuk.
+  const clearAll = useCallback(async () => {
+    try {
+      const response = await fetch('/api/community/notifications/clear', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const payload = (await response.json()) as Envelope<unknown>;
+      if (!response.ok || payload.success === false) throw new Error(payload.error ?? 'clear failed');
+      setItems([]);
+      setUnread(0);
+    } catch {
+      /* biarkan daftar apa adanya — kegagalan tak boleh menghapus tampilan */
+    }
+  }, []);
+
   return {
     unread,
     open,
@@ -120,5 +152,7 @@ export function useTerasNotifications(enabled: boolean) {
     error,
     openPanel: useCallback(() => { void openPanel(); }, [openPanel]),
     closePanel,
+    markAllRead,
+    clearAll: useCallback(() => { void clearAll(); }, [clearAll]),
   };
 }
