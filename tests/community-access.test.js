@@ -325,7 +325,7 @@ test('Teras Threads presentation uses a single Heart reaction and the new compos
   );
 });
 
-test('Teras thread rail uses a continuous grid instead of an absolute connector', () => {
+test('Teras comment rail follows Threads: flat comments separated, nested grouped', () => {
   const layoutSource = readFileSync(
     new URL('../src/components/DashboardLayout.tsx', import.meta.url),
     'utf8',
@@ -334,18 +334,37 @@ test('Teras thread rail uses a continuous grid instead of an absolute connector'
     new URL('../src/components/TerasPage.tsx', import.meta.url),
     'utf8',
   );
+  const commentThreadSource = readFileSync(
+    new URL('../src/components/teras/CommentThread.tsx', import.meta.url),
+    'utf8',
+  );
 
+  // Sumbu grid avatar (kolom 40px) dipertahankan di kedua file.
   assert.doesNotMatch(pageSource, /ml-\[68px\]/);
   assert.doesNotMatch(pageSource, /left-\[35px\]/);
   assert.match(pageSource, /grid-cols-\[40px_minmax\(0,1fr\)\]/);
-  assert.match(pageSource, /data-thread-rail="post"/);
-  assert.match(pageSource, /data-thread-rail="comment"/);
-  assert.match(pageSource, /data-thread-rail="input"/);
-  assert.match(pageSource, /data-comment-row/);
-  assert.match(pageSource, /data-reply-summary-row/);
+  assert.match(commentThreadSource, /grid-cols-\[40px_minmax\(0,1fr\)\]/);
+
+  // Hanya rail utas penulis yang tersisa di kartu post; rail post->komentar,
+  // empty-state, dan stub input dihilangkan (Threads: komentar datar berdiri
+  // sendiri).
+  assert.match(pageSource, /data-thread-rail="thread"/);
+  assert.doesNotMatch(pageSource, /data-thread-rail="post"/);
+  assert.doesNotMatch(pageSource, /data-thread-rail="empty"/);
+  assert.doesNotMatch(pageSource, /data-thread-rail="input"/);
+
+  // Rail grup balasan bertingkat ada di CommentThread.
+  assert.match(commentThreadSource, /data-thread-rail="comment"/);
+  assert.match(commentThreadSource, /data-comment-row/);
+
+  // Komentar teratas dipisah garis hairline, bukan rail penyambung.
+  assert.match(commentThreadSource, /border-t border-gray-100/);
+
+  // Hook layout media/komposer tak berubah.
   assert.match(pageSource, /data-media-layout="pair"/);
   assert.match(pageSource, /data-media-layout="carousel"/);
   assert.match(pageSource, /data-composer-media-layout/);
+
   assert.match(layoutSource, /data-teras-skeleton-post/);
   assert.doesNotMatch(layoutSource, /ml-\[68px\]/);
 });
