@@ -14,16 +14,16 @@ test('kunci Telegram untuk sebutan memakai nama lama community_mentions', () => 
   assert.equal(TERAS_TELEGRAM_KEYS.mention, 'community_mentions');
 });
 
-test('default: lonceng semua menyala, Telegram hanya sebutan', () => {
+test('default: lonceng dan Telegram semua menyala', () => {
   assert.deepEqual(DEFAULT_TERAS_NOTIFICATION_PREFS, {
     teras_bell_mention: true,
     teras_bell_comment: true,
     teras_bell_reaction: true,
     teras_bell_broadcast: true,
     community_mentions: true,
-    teras_tg_comment: false,
-    teras_tg_reaction: false,
-    teras_tg_broadcast: false,
+    teras_tg_comment: true,
+    teras_tg_reaction: true,
+    teras_tg_broadcast: true,
   });
 });
 
@@ -33,7 +33,7 @@ test('agen tanpa kunci apa pun mendapat perilaku hari ini', () => {
     mentions: true, comments: true, reactions: true, broadcasts: true,
   });
   assert.deepEqual(telegramSourceFlags(prefs), {
-    mentions: true, comments: false, reactions: false, broadcasts: false,
+    mentions: true, comments: true, reactions: true, broadcasts: true,
   });
 });
 

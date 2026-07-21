@@ -14,9 +14,9 @@ const DEFAULT_PREFS: TerasPrefs = {
   teras_bell_reaction: true,
   teras_bell_broadcast: true,
   community_mentions: true,
-  teras_tg_comment: false,
-  teras_tg_reaction: false,
-  teras_tg_broadcast: false,
+  teras_tg_comment: true,
+  teras_tg_reaction: true,
+  teras_tg_broadcast: true,
 };
 
 interface PrefsPayload {
