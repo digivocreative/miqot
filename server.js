@@ -71,6 +71,7 @@ import {
   collectThreadMentions,
   normalizeThreadSegments,
 } from './lib/community-thread-compose.js';
+import { resolveRootPostId } from './lib/community-thread.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -4065,26 +4066,40 @@ function isCommunityMentionSchemaMissing(error) {
 // Record @mentions for a freshly-created post or comment and fire the Telegram
 // nudge. Never throws — mentions are an additive layer, not a post prerequisite.
 //
+// Dua bentuk pemanggil dilayani:
+//   - composer utas (POST /posts): { segments: [{postId, body}, ...], authorAgent, commentId }
+//   - balasan komentar (POST /comments): { body, postId, authorAgent, commentId }
+// Keduanya dinormalisasi ke bentuk `segments` di awal — sisa fungsi ini murni
+// bekerja di atas array segmen, tidak peduli asalnya utas ber-banyak-segmen
+// atau satu balasan tunggal.
+//
 // Returns the Set of agent ids that were actually sent a Telegram push here.
 // Callers that also fan out a broadcast (@semua) for the same post must
 // exclude this set — a personal @nama push is more specific than the
 // broadcast, and the bell already drops the broadcast for the same reason
 // (see dedupeBroadcastsAgainstMentions in lib/community-notifications.js).
-async function recordCommunityMentions({ segments, authorAgent, commentId = null }) {
+async function recordCommunityMentions({
+  segments,
+  body,
+  postId,
+  authorAgent,
+  commentId = null,
+}) {
   const pushedAgentIds = new Set();
+  const effectiveSegments = segments || [{ postId, body }];
   try {
     const members = await loadCommunityMembers();
     if (!members.length) return pushedAgentIds;
     const bySlug = new Map(members.map(m => [String(m.slug).toLowerCase(), m]));
     const mentions = collectThreadMentions(
-      segments,
+      effectiveSegments,
       bySlug.keys(),
       authorAgent.slug,
       COMMUNITY_MENTION_LIMIT,
     );
     if (!mentions.length) return pushedAgentIds;
 
-    const postIds = [...new Set(segments.map(segment => segment.postId))];
+    const postIds = [...new Set(effectiveSegments.map(segment => segment.postId))];
     const rows = mentions
       .map(mention => ({ member: bySlug.get(mention.slug), postId: mention.postId }))
       .filter(entry => entry.member)
@@ -4129,7 +4144,7 @@ async function recordCommunityMentions({ segments, authorAgent, commentId = null
 
     const notified = new Set(fresh.map(row => row.mentioned_agent_id));
     const authorName = authorAgent.name || 'Seseorang';
-    const bodyByPostId = new Map(segments.map(segment => [segment.postId, segment.body]));
+    const bodyByPostId = new Map(effectiveSegments.map(segment => [segment.postId, segment.body]));
     for (const mention of mentions) {
       const member = bySlug.get(mention.slug);
       if (!member || !notified.has(member.id)) continue;
@@ -4261,11 +4276,17 @@ function isCommunityLinkPreviewSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+// is_reply ikut dicek di sini (bukan cuma parent_post_id/root_post_id):
+// migrasi 20260726000000 menambahkannya di BAGIAN A yang sama, tapi
+// parent_post_id/root_post_id sendiri sudah lebih dulu di prod (dari Fitur A
+// composer utas, dideploy terpisah sebelum rekonsiliasi ini) — jadi ada
+// jendela realistis di mana parent_post_id ada tapi is_reply belum, sampai
+// migrasi ini benar-benar dijalankan di prod.
 function isCommunityThreadSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
   if (!['42703', 'PGRST204'].includes(code)) return false;
-  return /parent_post_id|root_post_id/i.test(message)
+  return /parent_post_id|root_post_id|is_reply/i.test(message)
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
@@ -4574,13 +4595,22 @@ function normalizeCommunityCursor(value) {
   return Number.isNaN(Date.parse(createdAt)) ? null : { createdAt, postId };
 }
 
+// root_post_id ikut diambil supaya pemanggil bisa langsung memakai
+// resolveRootPostId(post) (mis. POST /comments). Kalau migrasi utas belum
+// jalan, degradasi ke `columns` saja (baca boleh mundur) — resolveRootPostId
+// lalu jatuh ke post.id, dan jalur tulis balasan tetap 503 lewat
+// isCommunityThreadSchemaMissing di endpoint masing-masing.
 async function loadActiveCommunityPost(postId, columns = 'id') {
-  const { data, error } = await supabase
+  const buildQuery = selectColumns => supabase
     .from('community_posts')
-    .select(columns)
+    .select(selectColumns)
     .eq('id', postId)
     .is('deleted_at', null)
     .maybeSingle();
+  let { data, error } = await buildQuery(`${columns}, root_post_id`);
+  if (isCommunityThreadSchemaMissing(error)) {
+    ({ data, error } = await buildQuery(columns));
+  }
   if (error) throw error;
   return data;
 }
@@ -6201,6 +6231,12 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
   }
 });
 
+// Balasan komentar sekarang hidup sebagai baris `community_posts` biasa,
+// dibedakan dari segmen utas composer (POST /api/community/posts di atas)
+// lewat `is_reply: true` — lihat migrasi 20260726000000 & reconcile-map §3.
+// parent_post_id menunjuk langsung ke kiriman yang dibalas; root_post_id
+// didenormalisasi ke akar utas via resolveRootPostId(post) supaya balasan
+// atas balasan tetap mengelompok ke utas yang sama.
 app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ limit: '8kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -6233,23 +6269,38 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
       }
     }
 
+    const rootPostId = resolveRootPostId(post);
+
     let includeMediaColumn = true;
+    // Kompatibilitas instalasi yang pernah menjalankan draf Teras awal, di
+    // mana `type` NOT NULL tanpa default. Cabang ini meniru pola yang sama
+    // dipakai jalur kiriman (POST /api/community/posts, createCommunityPostRow)
+    // — tanpa cabang ini, setiap balasan di instalasi semacam itu gagal 500
+    // sementara kiriman induk/segmen tetap jalan.
+    let includeObsoleteType = false;
     let createdComment = null;
     let error = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const insertResult = await supabase
-        .from('community_post_comments')
+        .from('community_posts')
         .insert({
           ...(clientId ? { id: clientId } : {}),
-          post_id: post.id,
           agent_id: agent.id,
           body,
+          is_system: false,
+          parent_post_id: post.id,
+          root_post_id: rootPostId,
+          is_reply: true,
           ...(includeMediaColumn ? { media } : {}),
+          ...(includeObsoleteType ? { type: media.length > 0 ? 'foto' : 'tips' } : {}),
         })
         .select(`id, body, ${includeMediaColumn ? 'media, ' : ''}created_at`)
         .single();
       createdComment = insertResult.data;
       error = insertResult.error;
+      if (isCommunityThreadSchemaMissing(error)) {
+        return res.status(503).json({ error: 'Migrasi thread Teras belum diterapkan' });
+      }
       if (includeMediaColumn && isCommunityMediaSchemaMissing(error)) {
         if (media.length > 0) {
           return res.status(503).json({ error: 'Migrasi media komentar Teras belum diterapkan' });
@@ -6257,14 +6308,22 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
         includeMediaColumn = false;
         continue;
       }
+      if (
+        !includeObsoleteType
+        && error?.code === '23502'
+        && /column "type"/i.test(error.message || '')
+      ) {
+        includeObsoleteType = true;
+        continue;
+      }
       break;
     }
     if (error?.code === '23505' && clientId) {
       const loadExistingComment = includeMedia => supabase
-        .from('community_post_comments')
+        .from('community_posts')
         .select(`id, body, ${includeMedia ? 'media, ' : ''}created_at`)
         .eq('id', clientId)
-        .eq('post_id', post.id)
+        .eq('parent_post_id', post.id)
         .eq('agent_id', agent.id)
         .is('deleted_at', null)
         .maybeSingle();
@@ -6283,7 +6342,8 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
     if (error) throw error;
 
     await recordCommunityMentions({
-      segments: [{ postId: post.id, body: createdComment.body }],
+      body: createdComment.body,
+      postId: post.id,
       authorAgent: agent,
       commentId: createdComment.id,
     });
@@ -6294,7 +6354,15 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
       media: normalizeStoredCommunityMedia(createdComment.media),
       created_at: createdComment.created_at,
       author: communityAuthorProfile(agent),
+      // Komentar baru belum punya reaksi/balasan apa pun — sama seperti POST
+      // /api/community/posts, nilai nol/kosong dikirim langsung tanpa query
+      // tambahan, dalam bentuk yang sama dengan GET .../comments.
+      reactions: { suka: 0, selamat: 0, aamiin: 0 },
+      my_reaction: null,
+      reaction_sample_name: null,
       is_own: true,
+      reply_count: 0,
+      preview_replies: [],
     };
     res.status(201).json({ success: true, data });
   } catch (err) {
@@ -6382,22 +6450,34 @@ app.delete('/api/community/comments/:id', authMiddleware, async (req, res) => {
     if (!isCommunityUuid(req.params.id)) {
       return res.status(404).json({ error: 'Komentar tidak ditemukan' });
     }
+    // Balasan hidup di community_posts sekarang; endpoint ini adalah alias
+    // yang hanya boleh menghapus baris BALASAN (parent_post_id terisi DAN
+    // is_reply=true) — bukan kiriman induk (parent_post_id NULL, itu tugas
+    // DELETE /posts/:id) dan bukan segmen utas composer (parent_post_id
+    // terisi tapi is_reply=false, ikut cascade lewat DELETE /posts/:id juga).
     const { data: comment, error: findError } = await supabase
-      .from('community_post_comments')
-      .select('id, agent_id, deleted_at')
+      .from('community_posts')
+      .select('id, agent_id, deleted_at, parent_post_id, is_reply')
       .eq('id', req.params.id)
       .maybeSingle();
+    if (isCommunityThreadSchemaMissing(findError)) {
+      return res.status(503).json({ error: 'Migrasi thread Teras belum diterapkan' });
+    }
     if (findError) throw findError;
-    if (!comment) return res.status(404).json({ error: 'Komentar tidak ditemukan' });
+    if (!comment || !comment.parent_post_id || !comment.is_reply) {
+      return res.status(404).json({ error: 'Komentar tidak ditemukan' });
+    }
     if (!canModerateCommunityContent(agent, comment)) {
       return res.status(403).json({ error: 'Anda tidak boleh menghapus komentar ini' });
     }
     if (comment.deleted_at) return res.json({ success: true });
 
     const { error: updateError } = await supabase
-      .from('community_post_comments')
-      .update({ deleted_at: new Date().toISOString() })
+      .from('community_posts')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: agent.id })
       .eq('id', comment.id)
+      .eq('is_reply', true)
+      .not('parent_post_id', 'is', null)
       .is('deleted_at', null);
     if (updateError) throw updateError;
 
