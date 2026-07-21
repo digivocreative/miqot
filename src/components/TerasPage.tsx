@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,6 +10,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -62,6 +64,20 @@ import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-bro
 
 export type ReactionType = 'suka' | 'selamat' | 'aamiin';
 type CommunityMediaType = 'image' | 'video';
+
+// Satu baris pemberi reaksi di popover "tap lama" tombol Suka.
+interface TerasReactor {
+  slug: string | null;
+  name: string;
+  photo: string | null;
+  reaction: ReactionType;
+}
+
+interface ReactorPanelState {
+  status: 'loading' | 'loaded' | 'error';
+  list: TerasReactor[];
+  error?: string;
+}
 
 interface TerasAgent {
   slug: string;
@@ -476,6 +492,91 @@ function normalizeCommentMedia(comment: CommunityComment): CommunityMedia[] {
     )).slice(0, MAX_COMMUNITY_MEDIA)
     : [];
 }
+
+/**
+ * Popover "siapa yang memberi reaksi" — muncul di atas tombol Suka saat tap
+ * lama (sentuh) atau klik angka jumlah (desktop). Menampilkan daftar agent
+ * pemberi reaksi apa pun jenisnya (enum DB masih memuat selamat/aamiin).
+ */
+const ReactorPopover = forwardRef<HTMLDivElement, {
+  state: ReactorPanelState | undefined;
+  reduceMotion: boolean;
+  onRetry: () => void;
+  onClose: () => void;
+}>(({ state, reduceMotion, onRetry, onClose }, ref) => {
+  const status = state?.status ?? 'loading';
+  const list = state?.list ?? [];
+  const showSkeleton = status === 'loading' && list.length === 0;
+
+  return (
+    <motion.div
+      ref={ref}
+      role="dialog"
+      aria-label="Daftar reaksi"
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      transition={{ duration: 0.14, ease: 'easeOut' }}
+      className="absolute bottom-full left-0 z-30 mb-2 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl shadow-black/10 dark:border-white/10 dark:bg-slate-900 dark:shadow-black/40"
+    >
+      <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2 dark:border-white/10">
+        <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-gray-700 dark:text-slate-200">
+          <Heart size={14} className="text-rose-500 dark:text-rose-400" fill="currentColor" />
+          Reaksi
+        </span>
+        <button
+          type="button"
+          aria-label="Tutup"
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="max-h-64 overflow-y-auto overscroll-contain py-1">
+        {showSkeleton && (
+          <div className="flex items-center justify-center gap-2 px-3 py-6 text-[12.5px] text-gray-400 dark:text-slate-500">
+            <Loader2 size={15} className="animate-spin" />
+            Memuat…
+          </div>
+        )}
+
+        {status === 'error' && list.length === 0 && (
+          <div className="px-3 py-4 text-center">
+            <p className="text-[12.5px] text-gray-500 dark:text-slate-400">{state?.error || 'Gagal memuat daftar reaksi'}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 rounded-full px-3 py-1 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+            >
+              Coba lagi
+            </button>
+          </div>
+        )}
+
+        {!showSkeleton && status !== 'error' && list.length === 0 && (
+          <div className="px-3 py-6 text-center text-[12.5px] text-gray-400 dark:text-slate-500">
+            Belum ada reaksi.
+          </div>
+        )}
+
+        {list.map((reactor, index) => (
+          <div
+            key={`${reactor.slug ?? 'agent'}-${index}`}
+            className="flex items-center gap-2.5 px-3 py-1.5"
+          >
+            <AgentAvatar name={reactor.name} photo={reactor.photo} size="comment" />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-gray-800 dark:text-slate-200">
+              {reactor.name}
+            </span>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+});
+ReactorPopover.displayName = 'ReactorPopover';
 
 /**
  * Turunkan lookup reaksi (dipakai CommentThread) dari komentar top-level DAN
@@ -1365,6 +1466,10 @@ export default function TerasPage({
   const [detailFetchTick, setDetailFetchTick] = useState(0);
   const [likePopId, setLikePopId] = useState<string | null>(null);
   const [hasNewPosts, setHasNewPosts] = useState(false);
+  // Popover "siapa yang bereaksi": id kiriman yang popovernya terbuka + cache
+  // hasil per kiriman (ditampilkan instan saat dibuka ulang, direvalidasi diam).
+  const [reactorPopoverPostId, setReactorPopoverPostId] = useState<string | null>(null);
+  const [reactorsByPost, setReactorsByPost] = useState<Record<string, ReactorPanelState>>({});
 
   const pageRootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1404,6 +1509,15 @@ export default function TerasPage({
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentReactionPendingRef = useRef<Set<string>>(new Set());
+  // Infra tap-lama tombol Suka: timer long-press, penanda supaya klik ekor
+  // setelah long-press TIDAK memicu like/unlike, titik awal pointer untuk
+  // membatalkan bila jari bergeser, controller fetch per kiriman, dan node
+  // popover untuk deteksi klik-luar.
+  const longPressTimerRef = useRef<number | null>(null);
+  const suppressLikeClickRef = useRef(false);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const reactorControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const reactorPopoverRef = useRef<HTMLDivElement>(null);
   const commentSendingRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
   // Cermin sinkron dari composerSegments. Dipakai di jalur async (unggah,
@@ -1961,6 +2075,39 @@ export default function TerasPage({
       document.removeEventListener('keydown', handleEscape);
     };
   }, [closePostMenu, menuOpenPostId]);
+
+  // Tutup popover reaktor saat klik di luar atau tekan Escape.
+  useEffect(() => {
+    if (!reactorPopoverPostId) return;
+
+    const handleOutsidePointer = (event: globalThis.PointerEvent) => {
+      const target = event.target as Node;
+      if (reactorPopoverRef.current && !reactorPopoverRef.current.contains(target)) {
+        closeReactorPopover();
+      }
+    };
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') closeReactorPopover();
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePointer);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointer);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [reactorPopoverPostId]);
+
+  // Bersihkan timer long-press dan batalkan fetch reaktor yang menggantung saat
+  // komponen dilepas.
+  useEffect(() => {
+    const timerRef = longPressTimerRef;
+    const controllersRef = reactorControllersRef;
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      controllersRef.current.forEach(controller => controller.abort());
+    };
+  }, []);
 
   const resetComposer = useCallback(() => {
     revokeSegmentPreviews(composerSegmentsRef.current);
@@ -2611,9 +2758,89 @@ export default function TerasPage({
   };
 
   const handleLikeClick = (post: CommunityPost) => {
+    // Klik ekor sesaat setelah long-press: jangan toggle like — long-press tadi
+    // sudah membuka popover reaktor.
+    if (suppressLikeClickRef.current) {
+      suppressLikeClickRef.current = false;
+      return;
+    }
     const nextReaction: 'suka' | null = post.my_reaction ? null : 'suka';
     setLikePopId(current => nextReaction ? post.id : (current === post.id ? null : current));
     void updateReaction(post.id, nextReaction);
+  };
+
+  const loadReactors = async (postId: string) => {
+    reactorControllersRef.current.get(postId)?.abort();
+    const controller = new AbortController();
+    reactorControllersRef.current.set(postId, controller);
+    // Pertahankan daftar lama (kalau ada) supaya popover tak berkedip kosong
+    // saat revalidasi; hanya status yang jadi 'loading'.
+    setReactorsByPost(current => ({
+      ...current,
+      [postId]: { status: 'loading', list: current[postId]?.list ?? [], error: undefined },
+    }));
+    try {
+      const payload = await requestJson<TerasReactor[]>(
+        `/api/community/posts/${encodeURIComponent(postId)}/reactions`,
+        { headers: getAuthHeaders(), signal: controller.signal },
+        'Gagal memuat daftar reaksi',
+      );
+      const list = Array.isArray(payload.data) ? payload.data : [];
+      setReactorsByPost(current => ({
+        ...current,
+        [postId]: { status: 'loaded', list, error: undefined },
+      }));
+    } catch (reactorError) {
+      if (reactorError instanceof Error && reactorError.name === 'AbortError') return;
+      setReactorsByPost(current => ({
+        ...current,
+        [postId]: {
+          status: 'error',
+          list: current[postId]?.list ?? [],
+          error: errorMessage(reactorError, 'Gagal memuat daftar reaksi'),
+        },
+      }));
+    }
+  };
+
+  const openReactorPopover = (postId: string) => {
+    setReactorPopoverPostId(postId);
+    void loadReactors(postId);
+  };
+
+  const closeReactorPopover = () => setReactorPopoverPostId(null);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  };
+
+  // Tap-lama (sentuh/mouse): mulai timer ~480ms; geser jari >10px atau lepas
+  // sebelum waktunya membatalkan. Bila timer sampai, buka popover reaktor.
+  const handleLikePointerDown = (event: ReactPointerEvent, post: CommunityPost) => {
+    const total = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
+    if (total <= 0) return;
+    suppressLikeClickRef.current = false;
+    longPressOriginRef.current = { x: event.clientX, y: event.clientY };
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      // Long-press pada tombol: klik ekor akan menyusul, jadi tandai supaya
+      // handleLikeClick menelannya alih-alih toggle like.
+      suppressLikeClickRef.current = true;
+      openReactorPopover(post.id);
+    }, 480);
+  };
+
+  const handleLikePointerMove = (event: ReactPointerEvent) => {
+    const origin = longPressOriginRef.current;
+    if (!origin || longPressTimerRef.current === null) return;
+    const dx = event.clientX - origin.x;
+    const dy = event.clientY - origin.y;
+    if (dx * dx + dy * dy > 100) clearLongPressTimer();
   };
 
   const loadComments = async (postId: string) => {
@@ -4574,6 +4801,16 @@ export default function TerasPage({
                         onClick={() => {
                           if (!reactionIsBusy) handleLikeClick(post);
                         }}
+                        onPointerDown={event => handleLikePointerDown(event, post)}
+                        onPointerMove={handleLikePointerMove}
+                        onPointerUp={clearLongPressTimer}
+                        onPointerLeave={clearLongPressTimer}
+                        onPointerCancel={clearLongPressTimer}
+                        onContextMenu={event => {
+                          // Tekan-lama di sebagian browser memunculkan menu konteks;
+                          // cegah supaya popover reaktor yang tampil, bukan menu itu.
+                          if (totalReactions > 0) event.preventDefault();
+                        }}
                         whileTap={reduceMotion ? undefined : { scale: 0.86 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
                         className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
@@ -4606,7 +4843,23 @@ export default function TerasPage({
                           {totalReactions > 0 && (
                             <motion.span
                               key={totalReactions}
-                              className="tabular-nums"
+                              role="button"
+                              tabIndex={0}
+                              aria-label="Lihat siapa yang memberi reaksi"
+                              className="tabular-nums rounded px-0.5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50"
+                              onClick={event => {
+                                // Desktop: klik angka buka daftar reaktor; jangan
+                                // biarkan bubbling memicu like pada tombol induk.
+                                event.stopPropagation();
+                                openReactorPopover(post.id);
+                              }}
+                              onKeyDown={event => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  openReactorPopover(post.id);
+                                }
+                              }}
                               initial={reduceMotion ? false : { y: 9, opacity: 0 }}
                               animate={{ y: 0, opacity: 1 }}
                               exit={reduceMotion ? { opacity: 0 } : { y: -9, opacity: 0 }}
@@ -4617,6 +4870,16 @@ export default function TerasPage({
                           )}
                         </AnimatePresence>
                       </motion.button>
+
+                      {reactorPopoverPostId === post.id && (
+                        <ReactorPopover
+                          ref={reactorPopoverRef}
+                          state={reactorsByPost[post.id]}
+                          reduceMotion={!!reduceMotion}
+                          onRetry={() => void loadReactors(post.id)}
+                          onClose={closeReactorPopover}
+                        />
+                      )}
 
                       <motion.button
                         type="button"

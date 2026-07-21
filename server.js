@@ -6549,6 +6549,40 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
   }
 });
 
+// Daftar agent pemberi reaksi untuk satu kiriman — dipakai popover "tap lama"
+// pada tombol Suka. Sengaja type-agnostic: enum DB masih memuat selamat/aamiin,
+// jadi kita menampilkan SEMUA reaktor apa pun jenisnya, bukan hanya 'suka'.
+app.get('/api/community/posts/:id/reactions', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+
+    const { data, error } = await supabase
+      .from('community_post_reactions')
+      .select('agent_id, reaction, created_at, agent:agents(name, slug, photo)')
+      .eq('post_id', req.params.id)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (error) throw error;
+
+    const reactors = (data || [])
+      .map(row => {
+        const profile = communityAuthorProfile(row.agent);
+        return { slug: profile.slug, name: profile.name, photo: profile.photo, reaction: row.reaction };
+      })
+      .filter(r => r.name);
+
+    res.json({ success: true, data: reactors });
+  } catch (err) {
+    console.error('[community] reactions list error:', err);
+    res.status(500).json({ error: 'Gagal memuat daftar reaksi' });
+  }
+});
+
 app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
