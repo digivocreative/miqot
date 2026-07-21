@@ -71,7 +71,7 @@ import {
   collectThreadMentions,
   normalizeThreadSegments,
 } from './lib/community-thread-compose.js';
-import { resolveRootPostId } from './lib/community-thread.js';
+import { resolveRootPostId, groupRepliesWithPreview } from './lib/community-thread.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -4357,8 +4357,17 @@ function normalizeStoredCommunityMedia(value, photoUrl = null) {
  * `includeQuoteCounts` dimatikan kalau kolom `quoted_post_id` belum ada di
  * skema (lihat isCommunityQuoteSchemaMissing di pemanggil) — memaksa query
  * ini jalan pada skema lama hanya akan gagal dengan alasan yang sama.
+ *
+ * Jumlah komentar dihitung dari community_posts (bukan lagi
+ * community_post_comments) dengan is_reply=true — HANYA balasan, bukan
+ * segmen lanjutan utas (yang juga memakai parent_post_id, tapi is_reply
+ * false). Limit di query TIDAK bisa dijamin berlaku apa adanya (plafon
+ * max_rows PostgREST sisi server bisa memperkecilnya tanpa pemberitahuan),
+ * jadi truncation dideteksi lewat count(exact) vs panjang data diterima,
+ * bukan lewat ambang limit() yang ditebak — sama seperti GET .../comments.
+ * `context` hanya dipakai untuk melabeli console.warn saat terpotong.
  */
-async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true } = {}) {
+async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true, context = 'loadCommunityEngagementMaps' } = {}) {
   const reactionCounts = new Map(postIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
   const myReactions = new Map(postIds.map(id => [id, null]));
   const reactionSampleNames = new Map(postIds.map(id => [id, null]));
@@ -4368,16 +4377,20 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
     return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts };
   }
 
+  const COMMENT_COUNT_LIMIT = 2000;
   const [reactionResult, commentResult, quoteResult] = await Promise.all([
     supabase
       .from('community_post_reactions')
       .select('post_id, reaction, agent_id, agent:agents(name)')
       .in('post_id', postIds),
     supabase
-      .from('community_post_comments')
-      .select('post_id')
-      .in('post_id', postIds)
-      .is('deleted_at', null),
+      .from('community_posts')
+      .select('parent_post_id', { count: 'exact' })
+      .in('parent_post_id', postIds)
+      .eq('is_reply', true)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(COMMENT_COUNT_LIMIT),
     includeQuoteCounts
       ? supabase
         .from('community_posts')
@@ -4387,7 +4400,9 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (reactionResult.error) throw reactionResult.error;
-  if (commentResult.error) throw commentResult.error;
+  // Pra-migrasi (is_reply/parent_post_id belum ada): 0 komentar untuk semua,
+  // bukan 500 — sama dengan degradasi lain di sekitar isCommunityThreadSchemaMissing.
+  if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) throw commentResult.error;
   if (quoteResult.error) throw quoteResult.error;
 
   for (const row of reactionResult.data || []) {
@@ -4401,9 +4416,13 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
       if (sampleName) reactionSampleNames.set(row.post_id, sampleName);
     }
   }
-  for (const row of commentResult.data || []) {
-    if (!commentCounts.has(row.post_id)) continue;
-    commentCounts.set(row.post_id, commentCounts.get(row.post_id) + 1);
+  const commentRows = commentResult.error ? [] : (commentResult.data || []);
+  for (const row of commentRows) {
+    if (!commentCounts.has(row.parent_post_id)) continue;
+    commentCounts.set(row.parent_post_id, commentCounts.get(row.parent_post_id) + 1);
+  }
+  if (!commentResult.error && typeof commentResult.count === 'number' && commentResult.count > commentRows.length) {
+    console.warn(`[community] comment count truncated: db count=${commentResult.count} received=${commentRows.length} at ${context} for posts: ${postIds.join(',')}`);
   }
   for (const row of quoteResult.data || []) {
     if (quoteCounts.has(row.quoted_post_id)) {
@@ -5384,7 +5403,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       reactionSampleNames,
       commentCounts,
       quoteCounts,
-    } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote });
+    } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/feed' });
 
     const quotedIds = includeQuote
       ? [...new Set((posts || []).map(post => post.quoted_post_id).filter(Boolean))]
@@ -5522,14 +5541,23 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         .from('community_post_reactions')
         .select('post_id, reaction, agent_id, agent:agents(name)')
         .eq('post_id', post.id),
+      // Balasan hidup di community_posts dengan is_reply=true (bukan lagi
+      // community_post_comments) — head-count: satu kiriman per request, jadi
+      // count-exact/head aman dan sekaligus lolos dari batas max_rows
+      // PostgREST (beda dengan feed/thread, lihat loadCommunityEngagementMaps).
+      // is_reply=true wajib supaya segmen lanjutan utas (parent_post_id juga
+      // terisi, is_reply=false) tidak ikut terhitung sebagai komentar.
       supabase
-        .from('community_post_comments')
-        .select('post_id')
-        .eq('post_id', post.id)
+        .from('community_posts')
+        .select('id', { count: 'exact', head: true })
+        .eq('parent_post_id', post.id)
+        .eq('is_reply', true)
         .is('deleted_at', null),
     ]);
     if (reactionResult.error) throw reactionResult.error;
-    if (commentResult.error) throw commentResult.error;
+    // Pra-migrasi (is_reply/parent_post_id belum ada): degradasi ke 0, bukan
+    // 500 — lihat pemakaian commentResult.count di payload di bawah.
+    if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) throw commentResult.error;
 
     const reactions = { suka: 0, selamat: 0, aamiin: 0 };
     let myReaction = null;
@@ -5600,7 +5628,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
           reactionSampleNames: threadReactionSampleNames,
           commentCounts: threadCommentCounts,
           quoteCounts: threadQuoteCounts,
-        } = await loadCommunityEngagementMaps(threadIds, req.user.id, { includeQuoteCounts: includeQuote });
+        } = await loadCommunityEngagementMaps(threadIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/posts/:id thread' });
         thread = threadRows.map(row => {
           const rowMedia = normalizeStoredCommunityMedia(row.media, row.photo_url);
           return {
@@ -5637,7 +5665,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         reactions,
         my_reaction: myReaction,
         reaction_sample_name: reactionSampleName,
-        comment_count: (commentResult.data || []).length,
+        comment_count: commentResult.error ? 0 : (commentResult.count || 0),
         quote_count: quoteCount,
         quoted_post: post.quoted_post_id ? quotedPost : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
@@ -6203,27 +6231,160 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
     const post = await loadActiveCommunityPost(req.params.id);
     if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
 
+    // Balasan hidup sebagai baris community_posts dengan is_reply=true (lihat
+    // POST di bawah) — bukan lagi community_post_comments. Menyaring HANYA
+    // parent_post_id akan ikut menarik segmen lanjutan utas (Fitur A composer
+    // juga memakai parent_post_id, dengan is_reply=false); is_reply=true
+    // membedakan keduanya.
     const loadCommentRows = includeMedia => supabase
-      .from('community_post_comments')
-      .select(`id, agent_id, body, ${includeMedia ? 'media, ' : ''}created_at, agent:agents(name, slug, photo)`)
-      .eq('post_id', post.id)
+      .from('community_posts')
+      .select(`id, agent_id, body, ${includeMedia ? 'media, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+      .eq('parent_post_id', post.id)
+      .eq('is_reply', true)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
       .limit(100);
-    let { data: comments, error } = await loadCommentRows(true);
+    let includeMedia = true;
+    let { data: comments, error } = await loadCommentRows(includeMedia);
     if (isCommunityMediaSchemaMissing(error)) {
-      ({ data: comments, error } = await loadCommentRows(false));
+      includeMedia = false;
+      ({ data: comments, error } = await loadCommentRows(includeMedia));
+    }
+    // Pra-migrasi (is_reply/parent_post_id belum ada): daftar kosong, bukan
+    // 500 — sama dengan degradasi POST /comments di bawah.
+    if (isCommunityThreadSchemaMissing(error)) {
+      comments = [];
+      error = null;
     }
     if (error) throw error;
 
-    const data = (comments || []).map(comment => ({
-      id: comment.id,
-      body: comment.body,
-      media: normalizeStoredCommunityMedia(comment.media),
-      created_at: comment.created_at,
-      author: communityAuthorProfile(comment.agent),
-      is_own: comment.agent_id === agent.id,
-    }));
+    const childIds = (comments || []).map(row => row.id);
+    let grandchildren = [];
+    const replyCounts = new Map(childIds.map(id => [id, 0]));
+    if (childIds.length > 0) {
+      // Query RINGAN khusus menghitung: hanya parent_post_id, tanpa body/media/
+      // relasi agen. Limit di sini TIDAK bisa dijamin berlaku apa adanya —
+      // PostgREST punya plafon max_rows sisi server (default 1000 di Supabase)
+      // yang memperkecil limit manapun yang lebih besar tanpa pemberitahuan.
+      // Karena itu truncation dideteksi lewat count (jumlah asli di DB) vs
+      // panjang data yang benar-benar diterima, bukan lewat ambang yang ditebak.
+      // order() ditambahkan supaya baris mana yang tersisa saat terpotong
+      // deterministik, bukan acak.
+      const REPLY_COUNT_LIMIT = 2000;
+      const { data: countRows, error: countError, count: replyCountTotal } = await supabase
+        .from('community_posts')
+        .select('parent_post_id', { count: 'exact' })
+        .in('parent_post_id', childIds)
+        .eq('is_reply', true)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true })
+        .limit(REPLY_COUNT_LIMIT);
+      if (countError && !isCommunityThreadSchemaMissing(countError)) throw countError;
+      for (const row of (countError ? [] : (countRows || []))) {
+        if (replyCounts.has(row.parent_post_id)) {
+          replyCounts.set(row.parent_post_id, replyCounts.get(row.parent_post_id) + 1);
+        }
+      }
+      if (!countError && typeof replyCountTotal === 'number' && replyCountTotal > (countRows || []).length) {
+        console.warn(`[community] reply count truncated: db count=${replyCountTotal} received=${(countRows || []).length} at GET /api/community/posts/${post.id}/comments`);
+      }
+
+      // Query cuplikan: urutkan created_at DESCENDING supaya jatah baris
+      // (limit) terpakai untuk balasan TERBARU — yang memang ditampilkan —
+      // lalu groupRepliesWithPreview mengurutkan ulang lama->baru per induk.
+      const REPLY_PREVIEW_LIMIT = 500;
+      const loadGrandchildren = withMedia => supabase
+        .from('community_posts')
+        .select(`id, agent_id, body, ${withMedia ? 'media, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .in('parent_post_id', childIds)
+        .eq('is_reply', true)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(REPLY_PREVIEW_LIMIT);
+      let { data: rows, error: grandchildError } = await loadGrandchildren(includeMedia);
+      if (includeMedia && isCommunityMediaSchemaMissing(grandchildError)) {
+        ({ data: rows, error: grandchildError } = await loadGrandchildren(false));
+      }
+      if (isCommunityThreadSchemaMissing(grandchildError)) {
+        rows = [];
+        grandchildError = null;
+      }
+      if (grandchildError) throw grandchildError;
+      grandchildren = rows || [];
+      if (grandchildren.length >= REPLY_PREVIEW_LIMIT) {
+        console.warn(`[community] reply preview limit (${REPLY_PREVIEW_LIMIT}) hit at GET /api/community/posts/${post.id}/comments`);
+      }
+    }
+
+    const replyGroups = groupRepliesWithPreview(comments || [], grandchildren, { previewLimit: 2 });
+
+    // Komentar adalah kiriman juga, jadi klien butuh reactions/my_reaction/
+    // reaction_sample_name dalam bentuk yang SAMA PERSIS dengan feed & detail
+    // kiriman (lihat GET /api/community/feed dan GET /api/community/posts/:id)
+    // supaya komponen & tipe di klien bisa dipakai ulang. Diambil untuk semua
+    // komentar tingkat teratas DAN semua cuplikan balasan yang akan dikirim
+    // (bukan seluruh grandchildren -- hanya yang lolos previewLimit di atas),
+    // dalam SATU query .in(), bukan satu query per komentar.
+    const previewReplyIds = [];
+    for (const group of replyGroups.values()) {
+      for (const reply of group.preview_replies) previewReplyIds.push(reply.id);
+    }
+    const reactionTargetIds = [...new Set([...childIds, ...previewReplyIds])];
+
+    const commentReactionCounts = new Map(reactionTargetIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
+    const commentMyReactions = new Map(reactionTargetIds.map(id => [id, null]));
+    const commentReactionSampleNames = new Map(reactionTargetIds.map(id => [id, null]));
+
+    if (reactionTargetIds.length > 0) {
+      // Batas eksplisit + urutan deterministik + deteksi pemotongan lewat
+      // count-exact vs panjang data diterima -- disiplin yang sama dipakai di
+      // atas untuk reply count/preview, karena limit() saja tidak bisa
+      // dipercaya (PostgREST memperkecil limit lewat max_rows sisi server
+      // tanpa pemberitahuan, sehingga ambang limit() tidak pernah tercapai).
+      const COMMENT_REACTION_LIMIT = 5000;
+      const { data: reactionRows, error: reactionError, count: reactionCountTotal } = await supabase
+        .from('community_post_reactions')
+        .select('post_id, reaction, agent_id, agent:agents(name)', { count: 'exact' })
+        .in('post_id', reactionTargetIds)
+        .order('created_at', { ascending: true })
+        .limit(COMMENT_REACTION_LIMIT);
+      if (reactionError) throw reactionError;
+      for (const row of reactionRows || []) {
+        const counts = commentReactionCounts.get(row.post_id);
+        if (!counts || !COMMUNITY_REACTION_TYPES.includes(row.reaction)) continue;
+        counts[row.reaction] += 1;
+        if (row.agent_id === req.user.id) {
+          commentMyReactions.set(row.post_id, row.reaction);
+        } else if (!commentReactionSampleNames.get(row.post_id)) {
+          const sampleName = communityAuthorProfile(row.agent).name;
+          if (sampleName) commentReactionSampleNames.set(row.post_id, sampleName);
+        }
+      }
+      if (typeof reactionCountTotal === 'number' && reactionCountTotal > (reactionRows || []).length) {
+        console.warn(`[community] comment reaction count truncated: db count=${reactionCountTotal} received=${(reactionRows || []).length} at GET /api/community/posts/${post.id}/comments`);
+      }
+    }
+
+    const toCommentPayload = row => ({
+      id: row.id,
+      body: row.body,
+      media: normalizeStoredCommunityMedia(row.media),
+      created_at: row.created_at,
+      author: communityAuthorProfile(row.agent),
+      reactions: commentReactionCounts.get(row.id) || { suka: 0, selamat: 0, aamiin: 0 },
+      my_reaction: commentMyReactions.get(row.id) ?? null,
+      reaction_sample_name: commentReactionSampleNames.get(row.id) ?? null,
+      is_own: row.agent_id === agent.id,
+    });
+
+    const data = (comments || []).map(comment => {
+      const group = replyGroups.get(comment.id) || { reply_count: 0, preview_replies: [] };
+      return {
+        ...toCommentPayload(comment),
+        reply_count: replyCounts.get(comment.id) || 0,
+        preview_replies: group.preview_replies.map(toCommentPayload),
+      };
+    });
     res.json({ success: true, data });
   } catch (err) {
     console.error('[community] load comments error:', err);
