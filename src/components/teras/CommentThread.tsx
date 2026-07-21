@@ -94,6 +94,7 @@ export default function CommentThread({
               // Klik baris membuka halaman thread — HANYA komentar tingkat teratas.
               onOpenThreadRow={() => onOpenThread(comment.id)}
               isTopLevel
+              railBelow={previewReplies.length > 0}
               hideQuote={hideQuote}
               actions={{
                 myReaction: myReactions[comment.id] ?? null,
@@ -103,38 +104,33 @@ export default function CommentThread({
                 onQuote: () => onQuote(comment.id),
               }}
             />
-            {/* Balasan bertingkat ala Threads: rail vertikal (border-l) sejajar
-                tepat di bawah avatar induk (ml-5 ≈ pusat avatar 40px), avatar
-                anak sejajar di kanan rail. data-thread-rail="comment" hanya ada
-                saat ADA balasan — komentar datar tetap tanpa rail. Balasan
-                tingkat dua sengaja tak dapat klik-buka-thread. */}
-            {previewReplies.length > 0 && (
-              <div
-                data-thread-rail="comment"
-                className="ml-5 mt-2 space-y-2 border-l border-gray-200 pl-3 dark:border-slate-700"
-              >
-                {previewReplies.map(reply => (
-                  <CommentRow
-                    key={reply.id}
-                    comment={reply}
-                    agent={agent}
-                    deletingCommentId={deletingCommentId}
-                    onDelete={onDelete}
-                    onOpenProfile={onOpenProfile}
-                    renderBody={renderBody}
-                    renderMedia={renderMedia}
-                    formatTime={formatTime}
-                    reduceMotion={!!reduceMotion}
-                    isTopLevel={false}
-                  />
-                ))}
-              </div>
-            )}
+            {/* Balasan bertingkat ala Threads: baris SEJAJAR (avatar 40px di
+                kolom yang sama dengan induk), disambung rail vertikal di kolom
+                avatar (railBelow menyambung ke baris berikutnya dalam thread).
+                data-thread-rail="comment" hanya muncul saat ADA balasan —
+                komentar datar tetap tanpa rail. Balasan tingkat dua sengaja tak
+                dapat klik-buka-thread. */}
+            {previewReplies.map((reply, index) => (
+              <CommentRow
+                key={reply.id}
+                comment={reply}
+                agent={agent}
+                deletingCommentId={deletingCommentId}
+                onDelete={onDelete}
+                onOpenProfile={onOpenProfile}
+                renderBody={renderBody}
+                renderMedia={renderMedia}
+                formatTime={formatTime}
+                reduceMotion={!!reduceMotion}
+                isTopLevel={false}
+                railBelow={index < previewReplies.length - 1}
+              />
+            ))}
             {remaining > 0 && (
               <button
                 type="button"
                 onClick={() => onOpenThread(comment.id)}
-                className="ml-8 mt-1 min-h-11 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
+                className="ml-[52px] mt-1 min-h-11 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
               >
                 Lihat {remaining} balasan lainnya
               </button>
@@ -159,6 +155,7 @@ function CommentRow({
   actions,
   onOpenThreadRow,
   isTopLevel,
+  railBelow,
   hideQuote,
 }: {
   comment: CommunityComment;
@@ -178,8 +175,10 @@ function CommentRow({
    * teratas — lihat pemanggilan CommentRow di CommentThread di atas.
    */
   onOpenThreadRow?: () => void;
-  /** True untuk komentar tingkat teratas: avatar 40px + pemisah hairline. Balasan nested: avatar 28px, tanpa pemisah. */
+  /** True untuk komentar tingkat teratas (pemisah hairline). Balasan nested tanpa pemisah, disambung rail. */
   isTopLevel: boolean;
+  /** Render rail vertikal di kolom avatar yang menyambung ke baris berikutnya dalam thread (induk→balasan, balasan→balasan). */
+  railBelow: boolean;
   /** Sembunyikan tombol Kutip (mode profil publik — komposer tidak bisa dibuka dari sana). */
   hideQuote?: boolean;
 }) {
@@ -227,13 +226,11 @@ function CommentRow({
       aria-label={onOpenThreadRow ? `Buka balasan ${commentAuthorName}` : undefined}
       onClick={onOpenThreadRow ? handleRowClick : undefined}
       onKeyDown={onOpenThreadRow ? handleRowKeyDown : undefined}
-      className={`grid ${
-        // Top-level: avatar 40px + pemisah hairline full-bleed (-mx-4 px-4).
-        // Balasan nested: avatar 28px lebih ringkas; jarak & rail diatur
-        // container induk (border-l), jadi baris ini tak perlu margin/rail.
-        isTopLevel
-          ? '-mx-4 grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 px-4 pt-3 dark:border-slate-800'
-          : 'grid-cols-[28px_minmax(0,1fr)] gap-x-2'
+      className={`grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 ${
+        // Top-level: pemisah hairline full-bleed antar komentar. Balasan nested:
+        // hanya jarak atas — avatar 40px sejajar dgn induk, disambung rail di
+        // kolom avatar (railBelow), bukan pemisah.
+        isTopLevel ? '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800' : 'mt-2'
       } ${
         onOpenThreadRow ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}
@@ -250,10 +247,13 @@ function CommentRow({
             }}
             aria-label={`Lihat profil ${commentAuthorName}`}
           >
-            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size={isTopLevel ? 'post' : 'comment'} />
+            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
           </a>
         ) : (
-          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size={isTopLevel ? 'post' : 'comment'} />
+          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
+        )}
+        {railBelow && (
+          <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
         )}
       </div>
       <div className="min-w-0">
