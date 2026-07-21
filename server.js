@@ -71,7 +71,7 @@ import {
   collectThreadMentions,
   normalizeThreadSegments,
 } from './lib/community-thread-compose.js';
-import { resolveRootPostId, groupRepliesWithPreview } from './lib/community-thread.js';
+import { resolveRootPostId, groupRepliesWithPreview, buildAncestorChain } from './lib/community-thread.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -4015,6 +4015,10 @@ const communityMediaBodyParser = express.raw({
 });
 const communityMediaUploadWindows = new Map();
 const communityReactionMutationQueues = new Map();
+// Rantai leluhur sungguhan sedalam kedalaman thread (praktis 1-3 hop); batas
+// ini murni penjaga terhadap data korup/siklik, bukan batas yang diharapkan
+// tersentuh dalam pemakaian normal.
+const COMMUNITY_MAX_ANCESTOR_HOPS = 20;
 const COMMUNITY_TEASER_CACHE_TTL_MS = 60_000;
 let communityTeaserSharedCache = { data: null, expiresAt: 0 };
 const COMMUNITY_FEED_HEAD_CACHE_TTL_MS = 10_000;
@@ -5425,14 +5429,24 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
 
     // Jumlah segmen lanjutan tiap utas. Pola yang sama dengan quoteCounts di
     // atas: satu query untuk seluruh halaman, dihitung di aplikasi — tanpa N+1
-    // dan tanpa kolom denormalisasi yang bisa basi.
+    // dan tanpa kolom denormalisasi yang bisa basi. is_reply=false wajib:
+    // balasan (community_post_comments lama, sekarang community_posts dengan
+    // is_reply=true) JUGA punya root_post_id terisi, jadi tanpa filter ini
+    // thread_count ikut menghitung balasan sebagai segmen utas.
     const threadCounts = new Map(postIds.map(postId => [postId, 0]));
     if (includeThread && postIds.length > 0) {
       const { data: threadRows, error: threadCountError } = await supabase
         .from('community_posts')
         .select('root_post_id')
         .in('root_post_id', postIds)
+        .eq('is_reply', false)
         .is('deleted_at', null);
+      // Pra-migrasi is_reply (jendela sempit: root_post_id sudah ada dari
+      // Fitur A, is_reply belum) -- degradasi ke 0 untuk semua, sama seperti
+      // degradasi thread_count lain di endpoint ini kalau kolom utas hilang
+      // total. Tidak retry tanpa filter is_reply supaya tidak diam-diam
+      // menghitung balasan sebagai segmen (mencemari lagi apa yang task ini
+      // perbaiki).
       if (threadCountError && !isCommunityThreadSchemaMissing(threadCountError)) {
         throw threadCountError;
       }
@@ -5501,7 +5515,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'root_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
@@ -5536,7 +5550,25 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     if (postError) throw postError;
     if (!post) return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
 
-    const [reactionResult, commentResult] = await Promise.all([
+    // Rantai leluhur menelusuri parent_post_id ke atas, hop demi hop, lewat
+    // primary key -- BUKAN mengambil seluruh thread (`.or('id.eq...,root_
+    // post_id.eq...')`, dipakai blok `thread` di bawah). Thread ramai bisa
+    // punya >500 baris di bawah satu akar, dan PostgREST memotong hasil di
+    // max_rows sisi server tanpa pemberitahuan; baris yang tersisa acak, jadi
+    // leluhur yang masih hidup bisa salah dirender sebagai "dihapus", atau
+    // kalau baris kiriman itu sendiri yang hilang, ancestors diam-diam jadi
+    // [] seolah ia kiriman induk. Rantai leluhur sungguhan panjangnya sama
+    // dengan kedalaman thread (praktis 1-3), jadi penelusuran per-hop selalu
+    // eksak dan murah.
+    const communityAncestorRowSelect = 'id, body, created_at, deleted_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)';
+    const fetchCommunityAncestorRow = parentId => supabase
+      .from('community_posts')
+      .select(communityAncestorRowSelect)
+      .eq('id', parentId)
+      .maybeSingle();
+    const needsAncestors = includeThread && !!post.parent_post_id;
+
+    const [reactionResult, commentResult, firstAncestorResult] = await Promise.all([
       supabase
         .from('community_post_reactions')
         .select('post_id, reaction, agent_id, agent:agents(name)')
@@ -5553,11 +5585,40 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         .eq('parent_post_id', post.id)
         .eq('is_reply', true)
         .is('deleted_at', null),
+      // Hop pertama (induk langsung) numpang di Promise.all yang sama request
+      // ini sudah menembakkan; hop-hop berikutnya baru bisa jalan setelah id
+      // induk-dari-induk diketahui, jadi lanjutannya tetap berurutan di bawah.
+      needsAncestors ? fetchCommunityAncestorRow(post.parent_post_id) : Promise.resolve({ data: null, error: null }),
     ]);
     if (reactionResult.error) throw reactionResult.error;
     // Pra-migrasi (is_reply/parent_post_id belum ada): degradasi ke 0, bukan
     // 500 — lihat pemakaian commentResult.count di payload di bawah.
     if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) throw commentResult.error;
+
+    let ancestors = [];
+    if (needsAncestors) {
+      if (firstAncestorResult.error) throw firstAncestorResult.error;
+      const rows = [post];
+      const pushAncestorRow = row => rows.push(row ? { ...row, author: communityAuthorProfile(row.agent) } : row);
+
+      let ancestorRow = firstAncestorResult.data;
+      let hops = 1;
+      pushAncestorRow(ancestorRow);
+      let nextParentId = ancestorRow?.parent_post_id || null;
+      while (nextParentId) {
+        if (hops >= COMMUNITY_MAX_ANCESTOR_HOPS) {
+          console.warn(`[community] ancestor chain for post ${post.id} hit the ${COMMUNITY_MAX_ANCESTOR_HOPS}-hop limit; truncating`);
+          break;
+        }
+        hops += 1;
+        const { data, error } = await fetchCommunityAncestorRow(nextParentId);
+        if (error) throw error;
+        ancestorRow = data;
+        pushAncestorRow(ancestorRow);
+        nextParentId = ancestorRow?.parent_post_id || null;
+      }
+      ancestors = buildAncestorChain(rows, post.id);
+    }
 
     const reactions = { suka: 0, selamat: 0, aamiin: 0 };
     let myReaction = null;
@@ -5607,12 +5668,21 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     let thread = null;
     if (includeThread) {
       const threadRootId = post.root_post_id || post.id;
+      // is_reply=false wajib: `.or('id.eq...,root_post_id.eq...')` juga
+      // menarik balasan (is_reply=true) yang berbagi root_post_id yang sama
+      // dengan segmen utas — tanpa filter ini, array `thread` tercemar
+      // balasan. Akar sendiri (is_reply=false) tetap ikut lewat `id.eq...`.
       const { data: threadRows, error: threadError } = await supabase
         .from('community_posts')
         .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .or(`id.eq.${threadRootId},root_post_id.eq.${threadRootId}`)
+        .eq('is_reply', false)
         .is('deleted_at', null)
         .order('created_at', { ascending: true });
+      // Pra-migrasi is_reply (root_post_id sudah ada dari Fitur A, is_reply
+      // belum) -- sama seperti thread_count di feed: degradasi ke null/tanpa
+      // segmen tambahan, jangan retry tanpa filter is_reply (itu akan
+      // mencemari `thread` lagi dengan balasan).
       if (threadError && !isCommunityThreadSchemaMissing(threadError)) {
         throw threadError;
       }
@@ -5670,6 +5740,8 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         quoted_post: post.quoted_post_id ? quotedPost : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
         thread,
+        parent_post_id: includeThread ? (post.parent_post_id || null) : null,
+        ancestors,
         is_own: post.agent_id === agent.id,
       },
     });
