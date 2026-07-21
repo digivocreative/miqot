@@ -21,7 +21,6 @@ import {
   ChevronRight,
   Copy,
   Flag,
-  Heart,
   Image as ImageIcon,
   Loader2,
   Maximize2,
@@ -50,6 +49,10 @@ import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHe
 import ComposerSegment from './teras/ComposerSegment';
 import CommentThread from './teras/CommentThread';
 import { AgentAvatar } from './teras/AgentAvatar';
+import { ReactionPicker } from './teras/ReactionPicker';
+import { ReactionSummary } from './teras/ReactionSummary';
+import { ReactionListSheet } from './teras/ReactionListSheet';
+import type { ReactionListEntry } from './teras/ReactionListSheet';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import {
   extractMentionSlugs,
@@ -59,8 +62,10 @@ import {
   type MentionMember,
 } from '../lib/communityMentions';
 import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-broadcast.js';
+import { emptyReactionCounts } from '../../lib/community-reactions.js';
+import type { ReactionType, ReactionCounts } from '../../lib/community-reactions.js';
 
-export type ReactionType = 'suka' | 'selamat' | 'aamiin';
+export type { ReactionType } from '../../lib/community-reactions.js';
 type CommunityMediaType = 'image' | 'video';
 
 interface TerasAgent {
@@ -74,12 +79,6 @@ interface CommunityAuthor {
   name: string | null;
   slug: string | null;
   photo: string | null;
-}
-
-interface ReactionCounts {
-  suka: number;
-  selamat: number;
-  aamiin: number;
 }
 
 interface CommunityPost {
@@ -482,19 +481,18 @@ function normalizeCommentMedia(comment: CommunityComment): CommunityMedia[] {
  * cuplikan balasannya, dalam satu jalan -- reactions/my_reaction ada di
  * kedua level (server mengirim bentuk yang sama untuk keduanya), meski
  * CommentThread saat ini hanya merender baris aksi untuk komentar top-level.
- * Total suka+selamat+aamiin dipakai sebagai satu angka di tombol Heart,
- * sama seperti totalReactions pada kartu kiriman.
+ * reactionCounts membawa hitungan PENUH per jenis (untuk gugus emoji di
+ * ReactionSummary), sama seperti post.reactions pada kartu kiriman.
  */
 function buildCommentReactionMaps(comments: CommunityComment[]): {
   myReactions: Record<string, ReactionType | null>;
-  reactionCounts: Record<string, number>;
+  reactionCounts: Record<string, ReactionCounts>;
 } {
   const myReactions: Record<string, ReactionType | null> = {};
-  const reactionCounts: Record<string, number> = {};
+  const reactionCounts: Record<string, ReactionCounts> = {};
   const apply = (comment: CommunityComment) => {
-    const reactions = comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
     myReactions[comment.id] = comment.my_reaction ?? null;
-    reactionCounts[comment.id] = reactions.suka + reactions.selamat + reactions.aamiin;
+    reactionCounts[comment.id] = comment.reactions ?? emptyReactionCounts();
   };
   for (const comment of comments) {
     apply(comment);
@@ -1363,7 +1361,7 @@ export default function TerasPage({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailFetchTick, setDetailFetchTick] = useState(0);
-  const [likePopId, setLikePopId] = useState<string | null>(null);
+  const [reactionListPostId, setReactionListPostId] = useState<string | null>(null);
   const [hasNewPosts, setHasNewPosts] = useState(false);
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -2575,7 +2573,20 @@ export default function TerasPage({
     'Gagal memperbarui reaksi',
   );
 
-  const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
+  // Dipakai ReactionListSheet lewat prop `load`. Di-memo pada id target supaya
+  // efek fetch di dalam sheet tidak berulang tiap render induk (loop refetch).
+  const loadReactionList = useCallback(async () => {
+    if (!reactionListPostId) return { reactions: [], truncated: false };
+    const payload = await requestJson<{ reactions: ReactionListEntry[]; truncated: boolean }>(
+      `/api/community/posts/${encodeURIComponent(reactionListPostId)}/reactions`,
+      { headers: getAuthHeaders() },
+      'Gagal memuat daftar reaksi',
+    );
+    return payload.data ?? { reactions: [], truncated: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reactionListPostId]);
+
+  const updateReaction = async (postId: string, nextReaction: ReactionType | null) => {
     if (reactionPendingRef.current.has(postId)) return;
     const snapshot = postsRef.current.find(post => post.id === postId);
     if (!snapshot) return;
@@ -2610,9 +2621,7 @@ export default function TerasPage({
     }
   };
 
-  const handleLikeClick = (post: CommunityPost) => {
-    const nextReaction: 'suka' | null = post.my_reaction ? null : 'suka';
-    setLikePopId(current => nextReaction ? post.id : (current === post.id ? null : current));
+  const handlePostReact = (post: CommunityPost, nextReaction: ReactionType | null) => {
     void updateReaction(post.id, nextReaction);
   };
 
@@ -3316,7 +3325,7 @@ export default function TerasPage({
     const snapshot = panel && findCommentInPanel(panel.comments, commentId);
     if (!snapshot) return;
     const previousReaction = snapshot.my_reaction ?? null;
-    const previousReactions = snapshot.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
+    const previousReactions = snapshot.reactions ?? emptyReactionCounts();
 
     commentReactionPendingRef.current.add(commentId);
     setCommentPanels(current => {
@@ -3327,7 +3336,7 @@ export default function TerasPage({
         [postId]: {
           ...currentPanel,
           comments: mapCommentInPanel(currentPanel.comments, commentId, comment => {
-            const reactions = { ...(comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 }) };
+            const reactions = { ...(comment.reactions ?? emptyReactionCounts()) };
             if (previousReaction) reactions[previousReaction] = Math.max(0, reactions[previousReaction] - 1);
             if (nextReaction) reactions[nextReaction] += 1;
             return { ...comment, my_reaction: nextReaction, reactions };
@@ -4244,9 +4253,7 @@ export default function TerasPage({
             // segmen akar di detail), bukan ke segmen yang sedang dirender.
             const activeCommentReplyTarget = replyTarget && replyTarget.postId === commentTargetId ? replyTarget : null;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
-            const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
             const reactionIsBusy = reactionBusy.has(post.id);
-            const likePopped = likePopId === post.id && !!post.my_reaction && !reduceMotion;
             const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
             const authorSlug = post.is_system ? null : post.author.slug;
@@ -4565,58 +4572,17 @@ export default function TerasPage({
                     )}
 
                     <div className="relative -ml-2 mt-1 flex items-center gap-1">
-                      <motion.button
-                        type="button"
-                        aria-disabled={reactionIsBusy}
-                        aria-label="Suka"
-                        title="Suka"
-                        aria-pressed={!!post.my_reaction}
-                        onClick={() => {
-                          if (!reactionIsBusy) handleLikeClick(post);
-                        }}
-                        whileTap={reduceMotion ? undefined : { scale: 0.86 }}
-                        transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
-                          post.my_reaction
-                            ? 'text-rose-500 dark:text-rose-400'
-                            : 'text-gray-500 dark:text-slate-400'
-                        }`}
-                      >
-                        <span className="relative flex items-center justify-center">
-                          {likePopped && (
-                            <motion.span
-                              aria-hidden="true"
-                              className="absolute -inset-1 rounded-full bg-rose-500/30"
-                              initial={{ scale: 0.3, opacity: 0.8 }}
-                              animate={{ scale: 1.9, opacity: 0 }}
-                              transition={{ duration: 0.5, ease: 'easeOut' }}
-                            />
-                          )}
-                          <motion.span
-                            key={likePopped ? 'liked-pop' : 'idle'}
-                            className="flex"
-                            initial={likePopped ? { scale: 0 } : false}
-                            animate={{ scale: 1 }}
-                            transition={{ type: 'spring', stiffness: 560, damping: 14 }}
-                          >
-                            <Heart size={19} fill={post.my_reaction ? 'currentColor' : 'none'} />
-                          </motion.span>
-                        </span>
-                        <AnimatePresence mode="popLayout" initial={false}>
-                          {totalReactions > 0 && (
-                            <motion.span
-                              key={totalReactions}
-                              className="tabular-nums"
-                              initial={reduceMotion ? false : { y: 9, opacity: 0 }}
-                              animate={{ y: 0, opacity: 1 }}
-                              exit={reduceMotion ? { opacity: 0 } : { y: -9, opacity: 0 }}
-                              transition={{ duration: 0.16, ease: 'easeOut' }}
-                            >
-                              {totalReactions}
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </motion.button>
+                      <ReactionPicker
+                        size="post"
+                        disabled={reactionIsBusy}
+                        myReaction={post.my_reaction}
+                        onPick={reaction => { if (!reactionIsBusy) handlePostReact(post, reaction); }}
+                      />
+                      <ReactionSummary
+                        size="post"
+                        counts={post.reactions}
+                        onOpenList={() => setReactionListPostId(post.id)}
+                      />
 
                       <motion.button
                         type="button"
@@ -4733,6 +4699,7 @@ export default function TerasPage({
                             myReactions={commentReactionMaps?.myReactions ?? {}}
                             reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
                             onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
+                            onOpenReactionList={commentId => setReactionListPostId(commentId)}
                             onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
@@ -4998,6 +4965,14 @@ export default function TerasPage({
       {composerSheet}
       {shareSheet}
       {mediaViewerSheet}
+
+      {reactionListPostId && (
+        <ReactionListSheet
+          load={loadReactionList}
+          onClose={() => setReactionListPostId(null)}
+          onOpenProfile={slug => { setReactionListPostId(null); openProfile(slug); }}
+        />
+      )}
 
       <AnimatePresence>
         {toast && (
