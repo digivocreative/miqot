@@ -281,7 +281,7 @@ const COMPOSER_PROMPTS = [
 const COMPOSER_PLACEHOLDER = 'Apa yang ingin dibagikan?';
 const MAX_COMMUNITY_BODY_CHARS = 500;
 // Sama dengan batas server (lib/community-thread-compose.js).
-const MAX_THREAD_SEGMENTS = 5;
+const MAX_THREAD_SEGMENTS = 10;
 // Konteks popover mention milik composer diberi awalan + key segmen, supaya
 // menyebut orang di segmen 2 tidak menyisipkan teks ke segmen 1.
 const COMPOSER_MENTION_PREFIX = 'composer:';
@@ -457,6 +457,18 @@ async function mapWithConcurrency<T, R>(
   const failedWorker = settledWorkers.find(result => result.status === 'rejected');
   if (failedWorker?.status === 'rejected') throw failedWorker.reason;
   return results;
+}
+
+// Perangkat sentuh (ponsel/tablet) memakai papan ketik lunak tanpa tombol
+// Shift, jadi konvensi "Enter = kirim, Shift+Enter = baris baru" tak bisa
+// dipakai: pengguna jadi tak pernah bisa menyisipkan baris baru. Deteksi
+// pointer kasar dipakai untuk membiarkan Enter menjadi baris baru di sana
+// (pengiriman lewat tombol kirim), sambil mempertahankan Enter = kirim di
+// desktop. Dievaluasi saat kejadian, bukan sekali di awal, supaya aman SSR.
+function isCoarsePointerDevice(): boolean {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
 }
 
 function emptyCommentPanel(open = true): CommentPanelState {
@@ -3186,6 +3198,9 @@ export default function TerasPage({
     if (handleMentionKeyDown(event, postId)) return; // mention popover owns the key
     // Shift+Enter = baris baru; Enter saja = kirim.
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    // Di perangkat sentuh tak ada tombol Shift, jadi Enter dibiarkan jadi
+    // baris baru (perilaku bawaan textarea); pengiriman lewat tombol kirim.
+    if (isCoarsePointerDevice()) return;
     event.preventDefault();
     void sendComment(postId);
   };
@@ -4703,7 +4718,7 @@ export default function TerasPage({
                       <LinkPreviewCard preview={post.link_preview} />
                     )}
 
-                    <div className="relative -ml-2 mt-1 flex items-center gap-1">
+                    <div className="relative -ml-2 mt-0.5 mb-1 flex items-center gap-1">
                       <motion.button
                         type="button"
                         aria-disabled={reactionIsBusy}

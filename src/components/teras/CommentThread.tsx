@@ -307,7 +307,7 @@ function CommentRow({
         {renderMedia(comment)}
 
         {actions && (
-          <div className="relative -ml-2 mt-1 flex items-center gap-1">
+          <div className="relative -ml-2 mt-0.5 mb-1 flex items-center gap-1">
             <motion.button
               type="button"
               aria-pressed={!!actions.myReaction}
