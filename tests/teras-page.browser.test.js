@@ -1541,26 +1541,20 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await article.getByRole('button', { name: '1 balasan', exact: true }).click();
       const serverComment = article.getByText('Komentar dari server', { exact: true });
       await serverComment.waitFor();
-      const threadRails = article.locator('[data-thread-rail]');
-      assert.ok(await threadRails.count() >= 3,
-        'rail thread harus menyambungkan post, balasan, dan input saat panel terbuka');
-      const railCenters = await Promise.all(['post', 'comment', 'input'].map(kind => (
-        article.locator(`[data-thread-rail="${kind}"]`).first().evaluate(element => {
-          const rect = element.getBoundingClientRect();
-          return rect.left + rect.width / 2;
-        })
-      )));
-      assert.ok(Math.max(...railCenters) - Math.min(...railCenters) <= 1,
-        'semua segmen rail thread harus berada pada sumbu avatar yang sama');
+      // Threads-style: komentar datar (tanpa balasan nested) berdiri sendiri —
+      // tidak ada rail penyambung post/komentar/input. Pemisah antar komentar
+      // teratas adalah garis hairline (border-atas), bukan rail.
+      assert.equal(await article.locator('[data-thread-rail]').count(), 0,
+        'komentar datar tidak boleh punya rail penyambung apa pun');
       assert.equal(
-        await article.locator('[data-comment-row]').first().evaluate(element => getComputedStyle(element).marginTop),
-        '8px',
-        'jarak antarbalasan harus kompak',
+        await article.locator('[data-comment-row]').first().evaluate(element => getComputedStyle(element).borderTopWidth),
+        '1px',
+        'tiap komentar teratas dipisah garis hairline (border-atas)',
       );
       assert.equal(
-        await article.locator('[data-thread-input]').evaluate(element => getComputedStyle(element).marginTop),
-        '8px',
-        'jarak menuju input balasan harus kompak',
+        await article.locator('[data-thread-input]').evaluate(element => getComputedStyle(element).borderTopWidth),
+        '1px',
+        'baris komposer berdiri sebagai section ber-hairline',
       );
       assert.doesNotMatch(await serverComment.evaluate(element => element.parentElement?.className || ''), /rounded|bg-|border/,
         'isi balasan harus flat tanpa bubble');
@@ -1619,7 +1613,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('empty comments keep a one-pixel thread rail aligned with the reply input', { timeout: 30_000 }, async () => {
+  test('empty comments show a hairline section without any rail', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({
         id: 'empty-comments-post',
@@ -1632,20 +1626,16 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     try {
       const article = app.page.locator('article').filter({ hasText: 'Uji komentar kosong' });
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
-      await article.getByText('Belum ada komentar.', { exact: true }).waitFor();
+      const emptyNotice = article.getByText('Belum ada komentar — jadilah yang pertama membalas.', { exact: true });
+      await emptyNotice.waitFor();
 
-      const [emptyRailBox, inputRailBox] = await Promise.all([
-        article.locator('[data-thread-rail="empty"]').boundingBox(),
-        article.locator('[data-thread-rail="input"]').boundingBox(),
-      ]);
-      assert.ok(emptyRailBox && emptyRailBox.width <= 1.5 && emptyRailBox.height > 0,
-        'rail komentar kosong harus tetap berupa garis vertikal satu piksel');
-      assert.ok(inputRailBox
-        && Math.abs(
-          (emptyRailBox.x + emptyRailBox.width / 2)
-          - (inputRailBox.x + inputRailBox.width / 2),
-        ) <= 1,
-      'rail komentar kosong dan input harus berada pada sumbu avatar yang sama');
+      assert.equal(await article.locator('[data-thread-rail]').count(), 0,
+        'empty state tidak boleh punya rail penyambung');
+      assert.equal(
+        await emptyNotice.evaluate(element => getComputedStyle(element).borderTopWidth),
+        '1px',
+        'empty state tampil sebagai section ber-hairline',
+      );
     } finally {
       await app.close();
     }
