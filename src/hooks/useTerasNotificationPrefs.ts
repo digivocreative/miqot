@@ -108,5 +108,8 @@ export function useTerasNotificationPrefs(enabled: boolean) {
     }
   }, [prefs]);
 
-  return { prefs, telegramConnected, open, loading, loaded, error, openSheet, closeSheet, toggle };
+  // Memuat ulang tanpa mengubah status buka: dipakai tombol "Coba lagi" pada
+  // state gagal-muat. `openSheet` sudah idempoten terhadap `open` (setOpen(true)
+  // saat sudah terbuka tidak berefek), jadi cukup dipakai ulang sebagai retry.
+  return { prefs, telegramConnected, open, loading, loaded, error, openSheet, reload: openSheet, closeSheet, toggle };
 }

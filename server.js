@@ -4158,9 +4158,9 @@ async function recordCommunityMentions({
       const snippet = communityMentionSnippet(bodyByPostId.get(mention.postId) || '');
       const link = `${communityPublicOrigin()}/dashboard/teras/post/${mention.postId}`;
       const text = `🔔 <b>${escapeHtml(authorName)}</b> menyebut kamu di Teras`
-        + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
-        + `\n\n${link}`;
-      sendTelegramMessageDirect(member.telegram_chat_id, text).catch(() => {});
+        + (snippet ? `\n\n<blockquote expandable>${escapeHtml(snippet)}</blockquote>` : '');
+      const replyMarkup = buildTelegramUrlKeyboard([[{ text: 'Buka kiriman ↗', url: link }]]);
+      sendTelegramMessageDirect(member.telegram_chat_id, text, { reply_markup: replyMarkup }).catch(() => {});
       pushedAgentIds.add(member.id);
     }
     return pushedAgentIds;
@@ -4214,15 +4214,15 @@ async function notifyCommunityBroadcastTelegram({ post, authorAgent, excludeAgen
     const snippet = communityMentionSnippet(post.body);
     const link = `${communityPublicOrigin()}/dashboard/teras/post/${post.id}`;
     const text = `📢 <b>${escapeHtml(authorName)}</b> mengirim pengumuman untuk semua agent`
-      + (snippet ? `\n\n${escapeHtml(snippet)}` : '')
-      + `\n\n${link}`;
+      + (snippet ? `\n\n<blockquote expandable>${escapeHtml(snippet)}</blockquote>` : '');
+    const replyMarkup = buildTelegramUrlKeyboard([[{ text: 'Lihat pengumuman ↗', url: link }]]);
 
     // Berurutan, bukan serentak: roster besar yang dikirimi sekaligus akan
     // membanjiri Telegram dan kena rate limit. Kegagalan satu agen dicatat
     // (bukan dibuang diam-diam lewat .catch(() => {})) tapi tidak menghentikan
     // pengiriman ke agen berikutnya.
     for (const member of recipients) {
-      const delivered = await sendTelegramMessageDirect(member.telegram_chat_id, text);
+      const delivered = await sendTelegramMessageDirect(member.telegram_chat_id, text, { reply_markup: replyMarkup });
       if (!delivered) {
         console.warn('[community] broadcast telegram gagal terkirim ke', member.id);
       }
@@ -7587,7 +7587,7 @@ async function runTerasTelegramDigestSweep() {
   const [commentResult, reactionResult] = await Promise.all([
     supabase
       .from('community_posts')
-      .select(`id, parent_post_id, agent_id, created_at,
+      .select(`id, parent_post_id, agent_id, body, created_at,
         author:agents(name),
         parent:community_posts!parent_post_id!inner(agent_id, deleted_at)`)
       .eq('is_reply', true)
@@ -7631,6 +7631,9 @@ async function runTerasTelegramDigestSweep() {
     owner_agent_id: row.parent?.agent_id,
     actor_agent_id: row.agent_id,
     actor_name: row.author?.name || null,
+    // Kutipan isi balasan untuk blockquote di pesan Telegram (dipotong di sini
+    // supaya lib/teras-telegram-digest.js tetap murni tanpa logika truncation).
+    snippet: communityMentionSnippet(row.body),
   }));
   const reactions = (reactionResult.data || []).map(row => ({
     post_id: row.post_id,
@@ -7724,7 +7727,10 @@ async function runTerasTelegramDigestSweep() {
   for (const message of messages) {
     let delivered = false;
     try {
-      delivered = await sendTelegramMessageDirect(message.chat_id, message.text);
+      const replyMarkup = message.url
+        ? buildTelegramUrlKeyboard([[{ text: 'Buka kiriman ↗', url: message.url }]])
+        : undefined;
+      delivered = await sendTelegramMessageDirect(message.chat_id, message.text, { reply_markup: replyMarkup });
       if (!delivered) console.warn('[teras-digest] Telegram menolak pesan ke', message.agent_id);
     } catch (err) {
       console.warn('[teras-digest] gagal kirim ke', message.agent_id, err.message);
