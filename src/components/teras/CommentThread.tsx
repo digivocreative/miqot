@@ -102,6 +102,8 @@ export default function CommentThread({
             // teratas (lihat komentar di atas CommentRow soal cuplikan
             // tingkat dua yang sengaja dikecualikan).
             onOpenThreadRow={() => onOpenThread(comment.id)}
+            isTopLevel
+            showRail={previewReplies.length > 0}
             hideQuote={hideQuote}
             actions={{
               myReaction: myReactions[comment.id] ?? null,
@@ -125,6 +127,8 @@ export default function CommentThread({
                 renderMedia={renderMedia}
                 formatTime={formatTime}
                 reduceMotion={!!reduceMotion}
+                isTopLevel={false}
+                showRail={false}
                 // Sengaja TIDAK diberi onOpenThreadRow: cuplikan balasan
                 // tingkat dua tidak dapat perilaku klik-untuk-buka-thread
                 // (indentasi berhenti di situ, lihat spec keputusan produk #3).
@@ -158,6 +162,8 @@ function CommentRow({
   reduceMotion,
   actions,
   onOpenThreadRow,
+  isTopLevel,
+  showRail,
   hideQuote,
   children,
 }: {
@@ -178,6 +184,10 @@ function CommentRow({
    * teratas — lihat pemanggilan CommentRow di CommentThread di atas.
    */
   onOpenThreadRow?: () => void;
+  /** True untuk komentar tingkat teratas: dapat pemisah hairline; balasan nested tidak. */
+  isTopLevel: boolean;
+  /** Render rail grup vertikal di kolom avatar — hanya bila komentar punya balasan nested tampil. */
+  showRail: boolean;
   /** Sembunyikan tombol Kutip (mode profil publik — komposer tidak bisa dibuka dari sana). */
   hideQuote?: boolean;
   /** Cuplikan balasan + tautan "lihat lainnya", dirender di bawah baris aksi (indentasi satu tingkat lewat nesting grid). */
@@ -227,7 +237,9 @@ function CommentRow({
       aria-label={onOpenThreadRow ? `Buka balasan ${commentAuthorName}` : undefined}
       onClick={onOpenThreadRow ? handleRowClick : undefined}
       onKeyDown={onOpenThreadRow ? handleRowKeyDown : undefined}
-      className={`mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 ${
+      className={`grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 ${
+        isTopLevel ? 'border-t border-gray-100 pt-3 dark:border-slate-800' : 'mt-2'
+      } ${
         onOpenThreadRow ? 'cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}
     >
@@ -248,7 +260,9 @@ function CommentRow({
         ) : (
           <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
         )}
-        <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+        {showRail && (
+          <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+        )}
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-1.5">
