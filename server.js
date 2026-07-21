@@ -5135,6 +5135,46 @@ async function writeTerasNotifClearedAt(agentId, iso) {
   if (updateError) throw updateError;
 }
 
+// Balasan kini baris community_posts (is_reply=true) dengan induk yang JUGA
+// community_posts — relasi SELF-REFERENSIAL. PostgREST tidak bisa meresolusi
+// embed self-FK di tabel ini (schema cache-nya tak mengenali FK parent/root/
+// quoted ke diri sendiri): hint nama-constraint balas PGRST200, hint nama-kolom
+// (`!parent_post_id`) resolusi ke ARAH SALAH (anak, bukan induk) lalu balik
+// array KOSONG tanpa error — bikin notifikasi komentar lenyap diam-diam, nol
+// baris, nol galat. Jadi induk dicek DUA LANGKAH tanpa embed: (1) ambil id
+// kiriman/balasan milik penerima yang belum terhapus — balasan-atas-balasan
+// ikut memberi notif, makanya semua baris miliknya diambil, bukan cuma root;
+// (2) balasan orang lain yang ber-parent_post_id di antara id itu. Karena
+// langkah 1 sudah menyaring deleted_at, induk dijamin ada & tidak terhapus.
+// Bentuk hasil ({ data, error } berbaris parent_post_id/created_at/body/author)
+// sengaja sama seperti query lama supaya pemetaan & mergeNotifications() di
+// pemanggil tak berubah. Galat is_reply hilang (pra-migrasi) tetap ditoleransi
+// pemanggil lewat isCommunityThreadSchemaMissing.
+async function loadTerasCommentRows(agent, { since, clearedAt = null, limit }) {
+  const ownResult = await supabase
+    .from('community_posts')
+    .select('id')
+    .eq('agent_id', agent.id)
+    .is('deleted_at', null);
+  if (ownResult.error) return { data: [], error: ownResult.error };
+  const ownIds = (ownResult.data || []).map(row => row.id);
+  if (ownIds.length === 0) return { data: [], error: null };
+
+  let query = supabase
+    .from('community_posts')
+    .select(`id, parent_post_id, created_at, body,
+      author:agents!community_posts_agent_id_fkey(name, photo)`)
+    .in('parent_post_id', ownIds)
+    .eq('is_reply', true)
+    .neq('agent_id', agent.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (since) query = query.gt('created_at', since);
+  if (clearedAt) query = query.gt('created_at', clearedAt);
+  return query;
+}
+
 // Fetch the four sources in parallel. `since` narrows every source to rows
 // newer than the watermark (badge path); pass null to fetch the latest N
 // regardless (list path). Mentions tolerate a missing table / unresolvable
@@ -5151,27 +5191,15 @@ async function loadTerasNotificationSources(agent, { since, clearedAt = null, li
     ? Promise.resolve({ data: [], error: null, hasCommentEmbed: true })
     : loadCommunityMentionRows(agent, { since, clearedAt, limit });
 
-  // Balasan atas kiriman (atau balasan) saya. Balasan kini baris
-  // community_posts, jadi relasi induknya dicek lewat parent_post_id. Hanya
-  // balasan (`is_reply=true`) yang jadi notifikasi comment — segmen lanjutan
-  // utas (is_reply=false) tidak, meski juga ber-parent_post_id. Petunjuk embed
-  // memakai NAMA KOLOM (`!parent_post_id`), bukan nama constraint: nama kolom
-  // dijamin migrasi, nama constraint cuma tebakan yang kalau salah membalas
-  // PGRST200 dan mematikan seluruh endpoint notifikasi. Petakan
-  // parent_post_id -> post_id di bawah supaya mergeNotifications() tak berubah.
-  const commentQuery = !flags.comments ? null : supabase
-    .from('community_posts')
-    .select(`id, parent_post_id, created_at, body,
-      author:agents!community_posts_agent_id_fkey(name, photo),
-      parent:community_posts!parent_post_id!inner(agent_id, deleted_at)`)
-    .eq('parent.agent_id', agent.id)
-    .eq('is_reply', true)
-    .neq('agent_id', agent.id)
-    .not('parent_post_id', 'is', null)
-    .is('deleted_at', null)
-    .is('parent.deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  // Balasan atas kiriman (atau balasan) saya. Induk = community_posts (relasi
+  // self-referensial), jadi dicek dua langkah tanpa embed — lihat
+  // loadTerasCommentRows untuk alasannya. Hanya balasan (`is_reply=true`) yang
+  // jadi notifikasi comment; segmen lanjutan utas (is_reply=false) tidak.
+  // parent_post_id dipetakan ke post_id di bawah supaya mergeNotifications()
+  // tak berubah.
+  const commentResultPromise = !flags.comments
+    ? Promise.resolve({ data: [], error: null })
+    : loadTerasCommentRows(agent, { since, clearedAt, limit });
 
   const reactionQuery = !flags.reactions ? null : supabase
     .from('community_post_reactions')
@@ -5206,21 +5234,16 @@ async function loadTerasNotificationSources(agent, { since, clearedAt = null, li
   });
 
   // `since` DAN `clearedAt` untuk mention diterapkan di dalam
-  // loadCommunityMentionRows (mention di-load lewat fungsi, bukan query builder
-  // inline); untuk broadcast di dalam runCommunityRootQuery. Sisanya di sini.
-  if (since) {
-    commentQuery?.gt('created_at', since);
-    reactionQuery?.gt('created_at', since);
-  }
-  if (clearedAt) {
-    commentQuery?.gt('created_at', clearedAt);
-    reactionQuery?.gt('created_at', clearedAt);
-  }
+  // loadCommunityMentionRows dan untuk comment di dalam loadTerasCommentRows
+  // (keduanya di-load lewat fungsi, bukan query builder inline); untuk
+  // broadcast di dalam runCommunityRootQuery. Sisanya (reaksi) di sini.
+  if (since) reactionQuery?.gt('created_at', since);
+  if (clearedAt) reactionQuery?.gt('created_at', clearedAt);
 
   const empty = { data: [], error: null };
   const [mentionResult, commentResult, reactionResult, broadcastResult] = await Promise.all([
     mentionResultPromise,
-    commentQuery ?? empty,
+    commentResultPromise,
     reactionQuery ?? empty,
     broadcastQuery ?? empty,
   ]);
@@ -7612,24 +7635,25 @@ async function runTerasTelegramDigestSweep() {
   const floorIso = new Date(now - TERAS_DIGEST_LOOKBACK_MS).toISOString();
 
   // Balasan kini baris community_posts (is_reply=true), bukan lagi
-  // community_post_comments — lihat loadTerasNotificationSources (R7) untuk
-  // bentuk embed yang sama. Petunjuk embed memakai NAMA KOLOM
-  // (`!parent_post_id`), bukan nama constraint, dan error toleransi lewat
-  // isCommunityThreadSchemaMissing (termasuk PGRST201 embed ambigu tanpa
-  // syarat pesan) — kalau tidak, sweep ini mati total begitu Langkah 6 (rename
-  // tabel lama) dijalankan, bukan cuma berhenti mengirim balasan.
-  const [commentResult, reactionResult] = await Promise.all([
+  // community_post_comments. Induknya JUGA community_posts (self-referensial)
+  // dan PostgREST tak bisa meresolusi embed self-FK-nya — lihat
+  // loadTerasCommentRows untuk detailnya. Jadi induk diresolusi DUA LANGKAH
+  // tanpa embed: (1) ambil balasan pada jendela ini; (2) ambil author +
+  // deleted_at induknya lewat id. isCommunityThreadSchemaMissing tetap
+  // menoleransi galat is_reply hilang (pra-migrasi / Langkah 6 rename tabel).
+  const [replyResult, reactionResult] = await Promise.all([
     supabase
       .from('community_posts')
-      .select(`id, parent_post_id, agent_id, body, created_at,
-        author:agents(name),
-        parent:community_posts!parent_post_id!inner(agent_id, deleted_at)`)
+      // author:agents di-disambiguasi ke FK agent_id — community_posts punya >1
+      // FK ke agents (agent_id, deleted_by), embed polos `agents(name)` balas
+      // PGRST201. (Dulu tak ketahuan karena query lama sudah gagal duluan di
+      // embed self-parent lalu ditelan toleransi PGRST201.)
+      .select('id, parent_post_id, agent_id, body, created_at, author:agents!community_posts_agent_id_fkey(name)')
       .eq('is_reply', true)
       .not('parent_post_id', 'is', null)
       .gte('created_at', floorIso)
       .lte('created_at', cutoffIso)
       .is('deleted_at', null)
-      .is('parent.deleted_at', null)
       .order('created_at', { ascending: true })
       .limit(500),
     supabase
@@ -7642,33 +7666,54 @@ async function runTerasTelegramDigestSweep() {
       .limit(500),
   ]);
 
-  if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) throw commentResult.error;
+  if (replyResult.error && !isCommunityThreadSchemaMissing(replyResult.error)) throw replyResult.error;
   if (reactionResult.error) throw reactionResult.error;
+
+  // Langkah 2: resolusi induk. Ambil author + deleted_at semua induk yang
+  // dirujuk sekali, lalu petakan. Induk hilang/terhapus → balasan dibuang
+  // (dulu dijamin oleh embed `!inner` + `.is('parent.deleted_at', null)`).
+  const replyRows = replyResult.error ? [] : (replyResult.data || []);
+  const parentIds = [...new Set(replyRows.map(row => row.parent_post_id).filter(Boolean))];
+  const parentById = new Map();
+  if (parentIds.length) {
+    const parentResult = await supabase
+      .from('community_posts')
+      .select('id, agent_id, deleted_at')
+      .in('id', parentIds);
+    if (parentResult.error) throw parentResult.error;
+    for (const parent of parentResult.data || []) parentById.set(parent.id, parent);
+  }
 
   // Diagnostik: kalau query menyentuh batas 500, ada baris yang tidak
   // terambil sama sekali sweep ini — operator perlu tahu sistem sudah
   // tumbuh melewati batas ini (lihat catatan watermark per-owner di bawah
   // untuk kenapa ini tidak sampai menghilangkan notifikasi). Dilewati kalau
-  // commentResult.error sudah ditoleransi di atas — data-nya kosong bukan
+  // replyResult.error sudah ditoleransi di atas — data-nya kosong bukan
   // karena terpotong.
-  if (!commentResult.error && (commentResult.data || []).length === 500) {
+  if (!replyResult.error && replyRows.length === 500) {
     console.warn('[teras-digest] query komentar mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
   }
   if ((reactionResult.data || []).length === 500) {
     console.warn('[teras-digest] query reaksi mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
   }
 
-  const comments = (commentResult.error ? [] : (commentResult.data || [])).map(row => ({
-    id: row.id,
-    post_id: row.parent_post_id,
-    created_at: row.created_at,
-    owner_agent_id: row.parent?.agent_id,
-    actor_agent_id: row.agent_id,
-    actor_name: row.author?.name || null,
-    // Kutipan isi balasan untuk blockquote di pesan Telegram (dipotong di sini
-    // supaya lib/teras-telegram-digest.js tetap murni tanpa logika truncation).
-    snippet: communityMentionSnippet(row.body),
-  }));
+  const comments = replyRows
+    .map(row => {
+      const parent = parentById.get(row.parent_post_id);
+      if (!parent || parent.deleted_at) return null;
+      return {
+        id: row.id,
+        post_id: row.parent_post_id,
+        created_at: row.created_at,
+        owner_agent_id: parent.agent_id,
+        actor_agent_id: row.agent_id,
+        actor_name: row.author?.name || null,
+        // Kutipan isi balasan untuk blockquote di pesan Telegram (dipotong di
+        // sini supaya lib/teras-telegram-digest.js tetap murni tanpa truncation).
+        snippet: communityMentionSnippet(row.body),
+      };
+    })
+    .filter(Boolean);
   const reactions = (reactionResult.data || []).map(row => ({
     post_id: row.post_id,
     created_at: row.created_at,
@@ -7701,7 +7746,11 @@ async function runTerasTelegramDigestSweep() {
     // hilang diam-diam tidak bisa.
     return new Date(rows[rows.length - 1].created_at).getTime() - 1;
   }
-  const commentCeilingMs = fetchCeilingMs(comments, 500);
+  // Plafon komentar dihitung dari baris MENTAH langkah 1 (replyRows), bukan
+  // dari `comments` yang sudah tersaring induk-terhapus: kalau langkah 1
+  // terpotong di 500 tapi baris batasnya kebetulan dibuang saat resolusi induk,
+  // `comments` < 500 akan menyembunyikan truncation dan melewatkan baris.
+  const commentCeilingMs = fetchCeilingMs(replyRows, 500);
   const reactionCeilingMs = fetchCeilingMs(reactions, 500);
   const effectiveCeilingMs = clampWatermarkMs(commentCeilingMs, reactionCeilingMs);
 
