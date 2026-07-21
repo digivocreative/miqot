@@ -6828,12 +6828,37 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
       // bukan agent yang meminta — endpoint ini juga melayani moderasi (admin
       // menghapus kiriman agent lain), dan same-author-per-chain dijamin oleh
       // konstruksi saat ini, tapi tidak ada yang menegakkannya di titik ini.
+      //
+      // is_reply=false wajib: `.or('id.eq...,root_post_id.eq...')` juga
+      // menarik balasan (is_reply=true) yang berbagi root_post_id dengan
+      // utas ini — termasuk self-reply penulis akar ke kirimannya sendiri
+      // (yang lolos filter agent_id di atas karena penulisnya sama). Tanpa
+      // filter ini balasan itu ikut soft-deleted, padahal seharusnya cuma
+      // jadi placeholder {available:false} di buildAncestorChain seperti
+      // balasan agent lain. Akar sendiri (is_reply=false) tetap ikut lewat
+      // `id.eq...`; segmen lanjutan (is_reply=false) tetap ikut lewat
+      // `root_post_id.eq...`.
       ({ error: deleteError } = await supabase
         .from('community_posts')
         .update(patch)
         .or(`id.eq.${post.id},root_post_id.eq.${post.id}`)
         .eq('agent_id', post.agent_id)
+        .eq('is_reply', false)
         .is('deleted_at', null));
+      // Pra-migrasi is_reply (jendela sempit: root_post_id sudah ada dari
+      // Fitur A, kolom is_reply belum) -- query di atas gagal karena kolom
+      // tak dikenal. Fallback ke perilaku main lama (cascade tanpa filter
+      // is_reply, menyapu seluruh rantai milik penulis akar termasuk
+      // self-reply) hanya untuk jendela sempit ini; begitu migrasi is_reply
+      // diterapkan, cabang ini tidak pernah tereksekusi lagi.
+      if (isCommunityThreadSchemaMissing(deleteError)) {
+        ({ error: deleteError } = await supabase
+          .from('community_posts')
+          .update(patch)
+          .or(`id.eq.${post.id},root_post_id.eq.${post.id}`)
+          .eq('agent_id', post.agent_id)
+          .is('deleted_at', null));
+      }
     } else {
       ({ error: deleteError } = await supabase
         .from('community_posts')
