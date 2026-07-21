@@ -253,22 +253,21 @@ export default function NotificationBell({
               )}
             </div>
             {!loading && !error && items.length > 0 && (
-              // Bar aksi di dasar panel. "Tandai dibaca" hanya saat masih ada yang
-              // belum dibaca; "Bersihkan" selama masih ada isi (panel kosong sudah
-              // menyembunyikan seluruh bar). Bersihkan disemat ke kanan lewat
-              // ml-auto agar tetap di ujung kanan meski jadi satu-satunya tombol.
-              // Menyembunyikan, bukan menghapus — baris komentar/reaksi asli tetap.
+              // Bar aksi di dasar panel, selama masih ada isi (panel kosong sudah
+              // menyembunyikan seluruh bar). "Tandai dibaca" selalu tampil tapi
+              // dinonaktifkan saat tak ada lagi yang belum dibaca. "Bersihkan"
+              // disemat ke kanan lewat ml-auto. Menyembunyikan, bukan menghapus —
+              // baris komentar/reaksi asli tetap ada di kirimannya.
               <div className="flex items-center gap-1 border-t border-gray-100 px-2 py-1.5 dark:border-slate-800">
-                {items.some(item => item.unread) && (
-                  <button
-                    type="button"
-                    onClick={onMarkAllRead}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                  >
-                    <CheckCheck size={13} strokeWidth={2.2} />
-                    Tandai dibaca
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={onMarkAllRead}
+                  disabled={!items.some(item => item.unread)}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <CheckCheck size={13} strokeWidth={2.2} />
+                  Tandai dibaca
+                </button>
                 <button
                   type="button"
                   onClick={onClearAll}
