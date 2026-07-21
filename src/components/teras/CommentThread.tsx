@@ -1,5 +1,6 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Heart, Loader2, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
 import type { CommunityComment, ReactionType } from '../TerasPage';
 import { AgentAvatar } from './AgentAvatar';
@@ -186,6 +187,19 @@ function CommentRow({
   const commentAuthorName = comment.author.name || 'Agent';
   const commentAuthorSlug = comment.author.slug;
 
+  // Meniru pola likePopId di TerasPage.tsx (handleLikeClick): burst + pop
+  // hanya saat reaksi BERUBAH jadi suka, bukan saat melepasnya. Lokal di
+  // baris ini (bukan diangkat ke TerasPage) karena murni state animasi UI,
+  // bukan data.
+  const [justLiked, setJustLiked] = useState(false);
+  const handleReactClick = () => {
+    if (!actions) return;
+    const nextReaction: ReactionType | null = actions.myReaction ? null : 'suka';
+    setJustLiked(!!nextReaction);
+    actions.onReact(nextReaction);
+  };
+  const likePopped = justLiked && !!actions?.myReaction && !reduceMotion;
+
   // Pola yang sama dengan handlePostAreaClick di TerasPage.tsx: kecualikan
   // klik pada tombol/tautan/media/menu, dan biarkan seleksi teks lewat tanpa
   // membuka thread. Tidak membuat mekanisme baru -- disalin persis, hanya
@@ -284,15 +298,47 @@ function CommentRow({
               aria-pressed={!!actions.myReaction}
               aria-label="Suka komentar"
               title="Suka"
-              onClick={() => actions.onReact(actions.myReaction ? null : 'suka')}
+              onClick={handleReactClick}
               whileTap={reduceMotion ? undefined : { scale: 0.86 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
               className={`flex min-h-11 select-none touch-manipulation items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
                 actions.myReaction ? 'text-rose-500 dark:text-rose-400' : 'text-gray-500 dark:text-slate-400'
               }`}
             >
-              <Heart size={15} fill={actions.myReaction ? 'currentColor' : 'none'} />
-              {actions.reactionCount > 0 && <span className="tabular-nums">{actions.reactionCount}</span>}
+              <span className="relative flex items-center justify-center">
+                {likePopped && (
+                  <motion.span
+                    aria-hidden="true"
+                    className="absolute -inset-1 rounded-full bg-rose-500/30"
+                    initial={{ scale: 0.3, opacity: 0.8 }}
+                    animate={{ scale: 1.9, opacity: 0 }}
+                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                  />
+                )}
+                <motion.span
+                  key={likePopped ? 'liked-pop' : 'idle'}
+                  className="flex"
+                  initial={likePopped ? { scale: 0 } : false}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 560, damping: 14 }}
+                >
+                  <Heart size={15} fill={actions.myReaction ? 'currentColor' : 'none'} />
+                </motion.span>
+              </span>
+              <AnimatePresence mode="popLayout" initial={false}>
+                {actions.reactionCount > 0 && (
+                  <motion.span
+                    key={actions.reactionCount}
+                    className="tabular-nums"
+                    initial={reduceMotion ? false : { y: 9, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={reduceMotion ? { opacity: 0 } : { y: -9, opacity: 0 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                  >
+                    {actions.reactionCount}
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </motion.button>
 
             <motion.button
