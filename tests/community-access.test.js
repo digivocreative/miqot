@@ -77,18 +77,21 @@ test('every community API route uses the Teras feature gate', () => {
     (serverSource.match(/if \(!requireCommunityAccess\(agent, res\)\) return;/g)?.length ?? 0) >= 12,
   );
 
+  // Regex diawali \n supaya cocok ke deklarasi route sungguhan (kolom 0),
+  // bukan komentar yang menyebut path route (mis. server.js sekitar baris 468
+  // yang menulis "app.post('/api/community/posts', ...)" sebagai contoh).
   for (const [label, declaration] of [
-    ['GET /api/community/teaser', /app\.get\('\/api\/community\/teaser'/],
-    ['POST /api/community/read', /app\.post\('\/api\/community\/read'/],
-    ['GET /api/community/feed', /app\.get\('\/api\/community\/feed'/],
-    ['POST /api/community/posts', /app\.post\('\/api\/community\/posts'/],
-    ['POST /api/community/media', /app\.post\('\/api\/community\/media'/],
-    ['POST /api/community/posts/:id/reaction', /app\.post\('\/api\/community\/posts\/:id\/reaction'/],
-    ['GET /api/community/posts/:id/comments', /app\.get\('\/api\/community\/posts\/:id\/comments'/],
-    ['POST /api/community/posts/:id/comments', /app\.post\('\/api\/community\/posts\/:id\/comments'/],
-    ['DELETE /api/community/posts/:id', /app\.delete\('\/api\/community\/posts\/:id'/],
-    ['DELETE /api/community/comments/:id', /app\.delete\('\/api\/community\/comments\/:id'/],
-    ['POST /api/community/posts/:id/report', /app\.post\('\/api\/community\/posts\/:id\/report'/],
+    ['GET /api/community/teaser', /\napp\.get\('\/api\/community\/teaser'/],
+    ['POST /api/community/read', /\napp\.post\('\/api\/community\/read'/],
+    ['GET /api/community/feed', /\napp\.get\('\/api\/community\/feed'/],
+    ['POST /api/community/posts', /\napp\.post\('\/api\/community\/posts'/],
+    ['POST /api/community/media', /\napp\.post\('\/api\/community\/media'/],
+    ['POST /api/community/posts/:id/reaction', /\napp\.post\('\/api\/community\/posts\/:id\/reaction'/],
+    ['GET /api/community/posts/:id/comments', /\napp\.get\('\/api\/community\/posts\/:id\/comments'/],
+    ['POST /api/community/posts/:id/comments', /\napp\.post\('\/api\/community\/posts\/:id\/comments'/],
+    ['DELETE /api/community/posts/:id', /\napp\.delete\('\/api\/community\/posts\/:id'/],
+    ['DELETE /api/community/comments/:id', /\napp\.delete\('\/api\/community\/comments\/:id'/],
+    ['POST /api/community/posts/:id/report', /\napp\.post\('\/api\/community\/posts\/:id\/report'/],
   ]) {
     const match = declaration.exec(serverSource);
     assert.ok(match, `${label} harus dideklarasikan`);
@@ -160,7 +163,7 @@ test('community media migration is additive, bounded, and backfills legacy photo
   );
   assert.match(
     migrationSource,
-    /CREATE OR REPLACE FUNCTION community_post_media_is_valid\(value JSONB\)[\s\S]*?jsonb_typeof\(value\) <> 'array'[\s\S]*?jsonb_array_length\(value\) > 4[\s\S]*?item->>'type' NOT IN \('image', 'video'\)[\s\S]*?jsonb_typeof\(item->'url'\) IS DISTINCT FROM 'string'/i,
+    /CREATE OR REPLACE FUNCTION community_post_media_is_valid\(value JSONB\)[\s\S]*?jsonb_typeof\(value\) <> 'array'[\s\S]*?jsonb_array_length\(value\) > 10[\s\S]*?item->>'type' NOT IN \('image', 'video'\)[\s\S]*?jsonb_typeof\(item->'url'\) IS DISTINCT FROM 'string'/i,
   );
   assert.match(
     migrationSource,
@@ -262,7 +265,7 @@ test('dashboard registers Teras at all eight integration points', () => {
     ],
     [
       'menu filter, direct-route guard, loader, and guarded render',
-      /const terasEnabled = isCommunityEnabledForAgent\(agentData\.slug\);[\s\S]*?c\.id !== 'teras' \|\| terasEnabled[\s\S]*?if \(activeTab === 'teras' && !terasEnabled\)[\s\S]*?navigatePath\('\/dashboard', \{ replace: true \}\)[\s\S]*?if \(activeTab === 'teras' && !terasEnabled\)[\s\S]*?<Loader2[\s\S]*?activeTab === 'teras' && terasEnabled[\s\S]*?<TerasPage agent=\{\{[\s\S]*?slug: agentData\.slug[\s\S]*?name: agentData\.name[\s\S]*?photo: agentData\.photo[\s\S]*?role: agentData\.role/,
+      /const terasEnabled = isCommunityEnabledForAgent\(agentData\.slug\);[\s\S]*?c\.id !== 'teras' \|\| terasEnabled[\s\S]*?if \(activeTab === 'teras' && !terasEnabled && !terasProfileRouteSlug\)[\s\S]*?navigatePath\('\/dashboard', \{ replace: true \}\)[\s\S]*?if \(activeTab === 'teras' && !terasEnabled\)[\s\S]*?<Loader2[\s\S]*?activeTab === 'teras' && terasEnabled[\s\S]*?<TerasPage[\s\S]*?agent=\{\{[\s\S]*?slug: agentData\.slug[\s\S]*?name: agentData\.name[\s\S]*?photo: agentData\.photo[\s\S]*?role: agentData\.role/,
     ],
   ];
 
@@ -313,7 +316,7 @@ test('Teras Threads presentation uses a single Heart reaction and the new compos
     'utf8',
   );
 
-  assert.match(pageSource, /'Apa yang baru, Bu\?'/);
+  assert.match(pageSource, /const COMPOSER_PROMPTS = \[\s*'Apa yang baru hari ini\?'/);
   assert.match(
     pageSource,
     /import\s*\{[\s\S]*?\bHeart\b[\s\S]*?\}\s*from 'lucide-react'/,
@@ -392,11 +395,13 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
     'utf8',
   );
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  const postRouteStart = serverSource.indexOf("app.post('/api/community/posts',");
-  const mediaRouteStart = serverSource.indexOf("app.post('/api/community/media',");
-  const reactionRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/reaction',");
-  const commentRouteStart = serverSource.indexOf("app.post('/api/community/posts/:id/comments',");
-  const deletePostRouteStart = serverSource.indexOf("app.delete('/api/community/posts/:id',");
+  // \n-anchored: cocok ke deklarasi route sungguhan (kolom 0), bukan komentar
+  // yang menyebut path (server.js ~468 menulis contoh app.post('/api/community/posts', ...)).
+  const postRouteStart = serverSource.indexOf("\napp.post('/api/community/posts',");
+  const mediaRouteStart = serverSource.indexOf("\napp.post('/api/community/media',");
+  const reactionRouteStart = serverSource.indexOf("\napp.post('/api/community/posts/:id/reaction',");
+  const commentRouteStart = serverSource.indexOf("\napp.post('/api/community/posts/:id/comments',");
+  const deletePostRouteStart = serverSource.indexOf("\napp.delete('/api/community/posts/:id',");
 
   assert.ok(postRouteStart >= 0 && mediaRouteStart > postRouteStart);
   assert.ok(mediaRouteStart >= 0 && reactionRouteStart > mediaRouteStart);
@@ -408,47 +413,54 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
   const reactionRouteSource = serverSource.slice(reactionRouteStart, commentRouteStart);
   const commentRouteSource = serverSource.slice(commentRouteStart, deletePostRouteStart);
 
+  // Composer utas: tiap segmen membawa client_id stabil (segment.id); sekali
+  // terkirim id-nya dicatat agar edit melahirkan id baru (idempotensi per-segmen).
   assert.match(
     pageSource,
-    /composerRequestIdRef\.current \|\| window\.crypto\.randomUUID\(\)[\s\S]*?composerRequestIdRef\.current = requestId/,
+    /client_id: segment\.id,[\s\S]*?photo_url: legacyPhotoUrl[\s\S]*?composerSentIdsRef\.current\.add\(segment\.client_id\)/,
   );
   assert.match(
     pageSource,
     /mapWithConcurrency\(mediaSnapshot, 2,[\s\S]*?'\/api\/community\/media'[\s\S]*?'X-Upload-ID': item\.uploadId[\s\S]*?body: item\.uploadBlob/,
   );
+  // Komentar: client_id per (kiriman + sasaran) via requestKey, dikirim sbg client_id.
   assert.match(
     pageSource,
-    /body,\s*client_id: requestId,\s*\.\.\.\(uploadedMedia\.length > 0 \? \{ media: uploadedMedia \} : \{\}\)[\s\S]*?photo_url: legacyPhotoUrl/,
-  );
-  assert.match(
-    pageSource,
-    /commentRequestIdsRef\.current\.get\(postId\) \|\| window\.crypto\.randomUUID\(\)[\s\S]*?commentRequestIdsRef\.current\.set\(postId, requestId\)[\s\S]*?JSON\.stringify\(\{ body, client_id: requestId \}\)/,
+    /commentRequestIdsRef\.current\.get\(requestKey\) \|\| window\.crypto\.randomUUID\(\)[\s\S]*?commentRequestIdsRef\.current\.set\(requestKey, requestId\)[\s\S]*?body,\s*client_id: requestId/,
   );
 
+  // Insert dipindah ke helper createCommunityPostRow (dipakai berulang oleh
+  // pembuat utas): client_id jadi id baris, dan 23505 mengembalikan baris lama
+  // (retry idempoten) atau menandai DUPLICATE_CLIENT_ID.
+  assert.match(
+    serverSource,
+    /async function createCommunityPostRow\(\{[\s\S]*?\.\.\.\(clientId \? \{ id: clientId \} : \{\}\)[\s\S]*?\.insert\(postPayload\)[\s\S]*?insertError\?\.code === '23505' && clientId[\s\S]*?communityMediaEquals\(existingMedia, media\)[\s\S]*?code: 'DUPLICATE_CLIENT_ID'/,
+  );
+  // Route memetakan schema media hilang -> 503 dan DUPLICATE_CLIENT_ID -> 409.
   assert.match(
     postRouteSource,
-    /const clientId = req\.body\?\.client_id;[\s\S]*?isCommunityUuid\(clientId\)[\s\S]*?normalizeCommunityMediaInput[\s\S]*?const photoUrl = media\.find[\s\S]*?\.insert\(postPayload\)[\s\S]*?Migrasi media Teras belum diterapkan[\s\S]*?insertError\?\.code === '23505' && clientId[\s\S]*?communityMediaEquals\(existingMedia, media\)[\s\S]*?status\(409\)\.json\(\{ error: 'ID kiriman sudah digunakan' \}\)/,
+    /failure\.mediaSchemaRequiredMissing[\s\S]*?status\(503\)\.json\(\{ error: 'Migrasi media Teras belum diterapkan' \}\)[\s\S]*?failure\.error\?\.code === 'DUPLICATE_CLIENT_ID'[\s\S]*?status\(409\)\.json\(\{ error: 'ID kiriman sudah digunakan' \}\)/,
   );
   assert.match(
     mediaRouteSource,
-    /req\.communityAgent[\s\S]*?hasExpectedCommunityMediaSignature\(buffer, mime\)[\s\S]*?createHash\('sha256'\)[\s\S]*?`community\/\$\{agent\.slug\}-\$\{uploadId\}-\$\{contentHash\}\.\$\{mediaConfig\.ext\}`[\s\S]*?upsert:\s*false[\s\S]*?isCommunityStorageConflict\(uploadError\)[\s\S]*?success: true, url: urlData\.publicUrl, type: mediaConfig\.type/,
+    /req\.communityAgent[\s\S]*?hasExpectedCommunityMediaSignature\(buffer, mime\)[\s\S]*?createHash\('sha256'\)[\s\S]*?`community\/\$\{agent\.slug\}-\$\{uploadId\}-\$\{contentHash\}\.\$\{mediaConfig\.ext\}`[\s\S]*?upsert:\s*false[\s\S]*?isCommunityStorageConflict\(uploadError\)[\s\S]*?success: true, url: publicUrl, type: mediaConfig\.type/,
   );
   assert.match(
     serverSource,
     /async function prepareCommunityMediaUpload[\s\S]*?req\.get\('X-Upload-ID'\)[\s\S]*?COMMUNITY_MEDIA_MIME_TYPES\[mime\][\s\S]*?COMMUNITY_MEDIA_RATE_MAX_UPLOADS[\s\S]*?COMMUNITY_MEDIA_RATE_MAX_BYTES/,
   );
-  assert.match(serverSource, /const expectedAgentPath = `\$\{expectedPrefix\.pathname\}\$\{agentSlug\}-`/);
+  assert.match(serverSource, /agentPath: `\$\{parsed\.pathname\}\$\{agentSlug\}-`/);
   assert.match(serverSource, /if \(!\['42703', 'PGRST204'\]\.includes\(code\)\) return false/);
-  assert.match(serverSource, /COMMUNITY_MAX_MEDIA_ITEMS = 4/);
-  assert.match(serverSource, /COMMUNITY_IMAGE_MAX_BYTES = 6 \* 1024 \* 1024/);
-  assert.match(serverSource, /COMMUNITY_VIDEO_MAX_BYTES = 24 \* 1024 \* 1024/);
+  assert.match(serverSource, /COMMUNITY_MAX_MEDIA_ITEMS = 10/);
+  assert.match(serverSource, /COMMUNITY_IMAGE_MAX_BYTES = 3 \* 1024 \* 1024/);
+  assert.match(serverSource, /COMMUNITY_VIDEO_MAX_BYTES = 20 \* 1024 \* 1024/);
   assert.match(
     serverSource,
     /'image\/jpeg'[\s\S]*?'image\/png'[\s\S]*?'image\/webp'[\s\S]*?'video\/mp4'[\s\S]*?'video\/quicktime'[\s\S]*?'video\/webm'/,
   );
   assert.match(
     serverSource,
-    /buildPostsQuery = \(includeMedia\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?buildPostsQuery\(false\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
+    /buildPostsQuery = \(includeMedia, includeQuote, includeLinkPreview, includeThread\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
   );
   assert.match(
     commentRouteSource,
