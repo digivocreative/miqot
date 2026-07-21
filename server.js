@@ -5365,18 +5365,40 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       // Pra-migrasi (includeThread=false): parent_post_id/is_reply belum ada
       // di kolom sama sekali, jadi filter apapun di sini akan 500 -- dilewati
       // total, sama seperti degradasi filter lain di endpoint ini.
-      if (includeThread) {
-        query = profileMember
-          ? query.or('parent_post_id.is.null,is_reply.eq.true')
-          : query.is('parent_post_id', null);
+      if (includeThread && !profileMember) {
+        query = query.is('parent_post_id', null);
       }
+      // Mode profil + cursor (parent_post_id.is.null OR is_reply.eq.true) DAN
+      // cursor keyset (created_at.lt.C OR (created_at.eq.C AND id.lt.P)) sama-
+      // sama butuh .or() -- tapi PostgREST TIDAK dijamin meng-AND-kan dua
+      // parameter or= terpisah pada satu query (belum diverifikasi di sini).
+      // Kalau salah asumsi, filter thread bisa diam-diam hilang di halaman
+      // ke-2 dan SEGMEN LANJUTAN UTAS BOCOR ke profil. Supaya pasti benar,
+      // keduanya didistribusikan (DNF) jadi SATU .or() top-level saja untuk
+      // kombinasi profil+includeThread. Cabang linimasa (non-profil) tidak
+      // tersentuh -- thread di sana pakai .is(), jadi cuma ada satu .or()
+      // (cursor) seperti sebelumnya, tidak ada risiko dua-or.
       if (before?.postId) {
-        query = query.or(
-          `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
-        );
+        query = (includeThread && profileMember)
+          ? query.or(
+              `and(parent_post_id.is.null,created_at.lt.${before.createdAt}),` +
+              `and(parent_post_id.is.null,created_at.eq.${before.createdAt},id.lt.${before.postId}),` +
+              `and(is_reply.eq.true,created_at.lt.${before.createdAt}),` +
+              `and(is_reply.eq.true,created_at.eq.${before.createdAt},id.lt.${before.postId})`,
+            )
+          : query.or(
+              `created_at.lt.${before.createdAt},and(created_at.eq.${before.createdAt},id.lt.${before.postId})`,
+            );
       } else if (before) {
         // Keep accepting the original timestamp-only cursor for older clients.
-        query = query.lt('created_at', before.createdAt);
+        query = (includeThread && profileMember)
+          ? query.or(
+              `and(parent_post_id.is.null,created_at.lt.${before.createdAt}),` +
+              `and(is_reply.eq.true,created_at.lt.${before.createdAt})`,
+            )
+          : query.lt('created_at', before.createdAt);
+      } else if (includeThread && profileMember) {
+        query = query.or('parent_post_id.is.null,is_reply.eq.true');
       }
       return query
         .order('created_at', { ascending: false })
