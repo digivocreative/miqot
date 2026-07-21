@@ -5349,14 +5349,26 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => {
       let query = supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
-      // Segmen lanjutan sebuah utas tidak pernah muncul di daftar — baik di
-      // linimasa maupun di profil. Utas tampil sebagai satu unit lewat kartu
-      // segmen pertamanya.
-      if (includeThread) query = query.is('parent_post_id', null);
       if (profileMember) {
         query = query.eq('agent_id', profileMember.id);
+      }
+      // Segmen lanjutan sebuah utas tidak pernah muncul di daftar. Linimasa
+      // (non-profil): hanya kiriman induk (parent_post_id IS NULL) — utas
+      // tampil sebagai satu unit lewat kartu segmen pertamanya, balasan tidak
+      // muncul di sini sama sekali. Profil: kiriman induk + balasan
+      // (is_reply=true) ikut tampil dengan konteks "Membalas ke @X", TAPI
+      // segmen lanjutan (parent_post_id terisi, is_reply=false) tetap
+      // disembunyikan -- itulah gunanya is_reply sebagai pembeda (keduanya
+      // sama-sama punya parent_post_id, lihat reconcile-map §3).
+      // Pra-migrasi (includeThread=false): parent_post_id/is_reply belum ada
+      // di kolom sama sekali, jadi filter apapun di sini akan 500 -- dilewati
+      // total, sama seperti degradasi filter lain di endpoint ini.
+      if (includeThread) {
+        query = profileMember
+          ? query.or('parent_post_id.is.null,is_reply.eq.true')
+          : query.is('parent_post_id', null);
       }
       if (before?.postId) {
         query = query.or(
@@ -5408,6 +5420,43 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       commentCounts,
       quoteCounts,
     } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/feed' });
+
+    // Mode profil saja: balasan sudah ikut terkirim (lihat buildPostsQuery di
+    // atas), tapi klien butuh siapa penulis induknya untuk baris "Membalas ke
+    // @slug". Satu query .in('id', parentIds) untuk semua induk sekaligus --
+    // BUKAN satu query per item -- lalu dipetakan ke parent_author per post.
+    // Mode linimasa tidak pernah punya balasan (difilter di buildPostsQuery),
+    // jadi query ini sengaja dilewati di sana. includeThread=false juga
+    // melewatinya (posts pra-migrasi tidak punya parent_post_id di select
+    // sama sekali, jadi parentIds selalu kosong -- tapi digerbangi eksplisit
+    // di sini juga, bukan cuma mengandalkan itu sebagai efek samping).
+    //
+    // deleted_at ikut diambil (BUKAN difilter) supaya baris "Membalas ke @X"
+    // bisa membedakan induk yang sudah dihapus dari induk yang benar-benar
+    // tidak ada -- pola yang sama dengan fetchCommunityAncestorRow di
+    // GET /posts/:id. Tanpa ini klien mengklik baris konteks lalu 404 di
+    // GET /posts/:id (yang menyaring deleted_at is null), padahal halaman
+    // thread untuk kasus identik sudah punya placeholder "Kiriman sudah
+    // dihapus".
+    const parentAuthorById = new Map();
+    if (profileMember && includeThread) {
+      const parentIds = [...new Set((posts || []).map(post => post.parent_post_id).filter(Boolean))];
+      if (parentIds.length > 0) {
+        const { data: parentRows, error: parentAuthorError } = await supabase
+          .from('community_posts')
+          .select('id, deleted_at, agent:agents!community_posts_agent_id_fkey(name, slug)')
+          .in('id', parentIds);
+        if (parentAuthorError) throw parentAuthorError;
+        for (const row of parentRows || []) {
+          if (row.deleted_at) {
+            parentAuthorById.set(row.id, { available: false });
+            continue;
+          }
+          const parentAgent = Array.isArray(row.agent) ? row.agent[0] : row.agent;
+          parentAuthorById.set(row.id, { available: true, name: parentAgent?.name ?? null, slug: parentAgent?.slug ?? null });
+        }
+      }
+    }
 
     const quotedIds = includeQuote
       ? [...new Set((posts || []).map(post => post.quoted_post_id).filter(Boolean))]
@@ -5478,6 +5527,14 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
           : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
         is_own: post.agent_id === agent.id,
+        // parent_post_id/parent_author cuma berarti di mode profil (linimasa
+        // selalu parent_post_id NULL, sudah disaring di buildPostsQuery).
+        // parent_author absen lewat spread kosong (bukan `null`) saat kiriman
+        // tidak punya induk, sama seperti pola di fitur balasan lain.
+        parent_post_id: includeThread ? (post.parent_post_id || null) : null,
+        ...(profileMember && includeThread && post.parent_post_id
+          ? { parent_author: parentAuthorById.get(post.parent_post_id) || null }
+          : {}),
       };
     });
     const nextCursor = data.length < 20
