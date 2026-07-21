@@ -4915,7 +4915,7 @@ export default function TerasPage({
                             </div>
                           </div>
                           <div className="min-w-0">
-                          <div className="flex min-w-0 items-end gap-1.5 pb-1">
+                          <div className="flex min-w-0 items-end gap-1.5 pb-3">
                             <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
                             {mentionState?.context === commentTargetId && (
                               <MentionAutocomplete
@@ -4931,7 +4931,7 @@ export default function TerasPage({
                               <MentionHighlightLayer
                                 text={commentPanel.input}
                                 memberBySlug={memberBySlug}
-                                className="py-[11px] text-[13.5px] leading-snug"
+                                className="py-[11px] text-[15px] leading-snug"
                               />
                               <textarea
                                 id={`teras-comment-input-${commentTargetId}`}
@@ -4952,7 +4952,7 @@ export default function TerasPage({
                                 aria-label="Tulis komentar"
                                 placeholder={`Balas ke ${authorName}…`}
                                 maxLength={COMMENT_BODY_HARD_CAP}
-                                className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[13.5px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+                                className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[15px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                               />
                               </div>
                               <button
@@ -5080,7 +5080,7 @@ export default function TerasPage({
                             onOpenThread={openPostDetail}
                             profileSlug={profileSlug}
                             renderBody={comment => (
-                              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
+                              <p className="mt-1.5 whitespace-pre-wrap text-[15px] leading-[1.5] text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
                             )}
                             renderMedia={comment => (
                               (comment.media?.length ?? 0) > 0 ? (

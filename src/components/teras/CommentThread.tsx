@@ -268,15 +268,15 @@ function CommentRow({
                 event.stopPropagation();
                 onOpenProfile(commentAuthorSlug);
               }}
-              className="min-w-0 truncate text-[13px] font-bold text-gray-800 hover:underline dark:text-slate-200"
+              className="min-w-0 truncate text-[14px] font-bold text-gray-800 hover:underline dark:text-slate-200"
             >
               {commentAuthorName}
             </a>
           ) : (
-            <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{commentAuthorName}</p>
+            <p className="min-w-0 truncate text-[14px] font-bold text-gray-800 dark:text-slate-200">{commentAuthorName}</p>
           )}
           <span className="flex-1" />
-          <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+          <time dateTime={comment.created_at} className="shrink-0 text-[12px] font-medium text-gray-500 dark:text-slate-400">
             {formatTime(comment.created_at)}
           </time>
           {canDeleteComment && (
@@ -299,7 +299,7 @@ function CommentRow({
         {renderMedia(comment)}
 
         {actions && (
-          <div className="relative -ml-1.5 mt-0.5 flex items-center gap-0.5">
+          <div className="relative -ml-2 mt-1 flex items-center gap-1">
             <motion.button
               type="button"
               aria-pressed={!!actions.myReaction}
@@ -308,7 +308,7 @@ function CommentRow({
               onClick={handleReactClick}
               whileTap={reduceMotion ? undefined : { scale: 0.86 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-              className={`flex min-h-11 select-none touch-manipulation items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
+              className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
                 actions.myReaction ? 'text-rose-500 dark:text-rose-400' : 'text-gray-500 dark:text-slate-400'
               }`}
             >
@@ -329,7 +329,7 @@ function CommentRow({
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 560, damping: 14 }}
                 >
-                  <Heart size={15} fill={actions.myReaction ? 'currentColor' : 'none'} />
+                  <Heart size={19} fill={actions.myReaction ? 'currentColor' : 'none'} />
                 </motion.span>
               </span>
               <AnimatePresence mode="popLayout" initial={false}>
@@ -357,9 +357,9 @@ function CommentRow({
               onClick={() => onOpenThreadRow?.()}
               whileTap={reduceMotion ? undefined : { scale: 0.9 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-              className="flex min-h-11 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+              className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
             >
-              <MessageCircle size={15} />
+              <MessageCircle size={19} />
               {actions.replyCount > 0 && <span className="tabular-nums">{actions.replyCount}</span>}
             </motion.button>
 
@@ -371,9 +371,9 @@ function CommentRow({
                 onClick={actions.onQuote}
                 whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                 transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                className="flex min-h-11 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+                className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
               >
-                <RefreshCw size={14} />
+                <RefreshCw size={19} />
               </motion.button>
             )}
           </div>
