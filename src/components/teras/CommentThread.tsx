@@ -238,9 +238,11 @@ function CommentRow({
       onClick={onOpenThreadRow ? handleRowClick : undefined}
       onKeyDown={onOpenThreadRow ? handleRowKeyDown : undefined}
       className={`grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 ${
-        isTopLevel ? 'border-t border-gray-100 pt-3 dark:border-slate-800' : 'mt-2'
+        // -mx-4 px-4: garis pemisah komentar teratas full-bleed (mepet tepi
+        // kartu), isi tetap ber-padding. Balasan nested tak pakai pemisah.
+        isTopLevel ? '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800' : 'mt-2'
       } ${
-        onOpenThreadRow ? 'cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
+        onOpenThreadRow ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}
     >
       <div className="flex flex-col items-center">
@@ -355,17 +357,16 @@ function CommentRow({
               </AnimatePresence>
             </motion.button>
 
+            {/* Ikon balas membuka HALAMAN komentar ini (ala Threads) — balasan
+                ditulis dari sana, bukan lewat kolom balas inline. */}
             <motion.button
               type="button"
-              aria-pressed={actions.isReplyTarget}
-              aria-label="Balas komentar"
+              aria-label="Buka balasan"
               title="Balas"
-              onClick={actions.onReply}
+              onClick={() => onOpenThreadRow?.()}
               whileTap={reduceMotion ? undefined : { scale: 0.9 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-              className={`flex min-h-11 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:text-emerald-400 dark:active:bg-slate-900 ${
-                actions.isReplyTarget ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'
-              }`}
+              className="flex min-h-11 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
             >
               <MessageCircle size={15} />
               {actions.replyCount > 0 && <span className="tabular-nums">{actions.replyCount}</span>}

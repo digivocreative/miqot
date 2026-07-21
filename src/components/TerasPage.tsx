@@ -4796,7 +4796,7 @@ export default function TerasPage({
                           {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
                         </p>
 
-                        <div data-thread-input className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 pt-3 dark:border-slate-800">
+                        <div data-thread-input className="-mx-4 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 px-4 pt-3 dark:border-slate-800">
                           <div className="relative flex justify-center pt-2">
                             <div className="relative z-10">
                               <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
