@@ -4264,6 +4264,23 @@ function isCommunityMediaSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+// community_post_comments adalah tabel komentar LAMA (pra-rekonsiliasi utas):
+// komentar baru sekarang baris community_posts (is_reply=true), dan Langkah 6
+// migrations/20260726000000_community_post_thread.sql (dijalankan nanti,
+// setelah rekonsiliasi ini dipercaya) me-RENAME tabel ini ke
+// community_post_comments_legacy. Kode yang masih membacanya untuk kompatibel
+// mundur (communityMediaUrlStillReferenced, purgeDeletedCommunityMedia) harus
+// toleran tabel itu sendiri hilang — bukan cuma kolomnya — supaya tidak
+// melempar/mencatat galat tiap kali dipanggil pasca-rename.
+function isCommunityCommentsTableMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (['42P01', 'PGRST205', 'PGRST200'].includes(code)) {
+    return /community_post_comments/i.test(message) || code === '42P01';
+  }
+  return false;
+}
+
 function isCommunityQuoteSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
@@ -6734,6 +6751,7 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
         .eq('id', clientId)
         .eq('parent_post_id', post.id)
         .eq('agent_id', agent.id)
+        .eq('is_reply', true)
         .is('deleted_at', null)
         .maybeSingle();
       let { data: existingComment, error: existingError } = await loadExistingComment(true);
@@ -6974,7 +6992,13 @@ async function communityMediaUrlStillReferenced(url) {
   ]);
   let referenced = 0;
   for (const result of results) {
-    if (result.error && !isCommunityMediaSchemaMissing(result.error)) throw result.error;
+    if (
+      result.error
+      && !isCommunityMediaSchemaMissing(result.error)
+      && !isCommunityCommentsTableMissing(result.error)
+    ) {
+      throw result.error;
+    }
     referenced += result.count || 0;
   }
   return referenced > 0;
@@ -7018,7 +7042,10 @@ async function purgeDeletedCommunityMedia() {
 
     let { data: mediaRows, error: mediaError } = await baseQuery(`id, media${hasPhotoUrl ? ', photo_url' : ''}`)
       .neq('media', '[]');
-    if (isCommunityMediaSchemaMissing(mediaError)) {
+    // Tabel itu sendiri hilang (community_post_comments di-rename Langkah 6)
+    // ditoleransi sama seperti kolomnya hilang: lewati diam-diam, jangan catat
+    // sebagai error tiap sweep purge.
+    if (isCommunityMediaSchemaMissing(mediaError) || isCommunityCommentsTableMissing(mediaError)) {
       includeMedia = false;
       mediaRows = [];
       mediaError = null;
@@ -7485,14 +7512,25 @@ async function runTerasTelegramDigestSweep() {
   const cutoffIso = new Date(now - TERAS_DIGEST_WINDOW_MS).toISOString();
   const floorIso = new Date(now - TERAS_DIGEST_LOOKBACK_MS).toISOString();
 
+  // Balasan kini baris community_posts (is_reply=true), bukan lagi
+  // community_post_comments — lihat loadTerasNotificationSources (R7) untuk
+  // bentuk embed yang sama. Petunjuk embed memakai NAMA KOLOM
+  // (`!parent_post_id`), bukan nama constraint, dan error toleransi lewat
+  // isCommunityThreadSchemaMissing (termasuk PGRST201 embed ambigu tanpa
+  // syarat pesan) — kalau tidak, sweep ini mati total begitu Langkah 6 (rename
+  // tabel lama) dijalankan, bukan cuma berhenti mengirim balasan.
   const [commentResult, reactionResult] = await Promise.all([
     supabase
-      .from('community_post_comments')
-      .select('id, post_id, agent_id, created_at, author:agents(name), post:community_posts!inner(agent_id, deleted_at)')
+      .from('community_posts')
+      .select(`id, parent_post_id, agent_id, created_at,
+        author:agents(name),
+        parent:community_posts!parent_post_id!inner(agent_id, deleted_at)`)
+      .eq('is_reply', true)
+      .not('parent_post_id', 'is', null)
       .gte('created_at', floorIso)
       .lte('created_at', cutoffIso)
       .is('deleted_at', null)
-      .is('post.deleted_at', null)
+      .is('parent.deleted_at', null)
       .order('created_at', { ascending: true })
       .limit(500),
     supabase
@@ -7505,25 +7543,27 @@ async function runTerasTelegramDigestSweep() {
       .limit(500),
   ]);
 
-  if (commentResult.error) throw commentResult.error;
+  if (commentResult.error && !isCommunityThreadSchemaMissing(commentResult.error)) throw commentResult.error;
   if (reactionResult.error) throw reactionResult.error;
 
   // Diagnostik: kalau query menyentuh batas 500, ada baris yang tidak
   // terambil sama sekali sweep ini — operator perlu tahu sistem sudah
   // tumbuh melewati batas ini (lihat catatan watermark per-owner di bawah
-  // untuk kenapa ini tidak sampai menghilangkan notifikasi).
-  if ((commentResult.data || []).length === 500) {
+  // untuk kenapa ini tidak sampai menghilangkan notifikasi). Dilewati kalau
+  // commentResult.error sudah ditoleransi di atas — data-nya kosong bukan
+  // karena terpotong.
+  if (!commentResult.error && (commentResult.data || []).length === 500) {
     console.warn('[teras-digest] query komentar mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
   }
   if ((reactionResult.data || []).length === 500) {
     console.warn('[teras-digest] query reaksi mencapai batas 500 baris, kemungkinan ada baris yang terpotong');
   }
 
-  const comments = (commentResult.data || []).map(row => ({
+  const comments = (commentResult.error ? [] : (commentResult.data || [])).map(row => ({
     id: row.id,
-    post_id: row.post_id,
+    post_id: row.parent_post_id,
     created_at: row.created_at,
-    owner_agent_id: row.post?.agent_id,
+    owner_agent_id: row.parent?.agent_id,
     actor_agent_id: row.agent_id,
     actor_name: row.author?.name || null,
   }));
@@ -20598,9 +20638,16 @@ async function loadTerasSharePreview(code) {
   if (error) throw error;
   if (!post) return null;
 
+  // commentCount balasan kini baris community_posts (is_reply=true), bukan lagi
+  // community_post_comments (beku pasca-cutover, 0 pasca-rename Langkah 6).
+  // Endpoint OG ini TIDAK terautentikasi dan bisa dipanggil pra-migrasi (kolom
+  // is_reply belum ada) — errornya SENGAJA tidak dicek di sini (sama seperti
+  // reactionResult di baris atasnya sudah lama begitu): count tetap `undefined`
+  // lalu jatuh ke `|| 0` di bawah, tanpa pernah melempar.
   const [reactionResult, commentResult] = await Promise.all([
     supabase.from('community_post_reactions').select('post_id', { count: 'exact', head: true }).eq('post_id', post.id),
-    supabase.from('community_post_comments').select('post_id', { count: 'exact', head: true }).eq('post_id', post.id).is('deleted_at', null),
+    supabase.from('community_posts').select('id', { count: 'exact', head: true })
+      .eq('parent_post_id', post.id).eq('is_reply', true).is('deleted_at', null),
   ]);
 
   return {

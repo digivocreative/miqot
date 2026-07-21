@@ -178,10 +178,16 @@ NOTIFY pgrst, 'reload schema';
 -- Tabel lama di-rename, bukan di-DROP: itu jaring pengaman rollback.
 -- ALTER TABLE community_post_comments RENAME TO community_post_comments_legacy;
 --
--- Sebelum menjalankan ini, lihat checklist rilis §4: larik `tables` di
--- purgeDeletedCommunityMedia (server.js) masih mendaftarkan
--- community_post_comments secara langsung dan MENUNTUT ubahan kode lebih
--- dulu (hapus entri itu) -- bukan otomatis aman seperti draf awal dokumen ini
--- pernah menulis. communityMediaUrlStillReferenced sendiri sudah menoleransi
--- tabel lama hilang (42P01) sejak review akhir fitur ini, jadi bagian itu
--- TIDAK perlu ubahan lagi.
+-- Sebelum menjalankan ini: larik `tables` di purgeDeletedCommunityMedia
+-- (server.js) masih mendaftarkan community_post_comments secara langsung --
+-- BUKAN masalah lagi sejak review akhir rekonsiliasi ini. Sebelum fix
+-- tersebut, communityMediaUrlStillReferenced (server.js) memakai
+-- isCommunityMediaSchemaMissing yang hanya menoleransi kolom hilang
+-- (42703/PGRST204), bukan tabel hilang (42P01/PGRST205) -- jadi begitu tabel
+-- ini di-rename, fungsi itu melempar dan purge media gagal tiap baris.
+-- Sekarang communityMediaUrlStillReferenced DAN loop purgeDeletedCommunityMedia
+-- (kedua tempat yang membaca community_post_comments) menoleransi tabel itu
+-- hilang lewat isCommunityCommentsTableMissing (server.js) -- entri
+-- community_post_comments di larik `tables` sengaja DIBIARKAN (bukan
+-- dihapus): loop-nya melewatinya diam-diam setelah rename, tidak perlu
+-- ubahan kode susulan sebelum menjalankan langkah ini.
