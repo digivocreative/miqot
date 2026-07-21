@@ -21,7 +21,6 @@ import {
   ChevronRight,
   Copy,
   Flag,
-  Heart,
   Image as ImageIcon,
   Loader2,
   Maximize2,
@@ -63,7 +62,7 @@ import {
   type MentionMember,
 } from '../lib/communityMentions';
 import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-broadcast.js';
-import { emptyReactionCounts, sumReactions } from '../../lib/community-reactions.js';
+import { emptyReactionCounts } from '../../lib/community-reactions.js';
 import type { ReactionType, ReactionCounts } from '../../lib/community-reactions.js';
 
 export type { ReactionType } from '../../lib/community-reactions.js';
@@ -1362,7 +1361,6 @@ export default function TerasPage({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailFetchTick, setDetailFetchTick] = useState(0);
-  const [likePopId, setLikePopId] = useState<string | null>(null);
   const [reactionListPostId, setReactionListPostId] = useState<string | null>(null);
   const [hasNewPosts, setHasNewPosts] = useState(false);
 
@@ -2588,7 +2586,7 @@ export default function TerasPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reactionListPostId]);
 
-  const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
+  const updateReaction = async (postId: string, nextReaction: ReactionType | null) => {
     if (reactionPendingRef.current.has(postId)) return;
     const snapshot = postsRef.current.find(post => post.id === postId);
     if (!snapshot) return;
@@ -2623,9 +2621,7 @@ export default function TerasPage({
     }
   };
 
-  const handleLikeClick = (post: CommunityPost) => {
-    const nextReaction: 'suka' | null = post.my_reaction ? null : 'suka';
-    setLikePopId(current => nextReaction ? post.id : (current === post.id ? null : current));
+  const handlePostReact = (post: CommunityPost, nextReaction: ReactionType | null) => {
     void updateReaction(post.id, nextReaction);
   };
 
@@ -4257,9 +4253,7 @@ export default function TerasPage({
             // segmen akar di detail), bukan ke segmen yang sedang dirender.
             const activeCommentReplyTarget = replyTarget && replyTarget.postId === commentTargetId ? replyTarget : null;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
-            const totalReactions = sumReactions(post.reactions);
             const reactionIsBusy = reactionBusy.has(post.id);
-            const likePopped = likePopId === post.id && !!post.my_reaction && !reduceMotion;
             const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
             const authorSlug = post.is_system ? null : post.author.slug;
@@ -4578,58 +4572,17 @@ export default function TerasPage({
                     )}
 
                     <div className="relative -ml-2 mt-1 flex items-center gap-1">
-                      <motion.button
-                        type="button"
-                        aria-disabled={reactionIsBusy}
-                        aria-label="Suka"
-                        title="Suka"
-                        aria-pressed={!!post.my_reaction}
-                        onClick={() => {
-                          if (!reactionIsBusy) handleLikeClick(post);
-                        }}
-                        whileTap={reduceMotion ? undefined : { scale: 0.86 }}
-                        transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
-                          post.my_reaction
-                            ? 'text-rose-500 dark:text-rose-400'
-                            : 'text-gray-500 dark:text-slate-400'
-                        }`}
-                      >
-                        <span className="relative flex items-center justify-center">
-                          {likePopped && (
-                            <motion.span
-                              aria-hidden="true"
-                              className="absolute -inset-1 rounded-full bg-rose-500/30"
-                              initial={{ scale: 0.3, opacity: 0.8 }}
-                              animate={{ scale: 1.9, opacity: 0 }}
-                              transition={{ duration: 0.5, ease: 'easeOut' }}
-                            />
-                          )}
-                          <motion.span
-                            key={likePopped ? 'liked-pop' : 'idle'}
-                            className="flex"
-                            initial={likePopped ? { scale: 0 } : false}
-                            animate={{ scale: 1 }}
-                            transition={{ type: 'spring', stiffness: 560, damping: 14 }}
-                          >
-                            <Heart size={19} fill={post.my_reaction ? 'currentColor' : 'none'} />
-                          </motion.span>
-                        </span>
-                        <AnimatePresence mode="popLayout" initial={false}>
-                          {totalReactions > 0 && (
-                            <motion.span
-                              key={totalReactions}
-                              className="tabular-nums"
-                              initial={reduceMotion ? false : { y: 9, opacity: 0 }}
-                              animate={{ y: 0, opacity: 1 }}
-                              exit={reduceMotion ? { opacity: 0 } : { y: -9, opacity: 0 }}
-                              transition={{ duration: 0.16, ease: 'easeOut' }}
-                            >
-                              {totalReactions}
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </motion.button>
+                      <ReactionPicker
+                        size="post"
+                        disabled={reactionIsBusy}
+                        myReaction={post.my_reaction}
+                        onPick={reaction => { if (!reactionIsBusy) handlePostReact(post, reaction); }}
+                      />
+                      <ReactionSummary
+                        size="post"
+                        counts={post.reactions}
+                        onOpenList={() => setReactionListPostId(post.id)}
+                      />
 
                       <motion.button
                         type="button"
