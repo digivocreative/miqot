@@ -310,31 +310,22 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
   assert.doesNotMatch(cardSource, /setInterval\s*\(/);
 });
 
-test('Teras Threads presentation uses the shared emoji reaction picker and the new composer prompt', () => {
+test('Teras Threads presentation uses a single Heart reaction and the new composer prompt', () => {
   const pageSource = readFileSync(
     new URL('../src/components/TerasPage.tsx', import.meta.url),
     'utf8',
   );
-  const commentThreadSource = readFileSync(
-    new URL('../src/components/teras/CommentThread.tsx', import.meta.url),
-    'utf8',
-  );
 
   assert.match(pageSource, /const COMPOSER_PROMPTS = \[\s*'Apa yang baru hari ini\?'/);
-
-  // Reaksi kini picker emoji bersama (ReactionPicker + ReactionSummary),
-  // dipakai di kartu kiriman DAN komentar — menggantikan tombol Heart tunggal.
-  assert.match(pageSource, /ReactionPicker/);
-  assert.match(pageSource, /ReactionSummary/);
-  assert.match(commentThreadSource, /ReactionPicker/);
-  assert.match(commentThreadSource, /ReactionSummary/);
-
-  // Set reaksi bersumber dari registri tunggal (lib/community-reactions).
-  assert.match(pageSource, /lib\/community-reactions\.js/);
-  assert.match(commentThreadSource, /lib\/community-reactions\.js/);
-
-  // Tak ada lagi jalur single-Heart hardcoded 'suka'.
-  assert.doesNotMatch(pageSource, /const nextReaction: 'suka' \| null/);
+  assert.match(
+    pageSource,
+    /import\s*\{[\s\S]*?\bHeart\b[\s\S]*?\}\s*from 'lucide-react'/,
+  );
+  assert.doesNotMatch(pageSource, /PartyPopper|HandHeart|startLongPress|menuitemradio/);
+  assert.match(
+    pageSource,
+    /const nextReaction: 'suka' \| null = post\.my_reaction \? null : 'suka'/,
+  );
 });
 
 test('Teras comment rail follows Threads: flat comments separated, nested grouped', () => {

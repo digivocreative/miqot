@@ -61,7 +61,6 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
-import { COMMUNITY_REACTION_TYPES, emptyReactionCounts } from './lib/community-reactions.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -3992,6 +3991,8 @@ app.delete('/api/landing-config/og-image', authMiddleware, express.json({ limit:
 // ──────────────────────────────────────────────
 // Teras API — gated to the Nikita pilot agent
 // ──────────────────────────────────────────────
+
+const COMMUNITY_REACTION_TYPES = ['suka', 'selamat', 'aamiin'];
 const COMMUNITY_UUID_REGEX = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const COMMUNITY_ISO_TIMESTAMP_REGEX = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/i;
 const COMMUNITY_MAX_MEDIA_ITEMS = 10;
@@ -4409,7 +4410,7 @@ function normalizeStoredCommunityMedia(value, photoUrl = null) {
  * `context` hanya dipakai untuk melabeli console.warn saat terpotong.
  */
 async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true, context = 'loadCommunityEngagementMaps' } = {}) {
-  const reactionCounts = new Map(postIds.map(id => [id, emptyReactionCounts()]));
+  const reactionCounts = new Map(postIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
   const myReactions = new Map(postIds.map(id => [id, null]));
   const reactionSampleNames = new Map(postIds.map(id => [id, null]));
   const commentCounts = new Map(postIds.map(id => [id, 0]));
@@ -5877,7 +5878,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       ancestors = buildAncestorChain(rows, post.id);
     }
 
-    const reactions = emptyReactionCounts();
+    const reactions = { suka: 0, selamat: 0, aamiin: 0 };
     let myReaction = null;
     let reactionSampleName = null;
     for (const row of reactionResult.data || []) {
@@ -6404,7 +6405,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       photo_url: photoUrl,
       media,
       author: communityAuthorProfile(agent),
-      reactions: emptyReactionCounts(),
+      reactions: { suka: 0, selamat: 0, aamiin: 0 },
       my_reaction: null,
       reaction_sample_name: null,
       comment_count: 0,
@@ -6548,46 +6549,6 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
   }
 });
 
-app.get('/api/community/posts/:id/reactions', authMiddleware, async (req, res) => {
-  try {
-    const agent = await getAgentById(req.user.id);
-    if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    if (!requireCommunityAccess(agent, res)) return;
-
-    if (!isCommunityUuid(req.params.id)) {
-      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
-    }
-    const post = await loadActiveCommunityPost(req.params.id);
-    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
-
-    const LIMIT = 200;
-    const { data, error, count } = await supabase
-      .from('community_post_reactions')
-      .select('reaction, created_at, agent:agents(name, slug, photo)', { count: 'exact' })
-      .eq('post_id', post.id)
-      .order('created_at', { ascending: true })
-      .limit(LIMIT);
-    if (error) throw error;
-
-    const reactions = (data || [])
-      .filter(row => COMMUNITY_REACTION_TYPES.includes(row.reaction))
-      .map(row => ({
-        agent: communityAuthorProfile(row.agent),
-        reaction: row.reaction,
-        created_at: row.created_at,
-      }));
-    const truncated = typeof count === 'number' && count > LIMIT;
-    if (truncated) {
-      console.warn(`[community] reaction list truncated: db count=${count} cap=${LIMIT} at GET /api/community/posts/${post.id}/reactions`);
-    }
-
-    res.json({ data: { reactions, truncated } });
-  } catch (err) {
-    console.error('[community] reaction list error:', err);
-    res.status(500).json({ error: 'Gagal memuat daftar reaksi' });
-  }
-});
-
 app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -6700,7 +6661,7 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
     }
     const reactionTargetIds = [...new Set([...childIds, ...previewReplyIds])];
 
-    const commentReactionCounts = new Map(reactionTargetIds.map(id => [id, emptyReactionCounts()]));
+    const commentReactionCounts = new Map(reactionTargetIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
     const commentMyReactions = new Map(reactionTargetIds.map(id => [id, null]));
     const commentReactionSampleNames = new Map(reactionTargetIds.map(id => [id, null]));
 
@@ -6740,7 +6701,7 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
       media: normalizeStoredCommunityMedia(row.media),
       created_at: row.created_at,
       author: communityAuthorProfile(row.agent),
-      reactions: commentReactionCounts.get(row.id) || emptyReactionCounts(),
+      reactions: commentReactionCounts.get(row.id) || { suka: 0, selamat: 0, aamiin: 0 },
       my_reaction: commentMyReactions.get(row.id) ?? null,
       reaction_sample_name: commentReactionSampleNames.get(row.id) ?? null,
       is_own: row.agent_id === agent.id,
@@ -6888,7 +6849,7 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
       // Komentar baru belum punya reaksi/balasan apa pun — sama seperti POST
       // /api/community/posts, nilai nol/kosong dikirim langsung tanpa query
       // tambahan, dalam bentuk yang sama dengan GET .../comments.
-      reactions: emptyReactionCounts(),
+      reactions: { suka: 0, selamat: 0, aamiin: 0 },
       my_reaction: null,
       reaction_sample_name: null,
       is_own: true,
