@@ -5970,7 +5970,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       if ((threadRows || []).length > 1) {
         // Setiap segmen butuh baris reaksinya sendiri (TerasCard dipakai ulang
         // per segmen) — hitung lewat helper yang sama dengan linimasa, satu
-        // set query batched untuk seluruh rantai (maksimal 5 baris), bukan
+        // set query batched untuk seluruh rantai (maksimal 10 baris), bukan
         // satu query per segmen.
         const threadIds = threadRows.map(row => row.id);
         const {
