@@ -4426,15 +4426,16 @@ export default function TerasPage({
                       <AgentAvatar name={authorName} photo={post.author.photo} />
                     )}
                     <AnimatePresence initial={false}>
-                      {(commentsOpen || chainRailBelow) && (
+                      {chainRailBelow && (
                         <motion.div
                           key="post-rail"
-                          data-thread-rail={chainRailBelow ? 'thread' : 'post'}
+                          data-thread-rail="thread"
                           aria-hidden="true"
-                          // -mb-6 menembus padding bawah kartu dan padding atas
-                          // kartu berikutnya, sehingga garisnya benar-benar
-                          // menyambung ke avatar segmen sesudahnya.
-                          className={`mt-1.5 w-px flex-1 bg-gray-200 dark:bg-slate-700 ${chainRailBelow ? '-mb-6' : '-mb-2'}`}
+                          // -mb-6 menembus padding bawah kartu & padding atas kartu
+                          // berikutnya, jadi garis menyambung ke avatar segmen utas
+                          // sesudahnya. Rail HANYA untuk utas penulis; post -> komentar
+                          // sengaja tak disambung (ala Threads).
+                          className="mt-1.5 -mb-6 w-px flex-1 bg-gray-200 dark:bg-slate-700"
                           initial={reduceMotion ? false : { opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
@@ -4725,12 +4726,7 @@ export default function TerasPage({
                     ) : (
                       <>
                         {commentPanel.comments.length === 0 ? (
-                          <div className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                            <div aria-hidden="true" className="flex flex-col items-center">
-                              <div data-thread-rail="empty" className="-my-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
-                            </div>
-                            <p className="min-w-0 py-1 text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
-                          </div>
+                          <p className="min-w-0 border-t border-gray-100 pt-3 text-[11px] text-gray-500 dark:border-slate-800 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
                         ) : (
                           <CommentThread
                             comments={commentPanel.comments}
@@ -4800,9 +4796,8 @@ export default function TerasPage({
                           {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
                         </p>
 
-                        <div data-thread-input className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                        <div data-thread-input className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 pt-3 dark:border-slate-800">
                           <div className="relative flex justify-center pt-2">
-                            <div data-thread-rail="input" aria-hidden="true" className="absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 bg-gray-200 dark:bg-slate-700" />
                             <div className="relative z-10">
                               <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
                             </div>
