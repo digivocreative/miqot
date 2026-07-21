@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { SmilePlus } from 'lucide-react';
-import { COMMUNITY_REACTIONS, REACTION_EMOJI, REACTION_LABEL } from '../../../lib/community-reactions.js';
+import { COMMUNITY_REACTIONS, REACTION_LABEL } from '../../../lib/community-reactions.js';
 import type { ReactionType } from '../../../lib/community-reactions.js';
 
 interface ReactionPickerProps {
@@ -85,11 +85,7 @@ export function ReactionPicker({ myReaction, onPick, disabled, size = 'comment' 
           size === 'post' ? 'text-[12.5px]' : 'text-[11px]'
         } ${active ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400'}`}
       >
-        {active ? (
-          <span aria-hidden="true" className="leading-none" style={{ fontSize: iconPx }}>{REACTION_EMOJI[myReaction]}</span>
-        ) : (
-          <SmilePlus size={iconPx} />
-        )}
+        <SmilePlus size={iconPx} />
       </motion.button>
     </div>
   );
