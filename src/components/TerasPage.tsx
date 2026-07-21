@@ -50,6 +50,10 @@ import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHe
 import ComposerSegment from './teras/ComposerSegment';
 import CommentThread from './teras/CommentThread';
 import { AgentAvatar } from './teras/AgentAvatar';
+import { ReactionPicker } from './teras/ReactionPicker';
+import { ReactionSummary } from './teras/ReactionSummary';
+import { ReactionListSheet } from './teras/ReactionListSheet';
+import type { ReactionListEntry } from './teras/ReactionListSheet';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import {
   extractMentionSlugs,
@@ -478,19 +482,18 @@ function normalizeCommentMedia(comment: CommunityComment): CommunityMedia[] {
  * cuplikan balasannya, dalam satu jalan -- reactions/my_reaction ada di
  * kedua level (server mengirim bentuk yang sama untuk keduanya), meski
  * CommentThread saat ini hanya merender baris aksi untuk komentar top-level.
- * Total suka+selamat+aamiin dipakai sebagai satu angka di tombol Heart,
- * sama seperti totalReactions pada kartu kiriman.
+ * reactionCounts membawa hitungan PENUH per jenis (untuk gugus emoji di
+ * ReactionSummary), sama seperti post.reactions pada kartu kiriman.
  */
 function buildCommentReactionMaps(comments: CommunityComment[]): {
   myReactions: Record<string, ReactionType | null>;
-  reactionCounts: Record<string, number>;
+  reactionCounts: Record<string, ReactionCounts>;
 } {
   const myReactions: Record<string, ReactionType | null> = {};
-  const reactionCounts: Record<string, number> = {};
+  const reactionCounts: Record<string, ReactionCounts> = {};
   const apply = (comment: CommunityComment) => {
-    const reactions = comment.reactions ?? emptyReactionCounts();
     myReactions[comment.id] = comment.my_reaction ?? null;
-    reactionCounts[comment.id] = sumReactions(reactions);
+    reactionCounts[comment.id] = comment.reactions ?? emptyReactionCounts();
   };
   for (const comment of comments) {
     apply(comment);
@@ -1360,6 +1363,7 @@ export default function TerasPage({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailFetchTick, setDetailFetchTick] = useState(0);
   const [likePopId, setLikePopId] = useState<string | null>(null);
+  const [reactionListPostId, setReactionListPostId] = useState<string | null>(null);
   const [hasNewPosts, setHasNewPosts] = useState(false);
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -2570,6 +2574,19 @@ export default function TerasPage({
     },
     'Gagal memperbarui reaksi',
   );
+
+  // Dipakai ReactionListSheet lewat prop `load`. Di-memo pada id target supaya
+  // efek fetch di dalam sheet tidak berulang tiap render induk (loop refetch).
+  const loadReactionList = useCallback(async () => {
+    if (!reactionListPostId) return { reactions: [], truncated: false };
+    const payload = await requestJson<{ reactions: ReactionListEntry[]; truncated: boolean }>(
+      `/api/community/posts/${encodeURIComponent(reactionListPostId)}/reactions`,
+      { headers: getAuthHeaders() },
+      'Gagal memuat daftar reaksi',
+    );
+    return payload.data ?? { reactions: [], truncated: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reactionListPostId]);
 
   const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
     if (reactionPendingRef.current.has(postId)) return;
@@ -4729,6 +4746,7 @@ export default function TerasPage({
                             myReactions={commentReactionMaps?.myReactions ?? {}}
                             reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
                             onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
+                            onOpenReactionList={commentId => setReactionListPostId(commentId)}
                             onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
@@ -4994,6 +5012,14 @@ export default function TerasPage({
       {composerSheet}
       {shareSheet}
       {mediaViewerSheet}
+
+      {reactionListPostId && (
+        <ReactionListSheet
+          load={loadReactionList}
+          onClose={() => setReactionListPostId(null)}
+          onOpenProfile={slug => { setReactionListPostId(null); openProfile(slug); }}
+        />
+      )}
 
       <AnimatePresence>
         {toast && (
