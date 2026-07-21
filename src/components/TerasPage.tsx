@@ -298,11 +298,6 @@ const COMMENT_BODY_HARD_CAP = 320;
 // status HTTP ke pemanggil, jadi FE mencocokkan teks ini untuk tahu kapan
 // harus membuang entri commentRequestIdsRef yang jadi yatim.
 const COMMENT_DUPLICATE_ID_ERROR = 'ID komentar sudah digunakan';
-// Sama dengan { previewLimit: 2 } di groupRepliesWithPreview (server, lihat
-// lib/community-thread.js) -- dipakai supaya penyisipan balasan optimistic
-// tahu kapan menambah cuplikan langsung vs kapan cukup menaikkan reply_count
-// dan membiarkan "Lihat N balasan lainnya" yang tampil (lihat CommentThread.tsx).
-const COMMENT_REPLY_PREVIEW_LIMIT = 2;
 const MAX_COMMUNITY_SOURCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_COMMUNITY_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_COMMUNITY_VIDEO_BYTES = 20 * 1024 * 1024;
