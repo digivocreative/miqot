@@ -36,7 +36,6 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { getAgentInitials, handleAgentPhotoError } from '../lib/agent-photo';
 import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
 import { timeAgo } from '../lib/communityNotifications';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
@@ -49,6 +48,8 @@ import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocompl
 import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import ComposerSegment from './teras/ComposerSegment';
+import CommentThread from './teras/CommentThread';
+import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import {
   extractMentionSlugs,
@@ -59,7 +60,7 @@ import {
 } from '../lib/communityMentions';
 import { broadcastQuotaLabel, hasEveryoneMention } from '../../lib/community-broadcast.js';
 
-type ReactionType = 'suka' | 'selamat' | 'aamiin';
+export type ReactionType = 'suka' | 'selamat' | 'aamiin';
 type CommunityMediaType = 'image' | 'video';
 
 interface TerasAgent {
@@ -107,7 +108,29 @@ interface CommunityPost {
    * digabung balik dengan objek tingkat-atas — lihat `detailChain`.
    */
   thread?: CommunityPost[] | null;
+  // Balasan = baris community_posts dengan parent_post_id. GET /posts/:id
+  // mengisi ancestors (akar -> induk terdekat, TIDAK memuat post ini
+  // sendiri); GET /feed?agent=slug mengisi parent_author per item balasan
+  // (server.js, mode profil saja) supaya kartu bisa menampilkan "Membalas
+  // ke @slug" tanpa panggilan tambahan. parent_author bisa `null` (induk
+  // tidak ditemukan sama sekali) atau `{available:false}` (induk ADA tapi
+  // sudah dihapus). ancestors/parent_author hidup berdampingan dengan
+  // thread/thread_count (utas segmen) — ancestors = konteks ke atas untuk
+  // balasan, thread = segmen se-utas ke bawah.
+  parent_post_id?: string | null;
+  parent_author?: CommunityParentAuthor | null;
+  ancestors?: CommunityAncestorNode[];
 }
+
+/** Satu leluhur di rantai balasan. Terhapus/hilang -> hanya `available: false`. */
+type CommunityAncestorNode =
+  | { available: true; id: string; body: string; created_at: string; author: CommunityAuthor }
+  | { available: false };
+
+/** Penulis induk balasan (baris "Membalas ke @X"). Induk terhapus -> `available: false`, tidak bisa diklik. */
+type CommunityParentAuthor =
+  | { available: true; name: string | null; slug: string | null }
+  | { available: false };
 
 interface CommunityMedia {
   type: CommunityMediaType;
@@ -131,13 +154,21 @@ interface LinkPreview {
   image?: string;
 }
 
-interface CommunityComment {
+export interface CommunityComment {
   id: string;
   body: string;
   media?: CommunityMedia[];
   created_at: string;
   author: CommunityAuthor;
   is_own: boolean;
+  // Komentar adalah kiriman juga -- server (GET & POST .../comments)
+  // mengirim bentuk reaksi yang sama persis dengan CommunityPost, supaya
+  // maps reaksi komentar bisa dibangun dengan cara yang sama.
+  reactions?: ReactionCounts;
+  my_reaction?: ReactionType | null;
+  reaction_sample_name?: string | null;
+  reply_count?: number;
+  preview_replies?: CommunityComment[];
 }
 
 interface CommentPanelState {
@@ -246,6 +277,16 @@ const MAX_COMMUNITY_COMMENT_CHARS = 300;
 // the counter turns red and submit stays disabled until it's trimmed.
 const COMPOSER_BODY_HARD_CAP = 520;
 const COMMENT_BODY_HARD_CAP = 320;
+// Pesan persis dari server saat client_id komentar bentrok (POST
+// /api/community/posts/:id/comments -> 409). requestJson tidak meneruskan
+// status HTTP ke pemanggil, jadi FE mencocokkan teks ini untuk tahu kapan
+// harus membuang entri commentRequestIdsRef yang jadi yatim.
+const COMMENT_DUPLICATE_ID_ERROR = 'ID komentar sudah digunakan';
+// Sama dengan { previewLimit: 2 } di groupRepliesWithPreview (server, lihat
+// lib/community-thread.js) -- dipakai supaya penyisipan balasan optimistic
+// tahu kapan menambah cuplikan langsung vs kapan cukup menaikkan reply_count
+// dan membiarkan "Lihat N balasan lainnya" yang tampil (lihat CommentThread.tsx).
+const COMMENT_REPLY_PREVIEW_LIMIT = 2;
 const MAX_COMMUNITY_SOURCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_COMMUNITY_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_COMMUNITY_VIDEO_BYTES = 20 * 1024 * 1024;
@@ -420,43 +461,135 @@ function emptyCommentPanel(open = true): CommentPanelState {
   };
 }
 
-function AgentAvatar({
-  name,
-  photo,
-  size = 'post',
-}: {
-  name: string;
-  photo?: string | null;
-  size?: 'post' | 'comment';
-}) {
-  const [fallback, setFallback] = useState(!photo);
+// AgentAvatar diekstrak ke ./teras/AgentAvatar supaya CommentThread bisa
+// mengimpornya tanpa siklus modul (CommentThread <-> TerasPage). Dipakai di
+// kedua tempat dari satu definisi.
 
-  useEffect(() => {
-    setFallback(!photo);
-  }, [photo]);
+/** Sama seperti normalizePostMedia, tanpa fallback photo_url -- komentar tidak punya kolom itu. */
+function normalizeCommentMedia(comment: CommunityComment): CommunityMedia[] {
+  return Array.isArray(comment.media)
+    ? comment.media.filter(item => (
+      !!item
+      && (item.type === 'image' || item.type === 'video')
+      && typeof item.url === 'string'
+      && item.url.length > 0
+    )).slice(0, MAX_COMMUNITY_MEDIA)
+    : [];
+}
 
-  const sizeClass = size === 'comment' ? 'h-7 w-7 text-[9px]' : 'h-10 w-10 text-xs';
-  const imageSize = size === 'comment' ? 28 : 40;
+/**
+ * Turunkan lookup reaksi (dipakai CommentThread) dari komentar top-level DAN
+ * cuplikan balasannya, dalam satu jalan -- reactions/my_reaction ada di
+ * kedua level (server mengirim bentuk yang sama untuk keduanya), meski
+ * CommentThread saat ini hanya merender baris aksi untuk komentar top-level.
+ * Total suka+selamat+aamiin dipakai sebagai satu angka di tombol Heart,
+ * sama seperti totalReactions pada kartu kiriman.
+ */
+function buildCommentReactionMaps(comments: CommunityComment[]): {
+  myReactions: Record<string, ReactionType | null>;
+  reactionCounts: Record<string, number>;
+} {
+  const myReactions: Record<string, ReactionType | null> = {};
+  const reactionCounts: Record<string, number> = {};
+  const apply = (comment: CommunityComment) => {
+    const reactions = comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
+    myReactions[comment.id] = comment.my_reaction ?? null;
+    reactionCounts[comment.id] = reactions.suka + reactions.selamat + reactions.aamiin;
+  };
+  for (const comment of comments) {
+    apply(comment);
+    (comment.preview_replies ?? []).forEach(apply);
+  }
+  return { myReactions, reactionCounts };
+}
 
-  return (
-    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 font-bold text-emerald-700 ring-1 ring-black/[0.06] dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-white/10 ${sizeClass}`}>
-      {photo && !fallback ? (
-        <img
-          src={photo}
-          alt={name}
-          className="h-full w-full object-cover"
-          onError={event => handleAgentPhotoError(
-            event.currentTarget,
-            name,
-            imageSize,
-            () => setFallback(true),
-          )}
-        />
-      ) : (
-        <span aria-hidden="true">{getAgentInitials(name)}</span>
-      )}
-    </div>
-  );
+/** Cari komentar top-level ATAU salah satu cuplikan balasannya lewat id. */
+function findCommentInPanel(comments: CommunityComment[], commentId: string): CommunityComment | undefined {
+  for (const comment of comments) {
+    if (comment.id === commentId) return comment;
+    const nested = (comment.preview_replies ?? []).find(reply => reply.id === commentId);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+/** Terapkan `updater` pada komentar top-level ATAU cuplikan balasan bertarget id, sisanya utuh. */
+function mapCommentInPanel(
+  comments: CommunityComment[],
+  commentId: string,
+  updater: (comment: CommunityComment) => CommunityComment,
+): CommunityComment[] {
+  return comments.map(comment => {
+    if (comment.id === commentId) return updater(comment);
+    const previewReplies = comment.preview_replies;
+    if (previewReplies?.some(reply => reply.id === commentId)) {
+      return {
+        ...comment,
+        preview_replies: previewReplies.map(reply => (reply.id === commentId ? updater(reply) : reply)),
+      };
+    }
+    return comment;
+  });
+}
+
+/**
+ * Sisip balasan baru ke preview_replies komentar sasaran secara optimistic.
+ * Kalau cuplikan sudah penuh (previewLimit server = 2), JANGAN ditambah --
+ * cukup naikkan reply_count dan biarkan "Lihat N balasan lainnya" (dihitung
+ * dari selisih reply_count - preview_replies.length di CommentThread.tsx)
+ * yang bertambah. reply_count/preview_replies opsional di tipe (komentar
+ * lama/hasil buat baru bisa tidak membawanya), jadi default ke 0/[] di sini
+ * -- reply_count > 0 dengan preview_replies kosong itu valid, bukan bug.
+ */
+function insertCommentReply(
+  comments: CommunityComment[],
+  targetCommentId: string,
+  reply: CommunityComment,
+): CommunityComment[] {
+  return comments.map(comment => {
+    if (comment.id !== targetCommentId) return comment;
+    const previewReplies = comment.preview_replies ?? [];
+    const nextPreview = previewReplies.length < COMMENT_REPLY_PREVIEW_LIMIT
+      ? [...previewReplies, reply]
+      : previewReplies;
+    return {
+      ...comment,
+      reply_count: (comment.reply_count ?? 0) + 1,
+      preview_replies: nextPreview,
+    };
+  });
+}
+
+/**
+ * Hapus komentar top-level ATAU salah satu cuplikan balasannya. Balik array
+ * baru plus penanda apakah yang dihapus itu top-level -- CommentRow
+ * menampilkan tombol hapus untuk preview_replies juga, jadi comment_count
+ * kiriman (yang cuma menghitung komentar top-level) TIDAK boleh ikut turun
+ * kalau yang dihapus adalah balasan tingkat kedua -- turunkan reply_count
+ * induknya saja.
+ */
+function removeCommentFromPanel(
+  comments: CommunityComment[],
+  commentId: string,
+): { comments: CommunityComment[]; removedTopLevel: boolean } {
+  if (comments.some(comment => comment.id === commentId)) {
+    return {
+      comments: comments.filter(comment => comment.id !== commentId),
+      removedTopLevel: true,
+    };
+  }
+  return {
+    comments: comments.map(comment => {
+      const previewReplies = comment.preview_replies;
+      if (!previewReplies?.some(reply => reply.id === commentId)) return comment;
+      return {
+        ...comment,
+        reply_count: Math.max(0, (comment.reply_count ?? previewReplies.length) - 1),
+        preview_replies: previewReplies.filter(reply => reply.id !== commentId),
+      };
+    }),
+    removedTopLevel: false,
+  };
 }
 
 function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
@@ -1215,6 +1348,9 @@ export default function TerasPage({
   const [commentPanels, setCommentPanels] = useState<Record<string, CommentPanelState>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  // Sasaran balas komentar berjenjang: kiriman induk + komentar yang dibalas +
+  // nama penulisnya (untuk chip "Membalas ke X"). null = balas top-level.
+  const [replyTarget, setReplyTarget] = useState<{ postId: string; commentId: string; authorName: string } | null>(null);
   const [menuOpenPostId, setMenuOpenPostId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
@@ -1267,6 +1403,7 @@ export default function TerasPage({
   const commentControllersRef = useRef<Map<string, AbortController>>(new Map());
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
   const reactionPendingRef = useRef<Set<string>>(new Set());
+  const commentReactionPendingRef = useRef<Set<string>>(new Set());
   const commentSendingRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
   // Cermin sinkron dari composerSegments. Dipakai di jalur async (unggah,
@@ -1861,8 +1998,22 @@ export default function TerasPage({
   }, [composerSegments, composerBusy, resetComposer]);
   closeComposerRef.current = closeComposer;
 
+  // Invarian: sheet komposer HANYA dirender kalau `composerSheetVisible`
+  // (lihat pemakaian yang sama di composerSheet/JSX di bawah). Kunci halaman
+  // (overflow/inert/aria-hidden) di efek berikut HARUS pakai syarat yang
+  // SAMA PERSIS -- kalau menyimpang (mis. efek cuma cek composerOpen),
+  // TerasPage dirender tanpa `key` di DashboardLayout, jadi `profileSlug`
+  // bisa berubah dari null ke terisi (mis. tombol Back/gesture back) TANPA
+  // remount selagi composerOpen masih true. Sheetnya lenyap dari render tapi
+  // kuncinya bertahan -- seluruh halaman tak bisa diklik, cuma pulih lewat
+  // Escape. Definisikan sekali di sini, pakai di kedua tempat, supaya kedua
+  // syarat itu mustahil pecah lagi. Composer main bersegmen (ComposerSegment
+  // + chip 1/N) tak mengubah invarian ini -- yang penting pengunci & render
+  // memakai nilai turunan yang sama.
+  const composerSheetVisible = composerOpen && !profileSlug;
+
   useLayoutEffect(() => {
-    if (!composerOpen) return;
+    if (!composerSheetVisible) return;
     const trigger = composerTriggerRef.current;
     const appRoot = document.getElementById('root');
     const pageRoot = pageRootRef.current;
@@ -1915,7 +2066,7 @@ export default function TerasPage({
       // viewer di atas. onExitComplete kini hanya jaring pengaman (idempoten).
       restoreComposerPageState(true);
     };
-  }, [composerOpen, restoreComposerPageState]);
+  }, [composerSheetVisible, restoreComposerPageState]);
 
   // Auto-grow textarea kini milik ComposerSegment (tiap segmen mengurus
   // tingginya sendiri), jadi efek tunggal yang dulu ada di sini dihapus.
@@ -2037,6 +2188,26 @@ export default function TerasPage({
       created_at: post.created_at,
       is_system: post.is_system,
       author: post.author,
+    });
+    openComposer(false);
+  };
+
+  // Kutip komentar: komposer quote yang sama, cuma sumbernya komentar bukan
+  // kiriman. Tidak ada perubahan server -- quote atas komentar/balasan
+  // menghasilkan kiriman induk baru lewat POST /api/community/posts biasa
+  // dengan quoted_post_id = id komentar itu. Sengaja BUKAN useCallback:
+  // menutup `profileSlug` yang berubah tiap navigasi feed<->profil tanpa
+  // remount TerasPage.
+  const openQuoteComposerForComment = (comment: CommunityComment) => {
+    if (profileSlug) return;
+    setComposerQuote({
+      available: true,
+      id: comment.id,
+      body: comment.body,
+      media: normalizeCommentMedia(comment),
+      created_at: comment.created_at,
+      is_system: false,
+      author: comment.author,
     });
     openComposer(false);
   };
@@ -2210,7 +2381,7 @@ export default function TerasPage({
       return;
     }
 
-    commentRequestIdsRef.current.delete(postId);
+    clearCommentRequestIds(postId);
     setCommentPanelMedia(postId, items => [...items, ...additions]);
     setCommentPanelError(postId, validationErrors.length > 0 ? validationErrors.join('. ') : null);
 
@@ -2391,6 +2562,19 @@ export default function TerasPage({
     await fetchFeed(nextCursor, true, controller.signal);
   };
 
+  // Dipakai bersama oleh updateReaction (kiriman) dan handleCommentReact
+  // (komentar) -- komentar = baris community_posts, jadi endpoint reaksinya
+  // sama persis. Keduanya cuma beda di state mana yang di-update optimistic.
+  const sendReactionUpdate = (id: string, reaction: ReactionType | null) => requestJson<never>(
+    `/api/community/posts/${encodeURIComponent(id)}/reaction`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ reaction }),
+    },
+    'Gagal memperbarui reaksi',
+  );
+
   const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
     if (reactionPendingRef.current.has(postId)) return;
     const snapshot = postsRef.current.find(post => post.id === postId);
@@ -2408,15 +2592,7 @@ export default function TerasPage({
     }));
 
     try {
-      await requestJson<never>(
-        `/api/community/posts/${encodeURIComponent(postId)}/reaction`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ reaction: nextReaction }),
-        },
-        'Gagal memperbarui reaksi',
-      );
+      await sendReactionUpdate(postId, nextReaction);
     } catch (reactionError) {
       setPosts(current => current.map(post => post.id === postId ? {
         ...post,
@@ -2666,8 +2842,34 @@ export default function TerasPage({
     };
   }, [detailPostId, loading, posts, detailFetchTick, onNavigate]);
 
+  // client_id per KIRIMAN + SASARAN, bukan cuma kiriman: sejak balas
+  // berjenjang, sasaran (replyTarget) bisa berpindah tanpa mengubah teks --
+  // kalau di-key postId saja, memindah sasaran setelah kirim gagal memakai
+  // client_id lama dengan parent_post_id baru, dan pemulihan 23505 di server
+  // (yang mencocokkan parent) gagal jadi 409 alih-alih idempoten.
+  const commentRequestTargetId = (postId: string) =>
+    (replyTarget && replyTarget.postId === postId ? replyTarget.commentId : postId);
+  const commentRequestKey = (postId: string, targetId = commentRequestTargetId(postId)) =>
+    `${postId}:${targetId}`;
+
+  // Buang SEMUA entri client_id milik kiriman ini, bukan cuma sasaran yang
+  // SEDANG aktif -- kalau kirim ke komentar A gagal (entri "postId:A"
+  // tersimpan), lalu user batalkan sasaran, ketik teks baru (yang cuma
+  // menghapus "postId:postId" saat itu berlaku sebagai sasaran), lalu pilih
+  // Balas A lagi, kirim ulang akan memakai client_id lama "postId:A" dengan
+  // body yang sudah berbeda -- server menolak 409 "ID komentar sudah
+  // digunakan" terus-menerus sampai user mengedit teks. Menghapus per
+  // prefix di sini membuat perubahan input/media APA PUN membatalkan semua
+  // percobaan lama untuk kiriman ini, sasaran mana pun.
+  const clearCommentRequestIds = (postId: string) => {
+    const prefix = `${postId}:`;
+    for (const key of commentRequestIdsRef.current.keys()) {
+      if (key.startsWith(prefix)) commentRequestIdsRef.current.delete(key);
+    }
+  };
+
   const updateCommentInput = (postId: string, input: string) => {
-    commentRequestIdsRef.current.delete(postId);
+    clearCommentRequestIds(postId);
     setCommentPanels(current => ({
       ...current,
       [postId]: { ...(current[postId] || emptyCommentPanel()), input, open: true },
@@ -2686,8 +2888,16 @@ export default function TerasPage({
       return;
     }
 
-    const requestId = commentRequestIdsRef.current.get(postId) || window.crypto.randomUUID();
-    commentRequestIdsRef.current.set(postId, requestId);
+    // Snapshot di awal, bukan dibaca ulang setelah kirim selesai: kalau user
+    // sempat pindah target balas (klik Balas komentar lain) sementara kiriman
+    // ini masih diproses, kiriman ini tetap ke target yang aktif SAAT tombol
+    // kirim ditekan -- bukan ke target yang belakangan.
+    const activeReplyTarget = replyTarget && replyTarget.postId === postId ? replyTarget : null;
+    const targetId = activeReplyTarget ? activeReplyTarget.commentId : postId;
+    const requestKey = commentRequestKey(postId, targetId);
+
+    const requestId = commentRequestIdsRef.current.get(requestKey) || window.crypto.randomUUID();
+    commentRequestIdsRef.current.set(requestKey, requestId);
     commentSendingRef.current.add(postId);
     setCommentPanels(current => ({
       ...current,
@@ -2723,7 +2933,7 @@ export default function TerasPage({
 
       const commentMentions = extractMentionSlugs(body, memberSlugs);
       const created = await requestJson<CommunityComment>(
-        `/api/community/posts/${encodeURIComponent(postId)}/comments`,
+        `/api/community/posts/${encodeURIComponent(targetId)}/comments`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -2741,8 +2951,32 @@ export default function TerasPage({
       mediaSnapshot.forEach(item => {
         if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
       });
+      const newComment = created.data;
+      // Kalau ini balasan, cek dulu induknya masih ada di panel SEBELUM
+      // menyisip -- refreshFeed bisa saja mengosongkan commentPanels (jadi
+      // {}) sementara kiriman ini masih di jalan. insertCommentReply pada
+      // array kosong diam-diam tidak menyisipkan apa pun; menandai panel
+      // "loaded: true" dari hasil itu bikin UI bilang "Belum ada komentar"
+      // padahal balasannya sudah tersimpan di server. Jalur top-level tetap
+      // jujur pada skenario yang sama, jadi balasan diberi jaring pengaman
+      // setara: muat ulang alih-alih berbohong loaded=true. Keputusan ITU
+      // SENDIRI dievaluasi dari `current` di DALAM updater, bukan dari
+      // commentPanelsRef di luar (ref = state ter-commit terakhir, bisa basi).
+      const replyParentPresentApprox = !activeReplyTarget
+        || !!findCommentInPanel(commentPanelsRef.current[postId]?.comments ?? [], activeReplyTarget.commentId);
       setCommentPanels(current => {
         const currentPanel = current[postId] || emptyCommentPanel();
+        const replyParentPresent = !activeReplyTarget
+          || !!findCommentInPanel(currentPanel.comments, activeReplyTarget.commentId);
+        if (activeReplyTarget && !replyParentPresent) {
+          return {
+            ...current,
+            [postId]: { ...currentPanel, sending: false, input: '', media: [] },
+          };
+        }
+        const comments = activeReplyTarget
+          ? insertCommentReply(currentPanel.comments, activeReplyTarget.commentId, newComment)
+          : [...currentPanel.comments.filter(comment => comment.id !== newComment.id), newComment];
         return {
           ...current,
           [postId]: {
@@ -2751,21 +2985,40 @@ export default function TerasPage({
             loaded: true,
             input: '',
             media: [],
-            comments: [...currentPanel.comments.filter(comment => comment.id !== created.data?.id), created.data as CommunityComment],
+            comments,
           },
         };
       });
-      setPosts(current => current.map(post => post.id === postId
-        ? { ...post, comment_count: post.comment_count + 1 }
-        : post));
+      if (activeReplyTarget && !replyParentPresentApprox) {
+        void loadComments(postId);
+      }
+      if (activeReplyTarget) {
+        // Bersih hanya kalau target belum berpindah lagi sejak kiriman ini
+        // mulai -- lihat catatan snapshot activeReplyTarget di atas.
+        setReplyTarget(current => (current === activeReplyTarget ? null : current));
+      } else {
+        // reply_count komentar sasaran sudah dinaikkan oleh insertCommentReply
+        // di atas; comment_count kiriman ini sendiri hanya menghitung komentar
+        // top-level (lihat GET /api/community/posts/:id/comments di server),
+        // jadi tidak ikut naik saat yang terkirim adalah balasan.
+        setPosts(current => current.map(post => post.id === postId
+          ? { ...post, comment_count: post.comment_count + 1 }
+          : post));
+      }
       const commentInputEl = document.getElementById(`teras-comment-input-${postId}`);
       if (commentInputEl instanceof HTMLTextAreaElement) {
         commentInputEl.style.height = '';
         commentInputEl.style.overflowY = 'hidden';
       }
-      commentRequestIdsRef.current.delete(postId);
+      commentRequestIdsRef.current.delete(requestKey);
     } catch (commentError) {
       const message = errorMessage(commentError, 'Gagal menambahkan komentar');
+      // Server menolak client_id yang sudah dipakai dengan 409 + pesan ini.
+      // requestJson tidak membawa status HTTP, jadi cocokkan pesannya. Kalau
+      // tidak dibuang, entri ini jadi yatim (lihat clearCommentRequestIds).
+      if (message === COMMENT_DUPLICATE_ID_ERROR) {
+        commentRequestIdsRef.current.delete(requestKey);
+      }
       setCommentPanels(current => ({
         ...current,
         [postId]: {
@@ -3014,6 +3267,15 @@ export default function TerasPage({
 
   const deleteComment = async (postId: string, commentId: string) => {
     if (deletingCommentId || !window.confirm('Hapus komentar ini?')) return;
+    // Tentukan top-level-atau-bukan dari snapshot SEBELUM request DELETE.
+    // window.confirm() di atas blocking (sinkron), jadi commentPanelsRef di
+    // sini masih mencerminkan panel persis saat tombol hapus diklik -- aman
+    // dipakai sebagai nilai murni, tidak tersandera keberadaan panel saat
+    // RESPONS tiba (mis. disela refreshFeed).
+    const panelBeforeDelete = commentPanelsRef.current[postId];
+    const removedTopLevel = panelBeforeDelete
+      ? removeCommentFromPanel(panelBeforeDelete.comments, commentId).removedTopLevel
+      : false;
     setDeletingCommentId(commentId);
     try {
       await requestJson<never>(
@@ -3021,23 +3283,99 @@ export default function TerasPage({
         { method: 'DELETE', headers: getAuthHeaders() },
         'Gagal menghapus komentar',
       );
-      setCommentPanels(current => ({
-        ...current,
-        ...(current[postId] ? {
-          [postId]: {
-            ...current[postId],
-            comments: current[postId].comments.filter(comment => comment.id !== commentId),
-          },
-        } : {}),
-      }));
-      setPosts(current => current.map(post => post.id === postId
-        ? { ...post, comment_count: Math.max(0, post.comment_count - 1) }
-        : post));
+      setCommentPanels(current => {
+        if (!current[postId]) return current;
+        return {
+          ...current,
+          [postId]: { ...current[postId], comments: removeCommentFromPanel(current[postId].comments, commentId).comments },
+        };
+      });
+      // comment_count kiriman cuma menghitung komentar top-level -- balasan
+      // cuplikan (preview_replies) yang dihapus lewat tombol hapus yang sama
+      // TIDAK boleh ikut menurunkannya (lihat removeCommentFromPanel).
+      if (removedTopLevel) {
+        setPosts(current => current.map(post => post.id === postId
+          ? { ...post, comment_count: Math.max(0, post.comment_count - 1) }
+          : post));
+      }
+      // Komentar yang barusan dihapus tidak boleh tetap jadi sasaran balas.
+      setReplyTarget(current => (current?.commentId === commentId ? null : current));
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus komentar'), 'error');
     } finally {
       setDeletingCommentId(null);
     }
+  };
+
+  // postId di bawah = kiriman induk yang panel komentarnya sedang dipakai
+  // (bukan si komentar itu sendiri) -- CommentThread hanya tahu commentId,
+  // jadi JSX yang merendernya membungkus dengan commentTargetId lewat closure.
+  const handleCommentReact = useCallback((postId: string, commentId: string, nextReaction: ReactionType | null) => {
+    if (commentReactionPendingRef.current.has(commentId)) return;
+    const panel = commentPanelsRef.current[postId];
+    const snapshot = panel && findCommentInPanel(panel.comments, commentId);
+    if (!snapshot) return;
+    const previousReaction = snapshot.my_reaction ?? null;
+    const previousReactions = snapshot.reactions ?? { suka: 0, selamat: 0, aamiin: 0 };
+
+    commentReactionPendingRef.current.add(commentId);
+    setCommentPanels(current => {
+      const currentPanel = current[postId];
+      if (!currentPanel) return current;
+      return {
+        ...current,
+        [postId]: {
+          ...currentPanel,
+          comments: mapCommentInPanel(currentPanel.comments, commentId, comment => {
+            const reactions = { ...(comment.reactions ?? { suka: 0, selamat: 0, aamiin: 0 }) };
+            if (previousReaction) reactions[previousReaction] = Math.max(0, reactions[previousReaction] - 1);
+            if (nextReaction) reactions[nextReaction] += 1;
+            return { ...comment, my_reaction: nextReaction, reactions };
+          }),
+        },
+      };
+    });
+
+    void (async () => {
+      try {
+        await sendReactionUpdate(commentId, nextReaction);
+      } catch (reactionError) {
+        setCommentPanels(current => {
+          const currentPanel = current[postId];
+          if (!currentPanel) return current;
+          return {
+            ...current,
+            [postId]: {
+              ...currentPanel,
+              comments: mapCommentInPanel(currentPanel.comments, commentId, comment => ({
+                ...comment,
+                my_reaction: previousReaction,
+                reactions: previousReactions,
+              })),
+            },
+          };
+        });
+        showToast(errorMessage(reactionError, 'Gagal memperbarui reaksi'), 'error');
+      } finally {
+        commentReactionPendingRef.current.delete(commentId);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast]);
+
+  const handleCommentReplyTarget = useCallback((postId: string, commentId: string, authorName: string) => {
+    setReplyTarget({ postId, commentId, authorName });
+  }, []);
+
+  // Sengaja BUKAN useCallback: openQuoteComposerForComment menutup profileSlug,
+  // yang berubah tiap navigasi feed<->profil tanpa remount TerasPage. Prop
+  // onQuote yang diteruskan ke CommentThread toh sudah arrow inline yang
+  // dibuat ulang tiap render, jadi tidak ada manfaat memo yang hilang.
+  const handleCommentQuote = (postId: string, commentId: string) => {
+    const panel = commentPanelsRef.current[postId];
+    const comment = panel && findCommentInPanel(panel.comments, commentId);
+    if (!comment) return;
+    openQuoteComposerForComment(comment);
   };
 
   const deletePost = async (postId: string) => {
@@ -3291,7 +3629,7 @@ export default function TerasPage({
 
   const composerSheet = typeof document === 'undefined' ? null : createPortal(
     <AnimatePresence onExitComplete={() => restoreComposerPageState(true)}>
-      {composerOpen && !profileSlug && (
+      {composerSheetVisible && (
         <motion.form
           ref={composerFormRef}
           key="teras-composer"
@@ -3846,6 +4184,43 @@ export default function TerasPage({
         )
       ) : null)}
 
+      {/* Rantai leluhur (ancestors) di halaman detail: konteks KE ATAS untuk
+          sebuah balasan (akar -> induk terdekat). Hidup berdampingan dengan
+          render `thread` (segmen se-utas KE BAWAH) di bawah -- keduanya tampil.
+          Leluhur yang terhapus -> placeholder "Kiriman sudah dihapus" (gaya
+          sama dengan placeholder quote via QuotedPostCard). */}
+      {isDetailView && detailPost && detailPost.ancestors && detailPost.ancestors.length > 0 && (
+        <div data-ancestor-chain>
+          {detailPost.ancestors.map((ancestor, index) => (
+            ancestor.available ? (
+              <button
+                key={ancestor.id}
+                type="button"
+                onClick={() => openPostDetail(ancestor.id)}
+                className="flex w-full min-w-0 items-center gap-2.5 border-b border-gray-100 bg-white px-4 py-2.5 text-left transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
+              >
+                <AgentAvatar name={ancestor.author.name || 'Agent'} photo={ancestor.author.photo} size="comment" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-gray-600 dark:text-slate-300">
+                  <span className="font-bold text-gray-900 dark:text-white">{ancestor.author.name || 'Agent'}</span>
+                  {' · '}
+                  {ancestor.body}
+                </span>
+              </button>
+            ) : (
+              // Tidak ada id untuk leluhur yang tidak tersedia (baris terhapus/hilang
+              // -- lihat buildAncestorChain), jadi index tetap dibutuhkan untuk unik;
+              // dipasangkan dengan id kiriman yang sedang dibuka supaya key tidak
+              // tabrakan lintas thread berbeda saat komponen dipakai ulang.
+              <div key={`${detailPost.id}-ancestor-${index}`} className="border-b border-gray-100 px-4 pb-2.5 dark:border-slate-800">
+                {/* QuotedPostCard cabang unavailable sudah membawa mt-2 sendiri --
+                    tidak diberi padding atas lagi di sini supaya jaraknya tidak dobel. */}
+                <QuotedPostCard quoted={{ available: false }} />
+              </div>
+            )
+          ))}
+        </div>
+      )}
+
       {(isDetailView ? detailPost !== null : !loading && !error && feedPosts.length > 0) && (
         <div>
           {visiblePosts.map((post, segmentIndex) => {
@@ -3864,6 +4239,10 @@ export default function TerasPage({
             // Satu kolom komentar saja, di bawah segmen terakhir.
             const showCommentPanel = commentsOpen && (!isDetailView || isLastSegment);
             const commentInputLength = Array.from(commentPanel?.input.trim() || '').length;
+            const commentReactionMaps = commentPanel ? buildCommentReactionMaps(commentPanel.comments) : null;
+            // Sasaran balas menempel ke panel komentar (commentTargetId =
+            // segmen akar di detail), bukan ke segmen yang sedang dirender.
+            const activeCommentReplyTarget = replyTarget && replyTarget.postId === commentTargetId ? replyTarget : null;
             const canDeletePost = canDeleteCommunityEntry(agent, post);
             const totalReactions = post.reactions.suka + post.reactions.selamat + post.reactions.aamiin;
             const reactionIsBusy = reactionBusy.has(post.id);
@@ -4066,6 +4445,27 @@ export default function TerasPage({
                   </div>
 
                   <div data-post-content className="min-w-0">
+                    {/* Baris "Membalas ke @X" pada kartu balasan (mode profil:
+                        server mengisi parent_author per item balasan). Induk
+                        terhapus -> teks abu tak-bisa-diklik (mengkliknya dulu
+                        404 di GET /posts/:id yang menyaring deleted_at). */}
+                    {post.parent_author && (
+                      post.parent_author.available === false ? (
+                        <p className="mb-1 block max-w-full min-h-6 truncate text-left text-[12px] font-medium text-gray-400 dark:text-slate-500">
+                          Membalas ke kiriman yang sudah dihapus
+                        </p>
+                      ) : post.parent_author.slug ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (post.parent_post_id) openPostDetail(post.parent_post_id);
+                          }}
+                          className="mb-1 block max-w-full min-h-6 truncate text-left text-[12px] font-medium text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
+                        >
+                          Membalas ke @{post.parent_author.slug}
+                        </button>
+                      ) : null
+                    )}
                     <div className={`flex min-w-0 items-center gap-1.5 ${post.is_system ? '' : 'pr-10'}`}>
                       {authorSlug ? (
                         <a
@@ -4331,110 +4731,66 @@ export default function TerasPage({
                             </div>
                             <p className="min-w-0 py-1 text-[11px] text-gray-500 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
                           </div>
-                        ) : commentPanel.comments.map(comment => {
-                          const canDeleteComment = canDeleteCommunityEntry(agent, comment);
-                          const commentAuthorName = comment.author.name || 'Agent';
-                          const commentAuthorSlug = comment.author.slug;
-                          return (
-                            <div key={comment.id} data-comment-row className="mt-2 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                              <div className="flex flex-col items-center">
-                                {commentAuthorSlug ? (
-                                  <a
-                                    href={terasProfilePath(commentAuthorSlug)}
-                                    onClick={event => {
-                                      if (isModifiedClick(event)) return;
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      openProfile(commentAuthorSlug);
-                                    }}
-                                    aria-label={`Lihat profil ${commentAuthorName}`}
-                                  >
-                                    <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
-                                  </a>
-                                ) : (
-                                  <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="comment" />
-                                )}
-                                <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  {commentAuthorSlug ? (
-                                    <a
-                                      href={terasProfilePath(commentAuthorSlug)}
-                                      onClick={event => {
-                                        if (isModifiedClick(event)) return;
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        openProfile(commentAuthorSlug);
-                                      }}
-                                      className="min-w-0 truncate text-[13px] font-bold text-gray-800 hover:underline dark:text-slate-200"
-                                    >
-                                      {commentAuthorName}
-                                    </a>
-                                  ) : (
-                                    <p className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-slate-200">{commentAuthorName}</p>
-                                  )}
-                                  <span className="flex-1" />
-                                  <time dateTime={comment.created_at} className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-slate-400">
-                                    {timeAgo(comment.created_at)}
-                                  </time>
-                                  {canDeleteComment && (
+                        ) : (
+                          <CommentThread
+                            comments={commentPanel.comments}
+                            myReactions={commentReactionMaps?.myReactions ?? {}}
+                            reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
+                            onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
+                            onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
+                            onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
+                            onDelete={commentId => void deleteComment(commentTargetId, commentId)}
+                            onOpenThread={openPostDetail}
+                            profileSlug={profileSlug}
+                            replyTargetId={activeCommentReplyTarget?.commentId ?? null}
+                            renderBody={comment => (
+                              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
+                            )}
+                            renderMedia={comment => (
+                              (comment.media?.length ?? 0) > 0 ? (
+                                <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                  {(comment.media || []).map((item, index) => (
                                     <button
+                                      key={`${comment.id}-media-${index}`}
                                       type="button"
-                                      disabled={deletingCommentId === comment.id}
-                                      onClick={() => void deleteComment(commentTargetId, comment.id)}
-                                      aria-label="Hapus komentar"
-                                      title="Hapus komentar"
-                                      className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:hover:text-red-400 dark:active:text-red-400"
+                                      onClick={event => openMediaViewer(comment.media || [], index, comment.author.name || 'Agent', event.currentTarget)}
+                                      aria-label={`Lihat ${item.type === 'video' ? 'video' : 'foto'} ${index + 1} dari komentar ${comment.author.name || 'Agent'}`}
+                                      className="relative shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-slate-700 dark:bg-slate-950"
                                     >
-                                      {deletingCommentId === comment.id
-                                        ? <Loader2 size={13} className="animate-spin" />
-                                        : <Trash2 size={13} />}
-                                    </button>
-                                  )}
-                                </div>
-                                <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
-                                {(comment.media?.length ?? 0) > 0 && (
-                                  <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                    {(comment.media || []).map((item, index) => (
-                                      <button
-                                        key={`${comment.id}-media-${index}`}
-                                        type="button"
-                                        onClick={event => openMediaViewer(comment.media || [], index, comment.author.name || 'Agent', event.currentTarget)}
-                                        aria-label={`Lihat ${item.type === 'video' ? 'video' : 'foto'} ${index + 1} dari komentar ${comment.author.name || 'Agent'}`}
-                                        className="relative shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-slate-700 dark:bg-slate-950"
-                                      >
-                                        {item.type === 'video' ? (
-                                          <>
-                                            <video
-                                              src={videoPreviewSrc(item.url)}
-                                              playsInline
-                                              muted
-                                              preload="metadata"
-                                              className="block h-36 w-auto max-w-[70vw] bg-black object-contain"
-                                            />
-                                            <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                                <Play size={16} className="ml-0.5" fill="currentColor" />
-                                              </span>
-                                            </span>
-                                          </>
-                                        ) : (
-                                          <img
-                                            src={item.url}
-                                            alt={`Foto ${index + 1} komentar ${comment.author.name || 'Agent'}`}
-                                            loading="lazy"
-                                            className="block h-36 w-auto max-w-[70vw] object-contain"
+                                      {item.type === 'video' ? (
+                                        <>
+                                          <video
+                                            src={videoPreviewSrc(item.url)}
+                                            playsInline
+                                            muted
+                                            preload="metadata"
+                                            className="block h-36 w-auto max-w-[70vw] bg-black object-contain"
                                           />
-                                        )}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
+                                          <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+                                              <Play size={16} className="ml-0.5" fill="currentColor" />
+                                            </span>
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <img
+                                          src={item.url}
+                                          alt={`Foto ${index + 1} komentar ${comment.author.name || 'Agent'}`}
+                                          loading="lazy"
+                                          className="block h-36 w-auto max-w-[70vw] object-contain"
+                                        />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null
+                            )}
+                            formatTime={timeAgo}
+                            agent={agent}
+                            deletingCommentId={deletingCommentId}
+                            onOpenProfile={openProfile}
+                          />
+                        )}
 
                         {commentPanel.error && (
                           <p role="alert" className="ml-[52px] mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
@@ -4452,6 +4808,22 @@ export default function TerasPage({
                             </div>
                           </div>
                           <div className="min-w-0">
+                          {activeCommentReplyTarget && (
+                            <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                Membalas ke {activeCommentReplyTarget.authorName}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setReplyTarget(null)}
+                                aria-label="Batalkan balasan"
+                                title="Batalkan balasan"
+                                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-red-400"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          )}
                           <div className="flex min-w-0 items-end gap-1.5 pb-1">
                             <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
                             {mentionState?.context === commentTargetId && (
@@ -4487,7 +4859,7 @@ export default function TerasPage({
                                   if (layer) layer.scrollTop = event.currentTarget.scrollTop;
                                 }}
                                 aria-label="Tulis komentar"
-                                placeholder={`Balas ke ${authorName}…`}
+                                placeholder={`Balas ke ${activeCommentReplyTarget ? activeCommentReplyTarget.authorName : authorName}…`}
                                 maxLength={COMMENT_BODY_HARD_CAP}
                                 className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[13.5px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
                               />
