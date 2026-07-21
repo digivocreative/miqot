@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AtSign, Bell, CheckCheck, Heart, Megaphone, MessageCircle, Trash2, X } from 'lucide-react';
+import { AtSign, Bell, CheckCheck, Heart, Megaphone, MessageCircle, Settings, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -80,6 +80,7 @@ export default function NotificationBell({
   onOpenPost,
   onMarkAllRead,
   onClearAll,
+  onOpenSettings,
 }: {
   /** Matches the neighboring dark-mode toggle's context. Defaults to 'header'
    * (the standalone sub-page header size) since that's the most common placement. */
@@ -94,6 +95,9 @@ export default function NotificationBell({
   onOpenPost: (postId: string) => void;
   onMarkAllRead: () => void;
   onClearAll: () => void;
+  /** Opens the Teras notification settings sheet. The gear used to be a separate
+   * header button; it now lives inside this panel's header instead. */
+  onOpenSettings?: () => void;
 }) {
   const { button: sizeButtonClass, icon: iconSize } = SIZE_CLASSES[size];
   const reduceMotion = useReducedMotion();
@@ -207,14 +211,29 @@ export default function NotificationBell({
             >
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-800">
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Notifikasi</p>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Tutup"
-                className="text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-slate-200"
-              >
-                <X size={16} />
-              </button>
+              {/* -mr-1.5 menarik grup ikon ke tepi agar pada­ding tap (p-2) tak
+                  membuatnya terlihat menjorok, tapi area sentuhnya tetap ~34px. */}
+              <div className="-mr-1.5 flex items-center gap-0.5">
+                {onOpenSettings && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenSettings(); }}
+                    aria-label="Pengaturan notifikasi"
+                    title="Pengaturan notifikasi"
+                    className="flex items-center justify-center rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Tutup"
+                  className="flex items-center justify-center rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className="max-h-80 overflow-y-auto overscroll-contain">
               {loading ? (

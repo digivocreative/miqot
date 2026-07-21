@@ -3406,7 +3406,7 @@ export default function TerasPage({
                   type="button"
                   onClick={handleSegmentAdd}
                   disabled={!composerCanAddSegment}
-                  aria-label="Tambahkan ke utas"
+                  aria-label="Buat utas baru"
                   className="group mb-3 grid w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-x-3 rounded-lg py-1 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {/* Avatar kecil di kolom yang sama dengan avatar segmen, jadi
@@ -3416,7 +3416,7 @@ export default function TerasPage({
                     <AgentAvatar name={agent.name} photo={agent.photo} size="comment" />
                   </span>
                   <span className="text-[15px] text-gray-500 group-enabled:group-hover:text-gray-700 dark:text-slate-400 dark:group-enabled:group-hover:text-slate-200">
-                    Tambahkan ke utas
+                    Buat utas baru
                   </span>
                 </button>
               )}

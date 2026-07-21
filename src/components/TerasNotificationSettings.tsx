@@ -1,17 +1,9 @@
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AtSign, Heart, Megaphone, MessageCircle, Bell, Send, Settings, Timer, X } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { AnimatePresence, motion, useReducedMotion, type PanInfo } from 'framer-motion';
+import { AtSign, Heart, Megaphone, MessageCircle, Bell, RotateCw, Send, Timer, X } from 'lucide-react';
+import { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { TerasPrefKey, TerasPrefs } from '../hooks/useTerasNotificationPrefs';
-
-// Sama persis dengan SIZE_CLASSES di NotificationBell.tsx — gerigi berdiri di
-// antara lonceng dan toggle tema, jadi ketiganya harus seukuran di tiap header.
-const SIZE_CLASSES: Record<'compact' | 'header' | 'home', { button: string; icon: number }> = {
-  compact: { button: 'h-8 w-8 rounded-lg', icon: 14 },
-  header: { button: 'h-11 w-11 rounded-xl', icon: 16 },
-  home: { button: 'w-9 h-9 rounded-xl', icon: 16 },
-};
 
 const ROWS: { icon: typeof AtSign; title: string; caption: string; bell: TerasPrefKey; telegram: TerasPrefKey }[] = [
   { icon: AtSign, title: 'Sebutan (@nama)', caption: 'Saat kamu disebut', bell: 'teras_bell_mention', telegram: 'community_mentions' },
@@ -34,38 +26,43 @@ function Switch({ checked, disabled, label, onToggle }: {
       aria-label={label}
       disabled={disabled}
       onClick={onToggle}
-      className={`flex h-[26px] w-11 shrink-0 items-center rounded-full p-[3px] transition-colors disabled:opacity-40 ${
+      className={`flex h-7 w-12 shrink-0 items-center rounded-full p-[3px] transition-colors disabled:opacity-40 ${
         checked ? 'justify-end bg-emerald-500' : 'justify-start bg-gray-200 dark:bg-slate-600'
       }`}
     >
-      <span className="h-5 w-5 rounded-full bg-white shadow-sm" />
+      {/* `layout` membuat knop menggeser (FLIP) saat justify berpindah, bukan
+          melompat — gerak khas saklar iOS/Threads. */}
+      <motion.span layout transition={{ type: 'spring', stiffness: 520, damping: 34 }} className="h-[22px] w-[22px] rounded-full bg-white shadow-sm" />
     </button>
   );
 }
 
 export default function TerasNotificationSettings({
-  size, prefs, telegramConnected, open, loading, loaded, error, onOpen, onClose, onToggle,
+  prefs, telegramConnected, open, loading, loaded, error, onClose, onToggle, onRetry,
 }: {
-  size: 'compact' | 'header' | 'home';
   prefs: TerasPrefs;
   telegramConnected: boolean;
   open: boolean;
   loading: boolean;
   loaded: boolean;
   error: string | null;
-  onOpen: () => void;
   onClose: () => void;
   onToggle: (key: TerasPrefKey) => void;
+  /** Memuat ulang pengaturan setelah load awal gagal. */
+  onRetry?: () => void;
 }) {
   const reduceMotion = useReducedMotion();
-  const sizing = SIZE_CLASSES[size];
   const headingId = useId();
-  const gearButtonRef = useRef<HTMLButtonElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Tutup bila sheet ditarik turun cukup jauh atau cukup cepat — melunasi janji
+  // gerak dari grab handle di puncak. Kalau tak lewat ambang, framer memantulkan
+  // sheet kembali ke y:0 (dragConstraints) sendiri.
+  const handleDragEnd = (_event: unknown, info: PanInfo) => {
+    if (info.offset.y > 96 || info.velocity.y > 520) onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
-    closeButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -73,27 +70,11 @@ export default function TerasNotificationSettings({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      gearButtonRef.current?.focus();
     };
   }, [open, onClose]);
 
   return (
     <>
-      <button
-        type="button"
-        ref={gearButtonRef}
-        onClick={onOpen}
-        aria-label="Pengaturan notifikasi Teras"
-        title="Pengaturan notifikasi Teras"
-        className={`flex shrink-0 items-center justify-center transition-colors active:scale-95 ${sizing.button} ${
-          open
-            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-            : 'bg-gray-100/80 text-gray-500 hover:bg-gray-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700'
-        }`}
-      >
-        <Settings size={sizing.icon} />
-      </button>
-
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {open && (
@@ -111,21 +92,25 @@ export default function TerasNotificationSettings({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={headingId}
-                className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md rounded-t-3xl border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md touch-none rounded-t-3xl border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
                 initial={reduceMotion ? { opacity: 0 } : { y: '100%' }}
                 animate={reduceMotion ? { opacity: 1 } : { y: 0 }}
                 exit={reduceMotion ? { opacity: 0 } : { y: '100%' }}
-                transition={{ type: 'tween', duration: 0.22 }}
+                transition={reduceMotion ? { duration: 0.18 } : { type: 'spring', stiffness: 340, damping: 32 }}
+                drag={reduceMotion ? false : 'y'}
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={{ top: 0, bottom: 0.55 }}
+                dragMomentum={false}
+                onDragEnd={handleDragEnd}
               >
-                <div className="flex justify-center pb-0.5 pt-2">
-                  <span className="h-1 w-9 rounded-full bg-gray-200 dark:bg-slate-600" />
+                <div className="flex cursor-grab justify-center pb-0.5 pt-2 active:cursor-grabbing">
+                  <span className="h-1 w-9 rounded-full bg-gray-300 dark:bg-slate-600" />
                 </div>
 
                 <div className="flex items-center justify-between px-4 pb-3 pt-2.5">
-                  <h2 id={headingId} className="text-sm font-bold text-gray-900 dark:text-white">Notifikasi Teras</h2>
+                  <h2 id={headingId} className="text-[15px] font-bold text-gray-900 dark:text-white">Notifikasi Teras</h2>
                   <button
                     type="button"
-                    ref={closeButtonRef}
                     onClick={onClose}
                     aria-label="Tutup"
                     className="text-gray-400 dark:text-slate-500"
@@ -136,8 +121,14 @@ export default function TerasNotificationSettings({
 
                 <div className="flex items-center gap-1.5 px-4 pb-2">
                   <span className="flex-1" />
-                  <span className="flex w-[50px] justify-center text-gray-500 dark:text-slate-400"><Bell size={14} /></span>
-                  <span className="flex w-[50px] justify-center text-[10px] font-semibold text-gray-500 dark:text-slate-400">Telegram</span>
+                  <span className="flex w-[52px] flex-col items-center gap-0.5 text-gray-500 dark:text-slate-400">
+                    <Bell size={13} />
+                    <span className="text-[9px] font-semibold uppercase tracking-wide">Lonceng</span>
+                  </span>
+                  <span className="flex w-[52px] flex-col items-center gap-0.5 text-gray-500 dark:text-slate-400">
+                    <Send size={13} />
+                    <span className="text-[9px] font-semibold uppercase tracking-wide">Telegram</span>
+                  </span>
                 </div>
 
                 <div className="border-t border-gray-100 px-4 py-0.5 dark:border-slate-700">
@@ -145,36 +136,59 @@ export default function TerasNotificationSettings({
                   {!loading && !loaded && (
                     // Load awal gagal: JANGAN render matriks saklar sama sekali — nilainya
                     // masih DEFAULT_PREFS (fabrikasi), bukan posisi asli agen. Tampilkan
-                    // error di sini, menggantikan baris, bukan berdampingan dengannya.
-                    <p role="alert" className="py-6 text-center text-[13px] font-medium text-red-500 dark:text-red-400">
-                      {error ?? 'Gagal memuat pengaturan.'}
-                    </p>
+                    // error di sini, menggantikan baris, bukan berdampingan dengannya —
+                    // lengkap dengan jalan keluar "Coba lagi" agar tak jadi buntu.
+                    <motion.div
+                      role="alert"
+                      className="flex flex-col items-center gap-3 py-7"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      <p className="text-center text-[13px] font-medium text-red-500 dark:text-red-400">
+                        {error ?? 'Gagal memuat pengaturan.'}
+                      </p>
+                      {onRetry && (
+                        <button
+                          type="button"
+                          onClick={onRetry}
+                          className="flex items-center gap-1.5 rounded-full bg-gray-100 px-4 py-1.5 text-[12px] font-semibold text-gray-700 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          <RotateCw size={13} />
+                          Coba lagi
+                        </button>
+                      )}
+                    </motion.div>
                   )}
-                  {!loading && loaded && ROWS.map(row => {
-                    const Icon = row.icon;
-                    return (
-                      <div key={row.bell} className="flex items-center gap-1.5 py-2.5">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400">
-                          <Icon size={16} />
-                        </span>
-                        <span className="min-w-0 flex-1 pl-1">
-                          <span className="block truncate text-[14px] font-semibold text-gray-900 dark:text-white">{row.title}</span>
-                          <span className="block truncate text-[11px] text-gray-400 dark:text-slate-500">{row.caption}</span>
-                        </span>
-                        <span className="flex w-[50px] justify-center">
-                          <Switch checked={prefs[row.bell]} label={`${row.title} di lonceng`} onToggle={() => onToggle(row.bell)} />
-                        </span>
-                        <span className={`flex w-[50px] justify-center ${telegramConnected ? '' : 'opacity-40'}`}>
-                          <Switch
-                            checked={prefs[row.telegram]}
-                            disabled={!telegramConnected}
-                            label={`${row.title} ke Telegram`}
-                            onToggle={() => onToggle(row.telegram)}
-                          />
-                        </span>
-                      </div>
-                    );
-                  })}
+                  {!loading && loaded && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+                      {ROWS.map(row => {
+                        const Icon = row.icon;
+                        return (
+                          <div key={row.bell} className="flex items-center gap-1.5 py-2.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400">
+                              <Icon size={16} />
+                            </span>
+                            <span className="min-w-0 flex-1 pl-1">
+                              <span className="block truncate text-[14px] font-semibold text-gray-900 dark:text-white">{row.title}</span>
+                              <span className="block truncate text-[11px] text-gray-400 dark:text-slate-500">{row.caption}</span>
+                            </span>
+                            <span className="flex w-[52px] justify-center">
+                              <Switch checked={prefs[row.bell]} label={`${row.title} di lonceng`} onToggle={() => onToggle(row.bell)} />
+                            </span>
+                            <span className={`flex w-[52px] justify-center ${telegramConnected ? '' : 'opacity-40'}`}>
+                              <Switch
+                                checked={prefs[row.telegram]}
+                                disabled={!telegramConnected}
+                                label={`${row.title} ke Telegram`}
+                                onToggle={() => onToggle(row.telegram)}
+                              />
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </motion.div>
+                  )}
                 </div>
 
                 {!loading && loaded && !telegramConnected && (

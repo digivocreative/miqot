@@ -809,21 +809,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpenPost={openNotificationPost}
                 onMarkAllRead={notifications.markAllRead}
                 onClearAll={notifications.clearAll}
+                onOpenSettings={notifPrefs.openSheet}
               />
             )}
 
             {terasEnabled && (
               <TerasNotificationSettings
-                size={compactHeader ? 'compact' : 'header'}
                 prefs={notifPrefs.prefs}
                 telegramConnected={notifPrefs.telegramConnected}
                 open={notifPrefs.open}
                 loading={notifPrefs.loading}
                 loaded={notifPrefs.loaded}
                 error={notifPrefs.error}
-                onOpen={notifPrefs.openSheet}
                 onClose={notifPrefs.closeSheet}
                 onToggle={notifPrefs.toggle}
+                onRetry={notifPrefs.reload}
               />
             )}
 
@@ -1137,20 +1137,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpenPost={openNotificationPost}
                 onMarkAllRead={notifications.markAllRead}
                 onClearAll={notifications.clearAll}
+                onOpenSettings={notifPrefs.openSheet}
               />
             )}
             {terasEnabled && (
               <TerasNotificationSettings
-                size="home"
                 prefs={notifPrefs.prefs}
                 telegramConnected={notifPrefs.telegramConnected}
                 open={notifPrefs.open}
                 loading={notifPrefs.loading}
                 loaded={notifPrefs.loaded}
                 error={notifPrefs.error}
-                onOpen={notifPrefs.openSheet}
                 onClose={notifPrefs.closeSheet}
                 onToggle={notifPrefs.toggle}
+                onRetry={notifPrefs.reload}
               />
             )}
             <button

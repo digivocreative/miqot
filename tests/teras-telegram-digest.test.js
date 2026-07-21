@@ -52,7 +52,10 @@ test('15 reaksi pada satu kiriman jadi satu pesan', () => {
   assert.equal(messages[0].type, 'reaction');
   assert.match(messages[0].text, /14 lainnya/);
   assert.match(messages[0].text, /Agen 14/, 'aktor terbaru yang jadi wajah');
-  assert.match(messages[0].text, /https:\/\/app\.test\/dashboard\/teras\/post\/p1/);
+  // Tautan dipindah dari badan teks ke field `url` (dirakit jadi tombol inline
+  // oleh pemanggil), jadi teks tak boleh lagi memuat URL telanjang.
+  assert.equal(messages[0].url, 'https://app.test/dashboard/teras/post/p1');
+  assert.doesNotMatch(messages[0].text, /https?:\/\//);
 });
 
 test('reaksi pada dua kiriman jadi dua pesan', () => {
@@ -166,6 +169,44 @@ test('tiga balasan pada satu kiriman jadi satu pesan berjumlah', () => {
   });
   assert.equal(messages.length, 1);
   assert.match(messages[0].text, /3 balasan baru/);
+});
+
+test('kutipan balasan terbaru muncul sebagai blockquote expandable', () => {
+  const messages = buildTerasDigestMessages({
+    comments: [
+      comment({ id: 'c1', actor_agent_id: 'a1', snippet: 'balasan lama', created_at: '2026-07-20T10:00:00Z' }),
+      comment({ id: 'c2', actor_agent_id: 'a2', snippet: 'balasan paling baru', created_at: '2026-07-20T10:05:00Z' }),
+    ],
+    reactions: [],
+    mentions: [],
+    owners: [owner()],
+    origin: ORIGIN,
+  });
+  assert.equal(messages.length, 1);
+  // Isi balasan TERBARU yang dikutip, bukan yang lama.
+  assert.match(messages[0].text, /<blockquote expandable>balasan paling baru<\/blockquote>/);
+  assert.doesNotMatch(messages[0].text, /balasan lama/);
+});
+
+test('kutipan komentar di-escape HTML dan reaksi tidak berkutip', () => {
+  const [commentMsg] = buildTerasDigestMessages({
+    comments: [comment({ snippet: '<script>&"x"' })],
+    reactions: [],
+    mentions: [],
+    owners: [owner()],
+    origin: ORIGIN,
+  });
+  assert.match(commentMsg.text, /&lt;script&gt;&amp;"x"/);
+  assert.doesNotMatch(commentMsg.text, /<script>/);
+
+  const [reactionMsg] = buildTerasDigestMessages({
+    comments: [],
+    reactions: [reaction()],
+    mentions: [],
+    owners: [owner()],
+    origin: ORIGIN,
+  });
+  assert.doesNotMatch(reactionMsg.text, /blockquote/);
 });
 
 test('dua pemilik dengan masing-masing kiriman terisolasi satu sama lain', () => {
