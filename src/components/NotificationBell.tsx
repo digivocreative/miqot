@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AtSign, Bell, Heart, Megaphone, MessageCircle, X } from 'lucide-react';
+import { AtSign, Bell, CheckCheck, Heart, Megaphone, MessageCircle, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -78,6 +78,8 @@ export default function NotificationBell({
   onOpen,
   onClose,
   onOpenPost,
+  onMarkAllRead,
+  onClearAll,
 }: {
   /** Matches the neighboring dark-mode toggle's context. Defaults to 'header'
    * (the standalone sub-page header size) since that's the most common placement. */
@@ -90,6 +92,8 @@ export default function NotificationBell({
   onOpen: () => void;
   onClose: () => void;
   onOpenPost: (postId: string) => void;
+  onMarkAllRead: () => void;
+  onClearAll: () => void;
 }) {
   const { button: sizeButtonClass, icon: iconSize } = SIZE_CLASSES[size];
   const reduceMotion = useReducedMotion();
@@ -248,6 +252,32 @@ export default function NotificationBell({
                 })
               )}
             </div>
+            {!loading && !error && items.length > 0 && (
+              // Bar aksi di dasar panel, selama masih ada isi (panel kosong sudah
+              // menyembunyikan seluruh bar). "Tandai dibaca" selalu tampil tapi
+              // dinonaktifkan saat tak ada lagi yang belum dibaca. "Bersihkan"
+              // disemat ke kanan lewat ml-auto. Menyembunyikan, bukan menghapus —
+              // baris komentar/reaksi asli tetap ada di kirimannya.
+              <div className="flex items-center gap-1 border-t border-gray-100 px-2 py-1.5 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={onMarkAllRead}
+                  disabled={!items.some(item => item.unread)}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:pointer-events-none disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <CheckCheck size={13} strokeWidth={2.2} />
+                  Tandai dibaca
+                </button>
+                <button
+                  type="button"
+                  onClick={onClearAll}
+                  className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                >
+                  <Trash2 size={13} strokeWidth={2.2} />
+                  Bersihkan
+                </button>
+              </div>
+            )}
             </motion.div>
           )}
         </AnimatePresence>,

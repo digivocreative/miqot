@@ -807,6 +807,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpen={notifications.openPanel}
                 onClose={notifications.closePanel}
                 onOpenPost={openNotificationPost}
+                onMarkAllRead={notifications.markAllRead}
+                onClearAll={notifications.clearAll}
               />
             )}
 
@@ -1133,6 +1135,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpen={notifications.openPanel}
                 onClose={notifications.closePanel}
                 onOpenPost={openNotificationPost}
+                onMarkAllRead={notifications.markAllRead}
+                onClearAll={notifications.clearAll}
               />
             )}
             {terasEnabled && (

@@ -5026,6 +5026,11 @@ app.get('/api/community/members', dbLoadShedGuard, authMiddleware, async (req, r
 });
 
 const TERAS_NOTIF_SEEN_KEY = 'teras_notif_seen_at';
+// "Bersihkan" watermark. Notifikasi Teras diturunkan dari baris sumber, bukan
+// disimpan — jadi mengosongkan panel tak bisa menghapus apa pun; ia menyembunyikan
+// semua yang lahir ≤ stempel ini dari daftar DAN badge. Menumpang jsonb yang
+// sama seperti seen, tanpa DDL.
+const TERAS_NOTIF_CLEARED_KEY = 'teras_notif_cleared_at';
 // Head polling reads at most this many rows per source; the badge caps at 99
 // anyway, so a bigger window would only cost bandwidth.
 const NOTIFICATION_SCAN_LIMIT = 120;
@@ -5043,8 +5048,10 @@ async function readTerasNotifState(agentId) {
   if (error) throw error;
   const prefs = data?.notification_prefs || {};
   const value = prefs[TERAS_NOTIF_SEEN_KEY];
+  const cleared = prefs[TERAS_NOTIF_CLEARED_KEY];
   return {
     seenAt: typeof value === 'string' && value ? value : null,
+    clearedAt: typeof cleared === 'string' && cleared ? cleared : null,
     prefs,
   };
 }
@@ -5073,7 +5080,11 @@ async function writeTerasNotifSeenAt(agentId, iso) {
 // jadi ia harus tetap sampai ke lonceng selama jendela itu — hanya tanpa
 // cuplikan isi — alih-alih sumber mention diam-diam jadi kosong. Coba ulang
 // sekali tanpa embed kalau query utama gagal karena alasan skema/relasi.
-async function loadCommunityMentionRows(agent, { since, limit }) {
+// `since` (badge) dan `clearedAt` (panel dibersihkan) sama-sama jadi lantai
+// bawah created_at — PostgREST meng-AND-kan keduanya. Mention di-load lewat
+// fungsi ini (bukan query builder inline seperti sumber lain), jadi kedua
+// lantai itu diterapkan di sini.
+async function loadCommunityMentionRows(agent, { since, clearedAt = null, limit }) {
   const baseSelect = `id, post_id, comment_id, created_at,
       author:agents!community_mentions_author_agent_id_fkey(name, photo),
       post:community_posts!community_mentions_post_id_fkey(body, deleted_at)`;
@@ -5088,6 +5099,7 @@ async function loadCommunityMentionRows(agent, { since, limit }) {
       .order('created_at', { ascending: false })
       .limit(limit);
     if (since) query = query.gt('created_at', since);
+    if (clearedAt) query = query.gt('created_at', clearedAt);
     return query;
   };
 
@@ -5100,6 +5112,29 @@ async function loadCommunityMentionRows(agent, { since, limit }) {
   return { ...result, hasCommentEmbed };
 }
 
+// Membersihkan panel: sembunyikan semua ≤ iso. Item yang dibersihkan menurut
+// definisi sudah terlihat, jadi watermark seen ikut dimajukan (tak pernah
+// mundur) dalam satu merge — keduanya berbagi baris jsonb yang sama.
+async function writeTerasNotifClearedAt(agentId, iso) {
+  const { data, error } = await supabase
+    .from('agents')
+    .select('notification_prefs')
+    .eq('id', agentId)
+    .single();
+  if (error) throw error;
+  const current = data?.notification_prefs || {};
+  const merged = { ...current, [TERAS_NOTIF_CLEARED_KEY]: iso };
+  const prevSeen = current[TERAS_NOTIF_SEEN_KEY];
+  if (!prevSeen || new Date(prevSeen).getTime() < new Date(iso).getTime()) {
+    merged[TERAS_NOTIF_SEEN_KEY] = iso;
+  }
+  const { error: updateError } = await supabase
+    .from('agents')
+    .update({ notification_prefs: merged })
+    .eq('id', agentId);
+  if (updateError) throw updateError;
+}
+
 // Fetch the four sources in parallel. `since` narrows every source to rows
 // newer than the watermark (badge path); pass null to fetch the latest N
 // regardless (list path). Mentions tolerate a missing table / unresolvable
@@ -5107,13 +5142,14 @@ async function loadCommunityMentionRows(agent, { since, limit }) {
 // parent embed (isCommunityThreadSchemaMissing), and broadcasts tolerate a
 // missing `mentions_everyone` column, so the bell still works on an
 // environment where those migrations were never applied. Every source stays
-// gated behind the per-agent bell preferences (bellSourceFlags).
-async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
+// gated behind the per-agent bell preferences (bellSourceFlags). `clearedAt`
+// (panel "bersihkan") menjadi lantai bawah created_at kedua di samping `since`.
+async function loadTerasNotificationSources(agent, { since, clearedAt = null, limit, prefs }) {
   const flags = bellSourceFlags(prefs);
 
   const mentionResultPromise = !flags.mentions
     ? Promise.resolve({ data: [], error: null, hasCommentEmbed: true })
-    : loadCommunityMentionRows(agent, { since, limit });
+    : loadCommunityMentionRows(agent, { since, clearedAt, limit });
 
   // Balasan atas kiriman (atau balasan) saya. Balasan kini baris
   // community_posts, jadi relasi induknya dicek lewat parent_post_id. Hanya
@@ -5163,14 +5199,22 @@ async function loadTerasNotificationSources(agent, { since, limit, prefs }) {
     if (withThread) query = query.is('parent_post_id', null);
     query = query.order('created_at', { ascending: false }).limit(limit);
     if (since) query = query.gt('created_at', since);
+    // "Bersihkan" berlaku di jalur daftar (since null) maupun badge (since seen);
+    // PostgREST meng-AND-kan kedua batas bawah, jadi lantai efektif = yang terbaru.
+    if (clearedAt) query = query.gt('created_at', clearedAt);
     return query;
   });
 
-  // `since` untuk mention diterapkan di dalam loadCommunityMentionRows; untuk
-  // broadcast di dalam runCommunityRootQuery. Sisanya di sini.
+  // `since` DAN `clearedAt` untuk mention diterapkan di dalam
+  // loadCommunityMentionRows (mention di-load lewat fungsi, bukan query builder
+  // inline); untuk broadcast di dalam runCommunityRootQuery. Sisanya di sini.
   if (since) {
     commentQuery?.gt('created_at', since);
     reactionQuery?.gt('created_at', since);
+  }
+  if (clearedAt) {
+    commentQuery?.gt('created_at', clearedAt);
+    reactionQuery?.gt('created_at', clearedAt);
   }
 
   const empty = { data: [], error: null };
@@ -5345,9 +5389,10 @@ app.get('/api/community/notifications/head', dbLoadShedGuard, authMiddleware, as
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const { seenAt, prefs } = await readTerasNotifState(agent.id);
+    const { seenAt, clearedAt, prefs } = await readTerasNotifState(agent.id);
     const sources = await loadTerasNotificationSources(agent, {
       since: seenAt,
+      clearedAt,
       limit: NOTIFICATION_SCAN_LIMIT,
       prefs,
     });
@@ -5368,9 +5413,10 @@ app.get('/api/community/notifications', dbLoadShedGuard, authMiddleware, async (
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
     if (!requireCommunityAccess(agent, res)) return;
 
-    const { seenAt, prefs } = await readTerasNotifState(agent.id);
+    const { seenAt, clearedAt, prefs } = await readTerasNotifState(agent.id);
     const sources = await loadTerasNotificationSources(agent, {
       since: null,
+      clearedAt,
       limit: NOTIFICATION_LIMIT,
       prefs,
     });
@@ -5414,6 +5460,25 @@ app.post('/api/community/notifications/seen', authMiddleware, express.json({ lim
   } catch (err) {
     console.error('[community] notifications seen error:', err);
     res.status(500).json({ error: 'Gagal memperbarui notifikasi' });
+  }
+});
+
+// Bersihkan panel: majukan watermark cleared ke "sekarang" (tak pernah mundur).
+// Tanpa body, jadi tanpa express.json — menghindari jebakan parser path-scoped.
+app.post('/api/community/notifications/clear', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    const nowIso = new Date().toISOString();
+    const { clearedAt: prevCleared } = await readTerasNotifState(agent.id);
+    // Jam mundur / clear balapan tak boleh membuka lagi yang sudah dibersihkan.
+    const clearedAt = prevCleared && new Date(prevCleared).getTime() > Date.now() ? prevCleared : nowIso;
+    await writeTerasNotifClearedAt(agent.id, clearedAt);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[community] notifications clear error:', err);
+    res.status(500).json({ error: 'Gagal membersihkan notifikasi' });
   }
 });
 
