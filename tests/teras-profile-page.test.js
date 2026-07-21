@@ -57,10 +57,19 @@ test('foto profil memakai penanganan error foto bersama, bukan <img> telanjang',
 test('inisial header profil memakai helper bersama (tidak menyalin logika TerasPage)', () => {
   const header = read('src/components/TerasProfileHeader.tsx');
   const page = read('src/components/TerasPage.tsx');
+  const avatar = read('src/components/teras/AgentAvatar.tsx');
   const shared = read('src/lib/agent-photo.ts');
   assert.match(shared, /export function getAgentInitials\(/);
   assert.match(header, /getAgentInitials\(name\)/);
-  assert.match(page, /getAgentInitials\(name\)/);
+  // TerasPage tidak lagi merender inisial sendiri: AgentAvatar diekstrak ke
+  // ./teras/AgentAvatar (dipakai TerasPage DAN CommentThread dari satu
+  // definisi), dan itulah satu-satunya pemanggil getAgentInitials selain
+  // header profil. TerasPage cuma memakai komponennya -- tidak boleh
+  // menyalin logika inisial (langsung memanggil getAgentInitials atau
+  // mendefinisikan ulang getInitials) sendiri.
+  assert.match(avatar, /getAgentInitials\(name\)/);
+  assert.match(page, /import \{ AgentAvatar \} from '\.\/teras\/AgentAvatar';/);
+  assert.doesNotMatch(page, /getAgentInitials/);
   assert.doesNotMatch(page, /function getInitials\(/);
 });
 

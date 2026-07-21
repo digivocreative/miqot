@@ -16,8 +16,14 @@ test('pill mention jadi tautan ke profil saat onOpenProfile diberikan', () => {
 
 test('TerasPage meneruskan onOpenProfile ke setiap MentionText', () => {
   const page = read('src/components/TerasPage.tsx');
-  const uses = page.match(/<MentionText\b/g) || [];
-  const wired = page.match(/onOpenProfile=\{openProfile\}/g) || [];
+  // Cocokkan tiap tag <MentionText ... /> secara individual (bukan menghitung
+  // kemunculan onOpenProfile={openProfile} di seluruh berkas) -- sejak
+  // CommentThread diekstrak, TerasPage juga meneruskan prop onOpenProfile ke
+  // <CommentThread>, yang bentuk teksnya identik dan akan mengembang hitungan
+  // kalau dua pola dihitung terpisah.
+  const uses = page.match(/<MentionText\b[^>]*\/>/g) || [];
+  assert.ok(uses.length > 0, 'expected at least one <MentionText /> usage in TerasPage.tsx');
+  const wired = uses.filter(tag => /onOpenProfile=\{openProfile\}/.test(tag));
   assert.equal(wired.length, uses.length, 'semua MentionText harus diberi onOpenProfile');
 });
 
@@ -50,30 +56,35 @@ test('mention pill link bails out on a modified click before hijacking navigatio
   );
 });
 
-test('all four post/comment author links in TerasPage bail out on a modified click (review fix Task 6)', () => {
+test('all four post/comment author links bail out on a modified click (review fix Task 6)', () => {
+  // Rekonsiliasi Teras memindahkan rendering komentar (avatar + nama penulis
+  // komentar) dari TerasPage.tsx ke src/components/teras/CommentThread.tsx.
+  // Post author links tetap di TerasPage.tsx; comment author links sekarang
+  // ada di CommentThread.tsx. Perilaku (4 tautan, semua menjaga modified
+  // click) harus tetap sama persis -- cuma lokasinya yang terbagi dua berkas.
   const page = read('src/components/TerasPage.tsx');
+  const commentThread = read('src/components/teras/CommentThread.tsx');
   assert.match(page, /import \{ isModifiedClick, terasProfilePath \} from '\.\.\/lib\/terasRoutes';/);
+  assert.match(commentThread, /import \{ isModifiedClick, terasProfilePath \} from '\.\.\/\.\.\/lib\/terasRoutes';/);
 
-  const guardCount = (page.match(/if \(isModifiedClick\(event\)\) return;/g) || []).length;
-  assert.equal(
-    guardCount,
-    4,
-    'post author avatar, post author name, comment author avatar, and comment author name links must all guard modified clicks',
-  );
+  const pageGuardCount = (page.match(/if \(isModifiedClick\(event\)\) return;/g) || []).length;
+  assert.equal(pageGuardCount, 2, 'post author avatar and name links in TerasPage must guard modified clicks');
+
+  const commentGuardCount = (commentThread.match(/if \(isModifiedClick\(event\)\) return;/g) || []).length;
+  assert.equal(commentGuardCount, 2, 'comment author avatar and name links in CommentThread must guard modified clicks');
 
   // Each guard must sit directly ahead of preventDefault/stopPropagation/openProfile —
   // not merely appear somewhere in the file — for both the avatar and the name link,
-  // for both a post author and a comment author.
-  const guardedBlockPattern =
-    /if \(isModifiedClick\(event\)\) return;\s*\n\s*event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*openProfile\((authorSlug|commentAuthorSlug)\);/g;
-  const guardedBlocks = page.match(guardedBlockPattern) || [];
-  assert.equal(guardedBlocks.length, 4);
-  assert.equal(guardedBlocks.filter(block => block.includes('openProfile(authorSlug)')).length, 2, 'post avatar + name links');
-  assert.equal(
-    guardedBlocks.filter(block => block.includes('openProfile(commentAuthorSlug)')).length,
-    2,
-    'comment avatar + name links',
-  );
+  // for both a post author (TerasPage) and a comment author (CommentThread).
+  const postGuardedBlockPattern =
+    /if \(isModifiedClick\(event\)\) return;\s*\n\s*event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*openProfile\(authorSlug\);/g;
+  const postGuardedBlocks = page.match(postGuardedBlockPattern) || [];
+  assert.equal(postGuardedBlocks.length, 2, 'post avatar + name links');
+
+  const commentGuardedBlockPattern =
+    /if \(isModifiedClick\(event\)\) return;\s*\n\s*event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*onOpenProfile\(commentAuthorSlug\);/g;
+  const commentGuardedBlocks = commentThread.match(commentGuardedBlockPattern) || [];
+  assert.equal(commentGuardedBlocks.length, 2, 'comment avatar + name links');
 });
 
 test('pesan kosong profil memakai feedPosts, bukan posts mentah (review fix Task 5)', () => {
