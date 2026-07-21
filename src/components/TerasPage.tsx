@@ -4988,69 +4988,6 @@ export default function TerasPage({
                       </div>
                     ) : (
                       <>
-                        {commentPanel.comments.length === 0 ? (
-                          <p className="min-w-0 border-t border-gray-100 pt-3 text-[11px] text-gray-500 dark:border-slate-800 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
-                        ) : (
-                          <CommentThread
-                            comments={commentPanel.comments}
-                            myReactions={commentReactionMaps?.myReactions ?? {}}
-                            reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
-                            onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
-                            onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
-                            onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
-                            onDelete={commentId => void deleteComment(commentTargetId, commentId)}
-                            onOpenThread={openPostDetail}
-                            profileSlug={profileSlug}
-                            replyTargetId={activeCommentReplyTarget?.commentId ?? null}
-                            renderBody={comment => (
-                              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
-                            )}
-                            renderMedia={comment => (
-                              (comment.media?.length ?? 0) > 0 ? (
-                                <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                  {(comment.media || []).map((item, index) => (
-                                    <button
-                                      key={`${comment.id}-media-${index}`}
-                                      type="button"
-                                      onClick={event => openMediaViewer(comment.media || [], index, comment.author.name || 'Agent', event.currentTarget)}
-                                      aria-label={`Lihat ${item.type === 'video' ? 'video' : 'foto'} ${index + 1} dari komentar ${comment.author.name || 'Agent'}`}
-                                      className="relative shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-slate-700 dark:bg-slate-950"
-                                    >
-                                      {item.type === 'video' ? (
-                                        <>
-                                          <video
-                                            src={videoPreviewSrc(item.url)}
-                                            playsInline
-                                            muted
-                                            preload="metadata"
-                                            className="block h-36 w-auto max-w-[70vw] bg-black object-contain"
-                                          />
-                                          <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
-                                              <Play size={16} className="ml-0.5" fill="currentColor" />
-                                            </span>
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <img
-                                          src={item.url}
-                                          alt={`Foto ${index + 1} komentar ${comment.author.name || 'Agent'}`}
-                                          loading="lazy"
-                                          className="block h-36 w-auto max-w-[70vw] object-contain"
-                                        />
-                                      )}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null
-                            )}
-                            formatTime={timeAgo}
-                            agent={agent}
-                            deletingCommentId={deletingCommentId}
-                            onOpenProfile={openProfile}
-                          />
-                        )}
-
                         {commentPanel.error && (
                           <p role="alert" className="ml-[52px] mt-2 min-w-0 text-[10px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">{commentPanel.error}</p>
                         )}
@@ -5233,6 +5170,69 @@ export default function TerasPage({
                           </div>
                           </div>
                         </div>
+
+                        {commentPanel.comments.length === 0 ? (
+                          <p className="-mx-4 min-w-0 border-t border-gray-100 px-4 pt-3 text-[11px] text-gray-500 dark:border-slate-800 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
+                        ) : (
+                          <CommentThread
+                            comments={commentPanel.comments}
+                            myReactions={commentReactionMaps?.myReactions ?? {}}
+                            reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
+                            onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
+                            onReply={(commentId, replyAuthorName) => handleCommentReplyTarget(commentTargetId, commentId, replyAuthorName)}
+                            onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
+                            onDelete={commentId => void deleteComment(commentTargetId, commentId)}
+                            onOpenThread={openPostDetail}
+                            profileSlug={profileSlug}
+                            replyTargetId={activeCommentReplyTarget?.commentId ?? null}
+                            renderBody={comment => (
+                              <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700 [overflow-wrap:anywhere] dark:text-slate-300"><MentionText body={comment.body} memberBySlug={memberBySlug} linkify onOpenProfile={openProfile} /></p>
+                            )}
+                            renderMedia={comment => (
+                              (comment.media?.length ?? 0) > 0 ? (
+                                <div className="mt-1.5 flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                  {(comment.media || []).map((item, index) => (
+                                    <button
+                                      key={`${comment.id}-media-${index}`}
+                                      type="button"
+                                      onClick={event => openMediaViewer(comment.media || [], index, comment.author.name || 'Agent', event.currentTarget)}
+                                      aria-label={`Lihat ${item.type === 'video' ? 'video' : 'foto'} ${index + 1} dari komentar ${comment.author.name || 'Agent'}`}
+                                      className="relative shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:border-slate-700 dark:bg-slate-950"
+                                    >
+                                      {item.type === 'video' ? (
+                                        <>
+                                          <video
+                                            src={videoPreviewSrc(item.url)}
+                                            playsInline
+                                            muted
+                                            preload="metadata"
+                                            className="block h-36 w-auto max-w-[70vw] bg-black object-contain"
+                                          />
+                                          <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+                                              <Play size={16} className="ml-0.5" fill="currentColor" />
+                                            </span>
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <img
+                                          src={item.url}
+                                          alt={`Foto ${index + 1} komentar ${comment.author.name || 'Agent'}`}
+                                          loading="lazy"
+                                          className="block h-36 w-auto max-w-[70vw] object-contain"
+                                        />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null
+                            )}
+                            formatTime={timeAgo}
+                            agent={agent}
+                            deletingCommentId={deletingCommentId}
+                            onOpenProfile={openProfile}
+                          />
+                        )}
                       </>
                     )}
                   </motion.div>
