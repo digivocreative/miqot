@@ -1533,6 +1533,9 @@ export default function TerasPage({
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentReactionPendingRef = useRef<Set<string>>(new Set());
+  // Penjaga in-flight togglePin: mencegah klik ganda (dobel tap/keyboard
+  // repeat) mengirim POST+DELETE tumpang tindih sebelum respons pertama tiba.
+  const pinBusyRef = useRef(false);
   // Infra tap-lama tombol Suka: timer long-press, penanda supaya klik ekor
   // setelah long-press TIDAK memicu like/unlike, titik awal pointer untuk
   // membatalkan bila jari bergeser, controller fetch per kiriman, dan node
@@ -3307,6 +3310,8 @@ export default function TerasPage({
 
   // Sematkan/lepas sematan (admin, linimasa utama) — lihat task-3-brief.md.
   const togglePin = async (post: CommunityPost) => {
+    if (pinBusyRef.current) return;
+    pinBusyRef.current = true;
     const isPinned = pinnedPost?.id === post.id;
     try {
       const result = await requestJson<{ id: string; pinned_at: string | null }>(
@@ -3314,15 +3319,21 @@ export default function TerasPage({
         { method: isPinned ? 'DELETE' : 'POST', headers: getAuthHeaders() },
         isPinned ? 'Gagal melepas sematan' : 'Gagal menyematkan',
       );
+      const nextPinnedAt = isPinned ? null : (result.data?.pinned_at ?? new Date().toISOString());
       if (isPinned) {
         setPinnedPost(null);
         showToast('Sematan dilepas', 'success');
       } else {
-        setPinnedPost({ ...post, pinned_at: result.data?.pinned_at ?? new Date().toISOString() });
+        setPinnedPost({ ...post, pinned_at: nextPinnedAt });
         showToast('Kiriman disematkan', 'success');
       }
+      // `posts` (salinan kronologis) juga menyimpan pinned_at sendiri --
+      // sinkronkan supaya badge di tampilan detail tidak basi setelah toggle.
+      setPosts(current => current.map(p => (p.id === post.id ? { ...p, pinned_at: nextPinnedAt } : p)));
     } catch (error) {
       showToast(errorMessage(error, 'Gagal mengubah sematan'), 'error');
+    } finally {
+      pinBusyRef.current = false;
     }
   };
 
@@ -4781,7 +4792,7 @@ export default function TerasPage({
             // Di feed sasaran komentar = kiriman itu sendiri; di detail selalu
             // segmen pertama rantai.
             const commentTargetId = commentAnchorId || post.id;
-            const isLastSegment = segmentIndex === visiblePosts.length - 1;
+            const isLastSegment = segmentIndex === renderPosts.length - 1;
             // Rantai (>1 segmen) hanya mungkin di tampilan detail.
             const isChainSegment = isDetailView && visiblePosts.length > 1;
             // Garis penyambung antar-avatar: dipasang di semua segmen KECUALI

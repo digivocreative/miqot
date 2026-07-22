@@ -7198,6 +7198,20 @@ app.delete('/api/community/posts/:id', authMiddleware, async (req, res) => {
     }
     if (deleteError) throw deleteError;
 
+    // Baris yang baru dihapus tidak boleh terus jadi kartu tersemat -- bersihkan
+    // slot pin secara best-effort. Kolom pinned_at mungkin belum ada
+    // pra-migrasi, jadi ini TIDAK digabung ke `patch` di atas (kalau digabung,
+    // update seluruh soft-delete ikut gagal saat kolomnya belum ada). Gagal di
+    // sini tidak boleh menggagalkan respons hapus yang sudah sukses.
+    const { error: unpinDeletedError } = await supabase
+      .from('community_posts')
+      .update({ pinned_at: null })
+      .eq('id', req.params.id)
+      .not('pinned_at', 'is', null);
+    if (unpinDeletedError && !isCommunityPinSchemaMissing(unpinDeletedError)) {
+      console.error('[community] clear pin on delete error:', unpinDeletedError);
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('[community] delete post error:', err);
