@@ -75,7 +75,8 @@ export function deriveAlerts(data: PortalMeData): PortalAlert[] {
       subtitle: 'Hubungi agent untuk ambil koper & ihram',
       tone: 'violet',
       icon: Package,
-      navigateTo: 'perlengkapan',
+      // Halaman Perlengkapan dihapus — pengingat tetap tampil, tap kembali ke beranda.
+      navigateTo: 'beranda',
     });
   }
 
@@ -88,7 +89,8 @@ export function deriveAlerts(data: PortalMeData): PortalAlert[] {
         subtitle: `Jadwal manasik H-${manasikDaysLeft}`,
         tone: 'purple',
         icon: BookOpenCheck,
-        navigateTo: 'manasik',
+        // Halaman Manasik dihapus — pengingat jadwal tetap tampil, tap kembali ke beranda.
+        navigateTo: 'beranda',
       });
     }
   }

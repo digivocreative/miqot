@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { BookOpenCheck, CreditCard, FileText, LifeBuoy, Package, Plane } from 'lucide-react';
+import { BookOpen, CreditCard, FileText, HandHeart, LifeBuoy, Plane } from 'lucide-react';
 import type { PortalRoute } from '../hooks/usePortalRoute';
 
 export interface PortalMenu {
@@ -53,22 +53,22 @@ export const PORTAL_MENUS: PortalMenu[] = [
     hoverShadow: 'hover:shadow-blue-300/40 dark:hover:shadow-blue-900/30',
   },
   {
-    id: 'perlengkapan',
-    label: 'Perlengkapan',
-    desc: 'Koper, ihram, dll',
-    icon: Package,
-    iconBg: 'bg-gradient-to-br from-violet-400 to-purple-600 dark:from-violet-500 dark:to-purple-700',
-    iconShadow: 'shadow-lg shadow-violet-500/30 dark:shadow-violet-900/40',
+    id: 'al-quran',
+    label: 'Al-Quran',
+    desc: '114 surah + terjemah',
+    icon: BookOpen,
+    iconBg: 'bg-gradient-to-br from-teal-400 to-emerald-600 dark:from-teal-500 dark:to-emerald-700',
+    iconShadow: 'shadow-lg shadow-teal-500/30 dark:shadow-teal-900/40',
     iconAnim: 'animate-icon-float',
-    cardBg: 'bg-gradient-to-br from-violet-50 via-white to-purple-100/70 dark:from-violet-950/40 dark:via-slate-800 dark:to-slate-800',
-    cardBorder: 'border-violet-200/70 dark:border-violet-800/40',
-    hoverShadow: 'hover:shadow-violet-300/40 dark:hover:shadow-violet-900/30',
+    cardBg: 'bg-gradient-to-br from-teal-50 via-white to-emerald-100/70 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-teal-200/70 dark:border-teal-800/40',
+    hoverShadow: 'hover:shadow-teal-300/40 dark:hover:shadow-teal-900/30',
   },
   {
-    id: 'manasik',
-    label: 'Manasik',
-    desc: 'Jadwal & spiritual',
-    icon: BookOpenCheck,
+    id: 'doa-dzikir',
+    label: 'Doa & Dzikir',
+    desc: 'Doa perjalanan ibadah',
+    icon: HandHeart,
     iconBg: 'bg-gradient-to-br from-fuchsia-400 to-purple-600 dark:from-fuchsia-500 dark:to-purple-700',
     iconShadow: 'shadow-lg shadow-purple-500/30 dark:shadow-purple-900/40',
     iconAnim: 'animate-icon-breathe',

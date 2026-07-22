@@ -5,8 +5,8 @@ export type PortalRoute =
   | 'perjalanan'
   | 'pembayaran'
   | 'dokumen'
-  | 'perlengkapan'
-  | 'manasik'
+  | 'al-quran'
+  | 'doa-dzikir'
   | 'faq';
 
 const PORTAL_ROUTES: PortalRoute[] = [
@@ -14,8 +14,8 @@ const PORTAL_ROUTES: PortalRoute[] = [
   'perjalanan',
   'pembayaran',
   'dokumen',
-  'perlengkapan',
-  'manasik',
+  'al-quran',
+  'doa-dzikir',
   'faq',
 ];
 

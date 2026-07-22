@@ -14,8 +14,8 @@ const BerandaPage = lazy(() => import('./BerandaPage'));
 const PerjalananPage = lazy(() => import('./PerjalananPage'));
 const PembayaranPage = lazy(() => import('./PembayaranPage'));
 const DokumenPage = lazy(() => import('./DokumenPage'));
-const PerlengkapanPage = lazy(() => import('./PerlengkapanPage'));
-const ManasikSpiritualPage = lazy(() => import('./ManasikSpiritualPage'));
+const AlQuranPage = lazy(() => import('./AlQuranPage'));
+const DoaDzikirPage = lazy(() => import('./DoaDzikirPage'));
 const FaqPage = lazy(() => import('./FaqPage'));
 
 function LoadingScreen() {
@@ -103,8 +103,8 @@ export default function PortalDashboard({
         {route === 'perjalanan' && <PerjalananPage data={data} onBack={goBack} />}
         {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
         {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
-        {route === 'perlengkapan' && <PerlengkapanPage data={data} onBack={goBack} />}
-        {route === 'manasik' && <ManasikSpiritualPage data={data} onBack={goBack} />}
+        {route === 'al-quran' && <AlQuranPage data={data} onBack={goBack} />}
+        {route === 'doa-dzikir' && <DoaDzikirPage data={data} onBack={goBack} />}
         {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
       </Suspense>
       <StickyWhatsAppCta agent={data.agent} booking={data.booking} initiator={initiator} />

@@ -36,8 +36,9 @@ const ICON_MAP: Record<TaskCategory, LucideIcon> = {
 const ROUTE_MAP: Record<TaskCategory, PortalRoute> = {
   pembayaran: 'pembayaran',
   dokumen: 'dokumen',
-  perlengkapan: 'perlengkapan',
-  manasik: 'manasik',
+  // Halaman Perlengkapan & Manasik dihapus — tugas kategori ini kembali ke beranda.
+  perlengkapan: 'beranda',
+  manasik: 'beranda',
   fallback: 'beranda',
 };
 

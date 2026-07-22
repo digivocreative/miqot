@@ -1,0 +1,83 @@
+import { useMemo, useState } from 'react';
+import { HandHeart, Search } from 'lucide-react';
+import PortalBackBar from '../components/PortalBackBar';
+import { DOA_CATEGORIES, type DoaCategory } from '../lib/doaData';
+
+const ICON_CLASS = 'bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-900/20 dark:text-fuchsia-400';
+
+function matchesQuery(category: DoaCategory, q: string): DoaCategory | null {
+  if (!q) return category;
+  const entries = category.entries.filter(
+    (e) =>
+      e.title.toLowerCase().includes(q) ||
+      e.terjemahan.toLowerCase().includes(q) ||
+      e.latin.toLowerCase().includes(q)
+  );
+  return entries.length ? { ...category, entries } : null;
+}
+
+export default function DoaDzikirPage({ onBack }: { data?: unknown; onBack: () => void }) {
+  const [query, setQuery] = useState('');
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return DOA_CATEGORIES.map((c) => matchesQuery(c, q)).filter((c): c is DoaCategory => c !== null);
+  }, [query]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
+      <PortalBackBar title="Doa & Dzikir" onBack={onBack} icon={HandHeart} iconClassName={ICON_CLASS} />
+      <main className="mx-auto w-full max-w-lg space-y-5 px-4 pb-24 pt-4">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-slate-500" strokeWidth={2} />
+          <input
+            type="search"
+            inputMode="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Cari doa (judul atau terjemahan)"
+            aria-label="Cari doa"
+            className="w-full rounded-2xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm font-medium text-gray-900 shadow-sm outline-none transition-colors placeholder:text-gray-400 focus:border-fuchsia-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+          />
+        </div>
+
+        {groups.length === 0 ? (
+          <div className="rounded-2xl border border-gray-100 bg-white px-5 py-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p className="text-sm font-bold text-gray-800 dark:text-slate-100">Doa tidak ditemukan</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">Coba kata kunci lain.</p>
+          </div>
+        ) : (
+          groups.map((category) => (
+            <section key={category.id} className="space-y-2.5">
+              <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                {category.title}
+              </h2>
+              <div className="space-y-2.5">
+                {category.entries.map((entry) => (
+                  <article
+                    key={entry.id}
+                    className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-bold text-gray-900 dark:text-white">{entry.title}</h3>
+                      {entry.sumber && (
+                        <span className="flex-none rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500 dark:bg-slate-700 dark:text-slate-300">
+                          {entry.sumber}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-3 font-arabic text-2xl leading-loose text-gray-900 dark:text-white" dir="rtl" lang="ar">
+                      {entry.arab}
+                    </p>
+                    <p className="mt-3 text-sm italic leading-6 text-fuchsia-700 dark:text-fuchsia-300">{entry.latin}</p>
+                    <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{entry.terjemahan}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+      </main>
+    </div>
+  );
+}

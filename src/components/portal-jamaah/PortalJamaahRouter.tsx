@@ -16,8 +16,8 @@ const PORTAL_DASHBOARD_ROUTES: PortalRoute[] = [
   'perjalanan',
   'pembayaran',
   'dokumen',
-  'perlengkapan',
-  'manasik',
+  'al-quran',
+  'doa-dzikir',
   'faq',
 ];
 

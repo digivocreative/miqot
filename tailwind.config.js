@@ -23,6 +23,8 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Stack Arab tanpa web-font (andalkan font Arab sistem) — tanpa dependensi jaringan.
+        arabic: ['Amiri', '"Scheherazade New"', '"Traditional Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"', 'serif'],
       },
       keyframes: {
         barPulse: {
