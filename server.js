@@ -72,6 +72,7 @@ import {
   normalizeThreadSegments,
 } from './lib/community-thread-compose.js';
 import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js';
+import { validateCommunityEdit } from './lib/community-edit.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -4264,6 +4265,12 @@ function isCommunityMediaSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+function isCommunityEditSchemaMissing(error) {
+  const code = String(error?.code || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /edited_at/i.test(String(error?.message || error?.details || ''));
+}
+
 // community_post_comments adalah tabel komentar LAMA (pra-rekonsiliasi utas):
 // komentar baru sekarang baris community_posts (is_reply=true), dan Langkah 6
 // migrations/20260726000000_community_post_thread.sql (dijalankan nanti,
@@ -5548,10 +5555,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => {
+    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited) => {
       let query = supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
       if (profileMember) {
         query = query.eq('agent_id', profileMember.id);
@@ -5612,10 +5619,13 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     let includeQuote = true;
     let includeLinkPreview = true;
     let includeThread = true;
+    let includeEdited = true;
     let posts = null;
     let postsError = null;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview, includeThread));
+    // 5 percobaan gagal (media, quote, link preview, thread, edited) + 1
+    // percobaan sukses = 6.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited));
       if (includeMedia && isCommunityMediaSchemaMissing(postsError)) {
         includeMedia = false;
         continue;
@@ -5630,6 +5640,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
       if (includeThread && isCommunityThreadSchemaMissing(postsError)) {
         includeThread = false;
+        continue;
+      }
+      if (includeEdited && isCommunityEditSchemaMissing(postsError)) {
+        includeEdited = false;
         continue;
       }
       break;
@@ -5793,10 +5807,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       return query.gte('id', lo).lte('id', hi).order('created_at', { ascending: true }).limit(1);
     };
 
-    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread) => applyPostIdFilter(
+    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
@@ -5804,12 +5818,13 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     let includeQuote = true;
     let includeLinkPreview = true;
     let includeThread = true;
+    let includeEdited = true;
     let post = null;
     let postError = null;
-    // 4 kolom yang bisa mundur (media, quote, link preview, thread) -> hingga
-    // 4 percobaan gagal + 1 percobaan sukses = 5, sama seperti buildPostsQuery.
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview, includeThread));
+    // 5 kolom yang bisa mundur (media, quote, link preview, thread, edited) ->
+    // hingga 5 percobaan gagal + 1 percobaan sukses = 6, sama seperti buildPostsQuery.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited));
       if (includeMedia && isCommunityMediaSchemaMissing(postError)) {
         includeMedia = false;
         continue;
@@ -5824,6 +5839,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       }
       if (includeThread && isCommunityThreadSchemaMissing(postError)) {
         includeThread = false;
+        continue;
+      }
+      if (includeEdited && isCommunityEditSchemaMissing(postError)) {
+        includeEdited = false;
         continue;
       }
       break;
@@ -5955,7 +5974,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       // balasan. Akar sendiri (is_reply=false) tetap ikut lewat `id.eq...`.
       const { data: threadRows, error: threadError } = await supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .or(`id.eq.${threadRootId},root_post_id.eq.${threadRootId}`)
         .eq('is_reply', false)
         .is('deleted_at', null)
@@ -6623,19 +6642,29 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
     // parent_post_id akan ikut menarik segmen lanjutan utas (Fitur A composer
     // juga memakai parent_post_id, dengan is_reply=false); is_reply=true
     // membedakan keduanya.
-    const loadCommentRows = includeMedia => supabase
+    const loadCommentRows = (includeMedia, includeEdited) => supabase
       .from('community_posts')
-      .select(`id, agent_id, body, ${includeMedia ? 'media, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+      .select(`id, agent_id, body, ${includeMedia ? 'media, ' : ''}${includeEdited ? 'edited_at, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
       .eq('parent_post_id', post.id)
       .eq('is_reply', true)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
       .limit(100);
     let includeMedia = true;
-    let { data: comments, error } = await loadCommentRows(includeMedia);
-    if (isCommunityMediaSchemaMissing(error)) {
-      includeMedia = false;
-      ({ data: comments, error } = await loadCommentRows(includeMedia));
+    let includeEdited = true;
+    let comments = null;
+    let error = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      ({ data: comments, error } = await loadCommentRows(includeMedia, includeEdited));
+      if (includeMedia && isCommunityMediaSchemaMissing(error)) {
+        includeMedia = false;
+        continue;
+      }
+      if (includeEdited && isCommunityEditSchemaMissing(error)) {
+        includeEdited = false;
+        continue;
+      }
+      break;
     }
     // Pra-migrasi (is_reply/parent_post_id belum ada): daftar kosong, bukan
     // 500 — sama dengan degradasi POST /comments di bawah.
@@ -6886,6 +6915,61 @@ app.post('/api/community/posts/:id/comments', authMiddleware, express.json({ lim
   } catch (err) {
     console.error('[community] create comment error:', err);
     res.status(500).json({ error: 'Gagal menambahkan komentar' });
+  }
+});
+
+// PATCH /api/community/posts/:id — edit teks kiriman/komentar oleh penulisnya.
+// Kebijakan (spec 2026-07-22): tanpa batas waktu; teks saja; TANPA notifikasi
+// mention baru & TANPA refresh link preview; @semua baru ditolak di helper.
+app.patch('/api/community/posts/:id', authMiddleware, express.json({ limit: '8kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
+    }
+    const loadPostForEdit = withThread => supabase
+      .from('community_posts')
+      .select(`id, agent_id, body, deleted_at${withThread ? ', is_reply' : ''}`)
+      .eq('id', req.params.id)
+      .maybeSingle();
+    let { data: post, error: findError } = await loadPostForEdit(true);
+    if (isCommunityThreadSchemaMissing(findError)) {
+      ({ data: post, error: findError } = await loadPostForEdit(false));
+    }
+    if (findError) throw findError;
+    if (!post || post.deleted_at) {
+      return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
+    }
+    // Sengaja BUKAN canModerateCommunityContent: admin tidak mengedit tulisan
+    // orang — jalur moderasi tetap hapus.
+    if (post.agent_id !== agent.id) {
+      return res.status(403).json({ error: 'Hanya penulis yang bisa mengedit' });
+    }
+
+    const verdict = validateCommunityEdit({
+      nextBody: req.body?.body,
+      previousBody: post.body,
+      isReply: post.is_reply === true,
+    });
+    if (!verdict.ok) return res.status(400).json({ error: verdict.error });
+
+    const editedAt = new Date().toISOString();
+    const { error: updateError } = await supabase
+      .from('community_posts')
+      .update({ body: verdict.body, edited_at: editedAt })
+      .eq('id', post.id);
+    if (isCommunityEditSchemaMissing(updateError)) {
+      return res.status(503).json({ error: 'Migrasi edit Teras belum diterapkan' });
+    }
+    if (updateError) throw updateError;
+
+    res.json({ data: { id: post.id, body: verdict.body, edited_at: editedAt } });
+  } catch (error) {
+    console.error('PATCH /api/community/posts/:id error:', error);
+    res.status(500).json({ error: 'Gagal menyimpan perubahan' });
   }
 });
 
