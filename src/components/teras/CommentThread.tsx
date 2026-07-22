@@ -2,7 +2,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Heart, Loader2, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
-import type { CommunityComment, ReactionType } from '../TerasPage';
+import type { CommunityComment, ReactionType, ReplyExpansionStatus } from '../TerasPage';
 import { AgentAvatar } from './AgentAvatar';
 import { canDeleteCommunityEntry } from '../../lib/communityAccess';
 import { isModifiedClick, terasProfilePath } from '../../lib/terasRoutes';
@@ -34,6 +34,22 @@ interface CommentThreadProps {
    * tapi diam kalau diklik.
    */
   profileSlug?: string | null;
+  /**
+   * Feed: sambung post -> komposer -> komentar sebagai satu utas lewat rail
+   * vertikal di kolom avatar, dan buang pemisah hairline full-bleed antar
+   * komentar tingkat-teratas (dulu terbaca sebagai "post baru"). Detail view
+   * membiarkannya false: pemisah hairline dipertahankan seperti sebelumnya.
+   */
+  railConnected?: boolean;
+  /**
+   * Status expand balasan inline per id komentar top-level. Tak-hadir = tertutup
+   * (cuplikan 2-terbaru + tautan "Lihat N balasan lainnya"). Saat 'expanded',
+   * `preview_replies` komentar sudah berisi SEMUA balasan dan tautannya berubah
+   * jadi "Sembunyikan balasan". Lihat toggleReplyExpansion di TerasPage.
+   */
+  replyExpansions?: Record<string, ReplyExpansionStatus>;
+  /** Buka/tutup expand balasan inline sebuah komentar top-level. */
+  onToggleReplies?: (commentId: string) => void;
 }
 
 interface CommentRowActions {
@@ -64,20 +80,35 @@ export default function CommentThread({
   deletingCommentId,
   onOpenProfile,
   profileSlug,
+  railConnected = false,
+  replyExpansions,
+  onToggleReplies,
 }: CommentThreadProps) {
   const reduceMotion = useReducedMotion();
   const hideQuote = !!profileSlug;
 
   return (
     <>
-      {comments.map(comment => {
+      {comments.map((comment, commentIndex) => {
         const previewReplies = comment.preview_replies ?? [];
         const replyCount = comment.reply_count ?? 0;
+        // railConnected (feed): rail menyambung terus ke grup komentar
+        // berikutnya, jadi baris terakhir sebuah grup tetap dapat rail selama
+        // masih ada grup sesudahnya.
+        const hasNextGroup = railConnected && commentIndex < comments.length - 1;
         // Jatah cuplikan balasan bersifat global lintas induk di server, jadi
         // reply_count > 0 dengan preview_replies kosong itu MUNGKIN terjadi.
         // Tautan "Lihat N balasan lainnya" dihitung dari selisih keduanya,
         // bukan dari panjang preview_replies saja.
         const remaining = replyCount - previewReplies.length;
+        // Expand balasan inline (menggantikan navigasi lama ke halaman utas).
+        // Saat 'expanded', previewReplies di atas sudah memuat SEMUA balasan.
+        const canToggleReplies = !!onToggleReplies;
+        const expansion = replyExpansions?.[comment.id];
+        const expanded = expansion === 'expanded';
+        const showRepliesToggle = canToggleReplies
+          ? expanded || expansion === 'loading' || expansion === 'error' || remaining > 0
+          : remaining > 0;
 
         return (
           <div key={comment.id}>
@@ -94,7 +125,8 @@ export default function CommentThread({
               // Klik baris membuka halaman thread — HANYA komentar tingkat teratas.
               onOpenThreadRow={() => onOpenThread(comment.id)}
               isTopLevel
-              railBelow={previewReplies.length > 0}
+              railConnected={railConnected}
+              railBelow={previewReplies.length > 0 || hasNextGroup}
               hideQuote={hideQuote}
               actions={{
                 myReaction: myReactions[comment.id] ?? null,
@@ -123,7 +155,8 @@ export default function CommentThread({
                 formatTime={formatTime}
                 reduceMotion={!!reduceMotion}
                 isTopLevel={false}
-                railBelow={index < previewReplies.length - 1}
+                railConnected={railConnected}
+                railBelow={index < previewReplies.length - 1 || hasNextGroup}
                 onOpenThreadRow={() => onOpenThread(reply.id)}
                 hideQuote={hideQuote}
                 actions={{
@@ -135,13 +168,22 @@ export default function CommentThread({
                 }}
               />
             ))}
-            {remaining > 0 && (
+            {showRepliesToggle && (
               <button
                 type="button"
-                onClick={() => onOpenThread(comment.id)}
-                className="ml-[52px] mt-1 min-h-11 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400"
+                disabled={expansion === 'loading'}
+                onClick={() => (canToggleReplies ? onToggleReplies?.(comment.id) : onOpenThread(comment.id))}
+                aria-expanded={canToggleReplies ? expanded : undefined}
+                className="ml-[52px] mt-1 flex min-h-11 items-center gap-1.5 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-60 dark:text-slate-400 dark:hover:text-emerald-400"
               >
-                Lihat {remaining} balasan lainnya
+                {expansion === 'loading' && <Loader2 size={13} className="animate-spin" />}
+                {expansion === 'loading'
+                  ? 'Memuat balasan…'
+                  : expansion === 'error'
+                    ? 'Gagal memuat balasan — coba lagi'
+                    : expanded
+                      ? 'Sembunyikan balasan'
+                      : `Lihat ${remaining} balasan lainnya`}
               </button>
             )}
           </div>
@@ -164,6 +206,7 @@ function CommentRow({
   actions,
   onOpenThreadRow,
   isTopLevel,
+  railConnected,
   railBelow,
   hideQuote,
 }: {
@@ -186,6 +229,8 @@ function CommentRow({
   onOpenThreadRow?: () => void;
   /** True untuk komentar tingkat teratas (pemisah hairline). Balasan nested tanpa pemisah, disambung rail. */
   isTopLevel: boolean;
+  /** Feed: buang pemisah hairline full-bleed komentar tingkat-teratas, ganti jadi jarak biasa (disambung rail). */
+  railConnected?: boolean;
   /** Render rail vertikal di kolom avatar yang menyambung ke baris berikutnya dalam thread (induk→balasan, balasan→balasan). */
   railBelow: boolean;
   /** Sembunyikan tombol Kutip (mode profil publik — komposer tidak bisa dibuka dari sana). */
@@ -239,7 +284,11 @@ function CommentRow({
         // Top-level: pemisah hairline full-bleed antar komentar. Balasan nested:
         // hanya jarak atas — avatar 40px sejajar dgn induk, disambung rail di
         // kolom avatar (railBelow), bukan pemisah.
-        isTopLevel ? '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800' : 'mt-2'
+        // railConnected (feed): buang hairline full-bleed (dulu "terasa post
+        // baru") — cukup jarak atas, karena rail vertikal sudah menyambungkan.
+        isTopLevel
+          ? (railConnected ? 'pt-2' : '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800')
+          : 'mt-2'
       } ${
         onOpenThreadRow ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}

@@ -66,7 +66,7 @@ test('buildAncestorChain: leluhur yang barisnya hilang juga jadi placeholder', (
   assert.deepEqual(buildAncestorChain(rows, 'g1'), [{ available: false }]);
 });
 
-test('groupRepliesWithPreview: balasan >2 memicu sisa hitungan', () => {
+test('groupRepliesWithPreview: balasan >2 memicu sisa hitungan (cuplikan = terlama)', () => {
   const children = [reply('c1', 'p1', 'p1')];
   const grandchildren = [
     reply('g1', 'c1', 'p1', { created_at: '2026-07-20T10:00:01Z' }),
@@ -76,7 +76,8 @@ test('groupRepliesWithPreview: balasan >2 memicu sisa hitungan', () => {
   const grouped = groupRepliesWithPreview(children, grandchildren, { previewLimit: 2 });
   const entry = grouped.get('c1');
   assert.equal(entry.reply_count, 3);
-  assert.deepEqual(entry.preview_replies.map(row => row.id), ['g2', 'g3']);
+  // Cuplikan ambil balasan PERTAMA (terlama), sisanya (g3) muncul saat di-expand.
+  assert.deepEqual(entry.preview_replies.map(row => row.id), ['g1', 'g2']);
 });
 
 test('groupRepliesWithPreview: balasan terhapus tidak dihitung', () => {

@@ -6676,9 +6676,10 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
         console.warn(`[community] reply count truncated: db count=${replyCountTotal} received=${(countRows || []).length} at GET /api/community/posts/${post.id}/comments`);
       }
 
-      // Query cuplikan: urutkan created_at DESCENDING supaya jatah baris
-      // (limit) terpakai untuk balasan TERBARU — yang memang ditampilkan —
-      // lalu groupRepliesWithPreview mengurutkan ulang lama->baru per induk.
+      // Query cuplikan: urutkan created_at ASCENDING supaya jatah baris (limit)
+      // terpakai untuk balasan TERLAMA — cuplikan yang memang ditampilkan
+      // (groupRepliesWithPreview ambil slice awal). Dengan begitu "Lihat N
+      // balasan lainnya" menambah sisanya DI BAWAH cuplikan tanpa menggeser.
       const REPLY_PREVIEW_LIMIT = 500;
       const loadGrandchildren = withMedia => supabase
         .from('community_posts')
@@ -6686,7 +6687,7 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
         .in('parent_post_id', childIds)
         .eq('is_reply', true)
         .is('deleted_at', null)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: true })
         .limit(REPLY_PREVIEW_LIMIT);
       let { data: rows, error: grandchildError } = await loadGrandchildren(includeMedia);
       if (includeMedia && isCommunityMediaSchemaMissing(grandchildError)) {

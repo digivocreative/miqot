@@ -187,6 +187,9 @@ export interface CommunityComment {
   preview_replies?: CommunityComment[];
 }
 
+/** Status expand balasan inline sebuah komentar top-level (lihat replyExpansions). */
+export type ReplyExpansionStatus = 'loading' | 'expanded' | 'error';
+
 interface CommentPanelState {
   open: boolean;
   loaded: boolean;
@@ -1426,6 +1429,12 @@ export default function TerasPage({
   }, [profileMember, profileSlug, profileNotFound]);
 
   const [commentPanels, setCommentPanels] = useState<Record<string, CommentPanelState>>({});
+  // Status per id komentar top-level yang balasannya di-expand inline lewat
+  // "Lihat N balasan lainnya". 'expanded' = balasan lengkap sudah diselipkan ke
+  // preview_replies komentar itu (semua mesin reaksi/hapus/kutip menelusuri
+  // preview_replies, jadi otomatis ikut jalan). Tak-hadir = tertutup (preview
+  // 2 terbaru). Lihat toggleReplyExpansion.
+  const [replyExpansions, setReplyExpansions] = useState<Record<string, ReplyExpansionStatus>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [menuOpenPostId, setMenuOpenPostId] = useState<string | null>(null);
@@ -1482,6 +1491,9 @@ export default function TerasPage({
   const focusMenuOnOpenRef = useRef(false);
   const feedControllerRef = useRef<AbortController | null>(null);
   const commentControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // Pengendali fetch balasan-inline, terpisah dari commentControllersRef karena
+  // di-key oleh id KOMENTAR (bukan id kiriman panel).
+  const replyExpansionControllersRef = useRef<Map<string, AbortController>>(new Map());
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentReactionPendingRef = useRef<Set<string>>(new Set());
@@ -1893,6 +1905,9 @@ export default function TerasPage({
     setPosts(current => current.filter(post => pendingCreatedPostsRef.current.has(post.id)));
     setNextCursor(null);
     setCommentPanels({});
+    replyExpansionControllersRef.current.forEach(c => c.abort());
+    replyExpansionControllersRef.current.clear();
+    setReplyExpansions({});
     void fetchFeed(null, false, controller.signal);
   }, [fetchFeed]);
 
@@ -1950,6 +1965,8 @@ export default function TerasPage({
     revokeSegmentPreviews(composerSegmentsRef.current);
     commentControllersRef.current.forEach(controller => controller.abort());
     commentControllersRef.current.clear();
+    replyExpansionControllersRef.current.forEach(controller => controller.abort());
+    replyExpansionControllersRef.current.clear();
   }, [restoreComposerPageState]);
 
   const openPostMenu = useCallback((postId: string, focusFirst: boolean) => {
@@ -2823,6 +2840,11 @@ export default function TerasPage({
     commentControllersRef.current.get(postId)?.abort();
     const controller = new AbortController();
     commentControllersRef.current.set(postId, controller);
+    // Muat ulang menimpa comments (dan preview_replies), jadi expand balasan
+    // inline apa pun jadi basi -- batalkan fetch-nya & reset ke tertutup.
+    replyExpansionControllersRef.current.forEach(c => c.abort());
+    replyExpansionControllersRef.current.clear();
+    setReplyExpansions({});
     setCommentPanels(current => ({
       ...current,
       [postId]: {
@@ -2864,6 +2886,85 @@ export default function TerasPage({
     } finally {
       if (commentControllersRef.current.get(postId) === controller) {
         commentControllersRef.current.delete(postId);
+      }
+    }
+  };
+
+  // Jumlah cuplikan balasan yang dipulihkan saat menutup kembali expand —
+  // samakan dengan previewLimit di server (groupRepliesWithPreview).
+  const COMMENT_REPLY_PREVIEW_LIMIT = 2;
+
+  /**
+   * "Lihat N balasan lainnya" tidak lagi pindah halaman: ia memuat SEMUA balasan
+   * komentar `commentId` lalu menyelipkannya ke `preview_replies` komentar itu di
+   * dalam panel `targetPostId` (menggantikan cuplikan 2-terlama). Karena semua
+   * mesin komentar (reaksi/hapus/kutip/peta reaksi) sudah menelusuri
+   * preview_replies, balasan yang di-expand langsung interaktif tanpa jalur baru.
+   * Balasan datang urut lama->baru, jadi sisanya menambah DI BAWAH cuplikan
+   * (tak menggeser). Klik lagi ("Sembunyikan balasan") memulihkan cuplikan 2-terlama.
+   */
+  const toggleReplyExpansion = async (targetPostId: string, commentId: string) => {
+    const status = replyExpansions[commentId];
+    if (status === 'loading') return;
+
+    if (status === 'expanded') {
+      replyExpansionControllersRef.current.get(commentId)?.abort();
+      replyExpansionControllersRef.current.delete(commentId);
+      setCommentPanels(current => {
+        const panel = current[targetPostId];
+        if (!panel) return current;
+        return {
+          ...current,
+          [targetPostId]: {
+            ...panel,
+            comments: panel.comments.map(comment => (comment.id === commentId
+              ? { ...comment, preview_replies: (comment.preview_replies ?? []).slice(0, COMMENT_REPLY_PREVIEW_LIMIT) }
+              : comment)),
+          },
+        };
+      });
+      setReplyExpansions(current => {
+        const next = { ...current };
+        delete next[commentId];
+        return next;
+      });
+      return;
+    }
+
+    replyExpansionControllersRef.current.get(commentId)?.abort();
+    const controller = new AbortController();
+    replyExpansionControllersRef.current.set(commentId, controller);
+    setReplyExpansions(current => ({ ...current, [commentId]: 'loading' }));
+    try {
+      const payload = await requestJson<CommunityComment[]>(
+        `/api/community/posts/${encodeURIComponent(commentId)}/comments`,
+        { headers: getAuthHeaders(), signal: controller.signal },
+        'Gagal memuat balasan',
+      );
+      if (!Array.isArray(payload.data)) throw new Error('Data balasan tidak valid');
+      const replies = payload.data;
+      setCommentPanels(current => {
+        const panel = current[targetPostId];
+        if (!panel) return current;
+        return {
+          ...current,
+          [targetPostId]: {
+            ...panel,
+            // reply_count diselaraskan ke daftar yang benar-benar diterima supaya
+            // "remaining" jadi 0 saat expanded (tombol beralih ke "Sembunyikan").
+            comments: panel.comments.map(comment => (comment.id === commentId
+              ? { ...comment, preview_replies: replies, reply_count: replies.length }
+              : comment)),
+          },
+        };
+      });
+      setReplyExpansions(current => ({ ...current, [commentId]: 'expanded' }));
+    } catch (replyError) {
+      if (replyError instanceof Error && replyError.name === 'AbortError') return;
+      setReplyExpansions(current => ({ ...current, [commentId]: 'error' }));
+    } finally {
+      if (replyExpansionControllersRef.current.get(commentId) === controller) {
+        replyExpansionControllersRef.current.delete(commentId);
       }
     }
   };
@@ -4618,6 +4719,25 @@ export default function TerasPage({
                           transition={reduceMotion ? { duration: 0 } : { duration: 0.25 }}
                         />
                       )}
+                      {/* Rail post -> komentar (HANYA feed, saat panel komentar
+                          terbuka). Menyambung avatar post ke komposer & daftar
+                          komentar di bawahnya supaya terbaca satu utas, bukan
+                          "post baru". Di detail view sambungan ini tak dipakai
+                          (chainRailBelow menangani utas penulis). flex-1 mengisi
+                          sisa kolom tanpa menambah tinggi (tanpa reflow); -mb-6
+                          menembus ke grid komposer di bawahnya. */}
+                      {!isDetailView && showCommentPanel && (
+                        <motion.div
+                          key="post-comment-rail"
+                          data-thread-rail="comment"
+                          aria-hidden="true"
+                          className="mt-1.5 -mb-6 w-px flex-1 bg-gray-200 dark:bg-slate-700"
+                          initial={reduceMotion ? false : { opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 0.25 }}
+                        />
+                      )}
                     </AnimatePresence>
                   </div>
 
@@ -4945,11 +5065,23 @@ export default function TerasPage({
                           {commentPanel.sending ? 'Sedang mengirim komentar.' : ''}
                         </p>
 
-                        <div data-thread-input className="-mx-4 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-t border-gray-100 px-4 pt-3 dark:border-slate-800">
-                          <div className="relative flex justify-center pt-[3px]">
+                        {/* Feed: tanpa border-t full-bleed (dulu terbaca sebagai
+                            "post baru"); disambung rail dari avatar post. Detail:
+                            pertahankan pemisah hairline seperti sebelumnya. */}
+                        <div data-thread-input className={`-mx-4 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 px-4 pt-3 ${isDetailView ? 'border-t border-gray-100 dark:border-slate-800' : ''}`}>
+                          <div className="relative flex flex-col items-center pt-[3px]">
                             <div className="relative z-10">
                               <AgentAvatar name={agent.name} photo={agent.photo} size="post" />
                             </div>
+                            {/* Rail komposer -> komentar pertama (feed, saat sudah
+                                ada komentar). Meneruskan rail dari post. */}
+                            {!isDetailView && commentPanel.comments.length > 0 && (
+                              <div
+                                data-thread-rail="comment"
+                                aria-hidden="true"
+                                className="mt-1.5 -mb-3 w-px flex-1 bg-gray-200 dark:bg-slate-700"
+                              />
+                            )}
                           </div>
                           <div className="min-w-0">
                           <div className="flex min-w-0 items-end gap-1.5 pb-3">
@@ -5105,9 +5237,12 @@ export default function TerasPage({
                         </div>
 
                         {commentPanel.comments.length === 0 ? (
-                          <p className="-mx-4 min-w-0 border-t border-gray-100 px-4 pt-3 text-[11px] text-gray-500 dark:border-slate-800 dark:text-slate-400">Belum ada komentar — jadilah yang pertama membalas.</p>
+                          <p className={`min-w-0 pt-1 text-[11px] text-gray-500 dark:text-slate-400 ${isDetailView ? '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800' : 'ml-[52px]'}`}>Belum ada komentar — jadilah yang pertama membalas.</p>
                         ) : (
                           <CommentThread
+                            railConnected={!isDetailView}
+                            replyExpansions={replyExpansions}
+                            onToggleReplies={commentId => void toggleReplyExpansion(commentTargetId, commentId)}
                             comments={commentPanel.comments}
                             myReactions={commentReactionMaps?.myReactions ?? {}}
                             reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
