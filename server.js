@@ -5724,7 +5724,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     }
 
     const quotedIds = includeQuote
-      ? [...new Set((posts || []).map(post => post.quoted_post_id).filter(Boolean))]
+      ? [...new Set([
+          ...(posts || []).map(post => post.quoted_post_id).filter(Boolean),
+          ...(pinnedRow?.quoted_post_id ? [pinnedRow.quoted_post_id] : []),
+        ])]
       : [];
     let quotedRows = [];
     if (quotedIds.length > 0) {
