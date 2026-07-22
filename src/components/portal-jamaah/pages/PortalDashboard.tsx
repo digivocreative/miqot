@@ -8,6 +8,7 @@ import { portalApi } from '../lib/portalApi';
 import { clearPortalSession } from '../lib/portalSession';
 import { clearPortalMeCache } from '../hooks/usePortalMe';
 import StickyWhatsAppCta from '../components/StickyWhatsAppCta';
+import { PortalPageShell, Card, Button } from '../ui';
 
 // Portal sub-pages are code-split — only the active route's chunk loads.
 const BerandaPage = lazy(() => import('./BerandaPage'));
@@ -20,37 +21,33 @@ const FaqPage = lazy(() => import('./FaqPage'));
 
 function LoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 dark:from-slate-900 dark:to-slate-950">
+    <PortalPageShell className="flex items-center justify-center px-4 py-8">
       <div className="text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-burgundy-700/8 text-burgundy-700">
           <Loader2 className="h-8 w-8 animate-spin" strokeWidth={2} />
         </div>
-        <p className="mt-4 text-sm font-bold text-gray-700 dark:text-slate-200">Memuat portal jamaah...</p>
+        <p className="mt-4 text-sm font-bold text-ink">Memuat portal jamaah...</p>
       </div>
-    </div>
+    </PortalPageShell>
   );
 }
 
 function ErrorScreen({ onRetry }: { onRetry: () => void }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 dark:from-slate-900 dark:to-slate-950">
-      <section className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">
+    <PortalPageShell className="flex items-center justify-center px-4 py-8">
+      <Card className="w-full max-w-lg p-6 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/15 text-amber-700">
           <AlertCircle className="h-7 w-7" strokeWidth={2} />
         </div>
-        <h1 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Data belum bisa dimuat</h1>
-        <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
+        <h1 className="mt-4 text-xl font-bold text-ink">Data belum bisa dimuat</h1>
+        <p className="mt-2 text-sm leading-6 text-ink/70">
           Coba muat ulang. Jika masih gagal, hubungi agent untuk memastikan sesi Anda masih aktif.
         </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-5 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20"
-        >
+        <Button type="button" variant="primary" onClick={onRetry} className="mt-5">
           Muat Ulang
-        </button>
-      </section>
-    </div>
+        </Button>
+      </Card>
+    </PortalPageShell>
   );
 }
 

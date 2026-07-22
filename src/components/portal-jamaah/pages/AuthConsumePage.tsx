@@ -4,6 +4,7 @@ import AuthErrorPage from './AuthErrorPage';
 import { fetchAgentBySlug, type PortalAgent } from '../lib/fetchAgentBySlug';
 import { portalApi, type ConsumeMagicLinkResult } from '../lib/portalApi';
 import { savePortalSession } from '../lib/portalSession';
+import { Button, Card, PortalPageShell } from '../ui';
 
 type ConsumeState = 'loading' | 'success' | 'error';
 type ErrorKind = 'expired' | 'consumed' | 'invalid';
@@ -63,43 +64,46 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
 
   if (state === 'success' && result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
+      <PortalPageShell className="flex items-center justify-center px-4 py-8 font-sans">
         <main className="w-full max-w-lg">
-          <section className="rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-500 bg-white text-emerald-600 dark:bg-slate-900 dark:text-emerald-400">
-              <Check size={36} strokeWidth={2} />
+          <Card className="p-6 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-burgundy text-gold shadow-accent ring-1 ring-inset ring-gold/30">
+              <Check size={36} strokeWidth={2.5} />
             </div>
-            <p className="mt-5 text-sm font-semibold text-gray-500 dark:text-slate-400">Assalamualaikum,</p>
-            <h1 className="mt-1 break-words text-2xl font-bold text-gray-900 dark:text-white">{result.jamaah_name}</h1>
-            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
+            <p className="mt-5 text-sm font-medium text-ink/50">Assalamualaikum,</p>
+            <h1 className="mt-1 break-words font-display text-3xl leading-tight text-ink">{result.jamaah_name}</h1>
+            <p className="mt-2 text-sm leading-6 text-ink/60">
               Anda berhasil masuk sebagai jamaah booking {result.id_umroh}.
             </p>
-            <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-left dark:border-slate-700 dark:bg-slate-900">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Kode Booking</p>
-              <p className="mt-1 break-all text-lg font-bold text-gray-900 dark:text-white">{result.id_umroh}</p>
+            <div className="mt-5 rounded-lega border border-black/5 bg-burgundy-50/60 p-4 text-left">
+              <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-burgundy-700">Kode Booking</p>
+              <p className="mt-1 break-all font-mono text-lg font-semibold tabular-nums text-ink">{result.id_umroh}</p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="lg"
+              fullWidth
+              className="mt-5"
               onClick={() => window.location.replace(getPortalDashboardPath(slug, token))}
-              className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-colors hover:bg-emerald-600 active:scale-95"
             >
               Masuk ke Portal
-            </button>
-            <p className="mt-3 text-xs text-gray-500 dark:text-slate-400">Sesi Anda berlaku selama 90 hari.</p>
-          </section>
+            </Button>
+            <p className="mt-3 text-xs text-ink/50">Sesi Anda berlaku selama 90 hari.</p>
+          </Card>
         </main>
-      </div>
+      </PortalPageShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
+    <PortalPageShell className="flex items-center justify-center px-4 py-8 font-sans">
       <div className="text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-burgundy-700/8 text-burgundy-700">
           <Loader2 size={30} strokeWidth={2} className="animate-spin" />
         </div>
-        <p className="mt-4 text-sm font-semibold text-gray-700 dark:text-slate-200">Memverifikasi akses Anda...</p>
+        <p className="mt-4 text-sm font-semibold text-ink/70">Memverifikasi akses Anda...</p>
       </div>
-    </div>
+    </PortalPageShell>
   );
 }

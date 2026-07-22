@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { StatusChip, cn } from '../../ui';
 
 export default function PhaseSection({
   label,
@@ -20,18 +21,19 @@ export default function PhaseSection({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <span
-            className={`h-2.5 w-2.5 flex-none rounded-full ${
-              active ? 'animate-pulse bg-emerald-600 dark:bg-emerald-400' : 'bg-slate-300 dark:bg-slate-600'
-            }`}
+            className={cn(
+              'h-2.5 w-2.5 flex-none rounded-full',
+              active ? 'bg-gold motion-safe:animate-pulse' : 'bg-ink/20',
+            )}
           />
           <div className="min-w-0">
-            <p className={`truncate text-sm font-bold ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-200'}`}>{label}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{dateLabel}</p>
+            <p className={cn('truncate text-sm font-bold', active ? 'text-burgundy-800' : 'text-ink/80')}>{label}</p>
+            <p className="text-xs text-ink/60">{dateLabel}</p>
           </div>
         </div>
-        <span className="flex-none rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+        <StatusChip status="neutral" className="flex-none">
           {done}/{total}
-        </span>
+        </StatusChip>
       </div>
       <div className="space-y-3">{children}</div>
     </section>

@@ -6,6 +6,7 @@ import JamaahPaymentCard from '../components/JamaahPaymentCard';
 import type { PortalMeData } from '../hooks/usePortalMe';
 import { addDays, formatLongDate } from '../utils/formatDate';
 import { formatRupiah, formatRupiahFull } from '../utils/formatRupiah';
+import { Button, Card, GradientText, InvertedPanel, PortalPageShell, SectionLabel } from '../ui';
 
 function safeMoney(value: unknown) {
   const amount = Number(value || 0);
@@ -71,29 +72,26 @@ Mohon dicek ya. Terima kasih 🙏`,
   }, [showTransfer]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
+    <PortalPageShell>
       <PortalBackBar
         title="Pembayaran"
         onBack={onBack}
         icon={CreditCard}
-        iconClassName="bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+        iconClassName="bg-burgundy-700/8 text-burgundy-700"
       />
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-24 pt-4">
-        <section
-          className="overflow-hidden rounded-2xl p-4 text-white shadow-sm"
-          style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #312e81 100%)' }}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Total Booking</p>
-          <p className="mt-2 break-words text-2xl font-bold tabular-nums tracking-tight [overflow-wrap:anywhere]">
-            {formatRupiahFull(totals.totalHarga)}
+        <InvertedPanel className="overflow-hidden p-5" texture ring>
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gold">Total Booking</p>
+          <p className="mt-2 break-words font-mono text-3xl font-medium tabular-nums leading-tight [overflow-wrap:anywhere]">
+            <GradientText tone="gold">{formatRupiahFull(totals.totalHarga)}</GradientText>
           </p>
-          <p className="mt-1 text-sm font-medium text-blue-100">
+          <p className="mt-1 text-sm font-medium text-white/70">
             {data.jamaah.length} jamaah · {roomType}
           </p>
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-blue-100">
+          <div className="mt-5 space-y-2">
+            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-white/60">
               <span>Progress pembayaran</span>
-              <span className="text-sm font-bold text-white">{totals.bayarPct}%</span>
+              <span className="text-sm font-bold tabular-nums text-white">{totals.bayarPct}%</span>
             </div>
             <div
               role="progressbar"
@@ -101,34 +99,34 @@ Mohon dicek ya. Terima kasih 🙏`,
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={totals.bayarPct}
-              className="h-2 overflow-hidden rounded-full bg-white/20"
+              className="h-2 overflow-hidden rounded-full bg-white/15"
             >
-              <div className="h-full rounded-full bg-gradient-to-r from-emerald-300 to-emerald-500" style={{ width: `${totals.bayarPct}%` }} />
+              <div className="h-full rounded-full bg-gradient-gold" style={{ width: `${totals.bayarPct}%` }} />
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/20 pt-3.5">
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-200">Dibayar</p>
-              <p title={formatRupiahFull(totals.totalBayar)} className="mt-1 truncate text-base font-bold tabular-nums text-emerald-200">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/50">Dibayar</p>
+              <p title={formatRupiahFull(totals.totalBayar)} className="mt-1 truncate font-mono text-base font-bold tabular-nums text-emerald-200">
                 {formatRupiah(totals.totalBayar)}
               </p>
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-200">Sisa</p>
-              <p title={formatRupiahFull(totals.totalSisa)} className="mt-1 truncate text-base font-bold tabular-nums text-amber-200">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/50">Sisa</p>
+              <p title={formatRupiahFull(totals.totalSisa)} className="mt-1 truncate font-mono text-base font-bold tabular-nums text-amber-200">
                 {formatRupiah(totals.totalSisa)}
               </p>
             </div>
           </div>
-        </section>
+        </InvertedPanel>
 
-        <section className="flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-3.5 dark:border-amber-800/40 dark:bg-amber-900/20">
-          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
-            <CreditCard className="h-5 w-5 text-amber-600 dark:text-amber-400" strokeWidth={2} />
-          </div>
+        <section className="flex items-start gap-3 rounded-lega border border-amber-500/20 bg-amber-500/10 p-3.5">
+          <span className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-500/15 text-amber-700">
+            <CreditCard className="h-5 w-5" strokeWidth={2} />
+          </span>
           <div>
-            <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Deadline pelunasan H-30</p>
-            <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
+            <p className="text-sm font-bold text-amber-800">Deadline pelunasan H-30</p>
+            <p className="mt-1 text-xs leading-5 text-amber-700">
               {deadline
                 ? `Pelunasan disarankan sebelum ${formatLongDate(deadline)} agar dokumen keberangkatan bisa final.`
                 : 'Tanggal batas pelunasan akan tampil setelah jadwal keberangkatan ditetapkan.'}
@@ -137,7 +135,7 @@ Mohon dicek ya. Terima kasih 🙏`,
         </section>
 
         <section className="space-y-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Per Jamaah</p>
+          <SectionLabel>Per Jamaah</SectionLabel>
           {data.jamaah.length ? (
             <div className="space-y-3">
               {data.jamaah.map((item) => (
@@ -145,27 +143,23 @@ Mohon dicek ya. Terima kasih 🙏`,
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+            <Card className="p-4 text-sm text-ink/60">
               Data pembayaran jamaah belum tersedia.
-            </div>
+            </Card>
           )}
         </section>
 
         <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setShowTransfer(true)}
-            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95"
-          >
+          <Button type="button" variant="primary" size="lg" fullWidth onClick={() => setShowTransfer(true)}>
             <CreditCard className="h-5 w-5" strokeWidth={2} />
             Cara Transfer / Bayar
-          </button>
+          </Button>
           {waLink && (
             <a
               href={waLink}
               target="_blank"
               rel="noreferrer"
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-sm font-bold leading-5 text-gray-700 transition-colors hover:bg-gray-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3 text-center text-sm font-semibold leading-5 text-white shadow-sm transition-all duration-200 hover:brightness-105 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               <MessageCircle className="h-5 w-5 flex-none" strokeWidth={2} />
               <span className="min-w-0 break-words [overflow-wrap:anywhere]">
@@ -178,7 +172,7 @@ Mohon dicek ya. Terima kasih 🙏`,
 
       {showTransfer && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-ink/50 p-4 sm:items-center"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setShowTransfer(false);
           }}
@@ -187,12 +181,12 @@ Mohon dicek ya. Terima kasih 🙏`,
             role="dialog"
             aria-modal="true"
             aria-labelledby="transfer-dialog-title"
-            className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl border border-gray-100 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+            className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-lega border border-black/5 bg-white p-5 shadow-card"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p id="transfer-dialog-title" className="text-lg font-bold text-gray-900 dark:text-white">Cara Transfer / Bayar</p>
-                <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">
+                <p id="transfer-dialog-title" className="font-display text-lg text-ink">Cara Transfer / Bayar</p>
+                <p className="mt-2 text-sm leading-6 text-ink/70">
                   {waLink
                     ? 'Gunakan instruksi rekening resmi dari agent. Setelah transfer, kirim bukti lewat tombol konfirmasi WhatsApp.'
                     : 'Minta instruksi rekening resmi langsung dari agent, lalu cantumkan kode booking saat mengirim bukti transfer.'}
@@ -202,21 +196,21 @@ Mohon dicek ya. Terima kasih 🙏`,
                 type="button"
                 onClick={() => setShowTransfer(false)}
                 aria-label="Tutup"
-                className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-burgundy-700/8 text-burgundy-700 transition-colors hover:bg-burgundy-700/15 active:scale-95"
               >
                 <X className="h-4 w-4" strokeWidth={2} />
               </button>
             </div>
-            <div className="mt-4 rounded-2xl bg-gray-50 p-4 dark:bg-slate-900">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-slate-400">Kode Booking</p>
-              <p className="mt-1 break-words text-lg font-bold text-gray-900 [overflow-wrap:anywhere] dark:text-white">{data.booking.id_umroh}</p>
-              <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-slate-400">
+            <div className="mt-4 rounded-2xl bg-burgundy-50 p-4">
+              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink/50">Kode Booking</p>
+              <p className="mt-1 break-words font-mono text-lg font-bold tabular-nums text-ink [overflow-wrap:anywhere]">{data.booking.id_umroh}</p>
+              <p className="mt-3 text-xs leading-5 text-ink/60">
                 Cantumkan kode booking ini pada berita transfer atau pesan konfirmasi.
               </p>
             </div>
           </section>
         </div>
       )}
-    </div>
+    </PortalPageShell>
   );
 }

@@ -1,4 +1,24 @@
-import type { PortalMenu } from '../lib/portalMenu';
+import type { PortalMenu, PortalMenuVariant } from '../lib/portalMenu';
+import { Card, IconTile, cn } from '../ui';
+import type { TileTint } from '../ui';
+
+/** Variant → IconTile tint. `premium` (Al-Quran) is the one reserved gold treatment. */
+const TILE_TINT: Record<PortalMenuVariant, TileTint> = {
+  brand: 'brand',
+  premium: 'gold',
+};
+
+/** Decorative corner glow, tinted per variant (blurred, low-opacity — never text). */
+const GLOW: Record<PortalMenuVariant, string> = {
+  brand: 'bg-gradient-burgundy',
+  premium: 'bg-gradient-gold',
+};
+
+/** Premium card gets a faint gold hairline; brand keeps the Card default border. */
+const SURFACE: Record<PortalMenuVariant, string> = {
+  brand: '',
+  premium: 'ring-1 ring-gold/40',
+};
 
 export default function PortalMenuCard({
   menu,
@@ -14,16 +34,31 @@ export default function PortalMenuCard({
       onClick={onClick}
       aria-label={menu.label}
       title={menu.desc}
-      className={`group relative overflow-hidden ${menu.cardBg} rounded-2xl p-3.5 border ${menu.cardBorder} shadow-sm ${menu.hoverShadow} hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]`}
+      className="group block w-full rounded-lega transition-transform duration-200 hover:-translate-y-0.5 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
     >
-      <div className={`pointer-events-none absolute -top-6 -right-6 w-20 h-20 rounded-full ${menu.iconBg} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`} />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent dark:from-white/5" />
-      <div className="relative flex flex-col items-center text-center">
-        <div className={`w-11 h-11 rounded-xl ${menu.iconBg} ${menu.iconShadow} flex items-center justify-center mb-2 ring-1 ring-white/40 dark:ring-white/10 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-200`}>
-          <Icon size={22} strokeWidth={2} className={`text-white ${menu.iconAnim}`} />
+      <Card
+        className={cn(
+          'relative flex flex-col items-center overflow-hidden p-3.5 text-center transition-shadow duration-200 group-hover:shadow-card',
+          SURFACE[menu.variant],
+        )}
+      >
+        <div
+          className={cn(
+            'pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full opacity-15 blur-2xl transition-opacity duration-200 group-hover:opacity-25',
+            GLOW[menu.variant],
+          )}
+        />
+        <div className="relative flex flex-col items-center">
+          <IconTile
+            tint={TILE_TINT[menu.variant]}
+            size="md"
+            className="mb-2 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3"
+          >
+            <Icon size={22} strokeWidth={2} className={menu.iconAnim} />
+          </IconTile>
+          <p className="text-[13px] font-semibold leading-tight text-ink">{menu.label}</p>
         </div>
-        <p className="text-[12px] font-bold text-gray-800 dark:text-white leading-tight">{menu.label}</p>
-      </div>
+      </Card>
     </button>
   );
 }

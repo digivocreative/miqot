@@ -1,3 +1,4 @@
+import { Avatar, SectionLabel, cn } from '../../ui';
 import type { PortalJamaah } from '../../hooks/usePortalMe';
 
 function firstName(name: string) {
@@ -24,12 +25,11 @@ export default function JamaahSelector({
 
   return (
     <div className="space-y-2.5">
-      <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Pilih Jamaah</p>
+      <SectionLabel>Pilih Jamaah</SectionLabel>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {jamaah.map((item) => {
           const selected = item.id === selectedId;
           const hasWarning = isPassportWarning(item.paspor_expired);
-          const background = item.jk === 'P' ? 'be185d' : '047857';
 
           return (
             <button
@@ -39,18 +39,18 @@ export default function JamaahSelector({
               className="flex w-16 flex-shrink-0 flex-col items-center gap-1.5"
             >
               <div className="relative">
-                <img
-                  src={`https://ui-avatars.com/api/?name=${encodeURIComponent(item.nama)}&background=${background}&color=fff`}
-                  alt={item.nama}
-                  className={`h-12 w-12 rounded-full ${selected ? 'ring-2 ring-emerald-600 ring-offset-2 ring-offset-gray-50 dark:ring-emerald-400 dark:ring-offset-slate-900' : 'opacity-60'}`}
+                <Avatar
+                  name={item.nama}
+                  size="lg"
+                  className={selected ? 'ring-2 ring-burgundy-700 ring-offset-2 ring-offset-canvas' : 'opacity-60'}
                 />
                 {hasWarning && (
-                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-amber-500 dark:border-slate-900">
+                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-amber-500">
                     <span className="text-[8px] font-bold text-white">!</span>
                   </span>
                 )}
               </div>
-              <span className={`max-w-full truncate text-[10px] ${selected ? 'font-semibold text-emerald-700 dark:text-emerald-300' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+              <span className={cn('max-w-full truncate text-[10px]', selected ? 'font-semibold text-burgundy-800' : 'font-medium text-ink/60')}>
                 {firstName(item.nama)}
               </span>
             </button>

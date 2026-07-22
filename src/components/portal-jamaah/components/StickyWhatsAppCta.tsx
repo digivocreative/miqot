@@ -55,11 +55,10 @@ export default function StickyWhatsAppCta({
       className={`
         fixed left-4 right-4 z-40
         mx-auto max-w-lg
-        bg-gradient-to-r from-emerald-50 via-white to-white
-        dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800
+        bg-gradient-to-r from-burgundy-50 via-white to-white
         backdrop-blur-md
-        border border-emerald-100 dark:border-emerald-800/50
-        shadow-lg shadow-slate-900/15 dark:shadow-black/30
+        border border-burgundy-700/10
+        shadow-card
         rounded-full
         flex items-center justify-between
         p-2 pl-3
@@ -74,21 +73,21 @@ export default function StickyWhatsAppCta({
             <img
               src={agent.photo}
               alt={agent.name}
-              className="w-full h-full object-cover rounded-full border-2 border-white dark:border-slate-700 shadow-sm"
+              className="w-full h-full object-cover rounded-full border-2 border-white shadow-sm"
               onError={(e) => handleAgentPhotoError(e.currentTarget, agent.name || 'Agent')}
             />
           ) : (
-            <div className="w-full h-full rounded-full border-2 border-white bg-emerald-500 shadow-sm dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white">
+            <div className="w-full h-full rounded-full border-2 border-white bg-gradient-burgundy shadow-sm flex items-center justify-center text-xs font-bold text-white">
               {initials(agent?.name)}
             </div>
           )}
         </div>
         <div className="flex flex-col min-w-0">
-          <span className="flex items-center gap-1 text-sm font-bold leading-tight text-gray-900 dark:text-white">
+          <span className="flex items-center gap-1 text-sm font-bold leading-tight text-ink">
             <span className="truncate">{agent?.name || 'Agent'}</span>
-            <BadgeCheck className="h-[15px] w-[15px] flex-none text-sky-500" strokeWidth={2.4} aria-hidden="true" />
+            <BadgeCheck className="h-[15px] w-[15px] flex-none text-gold" strokeWidth={2.4} aria-hidden="true" />
           </span>
-          <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate font-medium">
+          <span className="text-[11px] text-ink/60 truncate font-medium">
             Konsultan Umroh Anda
           </span>
         </div>
