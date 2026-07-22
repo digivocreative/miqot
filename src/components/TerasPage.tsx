@@ -117,6 +117,8 @@ interface CommunityPost {
   created_at: string;
   /** Non-null bila kiriman pernah diedit (Task 2, `PATCH /posts/:id`). */
   edited_at?: string | null;
+  /** true bila baris ini sebenarnya balasan (community_posts.is_reply) dirender lewat jalur kartu kiriman. */
+  is_reply?: boolean;
   author: CommunityAuthor;
   reactions: ReactionCounts;
   my_reaction: ReactionType | null;
@@ -3301,8 +3303,10 @@ export default function TerasPage({
   const startEditEntry = (id: string, body: string) => {
     if (editingEntry && editingEntry.id !== id) {
       // Pindah target edit: buang senyap hanya kalau teks belum diubah.
-      const original = posts.find(post => post.id === editingEntry.id)?.body
-        ?? findCommentInPanel(commentPanels[editingEntry.id]?.comments ?? [], editingEntry.id)?.body;
+      // (commentPanels dikunci per post id, jadi panel bertajuk `editingEntry.id`
+      // tidak pernah memuat komentar `editingEntry.id` itu sendiri -- fallback ke
+      // findCommentInPanel di sini mati, sudah dibuang.)
+      const original = posts.find(post => post.id === editingEntry.id)?.body;
       if (editingEntry.text !== original && !window.confirm('Buang perubahan?')) return;
     }
     setEditingEntry({ id, text: body, saving: false, error: null });
@@ -3312,10 +3316,11 @@ export default function TerasPage({
 
   const saveEditEntry = async () => {
     if (!editingEntry || editingEntry.saving) return;
+    const { id: savingId } = editingEntry;
     setEditingEntry(current => (current ? { ...current, saving: true, error: null } : current));
     try {
       const result = await requestJson<{ id: string; body: string; edited_at: string }>(
-        `/api/community/posts/${encodeURIComponent(editingEntry.id)}`,
+        `/api/community/posts/${encodeURIComponent(savingId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -3325,10 +3330,13 @@ export default function TerasPage({
       );
       if (!result.data?.body) throw new Error('Gagal menyimpan. Coba lagi.');
       patchEntryBody(result.data.id, result.data.body, result.data.edited_at);
-      setEditingEntry(null);
+      // Kalau user sudah pindah ke target edit lain sebelum PATCH ini selesai,
+      // jangan tutup editor target BARU itu -- hanya no-op kalau current masih
+      // menunjuk ke savingId (lihat startEditEntry: pindah target = objek baru).
+      setEditingEntry(current => (current && current.id === savingId ? null : current));
     } catch (error) {
       const message = errorMessage(error, 'Gagal menyimpan. Coba lagi.');
-      setEditingEntry(current => (current ? { ...current, saving: false, error: message } : current));
+      setEditingEntry(current => (current && current.id === savingId ? { ...current, saving: false, error: message } : current));
     }
   };
 
@@ -4739,6 +4747,10 @@ export default function TerasPage({
             const postMedia = normalizePostMedia(post);
             const authorName = post.author.name || (post.is_system ? 'Miqot' : 'Agent');
             const authorSlug = post.is_system ? null : post.author.slug;
+            // Balasan (is_reply=true) dirender lewat kartu kiriman ini (profil
+            // "Membalas ke @X" & halaman detail komentar) tapi server membatasi
+            // body balasan 300 char (CommentThread), bukan 500 seperti kiriman.
+            const editorMax = post.is_reply ? MAX_COMMUNITY_COMMENT_CHARS : MAX_COMMUNITY_BODY_CHARS;
 
             return (
               <article
@@ -5044,8 +5056,8 @@ export default function TerasPage({
                           className="w-full resize-none overflow-hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-[14px] text-gray-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                         />
                         <div className="mt-1.5 flex items-center justify-between gap-3">
-                          <span className={`text-[11px] font-medium ${Array.from(editingEntry.text.trim()).length > MAX_COMMUNITY_BODY_CHARS ? 'text-red-500' : 'text-gray-400 dark:text-slate-500'}`}>
-                            {Array.from(editingEntry.text.trim()).length}/{MAX_COMMUNITY_BODY_CHARS}
+                          <span className={`text-[11px] font-medium ${Array.from(editingEntry.text.trim()).length > editorMax ? 'text-red-500' : 'text-gray-400 dark:text-slate-500'}`}>
+                            {Array.from(editingEntry.text.trim()).length}/{editorMax}
                           </span>
                           <div className="flex items-center gap-2">
                             {editingEntry.error && (
@@ -5060,7 +5072,7 @@ export default function TerasPage({
                               onClick={() => void saveEditEntry()}
                               disabled={editingEntry.saving
                                 || Array.from(editingEntry.text.trim()).length < 1
-                                || Array.from(editingEntry.text.trim()).length > MAX_COMMUNITY_BODY_CHARS}
+                                || Array.from(editingEntry.text.trim()).length > editorMax}
                               className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                             >
                               {editingEntry.saving ? <Loader2 size={13} className="animate-spin" /> : null}

@@ -5754,6 +5754,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         is_system: post.is_system,
         created_at: post.created_at,
         edited_at: post.edited_at ?? null,
+        is_reply: post.is_reply === true,
         author: communityAuthorProfile(post.agent),
         reactions: reactionCounts.get(post.id),
         my_reaction: myReactions.get(post.id),
@@ -5811,7 +5812,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
@@ -6010,6 +6011,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
             is_system: row.is_system,
             created_at: row.created_at,
             edited_at: row.edited_at ?? null,
+            is_reply: false,
             agent_id: row.agent_id,
             author: communityAuthorProfile(row.agent),
             reactions: threadReactionCounts.get(row.id),
@@ -6034,6 +6036,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         is_system: post.is_system,
         created_at: post.created_at,
         edited_at: post.edited_at ?? null,
+        is_reply: post.is_reply === true,
         author: communityAuthorProfile(post.agent),
         reactions,
         my_reaction: myReaction,
