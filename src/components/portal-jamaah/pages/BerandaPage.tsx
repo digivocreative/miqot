@@ -3,6 +3,7 @@ import PortalTopBar from '../components/PortalTopBar';
 import ThemeToggle from '../components/ThemeToggle';
 import HeroCountdown from '../components/HeroCountdown';
 import PortalMenuGrid from '../components/PortalMenuGrid';
+import PrayerTimesCard from '../components/PrayerTimesCard';
 import SmartAlertsStrip from '../components/SmartAlertsStrip';
 import TaskListWidget from '../components/TaskListWidget';
 import RosterItem from '../components/RosterItem';
@@ -76,6 +77,8 @@ export default function BerandaPage({
         <HeroCountdown booking={data.booking} flightCode={flightCode} greetingName={`${greetingPrefix} ${compactName}`} />
 
         <SmartAlertsStrip data={data} onNavigate={onNavigate} />
+
+        <PrayerTimesCard schedule={data.schedule} booking={data.booking} />
 
         <PortalMenuGrid onNavigate={onNavigate} />
 
