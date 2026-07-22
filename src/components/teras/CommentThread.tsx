@@ -1,7 +1,7 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Heart, Loader2, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { Heart, Loader2, MessageCircle, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import type { CommunityComment, ReactionType, ReplyExpansionStatus } from '../TerasPage';
 import { AgentAvatar } from './AgentAvatar';
 import { canDeleteCommunityEntry } from '../../lib/communityAccess';
@@ -16,6 +16,12 @@ interface CommentThreadProps {
   onReact: (commentId: string, reaction: ReactionType | null) => void;
   onQuote: (commentId: string) => void;
   onDelete: (commentId: string) => void;
+  /**
+   * Simpan edit body komentar. `null` = sukses (state komentar sudah
+   * dipatch pemanggil lewat patchEntryBody di TerasPage); string = pesan
+   * galat untuk ditampilkan inline di editor baris ini.
+   */
+  onEditSave: (commentId: string, body: string) => Promise<string | null>;
   onOpenThread: (commentId: string) => void;
   renderBody: (comment: CommunityComment) => ReactNode;
   renderMedia: (comment: CommunityComment) => ReactNode;
@@ -52,6 +58,9 @@ interface CommentThreadProps {
   onToggleReplies?: (commentId: string) => void;
 }
 
+// Sinkron dengan MAX_COMMUNITY_COMMENT_CHARS di TerasPage.tsx (batas komentar).
+const MAX_COMMENT_EDIT_CHARS = 300;
+
 interface CommentRowActions {
   myReaction: ReactionType | null;
   reactionCount: number;
@@ -72,6 +81,7 @@ export default function CommentThread({
   onReact,
   onQuote,
   onDelete,
+  onEditSave,
   onOpenThread,
   renderBody,
   renderMedia,
@@ -120,6 +130,7 @@ export default function CommentThread({
               agent={agent}
               deletingCommentId={deletingCommentId}
               onDelete={onDelete}
+              onEditSave={onEditSave}
               onOpenProfile={onOpenProfile}
               renderBody={renderBody}
               renderMedia={renderMedia}
@@ -153,6 +164,7 @@ export default function CommentThread({
                 agent={agent}
                 deletingCommentId={deletingCommentId}
                 onDelete={onDelete}
+                onEditSave={onEditSave}
                 onOpenProfile={onOpenProfile}
                 renderBody={renderBody}
                 renderMedia={renderMedia}
@@ -202,6 +214,7 @@ function CommentRow({
   agent,
   deletingCommentId,
   onDelete,
+  onEditSave,
   onOpenProfile,
   renderBody,
   renderMedia,
@@ -218,6 +231,7 @@ function CommentRow({
   agent: { role?: string | null } | null;
   deletingCommentId: string | null;
   onDelete: (commentId: string) => void;
+  onEditSave: (commentId: string, body: string) => Promise<string | null>;
   onOpenProfile: (slug: string) => void;
   renderBody: (comment: CommunityComment) => ReactNode;
   renderMedia: (comment: CommunityComment) => ReactNode;
@@ -243,6 +257,24 @@ function CommentRow({
   const canDeleteComment = canDeleteCommunityEntry(agent, comment);
   const commentAuthorName = comment.author.name || 'Agent';
   const commentAuthorSlug = comment.author.slug;
+
+  // Edit komentar: state lokal per baris (bukan diangkat ke TerasPage) —
+  // lihat catatan deviasi di task-4-brief.md. Sengaja terpisah dari
+  // editingEntry (edit KIRIMAN, satu-aktif) supaya CommentThread tetap
+  // presentasional murni tanpa prop-drilling state edit dari TerasPage.
+  const [editState, setEditState] = useState<{ text: string; saving: boolean; error: string | null } | null>(null);
+  const editLength = editState ? Array.from(editState.text.trim()).length : 0;
+
+  const submitEdit = async () => {
+    if (!editState || editState.saving) return;
+    setEditState(current => (current ? { ...current, saving: true, error: null } : current));
+    const message = await onEditSave(comment.id, editState.text);
+    if (message === null) {
+      setEditState(null);
+    } else {
+      setEditState(current => (current ? { ...current, saving: false, error: message } : current));
+    }
+  };
 
   // Meniru pola likePopId di TerasPage.tsx (handleLikeClick): burst + pop
   // hanya saat reaksi BERUBAH jadi suka, bukan saat melepasnya. Lokal di
@@ -349,6 +381,20 @@ function CommentRow({
           <time dateTime={comment.created_at} className="shrink-0 text-[12px] font-medium text-gray-500 dark:text-slate-400">
             {formatTime(comment.created_at)}
           </time>
+          {comment.edited_at && (
+            <span className="shrink-0 text-[11px] font-medium text-gray-400 dark:text-slate-500">· diedit</span>
+          )}
+          {comment.is_own && !editState && (
+            <button
+              type="button"
+              onClick={() => setEditState({ text: comment.body, saving: false, error: null })}
+              aria-label="Edit komentar"
+              title="Edit komentar"
+              className="-my-3 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-emerald-600 active:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
           {canDeleteComment && (
             <button
               type="button"
@@ -365,7 +411,51 @@ function CommentRow({
           )}
         </div>
 
-        {renderBody(comment)}
+        {editState ? (
+          <div className="mt-1">
+            <textarea
+              value={editState.text}
+              autoFocus
+              rows={1}
+              readOnly={editState.saving}
+              ref={node => {
+                if (node) {
+                  node.style.height = '';
+                  node.style.height = `${node.scrollHeight}px`;
+                }
+              }}
+              onChange={event => {
+                const { value } = event.target;
+                event.target.style.height = '';
+                event.target.style.height = `${event.target.scrollHeight}px`;
+                setEditState(current => (current ? { ...current, text: value } : current));
+              }}
+              onKeyDown={event => { if (event.key === 'Escape') setEditState(null); }}
+              className="w-full resize-none overflow-hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            />
+            <div className="mt-1.5 flex items-center justify-between gap-3">
+              <span className={`text-[11px] font-medium ${editLength > MAX_COMMENT_EDIT_CHARS ? 'text-red-500' : 'text-gray-400 dark:text-slate-500'}`}>
+                {editLength}/{MAX_COMMENT_EDIT_CHARS}
+              </span>
+              <div className="flex items-center gap-2">
+                {editState.error && (
+                  <span role="alert" className="text-[11px] font-medium text-red-500">{editState.error}</span>
+                )}
+                <button type="button" onClick={() => setEditState(null)} disabled={editState.saving}
+                  className="rounded-full px-3 py-1.5 text-[12px] font-semibold text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800">
+                  Batal
+                </button>
+                <button type="button" onClick={() => void submitEdit()}
+                  disabled={editState.saving || editLength < 1 || editLength > MAX_COMMENT_EDIT_CHARS}
+                  className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                  Simpan
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          renderBody(comment)
+        )}
         {renderMedia(comment)}
 
         {actions && (

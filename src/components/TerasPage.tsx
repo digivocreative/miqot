@@ -3274,6 +3274,30 @@ export default function TerasPage({
     });
   };
 
+  // Edit KOMENTAR: jalur terpisah dari editingEntry (edit kiriman, satu-aktif
+  // global) — CommentThread menyimpan state edit lokal per baris, lihat
+  // catatan deviasi di task-4-brief.md. Satu call site <CommentThread saat
+  // ini, tapi diangkat jadi fungsi bernama dekat patchEntryBody supaya siap
+  // dioper ke lokasi lain tanpa duplikasi kalau muncul.
+  const handleCommentEditSave = async (commentId: string, body: string): Promise<string | null> => {
+    try {
+      const result = await requestJson<{ id: string; body: string; edited_at: string }>(
+        `/api/community/posts/${encodeURIComponent(commentId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ body }),
+        },
+        'Gagal menyimpan. Coba lagi.',
+      );
+      if (!result.data?.body) return 'Gagal menyimpan. Coba lagi.';
+      patchEntryBody(result.data.id, result.data.body, result.data.edited_at);
+      return null;
+    } catch (error) {
+      return errorMessage(error, 'Gagal menyimpan. Coba lagi.');
+    }
+  };
+
   const startEditEntry = (id: string, body: string) => {
     if (editingEntry && editingEntry.id !== id) {
       // Pindah target edit: buang senyap hanya kalau teks belum diubah.
@@ -5507,6 +5531,7 @@ export default function TerasPage({
                             onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
+                            onEditSave={handleCommentEditSave}
                             onOpenThread={openPostDetail}
                             profileSlug={profileSlug}
                             renderBody={comment => (
