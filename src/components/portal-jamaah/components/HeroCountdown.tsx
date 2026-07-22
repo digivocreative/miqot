@@ -1,5 +1,6 @@
 import type { PortalBooking } from '../hooks/usePortalMe';
 import { daysUntilDate, formatLongDate } from '../utils/formatDate';
+import { InvertedPanel, GradientText } from '../ui';
 
 interface AirlineMeta {
   code: string;
@@ -49,17 +50,11 @@ export default function HeroCountdown({
   const packageName = booking.jadwal?.jadwal_nama || booking.paket || 'Paket Umroh';
 
   return (
-    <section
-      className="relative overflow-hidden rounded-2xl border border-emerald-200/10 p-4 text-white shadow-lg shadow-emerald-950/15"
-      style={{
-        background:
-          'radial-gradient(circle at 82% 72%, rgba(52,211,153,0.28) 0%, rgba(16,185,129,0.12) 26%, transparent 54%), radial-gradient(circle at 16% 6%, rgba(255,255,255,0.10) 0%, transparent 32%), linear-gradient(145deg, #022c22 0%, #064e3b 34%, #0f766e 68%, #065f46 100%)',
-      }}
-    >
+    <InvertedPanel glow texture className="p-4">
       <svg
         aria-hidden="true"
         viewBox="0 0 420 420"
-        className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.10]"
+        className="pointer-events-none absolute inset-0 h-full w-full text-gold opacity-[0.12]"
         preserveAspectRatio="none"
       >
         <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
@@ -75,44 +70,37 @@ export default function HeroCountdown({
           </g>
         </g>
       </svg>
-      <div className="pointer-events-none absolute -right-16 bottom-20 h-20 w-56 -rotate-12 bg-gradient-to-r from-transparent via-amber-200/10 to-transparent opacity-[0.10] blur-xl" />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 35%), linear-gradient(115deg, transparent 0%, rgba(251,191,36,0.08) 54%, transparent 82%)',
-        }}
-      />
 
       <div className="relative z-10">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {greetingName && (
               <>
-                <p className="text-[11px] font-semibold text-emerald-100">Assalamualaikum,</p>
-                <h1 className="truncate text-base font-bold leading-tight text-white">{greetingName}</h1>
+                <p className="text-[11px] font-semibold text-gold-100">Assalamualaikum,</p>
+                <h1 className="truncate font-display text-base leading-tight text-white">{greetingName}</h1>
               </>
             )}
           </div>
-          <span className="flex-none rounded-full border border-white/15 bg-white/15 px-2.5 py-1 text-[10px] font-bold tracking-wide text-white shadow-sm backdrop-blur-sm">
+          <span className="flex-none rounded-full border border-white/15 bg-white/15 px-2.5 py-1 font-mono text-[10px] font-bold tracking-wide text-white shadow-sm backdrop-blur-sm">
             {booking.id_umroh}
           </span>
         </div>
 
         <div className="mt-3 flex items-end justify-between gap-3 border-t border-white/15 pt-3">
           <div className="flex-none">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-100">Berangkat</p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gold-100">Berangkat</p>
             <div className="mt-1 flex items-end gap-1.5">
-              <span className="text-[34px] font-extrabold leading-none tracking-tight text-white">{safeDays}</span>
-              <span className="pb-0.5 text-[13px] font-semibold text-emerald-50">
+              <GradientText tone="gold" className="font-display text-[34px] leading-none tracking-tight">
+                {safeDays}
+              </GradientText>
+              <span className="pb-0.5 text-[13px] font-semibold text-gold-100">
                 {safeDays === 0 ? 'hari keberangkatan' : 'hari lagi'}
               </span>
             </div>
           </div>
           <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 text-right backdrop-blur-sm">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Tanggal</p>
-            <p className="mt-0.5 text-[11px] font-semibold leading-snug text-white">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gold-100">Tanggal</p>
+            <p className="mt-0.5 font-mono text-[11px] font-semibold leading-snug tabular-nums text-white">
               {formatLongDate(booking.tgl_berangkat)}
             </p>
           </div>
@@ -121,7 +109,7 @@ export default function HeroCountdown({
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/15 pt-3">
           <div className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 backdrop-blur-sm">
             {flightCodeText && airline && (
-              <span className="relative flex h-7 w-7 flex-none items-center justify-center overflow-hidden rounded-full bg-white p-1 text-[8px] font-bold text-emerald-700 shadow-sm">
+              <span className="relative flex h-7 w-7 flex-none items-center justify-center overflow-hidden rounded-full bg-white p-1 text-[8px] font-bold text-burgundy-700 shadow-sm">
                 <span className="absolute inset-0 flex items-center justify-center">{airline.code}</span>
                 <img
                     src={airline.logoUrl}
@@ -135,18 +123,18 @@ export default function HeroCountdown({
               </span>
             )}
             <div className="min-w-0">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Penerbangan</p>
-              <p className="mt-0.5 truncate text-xs font-bold text-white">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-gold-100">Penerbangan</p>
+              <p className="mt-0.5 truncate font-mono text-xs font-bold tabular-nums text-white">
                 {flightCodeText || 'Belum dijadwalkan'}
               </p>
             </div>
           </div>
           <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 backdrop-blur-sm">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
+            <p className="text-[9px] font-bold uppercase tracking-wider text-gold-100">Paket</p>
             <p className="mt-0.5 line-clamp-2 text-[11px] font-bold leading-snug text-white">{packageName}</p>
           </div>
         </div>
       </div>
-    </section>
+    </InvertedPanel>
   );
 }

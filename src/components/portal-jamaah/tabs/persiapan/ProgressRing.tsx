@@ -8,9 +8,9 @@ export default function ProgressRing({ percentage, size = 44 }: { percentage: nu
   const offset = circumference * (1 - safePct / 100);
 
   return (
-    <div className="relative flex-none text-emerald-700 dark:text-emerald-300" style={{ width: size, height: size }}>
+    <div className="relative flex-none text-burgundy-700" style={{ width: size, height: size }}>
       <svg className="-rotate-90" width={size} height={size} aria-hidden="true">
-        <circle cx={size / 2} cy={size / 2} r={radius} className="stroke-slate-200 dark:stroke-slate-700" strokeWidth="4" fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={radius} className="stroke-burgundy-700/12" strokeWidth="4" fill="none" />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -24,7 +24,7 @@ export default function ProgressRing({ percentage, size = 44 }: { percentage: nu
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-[11px] font-bold">{safePct}%</span>
+        <span className="font-mono text-[11px] font-semibold tabular-nums">{safePct}%</span>
       </div>
     </div>
   );

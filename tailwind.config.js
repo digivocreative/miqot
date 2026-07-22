@@ -20,11 +20,41 @@ export default {
           800: '#166534',
           900: '#14532d',
         },
+        // Alhijaz brand — burgundy signature gradient (700→500) + gold premium accent.
+        // Portal-Jamaah only; the green `primary` ramp above stays app-wide.
+        burgundy: {
+          50: '#FCF3F1', 100: '#F7E1DE', 200: '#ECBBB5', 300: '#DE8B82', 400: '#CF453B',
+          500: '#C0261C', 600: '#A31813', 700: '#8A0F0A', 800: '#6B0906', 900: '#4A0805', 950: '#2B0806',
+        },
+        gold: {
+          50: '#FBF6E6', 100: '#F5E9C0', DEFAULT: '#D4AF37', 500: '#C9A227', 700: '#8A6D12',
+        },
+        // Warm neutrals for the portal (secondary text via `text-ink/60`, keeps one warm ink).
+        canvas: '#FAF7F5',
+        ink: '#1E1512',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Display (Latin headlines / hero numerals only) + mono (labels / money / dates).
+        // Arabic text keeps `arabic` below — never apply display/mono to RTL/Arabic nodes.
+        display: ['Calistoga', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
         // Stack Arab tanpa web-font (andalkan font Arab sistem) — tanpa dependensi jaringan.
         arabic: ['Amiri', '"Scheherazade New"', '"Traditional Arabic"', '"Geeza Pro"', '"Noto Naskh Arabic"', 'serif'],
+      },
+      backgroundImage: {
+        'gradient-burgundy': 'linear-gradient(135deg, #8A0F0A, #C0261C)',
+        'gradient-gold': 'linear-gradient(135deg, #C9A227, #EBCB6B)',
+        'gradient-ink': 'linear-gradient(160deg, #2B0806, #160403)',
+      },
+      boxShadow: {
+        soft: '0 4px 6px rgba(40, 10, 8, 0.07)',
+        card: '0 10px 15px rgba(40, 10, 8, 0.09)',
+        accent: '0 4px 14px rgba(138, 15, 10, 0.25)',
+        'accent-lg': '0 8px 24px rgba(138, 15, 10, 0.35)',
+      },
+      borderRadius: {
+        lega: '1.25rem',
       },
       keyframes: {
         barPulse: {

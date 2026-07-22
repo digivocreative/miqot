@@ -11,6 +11,7 @@ import {
   formatHHMM,
   getRiyadhNow,
 } from '../../../../lib/prayer-times.js';
+import { Card, IconTile } from '../ui';
 
 const CITY_TABS: { id: PrayerCityId; label: string }[] = [
   { id: 'mekkah', label: 'Mekkah' },
@@ -46,14 +47,14 @@ export default function PrayerTimesCard({
   );
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-4">
-        <span className="flex h-8 w-8 flex-none items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+        <IconTile tint="neutral" size="sm">
           <Clock className="h-4 w-4" strokeWidth={2} />
-        </span>
+        </IconTile>
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white">Waktu Solat</h2>
-          <p className="truncate text-[11px] text-gray-500 dark:text-slate-400">
+          <h2 className="text-sm font-bold text-ink">Waktu Solat</h2>
+          <p className="truncate text-[11px] text-ink/60">
             {active.data?.hijriLabel ? `${active.data.hijriLabel} · ` : ''}Waktu Arab Saudi
           </p>
         </div>
@@ -70,8 +71,8 @@ export default function PrayerTimesCard({
               aria-pressed={on}
               className={`min-h-9 flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
                 on
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+                  ? 'bg-gradient-burgundy text-white shadow-accent'
+                  : 'bg-burgundy-700/5 text-burgundy-800/70 hover:bg-burgundy-700/10'
               }`}
             >
               {tab.label}
@@ -88,15 +89,15 @@ export default function PrayerTimesCard({
         ) : (
           <>
             {next && (
-              <div className="mb-4 rounded-xl bg-emerald-50 px-4 py-3 dark:bg-emerald-900/20">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              <div className="mb-4 rounded-xl bg-burgundy-50 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-burgundy-700">
                   Solat berikutnya{next.tomorrow ? ' (besok)' : ''}
                 </p>
                 <div className="mt-0.5 flex items-baseline justify-between gap-2">
-                  <span className="text-lg font-bold text-gray-900 dark:text-white">
-                    {next.label} · {next.timeLabel}
+                  <span className="text-lg font-bold text-ink">
+                    {next.label} · <span className="font-mono tabular-nums">{next.timeLabel}</span>
                   </span>
-                  <span className="flex-none text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  <span className="flex-none font-mono text-xs font-semibold tabular-nums text-burgundy-700">
                     {formatCountdown(next.minutesUntil)}
                   </span>
                 </div>
@@ -110,12 +111,12 @@ export default function PrayerTimesCard({
                     key={name}
                     className={`rounded-lg px-1 py-2 text-center ${
                       isNext
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-gray-50 text-gray-500 dark:bg-slate-700/50 dark:text-slate-400'
+                        ? 'bg-gradient-burgundy text-white shadow-accent'
+                        : 'bg-burgundy-700/5 text-burgundy-950/60'
                     }`}
                   >
                     <p className="text-[10px] font-semibold">{PRAYER_LABELS[name]}</p>
-                    <p className={`mt-0.5 text-xs font-bold ${isNext ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+                    <p className={`mt-0.5 font-mono text-xs font-bold tabular-nums ${isNext ? 'text-white' : 'text-ink'}`}>
                       {formatHHMM(active.data!.timings[name])}
                     </p>
                   </div>
@@ -125,17 +126,17 @@ export default function PrayerTimesCard({
           </>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
 function PrayerSkeleton() {
   return (
     <div className="animate-pulse space-y-3">
-      <div className="h-16 rounded-xl bg-gray-100 dark:bg-slate-700" />
+      <div className="h-16 rounded-xl bg-burgundy-700/5" />
       <div className="grid grid-cols-5 gap-1">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-12 rounded-lg bg-gray-100 dark:bg-slate-700" />
+          <div key={i} className="h-12 rounded-lg bg-burgundy-700/5" />
         ))}
       </div>
     </div>
@@ -145,9 +146,9 @@ function PrayerSkeleton() {
 function PrayerError() {
   return (
     <div className="py-4 text-center">
-      <Clock className="mx-auto h-7 w-7 text-slate-300 dark:text-slate-600" strokeWidth={2} />
-      <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">Jadwal solat tak tersedia</p>
-      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Periksa koneksi lalu buka lagi Beranda.</p>
+      <Clock className="mx-auto h-7 w-7 text-burgundy-200" strokeWidth={2} />
+      <p className="mt-2 text-sm font-semibold text-ink">Jadwal solat tak tersedia</p>
+      <p className="mt-1 text-xs text-ink/60">Periksa koneksi lalu buka lagi Beranda.</p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Check, Clock } from 'lucide-react';
 import type { PortalJamaah } from '../hooks/usePortalMe';
 import { toTitleCase } from '../utils/formatText';
+import { Card, StatusChip, cn } from '../ui';
 
 type PaymentStatus = 'lunas' | 'dp' | 'belum';
 
@@ -21,26 +22,25 @@ function paymentStatusOf(j: PortalJamaah): PaymentStatus {
   return 'dp';
 }
 
+// Gender hint re-toned to brand tokens (burgundy / gold) — decorative ring only.
 const GENDER_RING: Record<string, string> = {
-  L: 'ring-blue-300',
-  P: 'ring-pink-300',
+  L: 'ring-burgundy-300',
+  P: 'ring-gold/60',
 };
 
+// Payment status overlay — functional semantics, distinct from the burgundy brand:
+// lunas = success (green), dp = warning (amber, partial), belum = danger (red).
 const OVERLAY_BG: Record<PaymentStatus, string> = {
   lunas: 'bg-emerald-500',
-  dp: 'bg-blue-500',
-  belum: 'bg-amber-500',
+  dp: 'bg-amber-500',
+  belum: 'bg-red-500',
 };
 
 const PROGRESS_COLOR = (pct: number) =>
-  pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500';
+  pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500';
 
 const PROGRESS_TEXT = (pct: number) =>
-  pct >= 80
-    ? 'text-emerald-700 dark:text-emerald-400'
-    : pct >= 50
-      ? 'text-amber-700 dark:text-amber-400'
-      : 'text-rose-700 dark:text-rose-400';
+  pct >= 80 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-700' : 'text-red-600';
 
 export default function RosterItem({
   jamaah,
@@ -50,15 +50,15 @@ export default function RosterItem({
   progressPct: number;
 }) {
   const status = paymentStatusOf(jamaah);
-  const ring = GENDER_RING[jamaah.jk || ''] ?? 'ring-emerald-200';
+  const ring = GENDER_RING[jamaah.jk || ''] ?? 'ring-burgundy-200';
   const safeProgress = Math.max(0, Math.min(100, Number(progressPct) || 0));
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <Card className="flex items-center gap-3 p-3.5">
       <div className="relative flex-none">
-        <div className={`flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-sm font-bold text-emerald-700 ring-2 dark:bg-emerald-900/30 dark:text-emerald-200 ${ring}`}>
+        <div className={cn('flex h-10 w-10 items-center justify-center rounded-full bg-gradient-burgundy text-sm font-bold text-white ring-2', ring)}>
           {initials(jamaah.nama)}
         </div>
-        <div className={`absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white dark:border-slate-800 ${OVERLAY_BG[status]}`}>
+        <div className={cn('absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white', OVERLAY_BG[status])}>
           {status === 'lunas' && <Check size={9} strokeWidth={3} className="text-white" />}
           {status === 'dp' && <Clock size={9} strokeWidth={3} className="text-white" />}
           {status === 'belum' && <span className="text-[8px] font-bold text-white">?</span>}
@@ -66,17 +66,13 @@ export default function RosterItem({
       </div>
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold leading-5 text-gray-900 dark:text-white">{toTitleCase(jamaah.nama)}</p>
-          {jamaah.is_initiator && (
-            <span className="flex-none rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              Anda
-            </span>
-          )}
+          <p className="truncate text-sm font-bold leading-5 text-ink">{toTitleCase(jamaah.nama)}</p>
+          {jamaah.is_initiator && <StatusChip status="brand">Anda</StatusChip>}
         </div>
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[11px] font-semibold">
-            <span className="text-gray-500 dark:text-slate-400">Persiapan</span>
-            <span className={PROGRESS_TEXT(safeProgress)}>{safeProgress}%</span>
+            <span className="text-ink/60">Persiapan</span>
+            <span className={cn('font-mono tabular-nums', PROGRESS_TEXT(safeProgress))}>{safeProgress}%</span>
           </div>
           <div
             role="progressbar"
@@ -84,15 +80,15 @@ export default function RosterItem({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={safeProgress}
-            className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-700"
+            className="h-1.5 overflow-hidden rounded-full bg-black/5"
           >
             <div
-              className={`h-full rounded-full transition-all ${PROGRESS_COLOR(safeProgress)}`}
+              className={cn('h-full rounded-full transition-all', PROGRESS_COLOR(safeProgress))}
               style={{ width: `${safeProgress}%` }}
             />
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

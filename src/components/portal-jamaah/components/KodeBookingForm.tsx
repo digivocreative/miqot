@@ -1,4 +1,5 @@
 import { Loader2, Send } from 'lucide-react';
+import { Button, Card, SectionLabel } from '../ui';
 
 interface Props {
   kodeBooking: string;
@@ -20,11 +21,11 @@ export default function KodeBookingForm({
   onSubmit,
 }: Props) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Masuk dengan Kode Booking</p>
+    <Card className="overflow-hidden p-5">
+      <SectionLabel>Masuk dengan Kode Booking</SectionLabel>
       <div className="mt-4 space-y-3">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+          <span className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.12em] text-ink/60">
             Kode Booking
           </span>
           <input
@@ -34,16 +35,16 @@ export default function KodeBookingForm({
             placeholder="Contoh: AIW0028902"
             autoComplete="off"
             spellCheck={false}
-            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold uppercase tracking-wide text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+            className="h-12 w-full rounded-lega border border-black/10 bg-white px-4 font-mono text-sm uppercase tracking-wide tabular-nums text-ink outline-none transition-all placeholder:text-ink/30 focus:border-burgundy-700 focus:ring-2 focus:ring-burgundy-700 focus:ring-offset-2 focus:ring-offset-white"
           />
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+          <span className="mb-1.5 block font-mono text-[11px] uppercase tracking-[0.12em] text-ink/60">
             Nomor WhatsApp
           </span>
-          <div className="flex overflow-hidden rounded-xl border border-gray-200 bg-white transition-all focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex items-center border-r border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+          <div className="flex h-12 overflow-hidden rounded-lega border border-black/10 bg-white transition-all focus-within:border-burgundy-700 focus-within:ring-2 focus-within:ring-burgundy-700 focus-within:ring-offset-2 focus-within:ring-offset-white">
+            <div className="flex items-center border-r border-black/10 bg-burgundy-50 px-4 font-mono text-sm font-medium text-burgundy-700/80">
               +62
             </div>
             <input
@@ -53,30 +54,32 @@ export default function KodeBookingForm({
               onChange={(e) => onWaNumberChange(e.target.value.replace(/[^\d\s-]/g, ''))}
               placeholder="812 3456 7890"
               autoComplete="tel"
-              className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 dark:text-white"
+              className="min-w-0 flex-1 bg-transparent px-4 font-mono text-sm tabular-nums text-ink outline-none placeholder:text-ink/30"
             />
           </div>
         </label>
 
         {error && (
-          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600">
             {error}
           </p>
         )}
 
-        <button
+        <Button
           type="button"
+          variant="primary"
+          size="lg"
+          fullWidth
           onClick={onSubmit}
           disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {submitting ? <Loader2 size={16} strokeWidth={2} className="animate-spin" /> : <Send size={16} strokeWidth={2} />}
           {submitting ? 'Mengirim...' : 'Kirim Link Akses ke WA'}
-        </button>
-        <p className="text-center text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+        </Button>
+        <p className="text-center text-xs leading-relaxed text-ink/50">
           Link akan dikirim ke WhatsApp Anda dalam beberapa detik
         </p>
       </div>
-    </section>
+    </Card>
   );
 }

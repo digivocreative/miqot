@@ -1,33 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
-const STORAGE_KEY = 'portalDarkMode';
-
-function readInitial(): boolean {
-  if (typeof window === 'undefined') return false;
-  const stored = window.sessionStorage.getItem(STORAGE_KEY);
-  if (stored === 'true') return true;
-  if (stored === 'false') return false;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
-}
-
-function applyDarkClass(isDark: boolean) {
-  if (typeof document === 'undefined') return;
-  document.documentElement.classList.toggle('dark', isDark);
-}
-
+/**
+ * Portal Jamaah is light-only (redesign 2026-07). This hook now only guarantees
+ * the portal never inherits a `.dark` class (e.g. from a prior dashboard session
+ * or the visitor's OS dark preference). The former sessionStorage/matchMedia
+ * toggle was removed. The return shape is kept minimal for call-site compatibility.
+ */
 export function usePortalTheme() {
-  const [isDark, setIsDark] = useState<boolean>(readInitial);
-
   useEffect(() => {
-    applyDarkClass(isDark);
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(STORAGE_KEY, String(isDark));
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('dark');
     }
-  }, [isDark]);
+  }, []);
 
-  return {
-    isDark,
-    toggle: () => setIsDark((prev) => !prev),
-    setDark: setIsDark,
-  };
+  return { isDark: false as const, toggle: () => {}, setDark: (_?: boolean) => {} };
 }

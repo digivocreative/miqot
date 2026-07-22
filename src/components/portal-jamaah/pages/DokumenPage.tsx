@@ -3,6 +3,7 @@ import { Check, Clock, FileText, X as XIcon } from 'lucide-react';
 import PortalBackBar from '../components/PortalBackBar';
 import JamaahSelector from '../tabs/persiapan/JamaahSelector';
 import type { PortalJamaah, PortalMeData } from '../hooks/usePortalMe';
+import { Card, PortalPageShell, SectionLabel, StatusChip, type ChipStatus } from '../ui';
 
 type DocStatus = 'lengkap' | 'diproses' | 'belum';
 
@@ -70,23 +71,26 @@ function docStatus(jamaah: PortalJamaah | undefined, spec: DocSpec): DocStatus {
   return bestStatus;
 }
 
-const STATUS_BADGE: Record<DocStatus, { label: string; bg: string; text: string; icon: typeof Check }> = {
+const STATUS_BADGE: Record<DocStatus, { label: string; chip: ChipStatus; iconBg: string; iconText: string; icon: typeof Check }> = {
   lengkap: {
     label: 'Lengkap',
-    bg: 'bg-emerald-100 dark:bg-emerald-900/30',
-    text: 'text-emerald-700 dark:text-emerald-300',
+    chip: 'success',
+    iconBg: 'bg-emerald-500/12',
+    iconText: 'text-emerald-700',
     icon: Check,
   },
   diproses: {
     label: 'Diproses',
-    bg: 'bg-amber-100 dark:bg-amber-900/30',
-    text: 'text-amber-700 dark:text-amber-300',
+    chip: 'warning',
+    iconBg: 'bg-amber-500/15',
+    iconText: 'text-amber-700',
     icon: Clock,
   },
   belum: {
     label: 'Belum',
-    bg: 'bg-red-100 dark:bg-red-900/30',
-    text: 'text-red-700 dark:text-red-300',
+    chip: 'danger',
+    iconBg: 'bg-red-500/12',
+    iconText: 'text-red-600',
     icon: XIcon,
   },
 };
@@ -103,12 +107,12 @@ export default function DokumenPage({
   const completedCount = selected ? DOCS.filter((doc) => docStatus(selected, doc) === 'lengkap').length : 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
+    <PortalPageShell>
       <PortalBackBar
         title="Dokumen"
         onBack={onBack}
         icon={FileText}
-        iconClassName="bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+        iconClassName="bg-burgundy-700/8 text-burgundy-700"
       />
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-24 pt-4">
         {data.jamaah.length > 1 && (
@@ -119,12 +123,12 @@ export default function DokumenPage({
           <section className="space-y-3">
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Dokumen Wajib</p>
-                <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-slate-400">{selected.nama}</p>
+                <SectionLabel>Dokumen Wajib</SectionLabel>
+                <p className="mt-1.5 truncate text-xs text-ink/60">{selected.nama}</p>
               </div>
-              <span className="flex-none rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+              <StatusChip status={completedCount === DOCS.length ? 'success' : 'neutral'} className="flex-none">
                 {completedCount}/{DOCS.length} lengkap
-              </span>
+              </StatusChip>
             </div>
             <div className="space-y-2">
               {DOCS.map((doc) => {
@@ -132,40 +136,40 @@ export default function DokumenPage({
                 const badge = STATUS_BADGE[status];
                 const IconBadge = badge.icon;
                 return (
-                  <div key={doc.key} className="flex items-center gap-3 overflow-hidden rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${badge.bg} ${badge.text}`}>
+                  <Card key={doc.key} className="flex items-center gap-3 overflow-hidden p-3.5">
+                    <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${badge.iconBg} ${badge.iconText}`}>
                       <IconBadge className="h-4 w-4" strokeWidth={2.5} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="break-words text-sm font-bold leading-snug text-gray-900 [overflow-wrap:anywhere] dark:text-white">{doc.label}</p>
+                      <p className="break-words text-sm font-bold leading-snug text-ink [overflow-wrap:anywhere]">{doc.label}</p>
                     </div>
-                    <span className={`flex-none rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide ${badge.bg} ${badge.text}`}>
+                    <StatusChip status={badge.chip} className="flex-none">
                       {badge.label}
-                    </span>
-                  </div>
+                    </StatusChip>
+                  </Card>
                 );
               })}
             </div>
           </section>
         ) : (
-          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <FileText className="mx-auto h-9 w-9 text-gray-300 dark:text-slate-600" strokeWidth={2} />
-            <p className="mt-3 text-sm font-bold text-gray-900 dark:text-white">Data jamaah belum tersedia</p>
-            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
+          <Card className="overflow-hidden p-5 text-center">
+            <FileText className="mx-auto h-9 w-9 text-burgundy-200" strokeWidth={2} />
+            <p className="mt-3 text-sm font-bold text-ink">Data jamaah belum tersedia</p>
+            <p className="mt-1 text-xs leading-5 text-ink/60">
               Checklist dokumen akan tampil setelah data jamaah dimuat.
             </p>
-          </section>
+          </Card>
         )}
 
-        <section className="rounded-2xl border border-amber-100 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-900/20">
-          <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Belum punya dokumen tertentu?</p>
-          <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
+        <section className="rounded-lega border border-amber-500/20 bg-amber-500/10 p-4">
+          <p className="text-sm font-bold text-amber-800">Belum punya dokumen tertentu?</p>
+          <p className="mt-1 text-xs leading-5 text-amber-700">
             {data.agent?.phone
               ? `Hubungi ${data.agent?.name || 'agent'} untuk panduan dan kirim dokumen lewat WhatsApp.`
               : `Hubungi ${data.agent?.name || 'agent'} untuk panduan pengumpulan dokumen.`}
           </p>
         </section>
       </main>
-    </div>
+    </PortalPageShell>
   );
 }

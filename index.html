@@ -85,6 +85,12 @@
       @font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Montserrat-Black.woff2') format('woff2'); }
       @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-SemiBold.woff2') format('woff2'); }
       @font-face { font-family: 'Roboto Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/RobotoCondensed-Bold.woff2') format('woff2'); }
+      /* Portal Jamaah redesign — Calistoga (display) + JetBrains Mono (labels/numerals).
+         Self-hosted, portal-only; loaded on demand via font-display:swap (no global preload
+         so non-portal pages are not penalized). Arabic text keeps `fontFamily.arabic`. */
+      @font-face { font-family: 'Calistoga'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Calistoga-Regular.woff2') format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/JetBrainsMono-400.woff2') format('woff2'); }
+      @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/brochure/JetBrainsMono-500.woff2') format('woff2'); }
     </style>
   </head>
   <body>

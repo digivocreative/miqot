@@ -1,6 +1,6 @@
 import { LogOut } from 'lucide-react';
+import { PortalPageShell, SectionLabel } from '../ui';
 import PortalTopBar from '../components/PortalTopBar';
-import ThemeToggle from '../components/ThemeToggle';
 import HeroCountdown from '../components/HeroCountdown';
 import PortalMenuGrid from '../components/PortalMenuGrid';
 import PrayerTimesCard from '../components/PrayerTimesCard';
@@ -56,17 +56,16 @@ export default function BerandaPage({
   const compactName = getCompactJamaahName(initiator?.nama) || 'Jamaah';
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
+    <PortalPageShell>
       <PortalTopBar
         agent={data.agent}
         rightSlot={
           <>
-            <ThemeToggle />
             <button
               type="button"
               onClick={onLogout}
               aria-label="Keluar"
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/5 text-ink/60 transition-colors hover:bg-red-50 hover:text-red-500 active:scale-95"
             >
               <LogOut className="h-4 w-4" strokeWidth={2} />
             </button>
@@ -86,10 +85,8 @@ export default function BerandaPage({
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
-              Anggota Booking
-            </h2>
-            <span className="flex-none text-[11px] font-semibold text-gray-500 dark:text-slate-400">
+            <SectionLabel as="h2">Anggota Booking</SectionLabel>
+            <span className="flex-none font-mono text-[11px] font-medium tabular-nums text-ink/60">
               {data.jamaah.length} jamaah
             </span>
           </div>
@@ -100,6 +97,6 @@ export default function BerandaPage({
           </div>
         </section>
       </main>
-    </div>
+    </PortalPageShell>
   );
 }

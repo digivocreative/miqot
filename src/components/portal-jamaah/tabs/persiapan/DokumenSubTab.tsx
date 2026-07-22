@@ -1,6 +1,7 @@
 import { CheckCircle2, FileText, MessageCircle } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
 import JamaahSelector from './JamaahSelector';
+import { Button, Card, IconTile, SectionLabel, StatusChip } from '../../ui';
 import type { PortalJamaah, PortalMeData } from '../../hooks/usePortalMe';
 import { formatLongDate } from '../../utils/formatDate';
 
@@ -64,60 +65,55 @@ Mohon dicek ya.`;
       <JamaahSelector jamaah={data.jamaah} selectedId={active.id} onChange={onSelectJamaah} />
 
       <div className="mt-5 space-y-4">
-        <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <Card className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Sedang dilihat</p>
-              <p className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-white">{active.nama}</p>
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink/70">Sedang dilihat</p>
+              <p className="mt-1 truncate text-lg font-bold text-ink">{active.nama}</p>
               {active.no_paspor && (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-1 font-mono text-xs tabular-nums text-ink/60">
                   Paspor {active.no_paspor} · exp {formatLongDate(active.paspor_expired)}
                 </p>
               )}
             </div>
-            <span className="flex-none rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+            <StatusChip status={done === DOCUMENT_ITEMS.length ? 'success' : 'neutral'} className="flex-none">
               {done}/{DOCUMENT_ITEMS.length} Lengkap
-            </span>
+            </StatusChip>
           </div>
-        </section>
+        </Card>
 
         <section>
-          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Checklist Dokumen</p>
+          <SectionLabel className="mb-3">Checklist Dokumen</SectionLabel>
           <div className="space-y-3">
             {DOCUMENT_ITEMS.map((item) => {
               const verified = isVerified(active, item.id);
               return (
-                <div key={item.id} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <Card key={item.id} className="p-4">
                   <div className="flex items-start gap-3">
-                    <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${verified ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-300'}`}>
+                    <IconTile tint="neutral" size="md">
                       {verified ? <CheckCircle2 className="h-5 w-5" strokeWidth={2} /> : <FileText className="h-5 w-5" strokeWidth={2} />}
-                    </div>
+                    </IconTile>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-950 dark:text-white">{item.title}</p>
-                        <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-semibold ${verified ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}>
+                        <p className="text-sm font-semibold text-ink">{item.title}</p>
+                        <StatusChip status={verified ? 'success' : 'neutral'} className="flex-none">
                           {verified ? 'Diterima' : 'Belum'}
-                        </span>
+                        </StatusChip>
                       </div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{item.description}</p>
+                      <p className="mt-1 text-xs leading-5 text-ink/60">{item.description}</p>
                     </div>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
         </section>
 
         {waLink && (
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noreferrer"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 active:scale-[0.98] dark:bg-emerald-600 dark:hover:bg-emerald-500"
-          >
+          <Button href={waLink} target="_blank" rel="noreferrer" variant="wa" fullWidth>
             <MessageCircle className="h-4 w-4" strokeWidth={2} />
             Upload Dokumen Baru
-          </a>
+          </Button>
         )}
       </div>
     </main>

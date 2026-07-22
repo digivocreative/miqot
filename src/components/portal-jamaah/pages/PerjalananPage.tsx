@@ -7,6 +7,7 @@ import ItineraryList, { type ItineraryDay } from '../components/ItineraryList';
 import type { PortalMeData } from '../hooks/usePortalMe';
 import { formatPortalTime, formatShortDate, tripDurationDays } from '../utils/formatDate';
 import { extractItineraryDays } from '../utils/itinerary';
+import { Card, InvertedPanel, PortalPageShell, SectionLabel, StatusChip } from '../ui';
 
 function airlineFromCode(code?: string | null) {
   const prefix = String(code || '').trim().slice(0, 2).toUpperCase();
@@ -160,36 +161,33 @@ export default function PerjalananPage({
   const visibleItinerary = itineraryItems.length ? itineraryItems : fallbackItinerary;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
-      <PortalBackBar title="Perjalanan" onBack={onBack} icon={Plane} />
+    <PortalPageShell>
+      <PortalBackBar title="Perjalanan" onBack={onBack} icon={Plane} iconClassName="bg-burgundy-700/8 text-burgundy-700" />
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-24 pt-4">
-        <section
-          className="rounded-2xl p-5 text-white shadow-sm"
-          style={{ background: 'linear-gradient(135deg, #064e3b 0%, #0F6E56 50%, #065f46 100%)' }}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Paket</p>
-          <h1 className="mt-2 break-words text-xl font-bold leading-tight tracking-tight [overflow-wrap:anywhere]">{displayPackageName}</h1>
-          <p className="mt-2 break-words text-sm font-medium text-emerald-100 [overflow-wrap:anywhere]">
+        <InvertedPanel className="p-5" texture ring>
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gold">Paket</p>
+          <h1 className="mt-2 break-words font-display text-2xl leading-tight [overflow-wrap:anywhere]">{displayPackageName}</h1>
+          <p className="mt-2 break-words text-sm font-medium text-white/70 [overflow-wrap:anywhere]">
             {data.booking.jadwal?.year_code || new Date().getFullYear()} · {departureAirline}
           </p>
-          <div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/20 pt-4">
+          <div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/15 pt-4">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Berangkat</p>
-              <p className="mt-1 break-words text-sm font-bold leading-tight">{formatShortDate(data.booking.tgl_berangkat)}</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-white/50">Berangkat</p>
+              <p className="mt-1 break-words font-mono text-sm font-semibold leading-tight tabular-nums">{formatShortDate(data.booking.tgl_berangkat)}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Pulang</p>
-              <p className="mt-1 break-words text-sm font-bold leading-tight">{formatShortDate(data.booking.tgl_pulang)}</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-white/50">Pulang</p>
+              <p className="mt-1 break-words font-mono text-sm font-semibold leading-tight tabular-nums">{formatShortDate(data.booking.tgl_pulang)}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Durasi</p>
-              <p className="mt-1 break-words text-sm font-bold leading-tight">{duration ? `${duration} hari` : 'Menyusul'}</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-white/50">Durasi</p>
+              <p className="mt-1 break-words font-mono text-sm font-semibold leading-tight tabular-nums">{duration ? `${duration} hari` : 'Menyusul'}</p>
             </div>
           </div>
-        </section>
+        </InvertedPanel>
 
         <section>
-          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Penerbangan</p>
+          <SectionLabel className="mb-3">Penerbangan</SectionLabel>
           <div className="space-y-3">
             <FlightCard
               label="Keberangkatan"
@@ -211,7 +209,7 @@ export default function PerjalananPage({
         </section>
 
         <section>
-          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Hotel</p>
+          <SectionLabel className="mb-3">Hotel</SectionLabel>
           {hotels.length ? (
             <div className="space-y-3">
               {hotels.map((hotel) => (
@@ -219,22 +217,20 @@ export default function PerjalananPage({
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-gray-100 bg-white p-5 text-sm text-gray-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+            <Card className="p-5 text-sm text-ink/60">
               Detail hotel akan tampil setelah agent merilis paket final.
-            </div>
+            </Card>
           )}
         </section>
 
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="min-w-0 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Itinerary Harian</p>
-            <span className="inline-flex flex-none items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/20 dark:text-violet-300">
-              Rencana perjalanan
-            </span>
+            <SectionLabel className="min-w-0">Itinerary Harian</SectionLabel>
+            <StatusChip status="brand" className="flex-none">Rencana perjalanan</StatusChip>
           </div>
           <ItineraryList items={visibleItinerary} itineraryUrl={schedule?.itinerary_url} />
         </section>
       </main>
-    </div>
+    </PortalPageShell>
   );
 }

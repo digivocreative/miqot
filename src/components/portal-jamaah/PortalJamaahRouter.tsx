@@ -4,6 +4,7 @@ import PortalDashboard from './pages/PortalDashboard';
 import { getPortalSession } from './lib/portalSession';
 import type { PortalRoute } from './hooks/usePortalRoute';
 import { usePortalTheme } from './hooks/usePortalTheme';
+import { Card, PortalPageShell } from './ui';
 
 interface Props {
   slug: string;
@@ -43,12 +44,12 @@ function appendDashboardRoute(path: string, route: PortalRoute) {
 
 function NotFoundPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4 py-8 font-sans dark:from-slate-900 dark:to-slate-950">
-      <section className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Halaman tidak ditemukan</h1>
-        <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300">Pastikan alamat portal yang Anda buka sudah benar.</p>
-      </section>
-    </div>
+    <PortalPageShell className="flex items-center justify-center px-4 py-8 font-sans">
+      <Card className="w-full max-w-lg p-6 text-center">
+        <h1 className="font-display text-xl text-ink">Halaman tidak ditemukan</h1>
+        <p className="mt-2 text-sm leading-6 text-ink/60">Pastikan alamat portal yang Anda buka sudah benar.</p>
+      </Card>
+    </PortalPageShell>
   );
 }
 

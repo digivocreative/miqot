@@ -1,4 +1,5 @@
 import { Backpack, BadgeCheck, BookOpen, Briefcase, Check, Circle, IdCard, Shirt, WalletCards } from 'lucide-react';
+import { Card, IconTile, StatusChip, cn } from '../../ui';
 import type { PortalPerlengkapanStateItem } from '../../hooks/usePortalPersiapan';
 
 const ICONS: Record<string, typeof Briefcase> = {
@@ -11,12 +12,6 @@ const ICONS: Record<string, typeof Briefcase> = {
   belt: Circle,
 };
 
-function statusClasses(status: PortalPerlengkapanStateItem['status']) {
-  if (status === 'diambil') return { box: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300', badge: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' };
-  if (status === 'tersedia') return { box: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', badge: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' };
-  return { box: 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-300', badge: 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300' };
-}
-
 export default function PerlengkapanItem({
   item,
   subtext,
@@ -25,30 +20,30 @@ export default function PerlengkapanItem({
   subtext: string;
 }) {
   const Icon = ICONS[item.icon] || BadgeCheck;
-  const classes = statusClasses(item.status);
 
   return (
-    <div className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-slate-800 ${item.status === 'tersedia' ? 'border-amber-100 dark:border-amber-800/40' : 'border-slate-100 dark:border-slate-700'}`}>
+    <Card className={cn('p-4', item.status === 'tersedia' && 'ring-1 ring-amber-300')}>
       <div className="flex items-start gap-3">
-        <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${classes.box}`}>
+        {/* Brand-tinted tile differentiated by item icon; status lives in the chip. */}
+        <IconTile tint="neutral" size="md">
           <Icon className="h-5 w-5" strokeWidth={2} />
-        </div>
+        </IconTile>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-semibold text-slate-950 dark:text-white">{item.title}</p>
+            <p className="text-sm font-semibold text-ink">{item.title}</p>
             {item.status === 'diambil' ? (
-              <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-emerald-500/12 text-emerald-700">
                 <Check className="h-4 w-4" strokeWidth={2.4} />
               </span>
             ) : (
-              <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-semibold ${classes.badge}`}>
+              <StatusChip status={item.status === 'tersedia' ? 'warning' : 'neutral'} className="flex-none">
                 Menunggu
-              </span>
+              </StatusChip>
             )}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{subtext}</p>
+          <p className="mt-1 text-xs leading-5 text-ink/60">{subtext}</p>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
