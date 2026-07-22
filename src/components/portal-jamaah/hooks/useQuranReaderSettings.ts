@@ -15,6 +15,14 @@ export const ARABIC_SIZES = [
   'text-4xl leading-[2.6]',
 ] as const;
 
+// Ukuran teks latin & terjemahan, selaras (satu tingkat) dgn ARABIC_SIZES.
+export const TRANSLATION_SIZES = [
+  'text-xs leading-5',
+  'text-sm leading-6',
+  'text-base leading-7',
+  'text-lg leading-8',
+] as const;
+
 export const ARABIC_SIZE_LABELS = ['Kecil', 'Sedang', 'Besar', 'Sangat Besar'] as const;
 
 const STORAGE_KEY = 'portal_quran_reader_settings_v1';

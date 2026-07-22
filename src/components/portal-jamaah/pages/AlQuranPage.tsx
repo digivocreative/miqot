@@ -6,6 +6,7 @@ import { useQuranSurahDetail } from '../hooks/useQuranSurahDetail';
 import {
   ARABIC_SIZES,
   ARABIC_SIZE_LABELS,
+  TRANSLATION_SIZES,
   useQuranReaderSettings,
 } from '../hooks/useQuranReaderSettings';
 import type { QuranSurahMeta } from '../lib/quranApi';
@@ -184,7 +185,7 @@ function ReaderSettingsPanel({
       <div className="mt-3 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-bold text-gray-900 dark:text-white">Ukuran Teks Arab</p>
+            <p className="text-sm font-bold text-gray-900 dark:text-white">Ukuran Teks</p>
             <p className="text-xs text-gray-500 dark:text-slate-400">{ARABIC_SIZE_LABELS[settings.sizeIndex]}</p>
           </div>
           <div className="flex flex-none items-center gap-2">
@@ -192,7 +193,7 @@ function ReaderSettingsPanel({
               type="button"
               onClick={decreaseSize}
               disabled={atMin}
-              aria-label="Perkecil teks Arab"
+              aria-label="Perkecil teks"
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
             >
               <Minus className="h-4 w-4" strokeWidth={2.4} />
@@ -201,7 +202,7 @@ function ReaderSettingsPanel({
               type="button"
               onClick={increaseSize}
               disabled={atMax}
-              aria-label="Perbesar teks Arab"
+              aria-label="Perbesar teks"
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
             >
               <Plus className="h-4 w-4" strokeWidth={2.4} />
@@ -229,6 +230,7 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
   const { settings } = readerSettings;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const arabicSize = ARABIC_SIZES[settings.sizeIndex];
+  const translationSize = TRANSLATION_SIZES[settings.sizeIndex];
   // Bismillah tidak ditampilkan sebagai pembuka pada Al-Fatihah (sudah jadi ayat 1) dan At-Taubah.
   const showBismillah = !!data && data.nomor !== 1 && data.nomor !== 9;
 
@@ -297,10 +299,10 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
                     {ayat.teksArab}
                   </p>
                   {settings.showLatin && (
-                    <p className="mt-3 text-sm italic leading-6 text-teal-700 dark:text-teal-300">{ayat.teksLatin}</p>
+                    <p className={`mt-3 italic text-teal-700 dark:text-teal-300 ${translationSize}`}>{ayat.teksLatin}</p>
                   )}
                   {settings.showTerjemah && (
-                    <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{ayat.teksIndonesia}</p>
+                    <p className={`mt-1.5 text-gray-600 dark:text-slate-300 ${translationSize}`}>{ayat.teksIndonesia}</p>
                   )}
                 </li>
               ))}
