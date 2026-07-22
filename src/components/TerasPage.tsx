@@ -1,4 +1,5 @@
 import {
+  Fragment,
   forwardRef,
   useCallback,
   useEffect,
@@ -30,6 +31,8 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Play,
   RefreshCw,
   Send,
@@ -117,6 +120,8 @@ interface CommunityPost {
   created_at: string;
   /** Non-null bila kiriman pernah diedit (Task 2, `PATCH /posts/:id`). */
   edited_at?: string | null;
+  /** Non-null bila kiriman ini sedang disematkan admin (pengumuman). */
+  pinned_at?: string | null;
   /** true bila baris ini sebenarnya balasan (community_posts.is_reply) dirender lewat jalur kartu kiriman. */
   is_reply?: boolean;
   author: CommunityAuthor;
@@ -259,6 +264,8 @@ interface ApiEnvelope<T> {
   error?: string;
   next_cursor?: string | null;
   url?: string;
+  /** Kiriman tersemat (pengumuman admin) — hanya diisi pada halaman pertama linimasa utama. */
+  pinned?: CommunityPost | null;
 }
 
 interface ToastState {
@@ -1364,6 +1371,9 @@ export default function TerasPage({
 }) {
   const reduceMotion = useReducedMotion();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
+  // Kiriman tersemat (pengumuman admin) — dikirim server hanya di halaman
+  // pertama linimasa utama; null = tidak ada pin.
+  const [pinnedPost, setPinnedPost] = useState<CommunityPost | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1903,6 +1913,9 @@ export default function TerasPage({
       if (!Array.isArray(payload.data)) throw new Error('Data feed tidak valid');
 
       const serverPosts = payload.data || [];
+      if (!before && !profileSlug) {
+        setPinnedPost(payload.pinned ?? null);
+      }
       const serverIds = new Set(serverPosts.map(post => post.id));
       serverIds.forEach(id => pendingCreatedPostsRef.current.delete(id));
       // Mode profil: respons feed sudah discope ke satu agent, sedangkan
@@ -3274,6 +3287,30 @@ export default function TerasPage({
       }
       return anyChanged ? next : current;
     });
+    // Kartu pin adalah objek state terpisah (pinnedPost), bukan bagian dari
+    // `posts` — sinkronkan juga di sini supaya edit body tercermin di blok pin.
+    setPinnedPost(current => (current && current.id === id ? { ...current, body, edited_at: editedAt } : current));
+  };
+
+  // Sematkan/lepas sematan (admin, linimasa utama) — lihat task-3-brief.md.
+  const togglePin = async (post: CommunityPost) => {
+    const isPinned = pinnedPost?.id === post.id;
+    try {
+      const result = await requestJson<{ id: string; pinned_at: string | null }>(
+        `/api/community/posts/${encodeURIComponent(post.id)}/pin`,
+        { method: isPinned ? 'DELETE' : 'POST', headers: getAuthHeaders() },
+        isPinned ? 'Gagal melepas sematan' : 'Gagal menyematkan',
+      );
+      if (isPinned) {
+        setPinnedPost(null);
+        showToast('Sematan dilepas', 'success');
+      } else {
+        setPinnedPost({ ...post, pinned_at: result.data?.pinned_at ?? new Date().toISOString() });
+        showToast('Kiriman disematkan', 'success');
+      }
+    } catch (error) {
+      showToast(errorMessage(error, 'Gagal mengubah sematan'), 'error');
+    }
   };
 
   // Edit KOMENTAR: jalur terpisah dari editingEntry (edit kiriman, satu-aktif
@@ -3871,6 +3908,7 @@ export default function TerasPage({
         : new Set([postId]);
       setPosts(current => current.filter(post => !idsToRemove.has(post.id)));
       idsToRemove.forEach(id => pendingCreatedPostsRef.current.delete(id));
+      setPinnedPost(current => (current && idsToRemove.has(current.id) ? null : current));
       setCommentPanels(current => {
         const next = { ...current };
         idsToRemove.forEach(id => { delete next[id]; });
@@ -4483,6 +4521,12 @@ export default function TerasPage({
   // Komentar SELALU menempel ke segmen pertama rantai, dari segmen mana pun
   // halaman detail dibuka.
   const commentAnchorId = isDetailView ? (detailChain[0]?.id ?? detailPostId) : null;
+  // Blok pin (pengumuman admin) hanya tampil di linimasa utama (bukan profil,
+  // bukan halaman detail) — dedup di render saja, query/cursor tidak berubah.
+  const showPinnedBlock = !profileSlug && !isDetailView && !!pinnedPost;
+  const renderPosts = showPinnedBlock && pinnedPost
+    ? [pinnedPost, ...visiblePosts.filter(post => post.id !== pinnedPost.id)]
+    : visiblePosts;
 
   const handlePostAreaClick = (event: MouseEvent<HTMLElement>, postId: string) => {
     const target = event.target;
@@ -4712,7 +4756,7 @@ export default function TerasPage({
 
       {(isDetailView ? detailPost !== null : !loading && !error && feedPosts.length > 0) && (
         <div>
-          {visiblePosts.map((post, segmentIndex) => {
+          {renderPosts.map((post, segmentIndex) => {
             // Di feed sasaran komentar = kiriman itu sendiri; di detail selalu
             // segmen pertama rantai.
             const commentTargetId = commentAnchorId || post.id;
@@ -4753,8 +4797,13 @@ export default function TerasPage({
             const editorMax = post.is_reply ? MAX_COMMUNITY_COMMENT_CHARS : MAX_COMMUNITY_BODY_CHARS;
 
             return (
-              <article
-                key={post.id}
+              <Fragment key={post.id}>
+                {showPinnedBlock && segmentIndex === 0 && post.id === pinnedPost?.id && (
+                  <div className="mb-1 flex items-center gap-1.5 px-4 pt-3 text-[11.5px] font-semibold text-emerald-700 dark:text-emerald-400">
+                    <Pin size={13} /> Disematkan
+                  </div>
+                )}
+                <article
                 data-post-id={post.id}
                 role={isDetailView ? undefined : 'link'}
                 tabIndex={isDetailView ? undefined : 0}
@@ -4899,6 +4948,20 @@ export default function TerasPage({
                                   <Pencil size={16} />
                                 </button>
                               )}
+                              {agent.role === 'admin' && !profileSlug && !isDetailView && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    closePostMenu(post.id, true);
+                                    void togglePin(post);
+                                  }}
+                                  className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-[13.5px] font-semibold text-gray-800 transition-colors hover:bg-gray-100 active:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700/60 dark:active:bg-slate-700/60"
+                                >
+                                  {pinnedPost?.id === post.id ? 'Lepas sematan' : 'Sematkan'}
+                                  {pinnedPost?.id === post.id ? <PinOff size={16} /> : <Pin size={16} />}
+                                </button>
+                              )}
                               {canDeletePost && (
                                 <button
                                   type="button"
@@ -5030,6 +5093,9 @@ export default function TerasPage({
                       </time>
                       {post.edited_at && (
                         <span className="shrink-0 text-[11px] font-medium text-gray-400 dark:text-slate-500">· diedit</span>
+                      )}
+                      {isDetailView && post.pinned_at && (
+                        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400"><Pin size={11} /> Disematkan</span>
                       )}
                     </div>
 
@@ -5600,6 +5666,7 @@ export default function TerasPage({
                 )}
                 </AnimatePresence>
               </article>
+              </Fragment>
             );
           })}
 
