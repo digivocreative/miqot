@@ -5,7 +5,8 @@ import FlightCard from '../components/FlightCard';
 import HotelCard from '../components/HotelCard';
 import ItineraryList, { type ItineraryDay } from '../components/ItineraryList';
 import type { PortalMeData } from '../hooks/usePortalMe';
-import { addDays, formatPortalTime, formatShortDate, tripDurationDays } from '../utils/formatDate';
+import { formatPortalTime, formatShortDate, tripDurationDays } from '../utils/formatDate';
+import { extractItineraryDays } from '../utils/itinerary';
 
 function airlineFromCode(code?: string | null) {
   const prefix = String(code || '').trim().slice(0, 2).toUpperCase();
@@ -108,23 +109,6 @@ function hotelEntries(paketHotel: unknown, paketName?: string | null) {
       duration: 'Detail malam mengikuti itinerary',
       roomType,
     }));
-}
-
-function extractItineraryDays(raw: unknown, startDate?: string | null): ItineraryDay[] {
-  const source = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { days?: unknown[] }).days)
-      ? (raw as { days: unknown[] }).days
-      : [];
-  return source.map((item, index) => {
-    const day = item as Record<string, unknown>;
-    return {
-      dayNumber: String(day.dayNumber || day.day || `Hari ${index + 1}`),
-      title: String(day.title || day.judul || 'Agenda perjalanan'),
-      date: day.date ? String(day.date) : formatShortDate(addDays(startDate, index)),
-      location: day.location ? String(day.location) : null,
-    };
-  });
 }
 
 export default function PerjalananPage({
