@@ -319,7 +319,7 @@ Handler `GET /api/community/posts/:id/comments` (~6609): `loadCommentRows` dapat
     }
 ```
 
-(Baris `let includeMedia = true;` + dua baris retry lama di bawahnya diganti blok ini; sisa handler tak berubah.) Dua select cuplikan balasan di handler yang sama (~6814 `` `id, body, ${includeMediaColumn ? 'media, ' : ''}created_at` `` dan ~6841 `` `id, body, ${includeMedia ? 'media, ' : ''}created_at` ``): sisipkan `${includeEdited ? 'edited_at, ' : ''}` sebelum `created_at` memakai flag yang sudah diresolusi (samakan nama variabel media dengan yang dipakai di masing-masing lokasi).
+(Baris `let includeMedia = true;` + dua baris retry lama di bawahnya diganti blok ini; sisa handler tak berubah.) ~~Dua select cuplikan balasan (~6814, ~6841)~~ **STALE — dilewati saat eksekusi:** fitur cuplikan balasan inline sudah dihapus commit be18874 (select tersebut milik handler POST, baris baru yang tak pernah diedit); ekspansi "Lihat N balasan" memakai GET /:id/comments → `toCommentPayload` yang sudah tercakup di atas.
 
 - [ ] **Step 6: Verifikasi**
 
