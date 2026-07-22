@@ -5,9 +5,10 @@ import { useQuranSurahList } from '../hooks/useQuranSurahList';
 import { useQuranSurahDetail } from '../hooks/useQuranSurahDetail';
 import {
   ARABIC_SIZES,
-  ARABIC_SIZE_LABELS,
+  SIZE_LABELS,
   TRANSLATION_SIZES,
   useQuranReaderSettings,
+  type QuranSizeField,
 } from '../hooks/useQuranReaderSettings';
 import type { QuranSurahMeta } from '../lib/quranApi';
 
@@ -170,55 +171,82 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
   );
 }
 
+function SizeStepper({
+  index,
+  onAdjust,
+  ariaBase,
+}: {
+  index: number;
+  onAdjust: (delta: number) => void;
+  ariaBase: string;
+}) {
+  return (
+    <div className="flex flex-none items-center gap-2">
+      <button
+        type="button"
+        onClick={() => onAdjust(-1)}
+        disabled={index <= 0}
+        aria-label={`Perkecil ${ariaBase}`}
+        className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+      >
+        <Minus className="h-4 w-4" strokeWidth={2.4} />
+      </button>
+      <span className="w-20 flex-none text-center text-xs font-bold text-gray-500 dark:text-slate-400">
+        {SIZE_LABELS[index]}
+      </span>
+      <button
+        type="button"
+        onClick={() => onAdjust(1)}
+        disabled={index >= SIZE_LABELS.length - 1}
+        aria-label={`Perbesar ${ariaBase}`}
+        className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.4} />
+      </button>
+    </div>
+  );
+}
+
 function ReaderSettingsPanel({
   settings,
-  decreaseSize,
-  increaseSize,
+  adjustSize,
   toggleLatin,
   toggleTerjemah,
 }: ReturnType<typeof useQuranReaderSettings>) {
-  const atMin = settings.sizeIndex <= 0;
-  const atMax = settings.sizeIndex >= ARABIC_SIZES.length - 1;
+  const makeAdjuster = (field: QuranSizeField) => (delta: number) => adjustSize(field, delta);
   return (
-    <section className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <section className="space-y-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Pengaturan Tampilan</h2>
-      <div className="mt-3 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-gray-900 dark:text-white">Ukuran Teks</p>
-            <p className="text-xs text-gray-500 dark:text-slate-400">{ARABIC_SIZE_LABELS[settings.sizeIndex]}</p>
-          </div>
-          <div className="flex flex-none items-center gap-2">
-            <button
-              type="button"
-              onClick={decreaseSize}
-              disabled={atMin}
-              aria-label="Perkecil teks"
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
-            >
-              <Minus className="h-4 w-4" strokeWidth={2.4} />
-            </button>
-            <button
-              type="button"
-              onClick={increaseSize}
-              disabled={atMax}
-              aria-label="Perbesar teks"
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2.4} />
-            </button>
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 text-sm font-bold text-gray-900 dark:text-white">Ukuran Teks Arab</p>
+        <SizeStepper index={settings.arabicSizeIndex} onAdjust={makeAdjuster('arabicSizeIndex')} ariaBase="teks Arab" />
+      </div>
+
+      <div className="space-y-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-bold text-gray-900 dark:text-white">Teks Latin</p>
           <ToggleSwitch checked={settings.showLatin} onChange={toggleLatin} label="Tampilkan teks latin" />
         </div>
+        {settings.showLatin && (
+          <div className="flex items-center justify-between gap-3 pl-3">
+            <p className="min-w-0 text-xs text-gray-500 dark:text-slate-400">Ukuran teks latin</p>
+            <SizeStepper index={settings.latinSizeIndex} onAdjust={makeAdjuster('latinSizeIndex')} ariaBase="teks latin" />
+          </div>
+        )}
+      </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+      <div className="space-y-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-bold text-gray-900 dark:text-white">Terjemahan</p>
           <ToggleSwitch checked={settings.showTerjemah} onChange={toggleTerjemah} label="Tampilkan terjemahan" />
         </div>
+        {settings.showTerjemah && (
+          <div className="flex items-center justify-between gap-3 pl-3">
+            <p className="min-w-0 text-xs text-gray-500 dark:text-slate-400">Ukuran terjemahan</p>
+            <SizeStepper index={settings.terjemahSizeIndex} onAdjust={makeAdjuster('terjemahSizeIndex')} ariaBase="terjemahan" />
+          </div>
+        )}
       </div>
     </section>
   );
@@ -229,8 +257,9 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
   const readerSettings = useQuranReaderSettings();
   const { settings } = readerSettings;
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const arabicSize = ARABIC_SIZES[settings.sizeIndex];
-  const translationSize = TRANSLATION_SIZES[settings.sizeIndex];
+  const arabicSize = ARABIC_SIZES[settings.arabicSizeIndex];
+  const latinSize = TRANSLATION_SIZES[settings.latinSizeIndex];
+  const terjemahSize = TRANSLATION_SIZES[settings.terjemahSizeIndex];
   // Bismillah tidak ditampilkan sebagai pembuka pada Al-Fatihah (sudah jadi ayat 1) dan At-Taubah.
   const showBismillah = !!data && data.nomor !== 1 && data.nomor !== 9;
 
@@ -299,10 +328,10 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
                     {ayat.teksArab}
                   </p>
                   {settings.showLatin && (
-                    <p className={`mt-3 italic text-teal-700 dark:text-teal-300 ${translationSize}`}>{ayat.teksLatin}</p>
+                    <p className={`mt-3 italic text-teal-700 dark:text-teal-300 ${latinSize}`}>{ayat.teksLatin}</p>
                   )}
                   {settings.showTerjemah && (
-                    <p className={`mt-1.5 text-gray-600 dark:text-slate-300 ${translationSize}`}>{ayat.teksIndonesia}</p>
+                    <p className={`mt-1.5 text-gray-600 dark:text-slate-300 ${terjemahSize}`}>{ayat.teksIndonesia}</p>
                   )}
                 </li>
               ))}

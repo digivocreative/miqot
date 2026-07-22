@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 
 // Pengaturan tampilan pembaca Al-Quran, dipertahankan di localStorage antar sesi.
+// Ukuran Arab, latin, dan terjemahan diatur terpisah (indeks 0..3 masing-masing).
 export interface QuranReaderSettings {
-  sizeIndex: number; // indeks ke ARABIC_SIZES
+  arabicSizeIndex: number;
+  latinSizeIndex: number;
+  terjemahSizeIndex: number;
   showLatin: boolean;
   showTerjemah: boolean;
 }
+
+export type QuranSizeField = 'arabicSizeIndex' | 'latinSizeIndex' | 'terjemahSizeIndex';
 
 // Kelas ukuran teks Arab (Tailwind) — dari kecil ke sangat besar.
 export const ARABIC_SIZES = [
@@ -15,7 +20,7 @@ export const ARABIC_SIZES = [
   'text-4xl leading-[2.6]',
 ] as const;
 
-// Ukuran teks latin & terjemahan, selaras (satu tingkat) dgn ARABIC_SIZES.
+// Kelas ukuran teks latin & terjemahan — dari kecil ke sangat besar.
 export const TRANSLATION_SIZES = [
   'text-xs leading-5',
   'text-sm leading-6',
@@ -23,13 +28,24 @@ export const TRANSLATION_SIZES = [
   'text-lg leading-8',
 ] as const;
 
-export const ARABIC_SIZE_LABELS = ['Kecil', 'Sedang', 'Besar', 'Sangat Besar'] as const;
+export const SIZE_LABELS = ['Kecil', 'Sedang', 'Besar', 'Sangat Besar'] as const;
+const LEVEL_COUNT = SIZE_LABELS.length;
 
-const STORAGE_KEY = 'portal_quran_reader_settings_v1';
-const DEFAULTS: QuranReaderSettings = { sizeIndex: 1, showLatin: true, showTerjemah: true };
+const STORAGE_KEY = 'portal_quran_reader_settings_v2';
+const DEFAULTS: QuranReaderSettings = {
+  arabicSizeIndex: 1,
+  latinSizeIndex: 1,
+  terjemahSizeIndex: 1,
+  showLatin: true,
+  showTerjemah: true,
+};
 
 function clampSize(index: number) {
-  return Math.min(ARABIC_SIZES.length - 1, Math.max(0, index));
+  return Math.min(LEVEL_COUNT - 1, Math.max(0, index));
+}
+
+function num(value: unknown, fallback: number) {
+  return clampSize(typeof value === 'number' ? value : fallback);
 }
 
 function loadSettings(): QuranReaderSettings {
@@ -38,7 +54,9 @@ function loadSettings(): QuranReaderSettings {
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw) as Partial<QuranReaderSettings>;
     return {
-      sizeIndex: clampSize(typeof parsed.sizeIndex === 'number' ? parsed.sizeIndex : DEFAULTS.sizeIndex),
+      arabicSizeIndex: num(parsed.arabicSizeIndex, DEFAULTS.arabicSizeIndex),
+      latinSizeIndex: num(parsed.latinSizeIndex, DEFAULTS.latinSizeIndex),
+      terjemahSizeIndex: num(parsed.terjemahSizeIndex, DEFAULTS.terjemahSizeIndex),
       showLatin: typeof parsed.showLatin === 'boolean' ? parsed.showLatin : DEFAULTS.showLatin,
       showTerjemah: typeof parsed.showTerjemah === 'boolean' ? parsed.showTerjemah : DEFAULTS.showTerjemah,
     };
@@ -58,19 +76,15 @@ export function useQuranReaderSettings() {
     }
   }, [settings]);
 
-  const decreaseSize = useCallback(
-    () => setSettings((s) => ({ ...s, sizeIndex: clampSize(s.sizeIndex - 1) })),
-    []
-  );
-  const increaseSize = useCallback(
-    () => setSettings((s) => ({ ...s, sizeIndex: clampSize(s.sizeIndex + 1) })),
-    []
-  );
+  const adjustSize = useCallback((field: QuranSizeField, delta: number) => {
+    setSettings((s) => ({ ...s, [field]: clampSize(s[field] + delta) }));
+  }, []);
+
   const toggleLatin = useCallback(() => setSettings((s) => ({ ...s, showLatin: !s.showLatin })), []);
   const toggleTerjemah = useCallback(
     () => setSettings((s) => ({ ...s, showTerjemah: !s.showTerjemah })),
     []
   );
 
-  return { settings, decreaseSize, increaseSize, toggleLatin, toggleTerjemah };
+  return { settings, adjustSize, toggleLatin, toggleTerjemah };
 }
