@@ -85,7 +85,7 @@ export default function BerandaPage({
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <SectionLabel>Anggota Booking</SectionLabel>
+            <SectionLabel as="h2">Anggota Booking</SectionLabel>
             <span className="flex-none font-mono text-[11px] font-medium tabular-nums text-ink/60">
               {data.jamaah.length} jamaah
             </span>

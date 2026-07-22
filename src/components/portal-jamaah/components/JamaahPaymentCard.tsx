@@ -23,15 +23,16 @@ export default function JamaahPaymentCard({ jamaah }: { jamaah: PortalJamaah }) 
   const lunas = status === 'lunas';
   const overpayment = remaining < 0;
   const pct = Number.isFinite(rawPct) ? Math.max(0, Math.min(100, rawPct)) : 0;
-  // Gender ring encodes jk (data), kept distinct; unknown falls back to a neutral burgundy tint.
-  const ring = jamaah.jk === 'P' ? 'ring-pink-300' : jamaah.jk === 'L' ? 'ring-blue-300' : 'ring-burgundy-200';
+  // Gender ring encodes jk (data) with brand tokens — matches RosterItem's GENDER_RING.
+  const ring = jamaah.jk === 'P' ? 'ring-gold/60' : jamaah.jk === 'L' ? 'ring-burgundy-300' : 'ring-burgundy-200';
   const statusLabel = status === 'lunas' ? 'Lunas' : status === 'dp' ? 'Sudah DP' : 'Belum Bayar';
-  // Lunas = success (green); DP = brand (burgundy); Belum Bayar = warning (amber).
-  const chipStatus: ChipStatus = status === 'lunas' ? 'success' : status === 'dp' ? 'brand' : 'warning';
-  const dotColor = status === 'lunas' ? 'bg-emerald-500' : status === 'dp' ? 'bg-burgundy-700' : 'bg-amber-500';
-  const progressColor = status === 'lunas' ? 'bg-emerald-500' : status === 'dp' ? 'bg-burgundy-700' : 'bg-amber-500';
+  // Functional payment semantics, unified with RosterItem: lunas = success (green),
+  // dp = warning (amber, partial), belum = danger (red). Burgundy is brand, never a status.
+  const chipStatus: ChipStatus = status === 'lunas' ? 'success' : status === 'dp' ? 'warning' : 'danger';
+  const dotColor = status === 'lunas' ? 'bg-emerald-500' : status === 'dp' ? 'bg-amber-500' : 'bg-red-500';
+  const progressColor = status === 'lunas' ? 'bg-emerald-500' : status === 'dp' ? 'bg-amber-500' : 'bg-red-500';
   const remainingColor =
-    status === 'lunas' ? 'text-emerald-600' : status === 'dp' ? 'text-burgundy-800' : 'text-amber-700';
+    status === 'lunas' ? 'text-emerald-600' : status === 'dp' ? 'text-amber-700' : 'text-red-600';
 
   return (
     <Card className="overflow-hidden p-4">

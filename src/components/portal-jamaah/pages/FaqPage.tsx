@@ -42,7 +42,7 @@ export default function FaqPage({
 
         <section className="space-y-3">
           <div className="flex min-h-7 items-center justify-between gap-3">
-            <SectionLabel>Topik Bantuan</SectionLabel>
+            <SectionLabel as="h2">Topik Bantuan</SectionLabel>
             <StatusChip status="neutral">{PORTAL_FAQ.length} topik</StatusChip>
           </div>
 

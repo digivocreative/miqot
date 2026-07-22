@@ -120,7 +120,7 @@ export default function LandingPage({ slug }: { slug: string }) {
                     href={waLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 active:scale-95"
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#25D366]/30 bg-[#25D366]/10 px-4 py-3 text-sm font-semibold text-[#0E7C4A] transition-colors hover:bg-[#25D366]/15 active:scale-95"
                   >
                     <MessageCircle size={16} strokeWidth={2} />
                     Chat {agent?.name || 'Agent'} di WhatsApp

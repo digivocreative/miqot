@@ -126,7 +126,7 @@ export default function DokumenPage({
                 <SectionLabel>Dokumen Wajib</SectionLabel>
                 <p className="mt-1.5 truncate text-xs text-ink/60">{selected.nama}</p>
               </div>
-              <StatusChip status={completedCount === DOCS.length ? 'success' : 'brand'} className="flex-none">
+              <StatusChip status={completedCount === DOCS.length ? 'success' : 'neutral'} className="flex-none">
                 {completedCount}/{DOCS.length} lengkap
               </StatusChip>
             </div>
