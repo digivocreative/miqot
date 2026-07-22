@@ -73,6 +73,7 @@ import {
 } from './lib/community-thread-compose.js';
 import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js';
 import { validateCommunityEdit } from './lib/community-edit.js';
+import { canPinCommunityPost } from './lib/community-pin.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -4271,6 +4272,12 @@ function isCommunityEditSchemaMissing(error) {
   return /edited_at/i.test(String(error?.message || error?.details || ''));
 }
 
+function isCommunityPinSchemaMissing(error) {
+  const code = String(error?.code || '');
+  if (!['42703', 'PGRST204'].includes(code)) return false;
+  return /pinned_at/i.test(String(error?.message || error?.details || ''));
+}
+
 // community_post_comments adalah tabel komentar LAMA (pra-rekonsiliasi utas):
 // komentar baru sekarang baris community_posts (is_reply=true), dan Langkah 6
 // migrations/20260726000000_community_post_thread.sql (dijalankan nanti,
@@ -5555,10 +5562,10 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited) => {
+    const buildPostsQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited, includePin) => {
       let query = supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}${includePin ? 'pinned_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null);
       if (profileMember) {
         query = query.eq('agent_id', profileMember.id);
@@ -5620,12 +5627,13 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
     let includeLinkPreview = true;
     let includeThread = true;
     let includeEdited = true;
+    let includePin = true;
     let posts = null;
     let postsError = null;
-    // 5 percobaan gagal (media, quote, link preview, thread, edited) + 1
-    // percobaan sukses = 6.
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited));
+    // 6 percobaan gagal (media, quote, link preview, thread, edited, pin) + 1
+    // percobaan sukses = 7.
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      ({ data: posts, error: postsError } = await buildPostsQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited, includePin));
       if (includeMedia && isCommunityMediaSchemaMissing(postsError)) {
         includeMedia = false;
         continue;
@@ -5646,11 +5654,30 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         includeEdited = false;
         continue;
       }
+      if (includePin && isCommunityPinSchemaMissing(postsError)) {
+        includePin = false;
+        continue;
+      }
       break;
     }
     if (postsError) throw postsError;
 
-    const postIds = (posts || []).map(post => post.id);
+    // Kiriman tersemat: hanya halaman pertama linimasa utama. Query terpisah
+    // (bukan bagian cursor) — dedup dilakukan klien saat render.
+    let pinnedRow = null;
+    if (!before && !profileMember && includePin) {
+      const { data: row, error: pinnedError } = await supabase
+        .from('community_posts')
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, is_reply, ' : ''}pinned_at, ${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .not('pinned_at', 'is', null)
+        .is('deleted_at', null)
+        .maybeSingle();
+      // Degradasi senyap: galat apa pun pada query pinned tidak boleh
+      // menggagalkan feed.
+      if (!pinnedError && row) pinnedRow = row;
+    }
+
+    const postIds = Array.from(new Set([...(posts || []).map(post => post.id), ...(pinnedRow ? [pinnedRow.id] : [])]));
     const {
       reactionCounts,
       myReactions,
@@ -5744,7 +5771,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       }
     }
 
-    const data = (posts || []).map(post => {
+    const toFeedPayload = post => {
       const media = normalizeStoredCommunityMedia(post.media, post.photo_url);
       return {
         id: post.id,
@@ -5754,6 +5781,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         is_system: post.is_system,
         created_at: post.created_at,
         edited_at: post.edited_at ?? null,
+        pinned_at: post.pinned_at ?? null,
         is_reply: post.is_reply === true,
         author: communityAuthorProfile(post.agent),
         reactions: reactionCounts.get(post.id),
@@ -5776,12 +5804,18 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
           ? { parent_author: parentAuthorById.get(post.parent_post_id) || null }
           : {}),
       };
-    });
+    };
+    const data = (posts || []).map(toFeedPayload);
     const nextCursor = data.length < 20
       ? null
       : `${data[data.length - 1].created_at}|${data[data.length - 1].id}`;
 
-    res.json({ success: true, data, next_cursor: nextCursor });
+    res.json({
+      success: true,
+      data,
+      next_cursor: nextCursor,
+      ...(!before && !profileMember ? { pinned: pinnedRow ? toFeedPayload(pinnedRow) : null } : {}),
+    });
   } catch (err) {
     console.error('[community] feed error:', err);
     res.status(500).json({ error: 'Gagal memuat feed Teras' });
@@ -5809,10 +5843,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       return query.gte('id', lo).lte('id', hi).order('created_at', { ascending: true }).limit(1);
     };
 
-    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited) => applyPostIdFilter(
+    const buildPostQuery = (includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited, includePin) => applyPostIdFilter(
       supabase
         .from('community_posts')
-        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
+        .select(`id, body, photo_url, ${includeMedia ? 'media, ' : ''}${includeQuote ? 'quoted_post_id, ' : ''}${includeLinkPreview ? 'link_preview, ' : ''}${includeThread ? 'parent_post_id, root_post_id, is_reply, ' : ''}${includeEdited ? 'edited_at, ' : ''}${includePin ? 'pinned_at, ' : ''}is_system, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
         .is('deleted_at', null),
     ).maybeSingle();
 
@@ -5821,12 +5855,13 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
     let includeLinkPreview = true;
     let includeThread = true;
     let includeEdited = true;
+    let includePin = true;
     let post = null;
     let postError = null;
-    // 5 kolom yang bisa mundur (media, quote, link preview, thread, edited) ->
-    // hingga 5 percobaan gagal + 1 percobaan sukses = 6, sama seperti buildPostsQuery.
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited));
+    // 6 kolom yang bisa mundur (media, quote, link preview, thread, edited, pin) ->
+    // hingga 6 percobaan gagal + 1 percobaan sukses = 7, sama seperti buildPostsQuery.
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      ({ data: post, error: postError } = await buildPostQuery(includeMedia, includeQuote, includeLinkPreview, includeThread, includeEdited, includePin));
       if (includeMedia && isCommunityMediaSchemaMissing(postError)) {
         includeMedia = false;
         continue;
@@ -5845,6 +5880,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       }
       if (includeEdited && isCommunityEditSchemaMissing(postError)) {
         includeEdited = false;
+        continue;
+      }
+      if (includePin && isCommunityPinSchemaMissing(postError)) {
+        includePin = false;
         continue;
       }
       break;
@@ -6036,6 +6075,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         is_system: post.is_system,
         created_at: post.created_at,
         edited_at: post.edited_at ?? null,
+        pinned_at: post.pinned_at ?? null,
         is_reply: post.is_reply === true,
         author: communityAuthorProfile(post.agent),
         reactions,
@@ -6977,6 +7017,93 @@ app.patch('/api/community/posts/:id', authMiddleware, express.json({ limit: '8kb
   } catch (error) {
     console.error('PATCH /api/community/posts/:id error:', error);
     res.status(500).json({ error: 'Gagal menyimpan perubahan' });
+  }
+});
+
+// POST /api/community/posts/:id/pin — sematkan SATU kiriman (admin).
+// Pin baru melepas pin lama; index parsial unik di DB menegakkan slot tunggal.
+app.post('/api/community/posts/:id/pin', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Hanya admin yang bisa menyematkan' });
+    }
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
+    }
+    const loadPostForPin = withThread => supabase
+      .from('community_posts')
+      .select(`id, deleted_at${withThread ? ', parent_post_id, is_reply' : ''}`)
+      .eq('id', req.params.id)
+      .maybeSingle();
+    let { data: post, error: findError } = await loadPostForPin(true);
+    if (isCommunityThreadSchemaMissing(findError)) {
+      ({ data: post, error: findError } = await loadPostForPin(false));
+    }
+    if (findError) throw findError;
+    if (!post) return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
+    const verdict = canPinCommunityPost(post);
+    if (!verdict.ok) {
+      return res
+        .status(verdict.error === 'Kiriman tidak ditemukan' ? 404 : 400)
+        .json({ error: verdict.error });
+    }
+
+    const { error: clearError } = await supabase
+      .from('community_posts')
+      .update({ pinned_at: null })
+      .not('pinned_at', 'is', null);
+    if (isCommunityPinSchemaMissing(clearError)) {
+      return res.status(503).json({ error: 'Migrasi pin Teras belum diterapkan' });
+    }
+    if (clearError) throw clearError;
+
+    const pinnedAt = new Date().toISOString();
+    const { error: pinError } = await supabase
+      .from('community_posts')
+      .update({ pinned_at: pinnedAt })
+      .eq('id', post.id);
+    if (isCommunityPinSchemaMissing(pinError)) {
+      return res.status(503).json({ error: 'Migrasi pin Teras belum diterapkan' });
+    }
+    if (String(pinError?.code || '') === '23505') {
+      return res.status(409).json({ error: 'Pin sedang diubah, coba lagi' });
+    }
+    if (pinError) throw pinError;
+
+    res.json({ data: { id: post.id, pinned_at: pinnedAt } });
+  } catch (err) {
+    console.error('[community] pin error:', err);
+    res.status(500).json({ error: 'Gagal menyematkan kiriman' });
+  }
+});
+
+// DELETE /api/community/posts/:id/pin — lepas sematan (admin, idempoten).
+app.delete('/api/community/posts/:id/pin', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Hanya admin yang bisa menyematkan' });
+    }
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Kiriman tidak ditemukan' });
+    }
+    const { error: unpinError } = await supabase
+      .from('community_posts')
+      .update({ pinned_at: null })
+      .eq('id', req.params.id);
+    if (isCommunityPinSchemaMissing(unpinError)) {
+      return res.status(503).json({ error: 'Migrasi pin Teras belum diterapkan' });
+    }
+    if (unpinError) throw unpinError;
+    res.json({ data: { id: req.params.id, pinned_at: null } });
+  } catch (err) {
+    console.error('[community] unpin error:', err);
+    res.status(500).json({ error: 'Gagal melepas sematan' });
   }
 });
 
