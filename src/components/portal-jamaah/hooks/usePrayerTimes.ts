@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchCityTimings, type CityPrayerData, type PrayerCityId } from '../lib/prayerTimesApi';
 import { extractItineraryDays } from '../utils/itinerary';
 import { getRiyadhNow, resolvePrimaryCity, tripDayIndex } from '../../../../lib/prayer-times.js';
@@ -26,6 +26,9 @@ export function usePrayerTimes(schedule: PortalSchedule | null, booking: PortalB
     mekkah: { status: 'loading', data: null },
     madinah: { status: 'loading', data: null },
   });
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const citiesRef = useRef(cities);
+  citiesRef.current = cities;
 
   const itineraryDays = extractItineraryDays(schedule?.itinerary, booking.tgl_berangkat);
   const dayIndex = tripDayIndex(booking.tgl_berangkat, booking.tgl_pulang, now.isoDate);
@@ -45,13 +48,15 @@ export function usePrayerTimes(schedule: PortalSchedule | null, booking: PortalB
         });
     }
     return () => { cancelled = true; };
-  }, [dateKey]);
+  }, [dateKey, reloadNonce]);
 
   // Ganti hari (zona Riyadh) → set dateKey baru → efek di atas memuat ulang.
   useEffect(() => {
     function check() {
       const next = getRiyadhNow(Date.now()).dateKey;
       setDateKey((current) => (current === next ? current : next));
+      const hasError = Object.values(citiesRef.current).some((c) => c.status === 'error');
+      if (hasError) setReloadNonce((n) => n + 1);
     }
     const id = window.setInterval(check, 60_000);
     window.addEventListener('focus', check);

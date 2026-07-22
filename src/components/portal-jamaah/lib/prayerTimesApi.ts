@@ -3,6 +3,7 @@
 import {
   buildTimingsUrl,
   formatHijri,
+  PRAYER_ORDER,
   type PrayerCityId,
   type PrayerName,
 } from '../../../../lib/prayer-times.js';
@@ -16,8 +17,11 @@ export interface CityPrayerData {
 }
 
 const CACHE_PREFIX = 'portal_prayer';
-const REQUIRED: PrayerName[] = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
 const memoryCache = new Map<string, CityPrayerData>();
+
+function hasAllTimings(timings: unknown): timings is Timings {
+  return !!timings && PRAYER_ORDER.every((name) => typeof (timings as Record<string, unknown>)[name] === 'string');
+}
 
 interface AladhanResponse {
   code: number;
@@ -30,7 +34,7 @@ interface AladhanResponse {
 function pickTimings(raw: Record<string, string> | undefined): Timings {
   if (!raw) throw new Error('Timings kosong');
   const out = {} as Timings;
-  for (const name of REQUIRED) {
+  for (const name of PRAYER_ORDER) {
     if (!raw[name]) throw new Error(`Waktu ${name} tidak ada`);
     out[name] = raw[name];
   }
@@ -47,7 +51,7 @@ export async function fetchCityTimings(cityId: PrayerCityId, dateKey: string): P
     const cached = localStorage.getItem(key);
     if (cached) {
       const parsed = JSON.parse(cached) as CityPrayerData;
-      if (parsed?.timings?.Fajr) {
+      if (hasAllTimings(parsed?.timings)) {
         memoryCache.set(key, parsed);
         return parsed;
       }
