@@ -2742,6 +2742,11 @@ export default function TerasPage({
         .map(post => post.id === quotedId
           ? { ...post, quote_count: (post.quote_count || 0) + 1 }
           : post));
+      // Kartu pin adalah objek state terpisah dari `posts` -- kutipan sukses
+      // atas kiriman yang sedang disematkan juga harus menaikkan quote_count-nya.
+      setPinnedPost(current => (current && current.id === quotedId
+        ? { ...current, quote_count: (current.quote_count || 0) + 1 }
+        : current));
       setError(null);
       setLoading(false);
       resetComposer();
@@ -2795,28 +2800,36 @@ export default function TerasPage({
 
   const updateReaction = async (postId: string, nextReaction: 'suka' | null) => {
     if (reactionPendingRef.current.has(postId)) return;
-    const snapshot = postsRef.current.find(post => post.id === postId);
+    // Kartu pin adalah objek state terpisah dari `posts` -- kalau kiriman yang
+    // disematkan sedang tidak ada di halaman feed manapun yang termuat (mis.
+    // sudah di luar cursor), snapshot harus jatuh ke `pinnedPost` supaya API
+    // reaksi tetap terpanggil (bukan early-return diam-diam).
+    const snapshot = postsRef.current.find(post => post.id === postId)
+      ?? (pinnedPost?.id === postId ? pinnedPost : undefined);
     if (!snapshot) return;
     const previousReaction = snapshot.my_reaction;
-
-    reactionPendingRef.current.add(postId);
-    setReactionBusy(current => new Set(current).add(postId));
-    setPosts(current => current.map(post => {
-      if (post.id !== postId) return post;
+    const applyReaction = (post: CommunityPost) => {
       const reactions = { ...post.reactions };
       if (previousReaction) reactions[previousReaction] = Math.max(0, reactions[previousReaction] - 1);
       if (nextReaction) reactions[nextReaction] += 1;
       return { ...post, my_reaction: nextReaction, reactions };
-    }));
+    };
+
+    reactionPendingRef.current.add(postId);
+    setReactionBusy(current => new Set(current).add(postId));
+    setPosts(current => current.map(post => (post.id === postId ? applyReaction(post) : post)));
+    setPinnedPost(current => (current && current.id === postId ? applyReaction(current) : current));
 
     try {
       await sendReactionUpdate(postId, nextReaction);
     } catch (reactionError) {
-      setPosts(current => current.map(post => post.id === postId ? {
+      const rollbackReaction = (post: CommunityPost) => ({
         ...post,
         my_reaction: snapshot.my_reaction,
         reactions: snapshot.reactions,
-      } : post));
+      });
+      setPosts(current => current.map(post => (post.id === postId ? rollbackReaction(post) : post)));
+      setPinnedPost(current => (current && current.id === postId ? rollbackReaction(current) : current));
       showToast(errorMessage(reactionError, 'Gagal memperbarui reaksi'), 'error');
     } finally {
       reactionPendingRef.current.delete(postId);
@@ -3515,6 +3528,10 @@ export default function TerasPage({
       setPosts(current => current.map(post => post.id === postId
         ? { ...post, comment_count: post.comment_count + 1 }
         : post));
+      // Kartu pin adalah objek state terpisah dari `posts`.
+      setPinnedPost(current => (current && current.id === postId
+        ? { ...current, comment_count: current.comment_count + 1 }
+        : current));
       const commentInputEl = document.getElementById(`teras-comment-input-${postId}`);
       if (commentInputEl instanceof HTMLTextAreaElement) {
         commentInputEl.style.height = '';
@@ -3810,6 +3827,10 @@ export default function TerasPage({
         setPosts(current => current.map(post => post.id === postId
           ? { ...post, comment_count: Math.max(0, post.comment_count - 1) }
           : post));
+        // Kartu pin adalah objek state terpisah dari `posts`.
+        setPinnedPost(current => (current && current.id === postId
+          ? { ...current, comment_count: Math.max(0, current.comment_count - 1) }
+          : current));
       }
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus komentar'), 'error');
