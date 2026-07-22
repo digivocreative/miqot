@@ -49,7 +49,10 @@ import {
   clearDraft,
   feedDraftKey,
   loadDraft,
+  pruneReplyDrafts,
+  replyDraftKey,
   saveDraft,
+  TERAS_REPLY_DRAFT_MAX,
 } from '../lib/terasDraft';
 import { MentionText } from './MentionText';
 import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocomplete';
@@ -3220,6 +3223,48 @@ export default function TerasPage({
     }));
   };
 
+  // ---- Draf balasan per kiriman ----
+  // Pulihkan sekali per postId: panel yang terbuka (atau tampilan detail) dengan
+  // input kosong diisi draf. Sesudah dicoba sekali, tidak diulang — kalau user
+  // lalu mengosongkan input, auto-save di bawah yang menghapus kuncinya.
+  const replyDraftRestoredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const candidates = new Set<string>();
+    if (postId) candidates.add(postId);
+    Object.entries(commentPanels).forEach(([pid, panel]) => {
+      if (panel.open) candidates.add(pid);
+    });
+    candidates.forEach(pid => {
+      if (replyDraftRestoredRef.current.has(pid)) return;
+      replyDraftRestoredRef.current.add(pid);
+      if (commentPanels[pid]?.input.trim()) return;
+      const bodies = loadDraft(window.localStorage, replyDraftKey(agent.slug, pid), Date.now());
+      if (!bodies || !bodies[0]) return;
+      updateCommentInput(pid, bodies[0]);
+    });
+    // updateCommentInput stabil per render; commentPanels adalah pemicu sebenarnya.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentPanels, postId, agent.slug]);
+
+  // Auto-save debounce 500 ms — hanya panel yang inputnya BERUBAH sejak run
+  // sebelumnya (prev), supaya savedAt panel lain tidak ikut ter-refresh dan
+  // urutan prune tetap jujur. Panel lahir ber-input '' → prev default ''.
+  const replyDraftPrevRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      let touched = false;
+      Object.entries(commentPanels).forEach(([pid, panel]) => {
+        const prev = replyDraftPrevRef.current[pid] ?? '';
+        if (prev === panel.input) return;
+        replyDraftPrevRef.current[pid] = panel.input;
+        saveDraft(window.localStorage, replyDraftKey(agent.slug, pid), [panel.input], Date.now());
+        touched = true;
+      });
+      if (touched) pruneReplyDrafts(window.localStorage, agent.slug, TERAS_REPLY_DRAFT_MAX, Date.now());
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [commentPanels, agent.slug]);
+
   const sendComment = async (postId: string) => {
     const panel = commentPanels[postId];
     const body = panel?.input.trim() || '';
@@ -3305,6 +3350,8 @@ export default function TerasPage({
           },
         };
       });
+      clearDraft(window.localStorage, replyDraftKey(agent.slug, postId));
+      replyDraftPrevRef.current[postId] = '';
       // comment_count kiriman hanya menghitung komentar top-level (lihat GET
       // /api/community/posts/:id/comments di server).
       setPosts(current => current.map(post => post.id === postId
@@ -5186,6 +5233,11 @@ export default function TerasPage({
                               >
                                 <ImageIcon size={18} strokeWidth={1.8} />
                               </button>
+                              {commentPanel.media.length > 0 && (
+                                <span className="flex h-11 shrink-0 items-center pl-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
+                                  Lampiran tidak ikut tersimpan di draf
+                                </span>
+                              )}
                               <span
                                 aria-live="polite"
                                 className={`flex h-11 shrink-0 items-center pl-2 text-[10px] font-semibold tabular-nums ${
