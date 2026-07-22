@@ -8,6 +8,8 @@ import {
   formatCountdown,
   formatHijri,
   buildTimingsUrl,
+  tripDayIndex,
+  resolvePrimaryCity,
 } from '../lib/prayer-times.js';
 
 const TIMINGS = { Fajr: '04:25', Dhuhr: '12:27', Asr: '15:44', Maghrib: '19:04', Isha: '20:34' };
@@ -80,4 +82,26 @@ test('buildTimingsUrl: koordinat + method=4', () => {
   assert.match(url, /latitude=21\.4225/);
   assert.match(url, /longitude=39\.8262/);
   assert.match(url, /method=4/);
+});
+
+test('tripDayIndex: indeks hari dalam rentang, null di luar', () => {
+  assert.equal(tripDayIndex('2026-07-20', '2026-07-29', '2026-07-22'), 2);
+  assert.equal(tripDayIndex('2026-07-20', '2026-07-29', '2026-07-20'), 0);
+  assert.equal(tripDayIndex('2026-07-20', '2026-07-29', '2026-07-19'), null); // sebelum berangkat
+  assert.equal(tripDayIndex('2026-07-20', '2026-07-29', '2026-07-30'), null); // sesudah pulang
+  assert.equal(tripDayIndex('2026-07-20', null, '2026-07-25'), 5);            // tanpa batas atas
+  assert.equal(tripDayIndex(null, '2026-07-29', '2026-07-25'), null);         // mulai tak valid
+});
+
+test('tripDayIndex: toleran timestamp berimbuh waktu', () => {
+  assert.equal(tripDayIndex('2026-07-20T00:00:00Z', '2026-07-29', '2026-07-22T10:00:00Z'), 2);
+});
+
+test('resolvePrimaryCity: default Mekkah, naik ke Madinah saat cocok', () => {
+  const days = [{ location: 'Makkah' }, { location: 'Madinah, Masjid Nabawi' }];
+  assert.equal(resolvePrimaryCity({ itineraryDays: days, dayIndex: 1 }), 'madinah');
+  assert.equal(resolvePrimaryCity({ itineraryDays: days, dayIndex: 0 }), 'mekkah');
+  assert.equal(resolvePrimaryCity({ itineraryDays: days, dayIndex: null }), 'mekkah');
+  assert.equal(resolvePrimaryCity({ itineraryDays: [{ location: null }], dayIndex: 0 }), 'mekkah');
+  assert.equal(resolvePrimaryCity(), 'mekkah');
 });
