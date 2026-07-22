@@ -2890,9 +2890,10 @@ export default function TerasPage({
     }
   };
 
-  // Jumlah cuplikan balasan yang dipulihkan saat menutup kembali expand —
-  // samakan dengan previewLimit di server (groupRepliesWithPreview).
-  const COMMENT_REPLY_PREVIEW_LIMIT = 2;
+  // Jumlah cuplikan balasan yang dipulihkan saat menutup kembali expand.
+  // 0 = ala Threads: tertutup TANPA cuplikan inline, cukup tombol "Lihat N
+  // balasan". Samakan dengan previewLimit di server (groupRepliesWithPreview).
+  const COMMENT_REPLY_PREVIEW_LIMIT = 0;
 
   /**
    * "Lihat N balasan lainnya" tidak lagi pindah halaman: ia memuat SEMUA balasan

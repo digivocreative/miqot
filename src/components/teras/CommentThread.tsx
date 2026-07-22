@@ -96,19 +96,22 @@ export default function CommentThread({
         // berikutnya, jadi baris terakhir sebuah grup tetap dapat rail selama
         // masih ada grup sesudahnya.
         const hasNextGroup = railConnected && commentIndex < comments.length - 1;
-        // Jatah cuplikan balasan bersifat global lintas induk di server, jadi
-        // reply_count > 0 dengan preview_replies kosong itu MUNGKIN terjadi.
-        // Tautan "Lihat N balasan lainnya" dihitung dari selisih keduanya,
-        // bukan dari panjang preview_replies saja.
-        const remaining = replyCount - previewReplies.length;
         // Expand balasan inline (menggantikan navigasi lama ke halaman utas).
-        // Saat 'expanded', previewReplies di atas sudah memuat SEMUA balasan.
+        // Saat 'expanded', previewReplies sudah memuat SEMUA balasan.
         const canToggleReplies = !!onToggleReplies;
         const expansion = replyExpansions?.[comment.id];
         const expanded = expansion === 'expanded';
+        // Ala Threads: saat TERTUTUP tak ada cuplikan balasan inline — hanya satu
+        // tombol "Lihat N balasan" (N = TOTAL). Balasan baru dirender ketika utas
+        // dibuka (expanded). renderedReplies menggantikan previewReplies di semua
+        // titik render supaya rail vertikal ikut menyambung HANYA ke baris yang
+        // benar-benar tampil (tanpa ini rail bisa menjulur ke balasan tak-terlihat
+        // kalau server masih mengirim cuplikan). Fallback tanpa toggle: tampilkan
+        // apa adanya supaya balasan tak tersembunyi tanpa jalan keluar.
+        const renderedReplies = expanded || !canToggleReplies ? previewReplies : [];
         const showRepliesToggle = canToggleReplies
-          ? expanded || expansion === 'loading' || expansion === 'error' || remaining > 0
-          : remaining > 0;
+          ? expanded || expansion === 'loading' || expansion === 'error' || replyCount > 0
+          : replyCount > 0;
 
         return (
           <div key={comment.id}>
@@ -126,7 +129,7 @@ export default function CommentThread({
               onOpenThreadRow={() => onOpenThread(comment.id)}
               isTopLevel
               railConnected={railConnected}
-              railBelow={previewReplies.length > 0 || hasNextGroup}
+              railBelow={renderedReplies.length > 0 || hasNextGroup}
               hideQuote={hideQuote}
               actions={{
                 myReaction: myReactions[comment.id] ?? null,
@@ -141,8 +144,9 @@ export default function CommentThread({
                 avatar (railBelow menyambung ke baris berikutnya dalam thread).
                 data-thread-rail="comment" hanya muncul saat ADA balasan —
                 komentar datar tetap tanpa rail. Balasan juga dapat baris aksi
-                (reaksi/balas/kutip) & klik-buka-thread, sama seperti induk. */}
-            {previewReplies.map((reply, index) => (
+                (reaksi/balas/kutip) & klik-buka-thread, sama seperti induk.
+                renderedReplies kosong saat utas tertutup (ala Threads). */}
+            {renderedReplies.map((reply, index) => (
               <CommentRow
                 key={reply.id}
                 comment={reply}
@@ -156,7 +160,7 @@ export default function CommentThread({
                 reduceMotion={!!reduceMotion}
                 isTopLevel={false}
                 railConnected={railConnected}
-                railBelow={index < previewReplies.length - 1 || hasNextGroup}
+                railBelow={index < renderedReplies.length - 1 || hasNextGroup}
                 onOpenThreadRow={() => onOpenThread(reply.id)}
                 hideQuote={hideQuote}
                 actions={{
@@ -183,7 +187,7 @@ export default function CommentThread({
                     ? 'Gagal memuat balasan — coba lagi'
                     : expanded
                       ? 'Sembunyikan balasan'
-                      : `Lihat ${remaining} balasan lainnya`}
+                      : `Lihat ${replyCount} balasan`}
               </button>
             )}
           </div>

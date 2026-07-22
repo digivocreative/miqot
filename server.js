@@ -71,7 +71,7 @@ import {
   collectThreadMentions,
   normalizeThreadSegments,
 } from './lib/community-thread-compose.js';
-import { resolveRootPostId, groupRepliesWithPreview, buildAncestorChain } from './lib/community-thread.js';
+import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js';
 import {
   mergeNotifications,
   countUnreadNotifications,
@@ -6646,7 +6646,6 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
     if (error) throw error;
 
     const childIds = (comments || []).map(row => row.id);
-    let grandchildren = [];
     const replyCounts = new Map(childIds.map(id => [id, 0]));
     if (childIds.length > 0) {
       // Query RINGAN khusus menghitung: hanya parent_post_id, tanpa body/media/
@@ -6675,49 +6674,20 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
       if (!countError && typeof replyCountTotal === 'number' && replyCountTotal > (countRows || []).length) {
         console.warn(`[community] reply count truncated: db count=${replyCountTotal} received=${(countRows || []).length} at GET /api/community/posts/${post.id}/comments`);
       }
-
-      // Query cuplikan: urutkan created_at ASCENDING supaya jatah baris (limit)
-      // terpakai untuk balasan TERLAMA — cuplikan yang memang ditampilkan
-      // (groupRepliesWithPreview ambil slice awal). Dengan begitu "Lihat N
-      // balasan lainnya" menambah sisanya DI BAWAH cuplikan tanpa menggeser.
-      const REPLY_PREVIEW_LIMIT = 500;
-      const loadGrandchildren = withMedia => supabase
-        .from('community_posts')
-        .select(`id, agent_id, body, ${withMedia ? 'media, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
-        .in('parent_post_id', childIds)
-        .eq('is_reply', true)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: true })
-        .limit(REPLY_PREVIEW_LIMIT);
-      let { data: rows, error: grandchildError } = await loadGrandchildren(includeMedia);
-      if (includeMedia && isCommunityMediaSchemaMissing(grandchildError)) {
-        ({ data: rows, error: grandchildError } = await loadGrandchildren(false));
-      }
-      if (isCommunityThreadSchemaMissing(grandchildError)) {
-        rows = [];
-        grandchildError = null;
-      }
-      if (grandchildError) throw grandchildError;
-      grandchildren = rows || [];
-      if (grandchildren.length >= REPLY_PREVIEW_LIMIT) {
-        console.warn(`[community] reply preview limit (${REPLY_PREVIEW_LIMIT}) hit at GET /api/community/posts/${post.id}/comments`);
-      }
     }
 
-    const replyGroups = groupRepliesWithPreview(comments || [], grandchildren, { previewLimit: 2 });
+    // Ala Threads: balasan TIDAK lagi dikirim sebagai cuplikan inline. Klien
+    // menampilkan satu tombol "Lihat N balasan" (N = reply_count) lalu memuat
+    // SEMUA balasan lewat GET .../comments milik komentar itu saat dibuka. Jadi
+    // tak ada lagi query "grandchildren" untuk cuplikan di sini — cukup
+    // reply_count dari query ringan di atas; preview_replies selalu kosong.
 
     // Komentar adalah kiriman juga, jadi klien butuh reactions/my_reaction/
     // reaction_sample_name dalam bentuk yang SAMA PERSIS dengan feed & detail
     // kiriman (lihat GET /api/community/feed dan GET /api/community/posts/:id)
     // supaya komponen & tipe di klien bisa dipakai ulang. Diambil untuk semua
-    // komentar tingkat teratas DAN semua cuplikan balasan yang akan dikirim
-    // (bukan seluruh grandchildren -- hanya yang lolos previewLimit di atas),
-    // dalam SATU query .in(), bukan satu query per komentar.
-    const previewReplyIds = [];
-    for (const group of replyGroups.values()) {
-      for (const reply of group.preview_replies) previewReplyIds.push(reply.id);
-    }
-    const reactionTargetIds = [...new Set([...childIds, ...previewReplyIds])];
+    // komentar tingkat teratas dalam SATU query .in(), bukan satu per komentar.
+    const reactionTargetIds = [...new Set(childIds)];
 
     const commentReactionCounts = new Map(reactionTargetIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
     const commentMyReactions = new Map(reactionTargetIds.map(id => [id, null]));
@@ -6765,14 +6735,12 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
       is_own: row.agent_id === agent.id,
     });
 
-    const data = (comments || []).map(comment => {
-      const group = replyGroups.get(comment.id) || { reply_count: 0, preview_replies: [] };
-      return {
-        ...toCommentPayload(comment),
-        reply_count: replyCounts.get(comment.id) || 0,
-        preview_replies: group.preview_replies.map(toCommentPayload),
-      };
-    });
+    const data = (comments || []).map(comment => ({
+      ...toCommentPayload(comment),
+      reply_count: replyCounts.get(comment.id) || 0,
+      // Tak ada cuplikan inline (ala Threads) — klien memuat balasan saat dibuka.
+      preview_replies: [],
+    }));
     res.json({ success: true, data });
   } catch (err) {
     console.error('[community] load comments error:', err);
