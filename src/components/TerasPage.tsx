@@ -3241,6 +3241,10 @@ export default function TerasPage({
       const bodies = loadDraft(window.localStorage, replyDraftKey(agent.slug, pid), Date.now());
       if (!bodies || !bodies[0]) return;
       updateCommentInput(pid, bodies[0]);
+      window.requestAnimationFrame(() => {
+        const node = document.getElementById(`teras-comment-input-${pid}`);
+        if (node instanceof HTMLTextAreaElement) autoGrowCommentInput(node);
+      });
     });
     // updateCommentInput stabil per render; commentPanels adalah pemicu sebenarnya.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5234,7 +5238,7 @@ export default function TerasPage({
                                 <ImageIcon size={18} strokeWidth={1.8} />
                               </button>
                               {commentPanel.media.length > 0 && (
-                                <span className="flex h-11 shrink-0 items-center pl-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
+                                <span className="flex h-11 min-w-0 items-center truncate pl-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
                                   Lampiran tidak ikut tersimpan di draf
                                 </span>
                               )}
