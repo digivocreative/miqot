@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, BookOpen, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, BookOpen, ChevronRight, Minus, Plus, RefreshCw, Search, Settings2 } from 'lucide-react';
 import PortalBackBar from '../components/PortalBackBar';
 import { useQuranSurahList } from '../hooks/useQuranSurahList';
 import { useQuranSurahDetail } from '../hooks/useQuranSurahDetail';
+import {
+  ARABIC_SIZES,
+  ARABIC_SIZE_LABELS,
+  useQuranReaderSettings,
+} from '../hooks/useQuranReaderSettings';
 import type { QuranSurahMeta } from '../lib/quranApi';
 
 const ICON_CLASS = 'bg-teal-50 text-teal-600 dark:bg-teal-900/20 dark:text-teal-400';
@@ -143,15 +148,117 @@ function ReaderSkeleton() {
   );
 }
 
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 flex-none items-center rounded-full transition-colors ${
+        checked ? 'bg-teal-500' : 'bg-gray-200 dark:bg-slate-600'
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? 'translate-x-5' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
+function ReaderSettingsPanel({
+  settings,
+  decreaseSize,
+  increaseSize,
+  toggleLatin,
+  toggleTerjemah,
+}: ReturnType<typeof useQuranReaderSettings>) {
+  const atMin = settings.sizeIndex <= 0;
+  const atMax = settings.sizeIndex >= ARABIC_SIZES.length - 1;
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">Pengaturan Tampilan</h2>
+      <div className="mt-3 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-gray-900 dark:text-white">Ukuran Teks Arab</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">{ARABIC_SIZE_LABELS[settings.sizeIndex]}</p>
+          </div>
+          <div className="flex flex-none items-center gap-2">
+            <button
+              type="button"
+              onClick={decreaseSize}
+              disabled={atMin}
+              aria-label="Perkecil teks Arab"
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+            >
+              <Minus className="h-4 w-4" strokeWidth={2.4} />
+            </button>
+            <button
+              type="button"
+              onClick={increaseSize}
+              disabled={atMax}
+              aria-label="Perbesar teks Arab"
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.4} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+          <p className="text-sm font-bold text-gray-900 dark:text-white">Teks Latin</p>
+          <ToggleSwitch checked={settings.showLatin} onChange={toggleLatin} label="Tampilkan teks latin" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-slate-700">
+          <p className="text-sm font-bold text-gray-900 dark:text-white">Terjemahan</p>
+          <ToggleSwitch checked={settings.showTerjemah} onChange={toggleTerjemah} label="Tampilkan terjemahan" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
   const { data, loading, error, refetch } = useQuranSurahDetail(nomor);
+  const readerSettings = useQuranReaderSettings();
+  const { settings } = readerSettings;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const arabicSize = ARABIC_SIZES[settings.sizeIndex];
   // Bismillah tidak ditampilkan sebagai pembuka pada Al-Fatihah (sudah jadi ayat 1) dan At-Taubah.
   const showBismillah = !!data && data.nomor !== 1 && data.nomor !== 9;
 
+  const settingsButton = (
+    <button
+      type="button"
+      onClick={() => setSettingsOpen((v) => !v)}
+      aria-label="Pengaturan tampilan"
+      aria-expanded={settingsOpen}
+      className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors active:scale-95 ${
+        settingsOpen
+          ? 'bg-teal-500 text-white'
+          : 'bg-gray-100/80 text-gray-500 hover:bg-gray-200 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700'
+      }`}
+    >
+      <Settings2 className="h-4 w-4" strokeWidth={2.2} />
+    </button>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
-      <PortalBackBar title={data?.namaLatin || 'Al-Quran'} onBack={onBack} icon={BookOpen} iconClassName={ICON_CLASS} />
+      <PortalBackBar
+        title={data?.namaLatin || 'Al-Quran'}
+        onBack={onBack}
+        icon={BookOpen}
+        iconClassName={ICON_CLASS}
+        rightSlot={settingsButton}
+      />
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-24 pt-4">
+        {settingsOpen && <ReaderSettingsPanel {...readerSettings} />}
         {loading ? (
           <ReaderSkeleton />
         ) : error ? (
@@ -170,7 +277,7 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
             </section>
 
             {showBismillah && (
-              <p className="pt-1 text-center font-arabic text-2xl leading-loose text-gray-800 dark:text-slate-100" dir="rtl">
+              <p className={`pt-1 text-center font-arabic text-gray-800 dark:text-slate-100 ${arabicSize}`} dir="rtl">
                 {BISMILLAH}
               </p>
             )}
@@ -186,11 +293,15 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
                       {ayat.nomorAyat}
                     </span>
                   </div>
-                  <p className="mt-3 font-arabic text-2xl leading-loose text-gray-900 dark:text-white" dir="rtl" lang="ar">
+                  <p className={`mt-3 font-arabic text-gray-900 dark:text-white ${arabicSize}`} dir="rtl" lang="ar">
                     {ayat.teksArab}
                   </p>
-                  <p className="mt-3 text-sm italic leading-6 text-teal-700 dark:text-teal-300">{ayat.teksLatin}</p>
-                  <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{ayat.teksIndonesia}</p>
+                  {settings.showLatin && (
+                    <p className="mt-3 text-sm italic leading-6 text-teal-700 dark:text-teal-300">{ayat.teksLatin}</p>
+                  )}
+                  {settings.showTerjemah && (
+                    <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{ayat.teksIndonesia}</p>
+                  )}
                 </li>
               ))}
             </ul>
