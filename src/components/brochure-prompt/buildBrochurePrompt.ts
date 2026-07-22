@@ -159,7 +159,7 @@ export function formatBrochurePrice(raw: string | number | null | undefined): st
 }
 
 const PRICE_FORMAT_RULE =
-  '- FORMAT HARGA WAJIB memakai denominasi jutaan: tulis “Rp 39.4 Juta” (atau “mulai Rp 39.4 Juta”), BUKAN “Rp 39.400.000”. Gunakan titik sebagai pemisah desimal dan selalu tampilkan satu angka desimal.';
+  '- FORMAT HARGA: tampilkan harga dalam denominasi jutaan dengan satu angka desimal memakai titik sebagai pemisah — pola “Rp <nilai> Juta” atau “mulai Rp <nilai> Juta”, bukan format rupiah penuh. Ambil nilai harga HANYA dari blok data di atas; pola pada aturan ini cuma contoh penulisan, BUKAN harga, jadi jangan dijadikan harga paket.';
 
 function buildScheduleDataBlock(schedule?: BrochurePromptSchedule | null): string {
   if (!schedule || !schedule.packages?.length) return '';
@@ -258,7 +258,7 @@ export function buildNativeSharePrompt(input: BrochurePromptInput): string {
     `GAYA — ${selectedStyle.label}: ${selectedStyle.phrase}.`,
     sourceHint,
     'AKURASI — jangan mengubah angka atau mengarang diskon, tanggal, hotel, maskapai, fasilitas, maupun klaim.',
-    'HARGA — ubah “Rp 39.400.000” menjadi “Rp 39.4 Juta” (titik, satu desimal).',
+    'HARGA — tampilkan dalam jutaan, satu desimal pakai titik (pola “Rp <nilai> Juta”); ambil nilai dari SUMBER, jangan pakai angka contoh sebagai harga.',
     contact,
     `OUTPUT — rasio ${ratioOut}, Bahasa Indonesia, ejaan benar, hierarki jelas, safe margin, resolusi tinggi; bukan mockup/kolase, tanpa watermark AI atau penjelasan di luar artwork.`,
     extra.note?.trim() ? `CATATAN — ${extra.note.trim().slice(0, 180)}` : '',
@@ -273,7 +273,7 @@ export function buildNativeSharePrompt(input: BrochurePromptInput): string {
     `GAYA — ${selectedStyle.label}.`,
     sourceHint,
     'AKURASI — jangan mengubah angka atau mengarang fakta yang tidak ada pada gambar.',
-    'HARGA — ubah “Rp 39.400.000” menjadi “Rp 39.4 Juta” (titik, satu desimal).',
+    'HARGA — tampilkan dalam jutaan, satu desimal pakai titik (pola “Rp <nilai> Juta”); ambil nilai dari SUMBER, jangan pakai angka contoh sebagai harga.',
     contact,
     `OUTPUT — rasio ${ratioOut}, Bahasa Indonesia, terbaca jelas di HP, satu artwork tanpa mockup atau watermark AI.`,
   ].join('\n\n');

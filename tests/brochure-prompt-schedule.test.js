@@ -70,7 +70,9 @@ test('buildBrochurePrompt embeds schedule brochure package data', async () => {
   assert.match(prompt, /PROMO JUM'ATAIN PLUS TAIF 12 HARI/);
   assert.match(prompt, /7 seat/);
   assert.match(prompt, /mulai Rp 33\.9 Juta/);
-  assert.match(prompt, /FORMAT HARGA WAJIB/);
+  assert.match(prompt, /FORMAT HARGA: tampilkan harga dalam denominasi jutaan/);
+  // Contoh format tidak boleh menyerupai angka harga & harus menegaskan sumbernya
+  assert.match(prompt, /pola pada aturan ini cuma contoh penulisan, BUKAN harga/);
   assert.doesNotMatch(prompt, /Rp 33\.900\.000/);
   assert.match(prompt, /SAUDIA/);
   assert.match(prompt, /SOLD OUT/);
@@ -168,7 +170,10 @@ test('native share prompt stays safely inline and uses the attached image as sou
 
   assert.ok(prompt.length <= CHATGPT_NATIVE_SHARE_SAFE_BUDGET, `native prompt is ${prompt.length} chars`);
   assert.match(prompt, /pertahankan SEMUA 13 baris paket dari gambar secara akurat/);
-  assert.match(prompt, /ubah “Rp 39\.400\.000” menjadi “Rp 39\.4 Juta”/);
+  assert.match(prompt, /HARGA — tampilkan dalam jutaan, satu desimal pakai titik/);
+  assert.match(prompt, /ambil nilai dari SUMBER, jangan pakai angka contoh sebagai harga/);
+  // Contoh format tidak boleh menyuntik angka harga konkret ke prompt
+  assert.doesNotMatch(prompt, /39\.400\.000|39\.4 Juta/);
   assert.match(prompt, /Futuristik glass/);
   assert.doesNotMatch(prompt, /1\. PROMO JUMATAIN/);
 });
