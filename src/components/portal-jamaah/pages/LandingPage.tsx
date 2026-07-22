@@ -4,7 +4,6 @@ import { normalizeWaNumber } from '@/utils/phone';
 import AgentHeaderBar from '../components/AgentHeaderBar';
 import KodeBookingForm from '../components/KodeBookingForm';
 import MagicLinkSuccessCard from '../components/MagicLinkSuccessCard';
-import ThemeToggle from '../components/ThemeToggle';
 import { fetchAgentBySlug, type PortalAgent } from '../lib/fetchAgentBySlug';
 import { portalApi } from '../lib/portalApi';
 
@@ -79,7 +78,7 @@ export default function LandingPage({ slug }: { slug: string }) {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-900 dark:to-slate-950 dark:text-white">
-      <AgentHeaderBar agent={agent} rightSlot={<ThemeToggle />} />
+      <AgentHeaderBar agent={agent} />
       <main className="mx-auto w-full max-w-lg px-4 pb-10 pt-8">
         <section className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-md shadow-emerald-500/20">

@@ -1,6 +1,5 @@
 import { LogOut } from 'lucide-react';
 import PortalTopBar from '../components/PortalTopBar';
-import ThemeToggle from '../components/ThemeToggle';
 import HeroCountdown from '../components/HeroCountdown';
 import PortalMenuGrid from '../components/PortalMenuGrid';
 import PrayerTimesCard from '../components/PrayerTimesCard';
@@ -61,7 +60,6 @@ export default function BerandaPage({
         agent={data.agent}
         rightSlot={
           <>
-            <ThemeToggle />
             <button
               type="button"
               onClick={onLogout}

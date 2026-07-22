@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { ChevronLeft } from 'lucide-react';
-import ThemeToggle from './ThemeToggle';
 
 export default function PortalBackBar({
   title,
@@ -35,7 +34,7 @@ export default function PortalBackBar({
           )}
           <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{title}</p>
         </div>
-        <div className="flex h-9 w-9 flex-none items-center justify-center justify-self-end">{rightSlot ?? <ThemeToggle />}</div>
+        <div className="flex h-9 w-9 flex-none items-center justify-center justify-self-end">{rightSlot ?? null}</div>
       </div>
     </header>
   );
