@@ -45,6 +45,12 @@ import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
 import { firstUrl, stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
 import { getAuthHeaders } from './LoginPage';
+import {
+  clearDraft,
+  feedDraftKey,
+  loadDraft,
+  saveDraft,
+} from '../lib/terasDraft';
 import { MentionText } from './MentionText';
 import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocomplete';
 import { MentionHighlightLayer } from './MentionHighlightLayer';
@@ -1609,6 +1615,44 @@ export default function TerasPage({
     commentPanelsRef.current = commentPanels;
   }, [commentPanels]);
 
+  // ---- Draf komposer utama (localStorage, teks saja) ----
+  // Pulihkan sekali saat mount, hanya bila komposer masih kosong. Segmen
+  // direkonstruksi via blankComposerSegment() supaya client_id idempotensi baru.
+  const feedDraftReadyRef = useRef(false);
+  useEffect(() => {
+    const bodies = loadDraft(window.localStorage, feedDraftKey(agent.slug), Date.now());
+    const allEmpty = composerSegmentsRef.current.every(
+      segment => !segment.body.trim() && segment.media.length === 0,
+    );
+    if (bodies && bodies.length > 0 && allEmpty) {
+      const restored = bodies.slice(0, MAX_THREAD_SEGMENTS).map(body => ({
+        ...blankComposerSegment(),
+        body,
+      }));
+      composerSegmentsRef.current = restored;
+      setComposerSegments(restored);
+    }
+    feedDraftReadyRef.current = true;
+    // Sekali saat mount by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save debounce 500 ms. saveDraft menghapus kunci saat semua teks kosong —
+  // mengosongkan komposer = membuang draf. Gerbang feedDraftReadyRef mencegah
+  // run pertama (komposer masih kosong) menghapus draf sebelum sempat dipulihkan.
+  useEffect(() => {
+    if (!feedDraftReadyRef.current) return;
+    const timer = window.setTimeout(() => {
+      saveDraft(
+        window.localStorage,
+        feedDraftKey(agent.slug),
+        composerSegments.map(segment => segment.body),
+        Date.now(),
+      );
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [composerSegments, agent.slug]);
+
   // Pulihkan posisi scroll feed saat keluar dari tampilan detail
   // (baik via tombol breadcrumb header maupun back/forward browser).
   useEffect(() => {
@@ -2109,6 +2153,7 @@ export default function TerasPage({
     const fresh = [blankComposerSegment()];
     composerSegmentsRef.current = fresh;
     setComposerSegments(fresh);
+    clearDraft(window.localStorage, feedDraftKey(agent.slug));
     composerTextareaNodesRef.current.clear();
     composerMediaTargetRef.current = null;
     setComposerOpen(false);
@@ -4020,6 +4065,12 @@ export default function TerasPage({
                 {composerMediaWithoutTextIndex !== -1 && (
                   <p className="mb-3 text-[10px] font-medium text-red-500 dark:text-red-400">
                     Segmen {composerMediaWithoutTextIndex + 1} perlu teks
+                  </p>
+                )}
+
+                {composerSegments.some(segment => segment.media.length > 0) && (
+                  <p className="mb-3 text-[10px] font-medium text-gray-400 dark:text-slate-500">
+                    Lampiran tidak ikut tersimpan di draf
                   </p>
                 )}
 
