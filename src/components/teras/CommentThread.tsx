@@ -298,6 +298,12 @@ function CommentRow({
       }`}
     >
       <div className="flex flex-col items-center">
+        {/* Avatar diangkat (relative z-10) supaya SELALU menutup rail yang
+            merembes dari baris di atasnya. Kolom komposer bersifat
+            position:relative sehingga rail-nya tercat di lapisan lebih tinggi
+            dari kolom komentar yang tak-berposisi — tanpa lifting ini garis
+            vertikal tampak "masuk ke dalam" foto profil. Setara pola avatar
+            komposer (relative z-10) di TerasPage. */}
         {commentAuthorSlug ? (
           <a
             href={terasProfilePath(commentAuthorSlug)}
@@ -308,11 +314,14 @@ function CommentRow({
               onOpenProfile(commentAuthorSlug);
             }}
             aria-label={`Lihat profil ${commentAuthorName}`}
+            className="relative z-10"
           >
             <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
           </a>
         ) : (
-          <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
+          <div className="relative z-10">
+            <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
+          </div>
         )}
         {railBelow && (
           <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
