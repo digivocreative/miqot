@@ -54,14 +54,14 @@ test('segments[] berisi dua kiriman diterima', () => {
   assert.deepEqual(segments.map(s => s.clientId), [ID_A, ID_B]);
 });
 
-test('utas lebih dari 5 segmen ditolak', () => {
+test(`utas lebih dari ${MAX_THREAD_SEGMENTS} segmen ditolak`, () => {
   const segments = Array.from({ length: MAX_THREAD_SEGMENTS + 1 }, (_, i) => ({
     client_id: `${i}1111111-1111-4111-8111-111111111111`,
     body: `Segmen ${i}`,
   }));
   assert.equal(
     normalizeThreadSegments({ segments }).error,
-    'Utas maksimal 5 kiriman',
+    `Utas maksimal ${MAX_THREAD_SEGMENTS} kiriman`,
   );
 });
 
