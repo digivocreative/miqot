@@ -29,6 +29,7 @@ import {
   Maximize2,
   MessageCircle,
   MoreHorizontal,
+  Pencil,
   Play,
   RefreshCw,
   Send,
@@ -114,6 +115,8 @@ interface CommunityPost {
   media?: CommunityMedia[];
   is_system: boolean;
   created_at: string;
+  /** Non-null bila kiriman pernah diedit (Task 2, `PATCH /posts/:id`). */
+  edited_at?: string | null;
   author: CommunityAuthor;
   reactions: ReactionCounts;
   my_reaction: ReactionType | null;
@@ -168,6 +171,7 @@ interface QuotedPostPreview {
   body?: string;
   media?: CommunityMedia[];
   created_at?: string;
+  edited_at?: string | null;
   is_system?: boolean;
   author?: CommunityAuthor;
 }
@@ -184,6 +188,8 @@ export interface CommunityComment {
   body: string;
   media?: CommunityMedia[];
   created_at: string;
+  /** Non-null bila komentar pernah diedit (Task 2, `PATCH /posts/:id`). */
+  edited_at?: string | null;
   author: CommunityAuthor;
   is_own: boolean;
   // Komentar adalah kiriman juga -- server (GET & POST .../comments)
@@ -1360,6 +1366,15 @@ export default function TerasPage({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ---- Edit kiriman/komentar (spec 2026-07-22) ----
+  // Satu mode edit aktif; TIDAK menyentuh kunci draf teras:draft:* mana pun.
+  const [editingEntry, setEditingEntry] = useState<{
+    id: string;
+    text: string;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   // Satu utas = daftar segmen. Selalu minimal satu elemen: seluruh render
@@ -3223,6 +3238,76 @@ export default function TerasPage({
     }));
   };
 
+  // ---- Edit kiriman/komentar: patch state lokal setelah PATCH sukses ----
+  // `id` bisa jadi kiriman top-level, salah satu segmen utas (setiap segmen
+  // hidup sebagai entri `posts` tersendiri — lihat efek pemuat detail di
+  // atas), atau komentar/cuplikan balasan di commentPanels.
+  const patchEntryBody = (id: string, body: string, editedAt: string) => {
+    setPosts(current => current.map(post => {
+      let next = post.id === id ? { ...post, body, edited_at: editedAt } : post;
+      // Tiap entri `posts` (termasuk segmen utas) membawa salinan ringan
+      // rantainya sendiri di `thread` (dipakai hanya untuk id, tapi
+      // disamakan juga di sini demi konsistensi).
+      if (next.thread?.some(segment => segment.id === id)) {
+        next = {
+          ...next,
+          thread: next.thread.map(segment => (
+            segment.id === id ? { ...segment, body, edited_at: editedAt } : segment
+          )),
+        };
+      }
+      return next;
+    }));
+    setCommentPanels(current => {
+      let anyChanged = false;
+      const next: typeof current = {};
+      for (const [pid, panel] of Object.entries(current)) {
+        let panelChanged = false;
+        const comments = mapCommentInPanel(panel.comments, id, comment => {
+          panelChanged = true;
+          return { ...comment, body, edited_at: editedAt };
+        });
+        if (panelChanged) anyChanged = true;
+        next[pid] = panelChanged ? { ...panel, comments } : panel;
+      }
+      return anyChanged ? next : current;
+    });
+  };
+
+  const startEditEntry = (id: string, body: string) => {
+    if (editingEntry && editingEntry.id !== id) {
+      // Pindah target edit: buang senyap hanya kalau teks belum diubah.
+      const original = posts.find(post => post.id === editingEntry.id)?.body
+        ?? findCommentInPanel(commentPanels[editingEntry.id]?.comments ?? [], editingEntry.id)?.body;
+      if (editingEntry.text !== original && !window.confirm('Buang perubahan?')) return;
+    }
+    setEditingEntry({ id, text: body, saving: false, error: null });
+  };
+
+  const cancelEditEntry = () => setEditingEntry(null);
+
+  const saveEditEntry = async () => {
+    if (!editingEntry || editingEntry.saving) return;
+    setEditingEntry(current => (current ? { ...current, saving: true, error: null } : current));
+    try {
+      const result = await requestJson<{ id: string; body: string; edited_at: string }>(
+        `/api/community/posts/${encodeURIComponent(editingEntry.id)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ body: editingEntry.text }),
+        },
+        'Gagal menyimpan. Coba lagi.',
+      );
+      if (!result.data?.body) throw new Error('Gagal menyimpan. Coba lagi.');
+      patchEntryBody(result.data.id, result.data.body, result.data.edited_at);
+      setEditingEntry(null);
+    } catch (error) {
+      const message = errorMessage(error, 'Gagal menyimpan. Coba lagi.');
+      setEditingEntry(current => (current ? { ...current, saving: false, error: message } : current));
+    }
+  };
+
   // ---- Draf balasan per kiriman ----
   // Pulihkan sekali per postId: panel yang terbuka (atau tampilan detail) dengan
   // input kosong diisi draf. Sesudah dicoba sekali, tidak diulang — kalau user
@@ -4764,6 +4849,20 @@ export default function TerasPage({
                                   {reportingPostId === post.id ? <Loader2 size={16} className="animate-spin" /> : <Flag size={16} />}
                                 </button>
                               )}
+                              {post.is_own && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    closePostMenu(post.id, true);
+                                    startEditEntry(post.id, post.body);
+                                  }}
+                                  className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-[13.5px] font-semibold text-gray-800 transition-colors hover:bg-gray-100 active:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700/60 dark:active:bg-slate-700/60"
+                                >
+                                  Edit
+                                  <Pencil size={16} />
+                                </button>
+                              )}
                               {canDeletePost && (
                                 <button
                                   type="button"
@@ -4893,9 +4992,60 @@ export default function TerasPage({
                       <time dateTime={post.created_at} className="shrink-0 text-[12px] font-medium text-gray-500 dark:text-slate-400">
                         {timeAgo(post.created_at)}
                       </time>
+                      {post.edited_at && (
+                        <span className="shrink-0 text-[11px] font-medium text-gray-400 dark:text-slate-500">· diedit</span>
+                      )}
                     </div>
 
-                    {(() => {
+                    {editingEntry?.id === post.id ? (
+                      <div className="mt-1">
+                        <textarea
+                          value={editingEntry.text}
+                          autoFocus
+                          rows={1}
+                          readOnly={editingEntry.saving}
+                          ref={node => {
+                            if (node) {
+                              node.style.height = '';
+                              node.style.height = `${node.scrollHeight}px`;
+                            }
+                          }}
+                          onChange={event => {
+                            const { value } = event.target;
+                            event.target.style.height = '';
+                            event.target.style.height = `${event.target.scrollHeight}px`;
+                            setEditingEntry(current => (current ? { ...current, text: value } : current));
+                          }}
+                          onKeyDown={event => { if (event.key === 'Escape') cancelEditEntry(); }}
+                          className="w-full resize-none overflow-hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-[14px] text-gray-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                        />
+                        <div className="mt-1.5 flex items-center justify-between gap-3">
+                          <span className={`text-[11px] font-medium ${Array.from(editingEntry.text.trim()).length > MAX_COMMUNITY_BODY_CHARS ? 'text-red-500' : 'text-gray-400 dark:text-slate-500'}`}>
+                            {Array.from(editingEntry.text.trim()).length}/{MAX_COMMUNITY_BODY_CHARS}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {editingEntry.error && (
+                              <span role="alert" className="text-[11px] font-medium text-red-500">{editingEntry.error}</span>
+                            )}
+                            <button type="button" onClick={cancelEditEntry} disabled={editingEntry.saving}
+                              className="rounded-full px-3 py-1.5 text-[12.5px] font-semibold text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800">
+                              Batal
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void saveEditEntry()}
+                              disabled={editingEntry.saving
+                                || Array.from(editingEntry.text.trim()).length < 1
+                                || Array.from(editingEntry.text.trim()).length > MAX_COMMUNITY_BODY_CHARS}
+                              className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {editingEntry.saving ? <Loader2 size={13} className="animate-spin" /> : null}
+                              Simpan
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (() => {
                       // Kartu preview sudah mewakili URL-nya (ala Threads) — begitu
                       // kartu tampil, URL yang sama disembunyikan dari teks body.
                       // Penjaga di sini HARUS sama persis dengan penjaga LinkPreviewCard
