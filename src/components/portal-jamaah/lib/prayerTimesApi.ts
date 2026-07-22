@@ -16,7 +16,7 @@ export interface CityPrayerData {
   hijriLabel: string | null;
 }
 
-const CACHE_PREFIX = 'portal_prayer';
+const CACHE_PREFIX = 'portal_prayer_v1';
 const memoryCache = new Map<string, CityPrayerData>();
 
 function hasAllTimings(timings: unknown): timings is Timings {
