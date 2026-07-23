@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, BookOpen, ChevronRight, Minus, Plus, RefreshCw, Search, Settings2 } from 'lucide-react';
+import { trackPublicEvent } from '@/utils/analytics';
 import PortalBackBar from '../components/PortalBackBar';
 import { Card, IconTile, InvertedPanel, PortalPageShell, SectionLabel, cn } from '../ui';
 import { useQuranSurahList } from '../hooks/useQuranSurahList';
@@ -344,11 +345,16 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
   );
 }
 
-export default function AlQuranPage({ onBack }: { data?: unknown; onBack: () => void }) {
+export default function AlQuranPage({ slug, onBack }: { slug: string; data?: unknown; onBack: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
+
+  function openSurah(nomor: number) {
+    setSelected(nomor);
+    trackPublicEvent(slug, 'open_quran_surah', { surah: nomor });
+  }
 
   if (selected != null) {
     return <SurahReader nomor={selected} onBack={() => setSelected(null)} />;
   }
-  return <SurahList onOpen={setSelected} onBack={onBack} />;
+  return <SurahList onOpen={openSurah} onBack={onBack} />;
 }

@@ -17199,7 +17199,20 @@ app.get('/api/laporan/jamaah/doc-proxy', authMiddleware, proxyInternalDocument);
 // Analytics API
 // ──────────────────────────────────────────────
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
-const VALID_PUBLIC_EVENTS = ['page_view', 'wa_click_public', 'inquiry_submitted', 'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked', 'bio_view'];
+const VALID_PUBLIC_EVENTS = [
+  'page_view', 'wa_click_public', 'inquiry_submitted',
+  'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked',
+  'bio_view', 'bio_social_click',
+  // Portal Jamaah is jamaah-authenticated (magic-link session, NOT the agent
+  // session), so it reports via the public endpoint keyed by agent slug. These
+  // are 'public'-typed events; labels resolve via ALL_EVENT_LABELS.
+  'open_portal', 'open_portal_beranda', 'open_portal_perjalanan', 'open_portal_pembayaran',
+  'open_portal_dokumen', 'open_portal_alquran', 'open_portal_doa_dzikir', 'open_portal_faq',
+  'portal_login_request', 'portal_login_success', 'wa_click_portal',
+  'view_portal_doc', 'open_quran_surah',
+];
+// Every event_name that counts as a "WhatsApp click" for the overview + per-agent + drill-down WA metrics.
+const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal'];
 
 // Shared label dictionaries (used by /summary + /agent/:slug drill-down)
 const FEATURE_LABELS = {
@@ -17210,6 +17223,23 @@ const FEATURE_LABELS = {
   open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
   open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
   open_kurs: 'Kurs',
+  // Previously fired but unlabeled (rendered as raw slugs before)
+  open_brosur: 'Brosur', open_landing_page: 'Landing Page',
+  open_mcp_integration: 'AI Assistant (MCP)', open_share_kurs: 'Bagikan Kurs',
+  open_birthday_sheet: 'Ulang Tahun Jamaah', open_agents: 'Kelola Agen',
+  // Sub-tabs / navigable surfaces newly instrumented
+  open_telegram: 'Telegram', open_statistik_haji: 'Statistik Haji',
+  open_jamaah_umroh: 'Jamaah Umroh', open_custom_domain: 'Custom Domain',
+  open_haji_plus_export: 'Ekspor Haji Plus',
+  open_jamaah_daftar: 'Daftar Jamaah', open_jamaah_edit: 'Edit Jamaah',
+  // Teras community suite
+  open_teras: 'Teras', open_teras_post: 'Detail Kiriman Teras',
+  open_teras_profile: 'Profil Agen Teras',
+  // Portal Jamaah subtree
+  open_portal: 'Portal Jamaah', open_portal_beranda: 'Portal: Beranda',
+  open_portal_perjalanan: 'Portal: Perjalanan', open_portal_pembayaran: 'Portal: Pembayaran',
+  open_portal_dokumen: 'Portal: Dokumen', open_portal_alquran: 'Portal: Al-Quran',
+  open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
 };
 const ACTION_LABELS = {
   sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
@@ -17222,14 +17252,45 @@ const ACTION_LABELS = {
   generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
   share_business_card: 'Share Kartu Nama',
   export_haji_infographic: 'Export Infografis Haji',
-  update_lead_status: 'Update Status Lead', delete_lead: 'Hapus Lead', wa_click_lead: 'WA Lead',
   sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',
   view_pernyataan_doc: 'Lihat Srt Pernyataan', wa_click_haji: 'WA Jamaah Haji',
   connect_telegram: 'Hubungkan Telegram', disconnect_telegram: 'Putuskan Telegram',
   update_notif_prefs: 'Update Notif Prefs',
   forgot_password: 'Lupa Password', reset_password: 'Reset Password',
-  view_web_itinerary: 'Web Itinerary', view_flight_status: 'Flight Status',
-  share_flight: 'Share Flight Status',
+  view_flight_status: 'Flight Status', share_flight: 'Share Flight Status',
+  // Previously fired but unlabeled
+  birthday_download: 'Unduh Kartu Ultah', birthday_send: 'Kirim Ucapan Ultah',
+  set_email_alias: 'Atur Alias Email',
+  mcp_generate_key: 'Buat Kunci MCP', mcp_revoke_key: 'Cabut Kunci MCP',
+  download_share_kurs: 'Unduh Gambar Kurs', share_kurs: 'Bagikan Kurs',
+  copy_kurs_caption: 'Salin Caption Kurs',
+  register_jamaah: 'Daftarkan Jamaah',
+  // Recategorized from 'feature' → 'action' (generate/copy/share/download/save are actions)
+  package_value_generate: 'Buat Nilai Paket', package_value_error: 'Error Nilai Paket',
+  package_value_style_change: 'Ganti Gaya Nilai Paket',
+  package_value_agent_attachment_download: 'Unduh Lampiran Nilai Paket',
+  package_value_prompt_copy: 'Salin Prompt Nilai Paket',
+  package_value_share_payload: 'Bagikan Nilai Paket',
+  package_value_share_chatgpt: 'Nilai Paket → ChatGPT',
+  package_value_open_chatgpt: 'Buka ChatGPT (Nilai Paket)',
+  brochure_prompt_copy: 'Salin Prompt Brosur',
+  brochure_prompt_share_payload: 'Bagikan Prompt Brosur',
+  brochure_prompt_share_chatgpt: 'Prompt Brosur → ChatGPT',
+  brochure_prompt_share_cancelled: 'Batal Bagikan Brosur',
+  brochure_prompt_open_chatgpt: 'Buka ChatGPT (Brosur)',
+  landing_config_saved: 'Simpan Konfigurasi Landing',
+  portal_magic_link_generated: 'Buat Magic Link Portal',
+  // Teras community suite
+  create_post: 'Buat Kiriman Teras', add_comment: 'Komentar Teras',
+  react_post: 'Suka Kiriman Teras', react_comment: 'Suka Komentar Teras',
+  pin_post: 'Sematkan Kiriman', edit_post: 'Edit Kiriman Teras',
+  edit_comment: 'Edit Komentar Teras', delete_post: 'Hapus Kiriman Teras',
+  share_post: 'Bagikan Kiriman Teras', teras_link_click: 'Klik Tautan Teras',
+  teras_notif_pref: 'Notifikasi Teras',
+  // Portal Jamaah subtree
+  portal_login_request: 'Minta Login Portal', portal_login_success: 'Login Portal Berhasil',
+  wa_click_portal: 'WA Portal', view_portal_doc: 'Lihat Dokumen Portal',
+  open_quran_surah: 'Baca Surah Al-Quran',
 };
 const ALL_EVENT_LABELS = {
   ...FEATURE_LABELS, ...ACTION_LABELS,
@@ -17238,6 +17299,7 @@ const ALL_EVENT_LABELS = {
   page_view: 'Page View', wa_click_public: 'WA Click Public',
   ask_ai_opened: 'Ask AI Dibuka', ask_ai_chip_tapped: 'Ask AI Chip',
   ask_ai_free_query: 'Ask AI Query', ask_ai_wa_clicked: 'Ask AI WA',
+  bio_view: 'Kunjungan Bio', bio_social_click: 'Klik Sosial Bio',
 };
 const publicEventRateLimits = new Map(); // ip → { count, resetAt }
 
@@ -17332,7 +17394,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     const totalPageViews = countMatches(rawEvents, aggEvents, e => e.event_name === 'page_view');
     const totalWAClicks = countMatches(
       rawEvents, aggEvents,
-      e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah',
+      e => WA_CLICK_EVENTS.includes(e.event_name),
     );
 
     // Active agents (any event in the current 7-day window).
@@ -17342,19 +17404,25 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     for (const e of last7dAggEvents) if (e.agent_id && e.count > 0) recentIds.add(e.agent_id);
     const activeAgents = recentIds.size;
 
-    // Daily logins (current 7-day window).
+    // Daily logins (current 7-day window). Bucket by Jakarta (UTC+7, no DST) so
+    // these bars line up with the drill-down timeline/heatmap (which also use +7h)
+    // and don't drift with the server's local timezone.
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const TZ_SHIFT_MS = 7 * 60 * 60 * 1000;
+    const toJakartaDateStr = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT_MS).toISOString().slice(0, 10);
+    const jakartaNow = new Date(now.getTime() + TZ_SHIFT_MS);
+    const todayJakartaMidMs = Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate());
     const dailyLogins = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
+      const dMid = new Date(todayJakartaMidMs - i * 24 * 60 * 60 * 1000);
+      const dateStr = dMid.toISOString().slice(0, 10);
       const count = countMatches(
         last7dRawEvents,
         last7dAggEvents,
-        e => e.event_name === 'login' && (e.created_at ? e.created_at.slice(0, 10) : e.date) === dateStr,
+        // raw rows carry a UTC timestamp (shift to Jakarta); agg rows are already day-keyed.
+        e => e.event_name === 'login' && (e.created_at ? toJakartaDateStr(e.created_at) : e.date) === dateStr,
       );
-      dailyLogins.push({ date: dateStr, day: dayNames[d.getDay()], count });
+      dailyLogins.push({ date: dateStr, day: dayNames[dMid.getUTCDay()], count });
     }
 
     // Agent Activity. Per-agent metrics merge raw + agg.
@@ -17382,7 +17450,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       const pageViews = countMatches(rawForAgent, aggForAgent, e => e.event_name === 'page_view');
       const waClicks = countMatches(
         rawForAgent, aggForAgent,
-        e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah',
+        e => WA_CLICK_EVENTS.includes(e.event_name),
       );
 
       // lastActive: raw events are DESC-sorted, so [0] is the newest.
@@ -17554,7 +17622,7 @@ app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res
       featureClicks: evList.filter(e => e.event_type === 'feature').length,
       actionClicks: evList.filter(e => e.event_type === 'action').length,
       pageViews: evList.filter(e => e.event_name === 'page_view').length,
-      waClicks: evList.filter(e => e.event_name === 'wa_click_public' || e.event_name === 'wa_click_jamaah').length,
+      waClicks: evList.filter(e => WA_CLICK_EVENTS.includes(e.event_name)).length,
       activeDays: new Set(evList.map(e => toJakarta(e.created_at).toISOString().slice(0, 10))).size,
       uniqueFeatures: new Set(evList.filter(e => e.event_type === 'feature').map(e => e.event_name)).size,
     };

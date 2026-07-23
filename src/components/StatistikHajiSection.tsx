@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Users, Wallet, Clock, TrendingUp, RefreshCw } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
@@ -119,8 +120,18 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statsRequestSeqRef = useRef(0);
+  const openTracked = useRef(false);
   const onYearsLoadedRef = useRef(onYearsLoaded);
   onYearsLoadedRef.current = onYearsLoaded;
+
+  // Fires once per activation: this section only mounts while the Haji tab is
+  // active and unmounts when the user leaves it, so each entry re-fires.
+  useEffect(() => {
+    if (!openTracked.current) {
+      trackEvent('feature', 'open_statistik_haji');
+      openTracked.current = true;
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/api/kurs')

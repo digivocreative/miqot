@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { getAuthHeaders } from '../components/LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 export type TerasPrefKey =
   | 'teras_bell_mention' | 'teras_bell_comment' | 'teras_bell_reaction' | 'teras_bell_broadcast'
@@ -100,6 +101,7 @@ export function useTerasNotificationPrefs(enabled: boolean) {
       if (isLatest()) {
         setPrefs(current => ({ ...current, [key]: payload.data!.prefs[key] }));
       }
+      trackEvent('action', 'teras_notif_pref', { pref: key, value: payload.data!.prefs[key] });
     } catch {
       if (isLatest()) {
         setPrefs(current => ({ ...current, [key]: previous }));

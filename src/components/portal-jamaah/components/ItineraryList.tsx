@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { trackPublicEvent } from '@/utils/analytics';
 import { Button, Card } from '../ui';
 
 export interface ItineraryDay {
@@ -14,10 +15,13 @@ function compactDayLabel(dayNumber: string, index: number): string {
   return `D${numericDay || index + 1}`;
 }
 
-export default function ItineraryList({ items, itineraryUrl }: { items: ItineraryDay[]; itineraryUrl?: string | null }) {
+export default function ItineraryList({ items, itineraryUrl, slug }: { items: ItineraryDay[]; itineraryUrl?: string | null; slug: string }) {
   const [expanded, setExpanded] = useState(false);
   const visibleItems = useMemo(() => (expanded ? items : items.slice(0, 3)), [expanded, items]);
   const hiddenCount = Math.max(0, items.length - 3);
+
+  // The itinerary PDF is the portal's only jamaah-facing document; opening it = view_portal_doc.
+  const handleOpenDoc = () => trackPublicEvent(slug, 'view_portal_doc');
 
   if (!items.length) {
     return (
@@ -26,7 +30,7 @@ export default function ItineraryList({ items, itineraryUrl }: { items: Itinerar
         <p className="mt-3 text-sm font-semibold text-ink">Itinerary belum tersedia</p>
         <p className="mt-1 text-xs leading-5 text-ink/60">Agent akan membagikan detail perjalanan saat jadwal final.</p>
         {itineraryUrl && (
-          <Button href={itineraryUrl} target="_blank" rel="noreferrer" variant="secondary" fullWidth className="mt-4">
+          <Button href={itineraryUrl} target="_blank" rel="noreferrer" onClick={handleOpenDoc} variant="secondary" fullWidth className="mt-4">
             <ExternalLink className="h-4 w-4" strokeWidth={2} />
             Buka itinerary lengkap
           </Button>
@@ -80,7 +84,7 @@ export default function ItineraryList({ items, itineraryUrl }: { items: Itinerar
       )}
 
       {itineraryUrl && (
-        <Button href={itineraryUrl} target="_blank" rel="noreferrer" variant="secondary" fullWidth className="mt-4">
+        <Button href={itineraryUrl} target="_blank" rel="noreferrer" onClick={handleOpenDoc} variant="secondary" fullWidth className="mt-4">
           <ExternalLink className="h-4 w-4" strokeWidth={2} />
           Buka itinerary lengkap
         </Button>

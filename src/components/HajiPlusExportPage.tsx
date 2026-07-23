@@ -329,6 +329,9 @@ export default function HajiPlusExportPage({ agent }: {
   const [contactType, setContactType] = useState<'wa' | 'email' | 'website'>('website');
   const posterRef = useRef<HTMLDivElement>(null);
 
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_haji_plus_export'); mountTracked.current = true; } }, []);
+
   const theme = COLOR_THEMES[colorIdx];
 
   // Fetch data

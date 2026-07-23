@@ -702,6 +702,7 @@ export default function AskAIModal({
       agentSlug,
       questionLength: q.length,
     });
+    trackPublicEvent(agentSlug, 'inquiry_submitted', { source: 'ask_ai' });
     setInputText('');
     void sendQuery(q, 'free');
   }

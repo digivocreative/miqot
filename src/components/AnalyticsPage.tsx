@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import AgentDrillDownModal from './AgentDrillDownModal';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 
@@ -52,13 +53,32 @@ const ACTION_ICONS: Record<string, string> = {
   generate_business_card: '💳', download_business_card: '💳',
   export_haji_infographic: '📊',
   sync_jamaah_haji: '🔄', view_bpih_doc: '📄', view_pernyataan_doc: '📄',
-  wa_click_haji: '💬', wa_click_lead: '💬',
-  update_lead_status: '📝', delete_lead: '🗑️',
+  wa_click_haji: '💬',
   connect_telegram: '🔗', disconnect_telegram: '🔌',
   update_notif_prefs: '🔔',
   forgot_password: '🔐', reset_password: '🔐',
-  view_web_itinerary: '🌐', view_flight_status: '✈️',
-  share_flight: '🔗',
+  view_flight_status: '✈️', share_flight: '🔗',
+  // Previously unlabeled actions
+  birthday_download: '🎂', birthday_send: '🎉', set_email_alias: '📧',
+  mcp_generate_key: '🔑', mcp_revoke_key: '🔌',
+  download_share_kurs: '📥', share_kurs: '🔗', copy_kurs_caption: '📋',
+  register_jamaah: '📝',
+  // Package value / brochure (recategorized to actions)
+  package_value_generate: '💎', package_value_error: '⚠️',
+  package_value_style_change: '🎨', package_value_agent_attachment_download: '📥',
+  package_value_prompt_copy: '📋', package_value_share_payload: '🔗',
+  package_value_share_chatgpt: '🤖', package_value_open_chatgpt: '🤖',
+  brochure_prompt_copy: '📋', brochure_prompt_share_payload: '🔗',
+  brochure_prompt_share_chatgpt: '🤖', brochure_prompt_share_cancelled: '✖️',
+  brochure_prompt_open_chatgpt: '🤖',
+  landing_config_saved: '💾', portal_magic_link_generated: '🔗',
+  // Teras community
+  create_post: '📝', add_comment: '💬', react_post: '❤️', react_comment: '❤️',
+  pin_post: '📌', edit_post: '✏️', edit_comment: '✏️', delete_post: '🗑️',
+  share_post: '🔗', teras_link_click: '🔗', teras_notif_pref: '🔔',
+  // Portal Jamaah
+  portal_login_request: '🔑', portal_login_success: '🔓', wa_click_portal: '💬',
+  view_portal_doc: '📄', open_quran_surah: '📖',
 };
 
 const WA_ICON = (
@@ -148,6 +168,9 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_analytics'); mountTracked.current = true; } }, []);
 
   const fetchData = useCallback(async (m: number, y: number) => {
     setLoading(true);

@@ -1,5 +1,6 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { trackPublicEvent } from '@/utils/analytics';
 import type { PortalSession } from '../lib/portalSession';
 import { usePortalMe } from '../hooks/usePortalMe';
 import { usePortalTheme } from '../hooks/usePortalTheme';
@@ -18,6 +19,17 @@ const DokumenPage = lazy(() => import('./DokumenPage'));
 const AlQuranPage = lazy(() => import('./AlQuranPage'));
 const DoaDzikirPage = lazy(() => import('./DoaDzikirPage'));
 const FaqPage = lazy(() => import('./FaqPage'));
+
+// Each portal tab maps to a whitelisted public "open" event, fired on route change.
+const TAB_OPEN_EVENTS: Record<PortalRoute, string> = {
+  beranda: 'open_portal_beranda',
+  perjalanan: 'open_portal_perjalanan',
+  pembayaran: 'open_portal_pembayaran',
+  dokumen: 'open_portal_dokumen',
+  'al-quran': 'open_portal_alquran',
+  'doa-dzikir': 'open_portal_doa_dzikir',
+  faq: 'open_portal_faq',
+};
 
 function LoadingScreen() {
   return (
@@ -66,6 +78,22 @@ export default function PortalDashboard({
   const { route, navigate, goBack } = usePortalRoute(initialRoute, dashboardPath);
   const { data, loading, error, refetch } = usePortalMe();
 
+  // Fire once when the authenticated portal dashboard first mounts.
+  const portalOpenTracked = useRef(false);
+  useEffect(() => {
+    if (portalOpenTracked.current) return;
+    portalOpenTracked.current = true;
+    trackPublicEvent(slug, 'open_portal');
+  }, [slug]);
+
+  // Fire a per-tab open event on actual route change (ref-guarded against re-renders).
+  const lastTrackedRoute = useRef<PortalRoute | null>(null);
+  useEffect(() => {
+    if (lastTrackedRoute.current === route) return;
+    lastTrackedRoute.current = route;
+    trackPublicEvent(slug, TAB_OPEN_EVENTS[route]);
+  }, [route, slug]);
+
   async function handleLogout() {
     try {
       await portalApi.logout();
@@ -97,14 +125,14 @@ export default function PortalDashboard({
     <div data-agent-slug={slug} data-booking-id={session.id_umroh}>
       <Suspense fallback={<LoadingScreen />}>
         {route === 'beranda' && <BerandaPage data={data} onNavigate={navigate} onLogout={handleLogout} />}
-        {route === 'perjalanan' && <PerjalananPage data={data} onBack={goBack} />}
+        {route === 'perjalanan' && <PerjalananPage slug={slug} data={data} onBack={goBack} />}
         {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
         {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
-        {route === 'al-quran' && <AlQuranPage data={data} onBack={goBack} />}
+        {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}
         {route === 'doa-dzikir' && <DoaDzikirPage data={data} onBack={goBack} />}
         {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
       </Suspense>
-      <StickyWhatsAppCta agent={data.agent} booking={data.booking} initiator={initiator} />
+      <StickyWhatsAppCta slug={slug} tab={route} agent={data.agent} booking={data.booking} initiator={initiator} />
     </div>
   );
 }

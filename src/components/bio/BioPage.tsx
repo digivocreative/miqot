@@ -142,6 +142,13 @@ export default function BioPage({ slug }: Props) {
 
   const theme = config?.theme || 'emerald';
 
+  const handleWaClick = () => {
+    trackPublicEvent(slug, 'wa_click_public', { source: 'bio' });
+  };
+  const handleSocialClick = (network: 'ig' | 'tiktok' | 'youtube') => {
+    trackPublicEvent(slug, 'bio_social_click', { network });
+  };
+
   const publicAgent: BioAgentPublic | null = useMemo(() => {
     if (!agent) return null;
     return {
@@ -195,7 +202,7 @@ export default function BioPage({ slug }: Props) {
     body = (
       <div className="bio-shell">
         <BioHero agent={publicAgent} hero={config.hero} />
-        <BioSocialRow socials={config.hero.socials} />
+        <BioSocialRow socials={config.hero.socials} onSocialClick={handleSocialClick} />
         {tiles.map(tile => {
           const c = tile.config || {};
           switch (tile.type) {
@@ -208,6 +215,7 @@ export default function BioPage({ slug }: Props) {
                   waLink={config._wa_link_preview}
                   title={c.title as string}
                   subtitle={c.subtitle as string}
+                  onWaClick={handleWaClick}
                 />
               );
             case 'featured':
@@ -285,6 +293,7 @@ export default function BioPage({ slug }: Props) {
                 href={`https://wa.me/${String(publicAgent.phone).replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleWaClick}
               >
                 {formatBioFooterPhone(publicAgent.phone)}
               </a>

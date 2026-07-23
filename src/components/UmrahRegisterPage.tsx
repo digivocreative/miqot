@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import {
   MARKETING_DISCOUNT_MAX,
   MARKETING_DISCOUNT_MIN,
@@ -507,6 +508,10 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
   const [filePreview, setFilePreview] = useState<string | null>(null); // data URL for image preview
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [loadingPaket, setLoadingPaket] = useState(false);
+
+  // Analytics: fire once when the daftar (register) page mounts. Ref-guarded.
+  const openTracked = useRef(false);
+  useEffect(() => { if (!openTracked.current) { trackEvent('feature', 'open_jamaah_daftar'); openTracked.current = true; } }, []);
 
   // ── OCR mode state ──
   // OCR is now integrated inline at the top of the form — no separate view modes
@@ -1174,6 +1179,11 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       }
       setSuccess(true);
       setSubmitting(false);
+      // Analytics: registration succeeded. Include the selected paket identifier
+      // (a package option value, not PII) when readily available.
+      const paketField = Object.keys(options.inputs).find(n => getFieldDef(n).label === 'Paket Umroh');
+      const paketValue = paketField ? String(submitFields[paketField] || '').trim() : '';
+      trackEvent('action', 'register_jamaah', paketValue ? { paket: paketValue } : {});
       setTimeout(() => {
         // For idb-bound (group) registration we know the id_umroh — refresh just
         // that booking via API resmi instead of running a full sync. Falls back

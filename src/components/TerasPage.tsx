@@ -66,6 +66,7 @@ import ComposerSegment from './teras/ComposerSegment';
 import CommentThread from './teras/CommentThread';
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
+import { trackEvent } from '../utils/analytics';
 import {
   extractMentionSlugs,
   detectMentionQuery,
@@ -756,7 +757,10 @@ function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer nofollow"
-      onClick={event => event.stopPropagation()}
+      onClick={event => {
+        event.stopPropagation();
+        trackEvent('action', 'teras_link_click');
+      }}
       className="mt-2 block min-w-0 overflow-hidden rounded-2xl border border-gray-200/80 bg-white transition-colors hover:bg-gray-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:hover:bg-slate-900"
     >
       {showImage && (
@@ -1556,6 +1560,14 @@ export default function TerasPage({
   const postsRef = useRef<CommunityPost[]>([]);
   const pendingCreatedPostsRef = useRef<Map<string, CommunityPost>>(new Map());
   const feedLoadedRef = useRef(false);
+  // Satu-satunya sumber "membuka Teras" — kartu menu tidak lagi menembakkannya.
+  const openTracked = useRef(false);
+  useEffect(() => {
+    if (!openTracked.current) {
+      trackEvent('feature', 'open_teras');
+      openTracked.current = true;
+    }
+  }, []);
   const commentPanelsRef = useRef<Record<string, CommentPanelState>>({});
   const detailOnlyIdsRef = useRef<Set<string>>(new Set());
   // Percobaan pengambilan detail yang sedang/sudah berjalan untuk tampilan
@@ -1752,6 +1764,7 @@ export default function TerasPage({
       }
       setShareCopied(true);
       showToast('Link disalin', 'success');
+      trackEvent('action', 'share_post', { method: 'copy' });
     } catch {
       showToast('Gagal menyalin link', 'error');
     }
@@ -1761,6 +1774,7 @@ export default function TerasPage({
     if (!shareUrl) return;
     try {
       await navigator.share({ url: shareUrl });
+      trackEvent('action', 'share_post', { method: 'native' });
       closeShareDialog();
     } catch (shareError) {
       // Batal oleh user (AbortError) → popup tetap terbuka, tanpa error.
@@ -1779,6 +1793,7 @@ export default function TerasPage({
 
   const openProfile = useCallback((slug: string) => {
     if (!slug) return;
+    trackEvent('feature', 'open_teras_profile');
     onNavigate(terasProfilePath(slug), { state: { terasFromFeed: true } });
   }, [onNavigate]);
 
@@ -2754,6 +2769,13 @@ export default function TerasPage({
       setLoading(false);
       resetComposer();
       showToast('Kiriman terbagikan di Teras', 'success');
+      trackEvent('action', 'create_post', {
+        segments: sendable.length,
+        has_media: uploadedFlat.length > 0,
+        has_quote: !!quotedId,
+        has_link_preview: !!(composerLinkPreview && !firstHasMedia && !composerQuote),
+        mention_count: extractMentionSlugs(sendable.map(segment => segment.body).join('\n'), memberSlugs).length,
+      });
       // Kiriman ber-`@semua` yang baru sukses terkirim memakai jatah broadcast
       // hari ini — ambil ulang supaya picker tidak mangkrak di label lama.
       // Senyap by design (lihat fetchBroadcastQuota); tidak boleh mematikan
@@ -2825,6 +2847,8 @@ export default function TerasPage({
 
     try {
       await sendReactionUpdate(postId, nextReaction);
+      // Hanya saat MENAMBAH reaksi (bukan melepas) — un-react tidak dilacak.
+      if (nextReaction) trackEvent('action', 'react_post');
     } catch (reactionError) {
       const rollbackReaction = (post: CommunityPost) => ({
         ...post,
@@ -3093,6 +3117,7 @@ export default function TerasPage({
 
   const openPostDetail = (targetPostId: string) => {
     if (detailPostId === targetPostId) return;
+    trackEvent('feature', 'open_teras_post');
     feedScrollYRef.current = window.scrollY;
     setDetailError(null);
     onNavigate(`/dashboard/teras/post/${encodeURIComponent(targetPostId)}`, {
@@ -3330,6 +3355,7 @@ export default function TerasPage({
       // `posts` (salinan kronologis) juga menyimpan pinned_at sendiri --
       // sinkronkan supaya badge di tampilan detail tidak basi setelah toggle.
       setPosts(current => current.map(p => (p.id === post.id ? { ...p, pinned_at: nextPinnedAt } : p)));
+      trackEvent('action', 'pin_post', { pinned: !isPinned });
     } catch (error) {
       showToast(errorMessage(error, 'Gagal mengubah sematan'), 'error');
     } finally {
@@ -3355,6 +3381,7 @@ export default function TerasPage({
       );
       if (!result.data?.body) return 'Gagal menyimpan. Coba lagi.';
       patchEntryBody(result.data.id, result.data.body, result.data.edited_at);
+      trackEvent('action', 'edit_comment');
       return null;
     } catch (error) {
       return errorMessage(error, 'Gagal menyimpan. Coba lagi.');
@@ -3391,6 +3418,7 @@ export default function TerasPage({
       );
       if (!result.data?.body) throw new Error('Gagal menyimpan. Coba lagi.');
       patchEntryBody(result.data.id, result.data.body, result.data.edited_at);
+      trackEvent('action', 'edit_post');
       // Kalau user sudah pindah ke target edit lain sebelum PATCH ini selesai,
       // jangan tutup editor target BARU itu -- hanya no-op kalau current masih
       // menunjuk ke savingId (lihat startEditEntry: pindah target = objek baru).
@@ -3512,6 +3540,11 @@ export default function TerasPage({
         'Gagal menambahkan komentar',
       );
       if (!created.data) throw new Error('Komentar baru tidak tersedia');
+
+      // Balas komentar = mengomentari sebuah komentar/balasan (baris kiriman
+      // ber-is_reply) yang dibuka sebagai halaman; komentar kiriman biasa = false.
+      const commentTarget = postsRef.current.find(post => post.id === postId);
+      trackEvent('action', 'add_comment', { is_reply: !!commentTarget?.is_reply });
 
       mediaSnapshot.forEach(item => {
         if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
@@ -3882,6 +3915,8 @@ export default function TerasPage({
     void (async () => {
       try {
         await sendReactionUpdate(commentId, nextReaction);
+        // Hanya saat MENAMBAH reaksi (bukan melepas).
+        if (nextReaction) trackEvent('action', 'react_comment');
       } catch (reactionError) {
         setCommentPanels(current => {
           const currentPanel = current[postId];
@@ -3953,6 +3988,7 @@ export default function TerasPage({
       // supaya menghapus segmen 1 saat sedang melihat segmen 2/3 pun menutup.
       if (detailPostId && idsToRemove.has(detailPostId)) closePostDetail();
       showToast('Kiriman dihapus dari Teras', 'success');
+      trackEvent('action', 'delete_post');
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus kiriman'), 'error');
     } finally {

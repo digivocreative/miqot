@@ -79,7 +79,7 @@ export default function MagicLinkModal({
       setGenerated(data);
       setMessage(buildDefaultMessage(data, displayJamaahName, displayAgentName));
       setState('success');
-      trackEvent('feature', 'portal_magic_link_generated', {
+      trackEvent('action', 'portal_magic_link_generated', {
         jamaah_id: jamaahId,
         id_umroh: data.id_umroh || idUmroh,
       });

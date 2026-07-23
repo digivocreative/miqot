@@ -12,6 +12,7 @@ import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { trackEvent } from '../utils/analytics';
 import HajiPage from './HajiPage';
 import MagicLinkButton from './dashboard/portal-jamaah-tools/MagicLinkButton';
 
@@ -472,6 +473,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, [onNavigate]);
+  // Analytics: fire once when the Jamaah page mounts (single source — the menu
+  // card no longer fires open_jamaah). Ref-guarded against double-fire.
+  const openTracked = useRef(false);
+  useEffect(() => { if (!openTracked.current) { trackEvent('feature', 'open_jamaah'); openTracked.current = true; } }, []);
   // Compute current Hijriah year dynamically. Memoized so the `hijriahOptions`
   // array reference is stable across renders — otherwise the useEffect that
   // registers the header selector (deps on hijriahOptions) would rerun every
@@ -563,10 +568,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
   // Switch sub-tab and update URL
   const switchSubTab = useCallback((tab: 'umroh' | 'haji') => {
+    // Fire only on an actual switch INTO umroh (not when already on it / re-render).
+    if (tab === 'umroh' && subTab !== 'umroh') trackEvent('feature', 'open_jamaah_umroh');
     setSubTab(tab);
     window.history.replaceState(null, '', `/dashboard/jamaah/${tab}`);
     document.title = tab === 'haji' ? 'Jamaah - Haji' : 'Jamaah';
-  }, []);
+  }, [subTab]);
 
   // Register a compact hijriah year selector into the dashboard header
   // (rendered by DashboardLayout next to the dark-mode toggle).
@@ -982,6 +989,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
         if (isFirstSync) setView('data');
         return;
       }
+
+      trackEvent('action', 'sync_jamaah', {});
 
       // First batch arrived — show data immediately
       setView('data');
@@ -1928,7 +1937,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             const waE164 = normalizeWaNumber(item.wa);
                             const display = formatJamaahPhone(item.wa);
                             return waE164 ? (
-                              <a href={`https://wa.me/${waE164}`} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-emerald-600 dark:text-emerald-400 underline underline-offset-2">{display}</a>
+                              <a href={`https://wa.me/${waE164}`} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent('action', 'wa_click_jamaah', {})} className="text-sm font-bold text-emerald-600 dark:text-emerald-400 underline underline-offset-2">{display}</a>
                             ) : (
                               <span className="text-sm font-bold text-gray-500 dark:text-slate-400" title="Format nomor tidak valid">{item.wa}</span>
                             );

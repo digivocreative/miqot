@@ -27,15 +27,30 @@ const TAB_CONFIG: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: 'capi', label: 'CAPI', icon: Code },
 ];
 
+const TAB_OPEN_EVENT: Record<SettingsTab, string> = {
+  profil: 'open_profil',
+  telegram: 'open_telegram',
+  capi: 'open_capi',
+};
+
 export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: AgentData; onUpdated: () => void; initialTab?: SettingsTab }) {
   const mountTracked = useRef(false);
-  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_settings'); mountTracked.current = true; } }, []);
+  useEffect(() => {
+    if (!mountTracked.current) {
+      trackEvent('feature', 'open_settings');
+      // Fire the open event for whichever sub-tab is active on first mount;
+      // switchTab handles every later change, so this won't double-fire.
+      trackEvent('feature', TAB_OPEN_EVENT[initialTab || 'profil']);
+      mountTracked.current = true;
+    }
+  }, []);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'profil');
 
   // Update tab on URL change (browser back/forward)
   const switchTab = (tab: SettingsTab) => {
     setActiveTab(tab);
+    trackEvent('feature', TAB_OPEN_EVENT[tab]);
     const url = `/dashboard/settings/${tab}`;
     window.history.pushState(null, '', url);
     window.scrollTo({ top: 0 });

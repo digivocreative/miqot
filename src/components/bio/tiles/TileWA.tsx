@@ -5,9 +5,10 @@ interface Props {
   waLink: string | null;
   title?: string;
   subtitle?: string;
+  onWaClick?: () => void;
 }
 
-export default function TileWA({ waLink, title, subtitle }: Props) {
+export default function TileWA({ waLink, title, subtitle, onWaClick }: Props) {
   if (!waLink) return null;
   return (
     <a
@@ -15,6 +16,7 @@ export default function TileWA({ waLink, title, subtitle }: Props) {
       target="_blank"
       rel="noopener noreferrer"
       className="bio-tile bio-tile--button bio-tile-wa"
+      onClick={onWaClick}
     >
       <div className="bio-tile-row">
         <div className="bio-tile-icon">

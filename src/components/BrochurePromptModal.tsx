@@ -254,7 +254,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
     const promptCopied = await writeTextToClipboard(prompt);
     setCopied(promptCopied);
     if (promptCopied) setTimeout(() => setCopied(false), 2000);
-    trackEvent('feature', 'brochure_prompt_copy', { variant, kind: isScheduleContext ? 'schedule' : kind });
+    trackEvent('action', 'brochure_prompt_copy', { variant, kind: isScheduleContext ? 'schedule' : kind });
   };
 
   const canTryNativeChatGPTShare =
@@ -332,7 +332,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
           // Dicatat SEBELUM navigator.share supaya bukti payload tetap ada
           // walau pengguna membatalkan share sheet atau share-nya gagal.
           console.info('[brochure-share] payload:', payloadSummary);
-          trackEvent('feature', 'brochure_prompt_share_payload', {
+          trackEvent('action', 'brochure_prompt_share_payload', {
             ...payloadSummary,
             variant,
             kind: isScheduleContext ? 'schedule' : kind,
@@ -342,7 +342,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
           });
           if (!navigator.canShare?.(shareData)) throw new Error('native-share-data-unsupported');
           await navigator.share(shareData);
-          trackEvent('feature', 'brochure_prompt_share_chatgpt', {
+          trackEvent('action', 'brochure_prompt_share_chatgpt', {
             variant,
             kind: isScheduleContext ? 'schedule' : kind,
             file_count: shareData.files?.length || 0,
@@ -355,7 +355,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
           return;
         } catch (err: any) {
           if (err?.name === 'AbortError') {
-            trackEvent('feature', 'brochure_prompt_share_cancelled', { kind: isScheduleContext ? 'schedule' : kind });
+            trackEvent('action', 'brochure_prompt_share_cancelled', { kind: isScheduleContext ? 'schedule' : kind });
             return;
           }
           console.warn('[brochure-prompt] native share failed, falling back to ChatGPT link:', err);
@@ -365,7 +365,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
       const promptCopied = await writeTextToClipboard(prompt);
       setCopied(promptCopied);
       if (promptCopied) setTimeout(() => setCopied(false), 2000);
-      trackEvent('feature', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
+      trackEvent('action', 'brochure_prompt_open_chatgpt', { variant, kind: isScheduleContext ? 'schedule' : kind });
       window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
     } finally {
       setIsOpeningChatGPT(false);
