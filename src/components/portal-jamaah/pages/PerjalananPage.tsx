@@ -113,9 +113,11 @@ function hotelEntries(paketHotel: unknown, paketName?: string | null) {
 }
 
 export default function PerjalananPage({
+  slug,
   data,
   onBack,
 }: {
+  slug: string;
   data: PortalMeData;
   onBack: () => void;
 }) {
@@ -228,7 +230,7 @@ export default function PerjalananPage({
             <SectionLabel className="min-w-0">Itinerary Harian</SectionLabel>
             <StatusChip status="brand" className="flex-none">Rencana perjalanan</StatusChip>
           </div>
-          <ItineraryList items={visibleItinerary} itineraryUrl={schedule?.itinerary_url} />
+          <ItineraryList items={visibleItinerary} itineraryUrl={schedule?.itinerary_url} slug={slug} />
         </section>
       </main>
     </PortalPageShell>

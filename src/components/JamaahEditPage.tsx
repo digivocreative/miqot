@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent, type InputHTMLAttributes } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react';
 import { AlertCircle, Loader2, Save, XCircle } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import FilterDropdown from './FilterDropdown';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
@@ -196,6 +197,10 @@ export default function JamaahEditPage({
 
   const disabled = loading || saving;
   const fullName = combineFullName(form);
+
+  // Analytics: fire once when the edit page mounts. Ref-guarded against double-fire.
+  const openTracked = useRef(false);
+  useEffect(() => { if (!openTracked.current) { trackEvent('feature', 'open_jamaah_edit'); openTracked.current = true; } }, []);
 
   useEffect(() => {
     onHeaderTitle?.({

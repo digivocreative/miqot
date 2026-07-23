@@ -4,6 +4,7 @@ import AuthErrorPage from './AuthErrorPage';
 import { fetchAgentBySlug, type PortalAgent } from '../lib/fetchAgentBySlug';
 import { portalApi, type ConsumeMagicLinkResult } from '../lib/portalApi';
 import { savePortalSession } from '../lib/portalSession';
+import { trackPublicEvent } from '@/utils/analytics';
 import { Button, Card, PortalPageShell } from '../ui';
 
 type ConsumeState = 'loading' | 'success' | 'error';
@@ -44,6 +45,7 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
         });
         setResult(data);
         setState('success');
+        trackPublicEvent(data.agent_slug || slug, 'portal_login_success');
         window.setTimeout(() => {
           window.location.replace(getPortalDashboardPath(slug, token));
         }, 900);

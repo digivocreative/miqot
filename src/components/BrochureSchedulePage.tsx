@@ -25,6 +25,7 @@ import {
 import { BrochurePromptModal } from './BrochurePromptModal';
 import { formatBrochurePrice, type BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';
 import { CatalogCoverPicker } from './CatalogCoverPicker';
@@ -314,6 +315,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const [saveMenuPageIndex, setSaveMenuPageIndex] = useState<number | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_brosur'); mountTracked.current = true; } }, []);
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
   // Catalog export can use either the active on-screen filter or the legacy

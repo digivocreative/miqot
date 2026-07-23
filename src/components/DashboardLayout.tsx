@@ -1055,7 +1055,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             return;
           }
           if (card.id === 'statistik') {
-            trackEvent('feature', 'open_statistik');
             setCheckingStatistik(true);
             try {
               const res = await fetch('/api/laporan/status', { headers: getAuthHeaders() });
@@ -1073,11 +1072,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             }
             return;
           }
-          const eventMap: Record<string, string> = {
-            jamaah: 'open_jamaah', brosur: 'open_brosur',
-            settings: 'open_settings', analytics: 'open_analytics', 'ai-tools': 'open_ai_tools',
-          };
-          if (eventMap[card.id]) trackEvent('feature', eventMap[card.id]);
+          // 'open_*' feature events are fired on each destination page's mount
+          // (single source of truth) so deep-links / refreshes count too and the
+          // same open isn't double-counted. 'jadwal' is the exception (openExternal
+          // above) because it leaves the SPA before any page mounts.
           navigateTab(card.id);
         }}
         className={`group relative overflow-hidden ${card.cardBg} rounded-2xl p-3.5 border ${card.cardBorder} shadow-sm ${card.hoverShadow} hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]`}

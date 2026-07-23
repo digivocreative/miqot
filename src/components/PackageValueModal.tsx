@@ -299,7 +299,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
       const data = await requestPackageValue({ refresh });
       if (seq !== requestSeqRef.current) return;
       applyResponse(data);
-      trackEvent('feature', 'package_value_generate', {
+      trackEvent('action', 'package_value_generate', {
         paket: jadwalId,
         tier: typeof data.tier === 'string' ? data.tier : tier,
         cached: data.cached === true,
@@ -314,7 +314,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
         ? 'Penyusunan prompt memerlukan waktu terlalu lama. Silakan coba lagi.'
         : err?.message || 'Gagal menyusun prompt banner';
       setError(message);
-      trackEvent('feature', 'package_value_error', { paket: jadwalId, refresh });
+      trackEvent('action', 'package_value_error', { paket: jadwalId, refresh });
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
@@ -334,7 +334,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
       const data = await requestPackageValue({ styleId: nextStyle });
       if (seq !== requestSeqRef.current) return;
       applyResponse(data);
-      trackEvent('feature', 'package_value_style_change', {
+      trackEvent('action', 'package_value_style_change', {
         paket: jadwalId,
         style: data.result?.style?.id || '',
         cached: data.cached === true,
@@ -365,14 +365,14 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     document.body.appendChild(link);
     link.click();
     link.remove();
-    trackEvent('feature', 'package_value_agent_attachment_download', { paket: jadwalId });
+    trackEvent('action', 'package_value_agent_attachment_download', { paket: jadwalId });
   };
 
   const handleCopyPrompt = async () => {
     if (!result?.bannerPrompt) return;
     const promptCopied = await copyPlainText(result.bannerPrompt);
     if (promptCopied) showCopiedState();
-    trackEvent('feature', 'package_value_prompt_copy', {
+    trackEvent('action', 'package_value_prompt_copy', {
       paket: jadwalId,
       tier: resolvedTier,
       copied: promptCopied,
@@ -389,14 +389,14 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
           const shareData = buildImageAndPromptShareData(agentAttachment.file, result.bannerPrompt);
           const clipboardBackup = copyPlainTextSynchronously(result.bannerPrompt);
           if (clipboardBackup) showCopiedState();
-          trackEvent('feature', 'package_value_share_payload', {
+          trackEvent('action', 'package_value_share_payload', {
             paket: jadwalId,
             file_count: 1,
             prompt_length: result.bannerPrompt.length,
             clipboard_backup: clipboardBackup,
           });
           await navigator.share(shareData);
-          trackEvent('feature', 'package_value_share_chatgpt', { paket: jadwalId, tier: resolvedTier });
+          trackEvent('action', 'package_value_share_chatgpt', { paket: jadwalId, tier: resolvedTier });
           return;
         } catch (err: any) {
           if (err?.name === 'AbortError') return;
@@ -410,7 +410,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
       if (agentAttachment) downloadAgentAttachment();
       const promptCopied = await copyPlainText(result.bannerPrompt);
       if (promptCopied) showCopiedState();
-      trackEvent('feature', 'package_value_open_chatgpt', {
+      trackEvent('action', 'package_value_open_chatgpt', {
         paket: jadwalId,
         attachment_downloaded: Boolean(agentAttachment),
         prompt_copied: promptCopied,

@@ -6,6 +6,7 @@ import {
   Trash2, AlertTriangle, Link as LinkIcon, AlertCircle,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
 import FilterDropdown from './FilterDropdown';
 import { validateName, validatePhone, validateEmail, validateWebsite, validateSlug, validatePassword, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -103,6 +104,9 @@ export default function AgentManagementPage() {
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_agents'); mountTracked.current = true; } }, []);
 
   // ── Fetch agents ──
   const fetchAgents = useCallback(() => {

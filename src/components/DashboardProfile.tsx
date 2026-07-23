@@ -155,7 +155,10 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
     try {
       const res = await fetch('/api/telegram/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
       const json = await res.json();
-      if (json.success) setTelegramStatus({ connected: false, chatId: null, hasCredentials: true });
+      if (json.success) {
+        setTelegramStatus({ connected: false, chatId: null, hasCredentials: true });
+        trackEvent('action', 'disconnect_telegram');
+      }
     } catch { /* ignore */ }
     setDisconnecting(false);
     setShowDisconnect(false);
@@ -487,6 +490,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                   return;
                 }
                 if (json.success) {
+                  trackEvent('action', 'connect_telegram');
                   window.location.href = json.data.deepLink;
                 } else {
                   setTelegramLoading(false);
@@ -1685,6 +1689,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
       setSaving(false);
       setSaved(true);
       setSavedMessage('Profil disimpan.');
+      trackEvent('action', 'update_profil');
       onUpdated();
       setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
     } catch {

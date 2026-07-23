@@ -3,6 +3,7 @@ import type { BioHeroConfig } from './types';
 
 interface Props {
   socials: BioHeroConfig['socials'];
+  onSocialClick?: (network: 'ig' | 'tiktok' | 'youtube') => void;
 }
 
 // lucide-react doesn't ship a TikTok icon, so inline a brand-compatible path.
@@ -14,7 +15,7 @@ function TikTokIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-export default function BioSocialRow({ socials }: Props) {
+export default function BioSocialRow({ socials, onSocialClick }: Props) {
   const ig = socials.instagram?.trim();
   const tt = socials.tiktok?.trim();
   const yt = socials.youtube?.trim();
@@ -29,6 +30,7 @@ export default function BioSocialRow({ socials }: Props) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Instagram ${ig}`}
+          onClick={() => onSocialClick?.('ig')}
         >
           <Instagram size={18} />
         </a>
@@ -40,6 +42,7 @@ export default function BioSocialRow({ socials }: Props) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`TikTok ${tt}`}
+          onClick={() => onSocialClick?.('tiktok')}
         >
           <TikTokIcon />
         </a>
@@ -51,6 +54,7 @@ export default function BioSocialRow({ socials }: Props) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`YouTube ${yt}`}
+          onClick={() => onSocialClick?.('youtube')}
         >
           <Youtube size={18} />
         </a>

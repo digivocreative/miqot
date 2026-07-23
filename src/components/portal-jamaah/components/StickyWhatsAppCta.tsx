@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BadgeCheck } from 'lucide-react';
 import { handleAgentPhotoError } from '@/lib/agent-photo';
 import { normalizeWaNumber } from '@/utils/phone';
+import { trackPublicEvent } from '@/utils/analytics';
 import type { PortalAgentInfo, PortalBooking, PortalJamaah } from '../hooks/usePortalMe';
 
 const SHOW_AFTER_SCROLL_Y = 160;
@@ -16,10 +17,14 @@ function initials(name?: string | null) {
 }
 
 export default function StickyWhatsAppCta({
+  slug,
+  tab,
   agent,
   booking,
   initiator,
 }: {
+  slug: string;
+  tab?: string;
   agent: PortalAgentInfo | null;
   booking: PortalBooking;
   initiator: PortalJamaah | undefined;
@@ -98,6 +103,7 @@ export default function StickyWhatsAppCta({
           href={waLink}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackPublicEvent(slug, 'wa_click_portal', { tab })}
           className="flex-shrink-0 bg-[#25D366] hover:bg-[#20BD5A] text-white px-4 py-2.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-black/10 transition-all active:scale-[0.96] group"
         >
           <svg className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

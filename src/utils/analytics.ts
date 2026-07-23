@@ -32,6 +32,11 @@ export async function trackPublicEvent(slug: string, eventName: string, metadata
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug, eventName, metadata }),
+    }).then(res => {
+      // A non-2xx here is usually a 400 from the server-side whitelist
+      // (VALID_PUBLIC_EVENTS). Surface it so new public events that were never
+      // whitelisted aren't dropped silently.
+      if (!res.ok) console.warn('[Analytics] Public track rejected:', eventName, res.status);
     }).catch(err => {
       console.warn('[Analytics] Public track error:', eventName, err.message);
     });

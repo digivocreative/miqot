@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Globe, Loader2, Check, Copy, RefreshCw, ExternalLink,
   AlertCircle, Trash2, Info, Clock, Server, Lock, ArrowRight,
   Youtube, CirclePlay, X,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 import { useCustomDomain } from '../hooks/useCustomDomain';
 import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
 import type { CustomDomainConfig } from '../types/customDomain';
@@ -20,6 +21,9 @@ export default function CustomDomainPage({ agent }: Props) {
   const customDomainEnabled = isCustomDomainEnabledForAgent(agent.slug);
   const { config, loading, refetch } = useCustomDomain({ enabled: customDomainEnabled });
   const [showForm, setShowForm] = useState(false);
+
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_custom_domain'); mountTracked.current = true; } }, []);
 
   if (!customDomainEnabled) return <DisabledState />;
   if (loading) return <PageSkeleton />;

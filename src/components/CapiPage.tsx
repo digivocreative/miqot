@@ -10,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import CapiEventLog from './CapiEventLog';
 import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
 
 // ── Types ──
 
@@ -493,6 +494,8 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
         setSaving(false);
         return;
       }
+
+      trackEvent('action', 'save_capi_config', { testMode: config.testMode });
 
       // Keep the token in the textarea
       if (data.savedToken) {

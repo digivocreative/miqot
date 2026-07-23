@@ -7,6 +7,7 @@ import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
 import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';
+import { trackEvent } from '../utils/analytics';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
   XAxis, YAxis, Tooltip,
@@ -711,6 +712,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasAutoSynced = useRef(false);
+  const openTracked = useRef(false);
   // Admin: all years across all agents (for Tren Daftar dropdown)
   const [allYears, setAllYears] = useState<string[]>([]);
 
@@ -869,6 +871,13 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         .then(r => r.json())
         .then(json => { if (json.success) setAllYears(json.data); })
         .catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!openTracked.current) {
+      trackEvent('feature', 'open_statistik');
+      openTracked.current = true;
     }
   }, []);
 

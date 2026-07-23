@@ -249,7 +249,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       setLoaded(nextLoaded);
       setDraft({ umroh: { ...nextLoaded.umroh }, haji: { ...nextLoaded.haji } });
       showToast('Perubahan tersimpan', 'success');
-      trackEvent('feature', 'landing_config_saved');
+      trackEvent('action', 'landing_config_saved');
     } catch (err: any) {
       showToast(err.message || 'Gagal menyimpan', 'error');
     } finally {
