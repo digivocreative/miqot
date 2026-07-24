@@ -32,6 +32,20 @@ test('flight card selects en-route, then delayed, then scheduled segment', async
   assert.equal(selectActiveFlightSegment(fallback, [landed]), landed);
 });
 
+test('pre-departure journey (no landed leg) surfaces the scheduled anchor over an earlier unverified leg', async () => {
+  const { selectActiveFlightSegment } = await importTsModule('src/lib/flightActiveSegment.ts');
+  const fallback = { flightNumber: 'JOURNEY', status: 'scheduled' };
+  const unverifiedFirst = { flightNumber: 'EK 802', status: 'unverified' };
+  const scheduledAnchor = { flightNumber: 'EK 358', status: 'scheduled' };
+
+  // No landed leg → prefer the scheduled anchor even though it is the later leg.
+  assert.equal(selectActiveFlightSegment(fallback, [unverifiedFirst, scheduledAnchor]), scheduledAnchor);
+
+  // Once a leg has landed, an in-progress unverified leg must NOT be skipped.
+  const landed = { flightNumber: 'EK 802', status: 'landed' };
+  assert.equal(selectActiveFlightSegment(fallback, [landed, unverifiedFirst, scheduledAnchor]), unverifiedFirst);
+});
+
 test('flight status header renders the selected segment code, route, time and terminal', () => {
   const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
 
