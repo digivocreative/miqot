@@ -17975,7 +17975,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Schedules — pull all years (table is small, <300 rows globally)
     const { data: rows, error: schedErr } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, seat_sisa, promo, paket_harga, paket_hotel');
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, pulang_rute, seat_sisa, promo, paket_harga, paket_hotel');
 
     if (schedErr) {
       console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
@@ -18010,7 +18010,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         harga: details?.harga ?? null,
         soldOut,
         isPromo: String(r.promo || '') === '1',
-        umrohDulu: isUmrohFirstRoute(r.berangkat_rute),
+        umrohDulu: isUmrohFirstRoute(r.berangkat_rute, r.pulang_rute),
         landing: landingCityFromRoute(r.berangkat_rute),
       });
     }

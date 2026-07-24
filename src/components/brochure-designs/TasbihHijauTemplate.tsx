@@ -149,7 +149,7 @@ export function TasbihHijauTemplate({ month, agent, displayMode = 'hari' }: Broc
         position: 'relative', zIndex: 1, padding: '42px 54px 14px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{ height: 88, width: 'auto', display: 'block' }} />
+        <img src="/new-logo-alhijaz-colored.png" alt="Alhijaz" style={{ height: 60, width: 'auto', display: 'block' }} />
         <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{ width: 104, height: 'auto', display: 'block', filter: 'drop-shadow(0 8px 16px rgba(10,92,64,0.18))' }} />
       </div>
       <div style={{ position: 'relative', zIndex: 1, margin: '0 54px', height: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

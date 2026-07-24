@@ -21,6 +21,7 @@ import {
   formatHargaJt,
   formatPhoneDisplay,
   landingUrlForAgent,
+  PACKAGE_NAME_FONT_SIZE,
   type BrochurePackage,
 } from '../BrochureScheduleTemplate';
 import {
@@ -55,6 +56,54 @@ const STUB_W = 142;
 // jadi tidak lagi mepet/berantakan.
 const TICKET_MIN_H = 82;
 const TICKET_MAX_H = 106;
+
+const NAVY = '#1E3A8A';
+
+// Ornamen latar bertema navigasi/penerbangan (selaras strip airmail & motif
+// boarding pass): busur rute putus-putus + pesawat kecil + mata-angin. Sengaja
+// samar (opacity rendah) agar tak beradu dengan tiket, dan raster-safe (tanpa
+// filter/blur) supaya ikut ter-render saat export gambar. Mata-angin di area
+// bawah juga mengisi ruang kosong saat paket sedikit.
+function BackdropOrnaments() {
+  const plane = 'M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z';
+  return (
+    <svg
+      width={BROCHURE_W}
+      height={BROCHURE_H}
+      viewBox={`0 0 ${BROCHURE_W} ${BROCHURE_H}`}
+      style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }}
+      aria-hidden="true"
+    >
+      {/* Rel garis-sobek boarding pass di kedua margin — memberi tekstur di
+          seluruh tinggi (terlihat juga saat 10 paket). */}
+      <path d="M27 172 V1462" stroke={NAVY} strokeOpacity="0.10" strokeWidth="1.6" strokeDasharray="2 12" strokeLinecap="round" />
+      <path d="M1053 172 V1462" stroke={NAVY} strokeOpacity="0.10" strokeWidth="1.6" strokeDasharray="2 12" strokeLinecap="round" />
+
+      {/* Busur rute membingkai judul */}
+      <path d="M -60 236 C 250 128 830 128 1140 236" fill="none" stroke={NAVY} strokeOpacity="0.16" strokeWidth="2.6" strokeDasharray="1.5 12" strokeLinecap="round" />
+      <g transform="translate(1096 226) rotate(120) scale(1.25)"><path d={plane} transform="translate(-12 -12)" fill={NAVY} fillOpacity="0.22" /></g>
+
+      {/* Dering radar di sudut kanan atas (senada badge 5 Pasti Umrah) */}
+      <g transform="translate(1052 90)" fill="none" stroke={NAVY} strokeOpacity="0.11">
+        <circle r="70" strokeWidth="1.4" strokeDasharray="2 10" />
+        <circle r="128" strokeWidth="1.2" strokeDasharray="2 12" />
+      </g>
+
+      {/* Mata-angin di area bawah (mengisi ruang kosong saat paket sedikit) */}
+      <g transform="translate(540 1128)" fill="none" stroke={NAVY} strokeOpacity="0.11">
+        <circle r="152" strokeWidth="1.1" strokeDasharray="1.5 12" />
+        <circle r="118" strokeWidth="2.2" />
+        <circle r="90" strokeWidth="1.3" strokeDasharray="2 9" />
+        <path d="M0 -152 V152 M-152 0 H152" strokeWidth="1.2" strokeOpacity="0.06" />
+        <path d="M108 -108 L-108 108 M108 108 L-108 -108" strokeWidth="1" strokeOpacity="0.05" strokeDasharray="2 10" />
+        <path d="M0 -142 L16 -16 L0 -3 L-16 -16 Z" fill={NAVY} fillOpacity="0.10" stroke="none" />
+        <path d="M0 142 L16 16 L0 3 L-16 16 Z" fill={NAVY} fillOpacity="0.07" stroke="none" />
+      </g>
+      {/* Pesawat kecil mendekati mata-angin */}
+      <g transform="translate(300 1300) rotate(-38) scale(1.15)"><path d={plane} transform="translate(-12 -12)" fill={RED} fillOpacity="0.16" /></g>
+    </svg>
+  );
+}
 
 function PlaneIcon({ size = 20, color = RED }: { size?: number; color?: string }) {
   return (
@@ -94,7 +143,7 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
       {/* Stub tanggal */}
       <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, background: stubBg, color: '#fff' }}>
         <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 700, fontSize: 42, lineHeight: 1, fontSynthesis: 'none' }}>{formatDepartureDay(p.berangkat_tgl)}</span>
-        <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 500, fontSize: 15, letterSpacing: 2, opacity: 0.92, fontSynthesis: 'none' }}>
+        <span style={{ fontFamily: BROCHURE_FONT_STACK, fontWeight: 700, fontSize: 16, letterSpacing: 0.5, fontSynthesis: 'none' }}>
           {monthAbbrFromIso(p.berangkat_tgl, MONTH_ABBR_ID)} {yearFromIso(p.berangkat_tgl)}
         </span>
       </div>
@@ -107,7 +156,7 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
           <span style={{
             fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK, fontWeight: 700,
-            fontSize: packageName.length > 28 ? 21 : 25,
+            fontSize: PACKAGE_NAME_FONT_SIZE, lineHeight: 1.04,
             color: isSoldOut ? '#8B95A5' : INK,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{packageName}</span>
@@ -115,10 +164,11 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           {p.maskapai && (
             <span style={{
-              display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '4px 11px 5px', borderRadius: 7,
-              background: '#F1F5F9', border: `1px solid ${BORDER}`,
-              fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK, fontWeight: 600, fontSize: 15.5, letterSpacing: 0.6,
-              color: isSoldOut ? '#8B95A5' : '#334155',
+              display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '3.5px 10px 4.5px', borderRadius: 999,
+              background: isSoldOut ? '#94A3B8' : '#334155',
+              color: '#fff',
+              fontFamily: BROCHURE_FONT_STACK, fontSize: 12, fontWeight: 600, fontSynthesis: 'none',
+              lineHeight: 1, letterSpacing: 0.3, whiteSpace: 'nowrap',
             }}>{p.maskapai}</span>
           )}
           {pills.map(pill => (
@@ -204,13 +254,16 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
     }}>
       <style>{BROCHURE_FONT_FACE_CSS}</style>
 
+      {/* Ornamen latar (di bawah konten, di atas kanvas polos) */}
+      <BackdropOrnaments />
+
       {/* Strip airmail atas & bawah */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 14, zIndex: 10, background: AIRMAIL_BG }} />
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 14, zIndex: 10, background: AIRMAIL_BG }} />
 
       {/* Header */}
       <div style={{ position: 'relative', zIndex: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '34px 50px 8px' }}>
-        <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{ height: 96, display: 'block' }} />
+        <img src="/new-logo-alhijaz-colored.png" alt="Alhijaz" style={{ height: 64, width: 'auto', display: 'block' }} />
         <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{ width: 102, display: 'block', filter: 'drop-shadow(0 8px 16px rgba(16,24,40,0.14))' }} />
       </div>
 

@@ -340,7 +340,9 @@ function Snowflake({ spec }: { spec: SnowflakeSpec }) {
 }
 
 const TABLE_COLUMNS = '104px 444px 88px 140px 172px';
-const PACKAGE_NAME_FONT_SIZE = 25;
+// Ukuran nama paket — dibagikan agar desain alternatif (Boarding Pass) konsisten
+// dengan Klasik. Ganti di sini akan berlaku ke semua desain.
+export const PACKAGE_NAME_FONT_SIZE = 25;
 
 export function formatHargaJt(harga: number): string {
   // Round to nearest 100k juta-precision (e.g. 33_950_000 → 34.0, 33_949_999 → 33.9).
@@ -636,13 +638,13 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         zIndex: 2,
       }}>
         <img
-          src="/logo-alhijaz-besar.png"
+          src="/new-logo-alhijaz-colored.png"
           alt="Alhijaz"
           style={{
             position: 'absolute',
-            top: 34,
+            top: 52,
             left: 50,
-            height: 108,
+            height: 66,
             width: 'auto',
             objectFit: 'contain',
           }}

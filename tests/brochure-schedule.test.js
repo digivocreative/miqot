@@ -95,12 +95,22 @@ test('parseSeatSisa: blank values are unknown, numeric zero means sold out', () 
   assert.equal(parseSeatSisa(12), 12);
 });
 
-test('isUmrohFirstRoute: detects Jeddah as final departure arrival', () => {
+test('isUmrohFirstRoute: final departure arrival (tanpa info rute pulang)', () => {
   assert.equal(isUmrohFirstRoute('CGK - JED'), true);
   assert.equal(isUmrohFirstRoute('CGK-DXB/DXB-JED'), true);
   assert.equal(isUmrohFirstRoute('CGK - MED'), false);
   assert.equal(isUmrohFirstRoute('CGK-JED/JED-CAI/CAI-MED'), false);
   assert.equal(isUmrohFirstRoute(''), false);
+});
+
+test('isUmrohFirstRoute: landing Jeddah dikonfirmasi lewat rute pulang (logika Urutan Perjalanan)', () => {
+  // Pulang dari Madinah → Umroh memang dulu (Mekkah → Madinah → pulang).
+  assert.equal(isUmrohFirstRoute('CGK - JED', 'MED - CGK'), true);
+  // pp Jeddah→Jeddah: urutan Mekkah/Madinah tak bisa dipastikan dari rute → jangan klaim.
+  assert.equal(isUmrohFirstRoute('CGK - JED', 'JED - CGK'), false);
+  assert.equal(isUmrohFirstRoute('CGK-DXB/DXB-JED', 'JED-DXB/DXB-CGK'), false);
+  // Landing Madinah tetap "Madinah dulu" apa pun rute pulangnya.
+  assert.equal(isUmrohFirstRoute('CGK - MED', 'JED - CGK'), false);
 });
 
 import { groupPackagesByMonth } from '../lib/brochure-schedule.js';
