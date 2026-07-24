@@ -20,6 +20,13 @@ test('server never substitutes midnight when marker timing is unknown', () => {
   assert.doesNotMatch(server, /fallbackStatus\s*=\s*['"]en-route['"]/);
 });
 
+test('anchor leg clock is trusted for multi-leg chains, intermediate legs are not', () => {
+  // operationalTimeTrusted follows the anchor flag (operationalDateTrusted):
+  // single-leg, or first-leg departure (keberangkatan) / last-leg arrival (kepulangan).
+  assert.match(server, /operationalTimeTrusted: operationalDateTrusted/);
+  assert.doesNotMatch(server, /operationalTimeTrusted: chain\.length === 1/);
+});
+
 test('calendar airport enrichment and flight cards select the calendar-reported marker leg', () => {
   assert.match(server, /const dayOffset = calendarDayOffsetForEvent\(event, schedule\)/);
   assert.match(server, /dayOffset !== null[\s\S]*selectCalendarReportedSegments/);

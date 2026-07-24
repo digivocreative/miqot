@@ -12862,9 +12862,12 @@ function deriveCalendarFlightSegmentTimes(event, routes) {
       depUTC,
       arrUTC,
       durationMin: route.durationMin || 540,
-      // A multi-leg chain has no layover data. Its dates are useful for
-      // rough sequencing, but its inferred clocks must never drive UI status.
-      operationalTimeTrusted: chain.length === 1,
+      // A multi-leg chain has no layover data. Its intermediate legs' inferred
+      // clocks must never drive UI status — but the anchor leg (single-leg, or
+      // first-leg departure for keberangkatan / last-leg arrival for kepulangan)
+      // carries the admin-entered trip clock, a REAL time. Trust its clock
+      // exactly where we already trust its date.
+      operationalTimeTrusted: operationalDateTrusted,
       operationalDateTrusted,
     };
   };

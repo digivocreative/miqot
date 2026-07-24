@@ -48,6 +48,21 @@ test('Merry stays scheduled before the verified itinerary departure', () => {
   );
 });
 
+test('a trusted (anchor) leg time in the future is scheduled; an untrusted leg stays unverified', () => {
+  const nowMs = Date.parse('2026-08-15T00:00:00Z');
+  const depUTC = Date.parse('2026-08-15T10:00:00Z');
+  const arrUTC = Date.parse('2026-08-15T13:00:00Z');
+
+  assert.deepEqual(
+    computeFallbackFlightState({ depUTC, arrUTC, operationalTimeTrusted: true }, nowMs),
+    { status: 'scheduled', progress: 0 },
+  );
+  assert.deepEqual(
+    computeFallbackFlightState({ depUTC, arrUTC, operationalTimeTrusted: false }, nowMs),
+    { status: 'unverified', progress: 0 },
+  );
+});
+
 test('public scheduled snapshot expires at planned takeoff', () => {
   const depUTC = Date.parse('2026-07-11T14:20:00Z');
   assert.equal(scheduledSnapshotDisplayStatus(depUTC, Date.parse('2026-07-10T13:00:00Z')), 'scheduled');
