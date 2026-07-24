@@ -97,21 +97,38 @@ So the change is to source `operationalTimeTrusted` from it:
 Only the anchor leg becomes `operationalTimeTrusted: true`; intermediate legs stay
 `false`. Single-leg chains are unchanged (`chain.length === 1` keeps the value `true`).
 
-### Change 2 — active-segment prefers `scheduled`
+### Change 2 — active-segment prefers `scheduled` before a journey starts
 
-Because Change 1 makes ONLY the anchor leg `scheduled`, splitting the combined find lets
-the merge pick the anchor without needing to know which index it is:
+Change 1 makes ONLY the anchor leg `scheduled`, so the merge can pick the anchor by
+preferring `scheduled` — but ONLY when the journey hasn't started. The existing behavior
+"once a leg has **landed**, the active segment is the first not-yet-complete leg by index"
+must be preserved (a mid-journey in-progress `unverified` leg must not be skipped for a
+later `scheduled` leg — locked by `tests/flight-entry-merge.test.js` "an unverified current
+leg is not hidden by a later scheduled leg" and `tests/flight-active-segment.test.js`
+`[landed, unverified, scheduled] → unverified`).
+
+So gate the `scheduled` preference on "no leg has landed":
 
 ```js
 // lib/flight-entry-merge.js  (activeSegmentForEntries)
-// src/lib/flightActiveSegment.ts  (selectActiveFlightSegment)
--    || entries.find(e => e.status === 'scheduled' || e.status === 'unverified')
-+    || entries.find(e => e.status === 'scheduled')
-+    || entries.find(e => e.status === 'unverified')
+// src/lib/flightActiveSegment.ts  (selectActiveFlightSegment)  — same shape, TS generics
+   // ...after the en-route and delayed checks...
++  // Before a journey starts (no leg has landed), surface the leg carrying the trusted
++  // trip clock — under anchor-trust that is the only 'scheduled' leg. Once any leg has
++  // landed, fall through so an in-progress (unverified) leg is not skipped.
++  if (!entries.some(e => e.status === 'landed')) {
++    const scheduled = entries.find(e => e.status === 'scheduled');
++    if (scheduled) return scheduled;
++  }
+   return entries.find(e => e.status === 'scheduled' || e.status === 'unverified')
+     || [...entries].reverse().find(e => e.status === 'landed')
+     || entries.find(e => e.status !== 'cancelled')
+     || entries[0];
 ```
 
-`en-route` / `delayed` still win first (live legs unaffected); the split only changes the
-"no live leg" case, i.e. pre-departure and post-arrival-without-provider.
+`en-route` / `delayed` still win first (live legs unaffected). All existing active-segment
+tests have a `landed` leg, so they take the unchanged fall-through path; the new preference
+only affects the entirely-pre-departure case (the anchor of a multi-leg journey).
 
 ## 4. End-to-end behavior
 
