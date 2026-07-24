@@ -692,9 +692,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }
                 navigateTab('home');
               }}
-              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-11 w-11 rounded-xl'}`}
+              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}
             >
-              <ChevronLeft size={compactHeader ? 16 : 18} strokeWidth={2.5} />
+              <ChevronLeft size={16} strokeWidth={2.5} />
             </button>
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {(() => {
@@ -833,7 +833,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               onClick={() => setIsDarkMode(p => !p)}
               aria-label={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
               title={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
-              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-11 w-11 rounded-xl'}`}
+              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}
             >
               {isDarkMode ? <Sun size={compactHeader ? 14 : 16} /> : <Moon size={compactHeader ? 14 : 16} />}
             </button>

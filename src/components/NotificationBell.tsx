@@ -43,11 +43,13 @@ function initials(name: string): string {
 // Mirrors the three dark-mode toggle button contexts in DashboardLayout.tsx exactly,
 // so the bell always matches its neighboring toggle:
 //  - compact: sub-page header when compacted (Teras tab)      → h-8 w-8 rounded-lg, icon 14
-//  - header:  sub-page header, non-compact (default)          → h-11 w-11 rounded-xl, icon 16
+//  - header:  sub-page header, non-compact (default)          → h-9 w-9 rounded-xl, icon 16
 //  - home:    home/card-grid header                           → w-9 h-9 rounded-xl, icon 16
+// NB: 'header' and 'home' are intentionally the same size so the sub-page
+// header matches the Dashboard header exactly; kept as two names for clarity.
 const SIZE_CLASSES: Record<'compact' | 'header' | 'home', { button: string; icon: number }> = {
   compact: { button: 'h-8 w-8 rounded-lg', icon: 14 },
-  header: { button: 'h-11 w-11 rounded-xl', icon: 16 },
+  header: { button: 'h-9 w-9 rounded-xl', icon: 16 },
   home: { button: 'w-9 h-9 rounded-xl', icon: 16 },
 };
 
