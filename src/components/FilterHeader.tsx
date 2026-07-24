@@ -11,7 +11,8 @@ import {
   extractUniqueLandings,
   type MonthGroup,
 } from '@/utils';
-import logoAlhijaz from '@/logo-alhijaz.webp';
+import logoAlhijazColored from '@/new-logo/new-logo-alhijaz-colored.png';
+import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 import FilterDropdown from './FilterDropdown';
@@ -191,16 +192,16 @@ export function FilterHeader({
               const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
               return seg ? `/${seg}` : '/';
             })()} className="group relative block cursor-pointer transition-opacity hover:opacity-80">
-              <img 
-                src={logoAlhijaz} 
-                alt="Alhijaz Indowisata" 
-                className="h-8 w-auto object-contain md:h-10"
+              <img
+                src={isDarkMode ? logoAlhijazWhite : logoAlhijazColored}
+                alt="Alhijaz Indowisata"
+                className="h-7 w-auto object-contain md:h-9"
               />
               <img
-                src={logoAlhijaz}
+                src={isDarkMode ? logoAlhijazWhite : logoAlhijazColored}
                 alt=""
                 aria-hidden="true"
-                className="animate-logo-shine pointer-events-none absolute inset-0 h-8 w-auto object-contain md:h-10"
+                className="animate-logo-shine pointer-events-none absolute inset-0 h-7 w-auto object-contain md:h-9"
               />
             </a>
           </div>

@@ -65,6 +65,15 @@ const TOOLS: Tool[] = [
     active: true,
   },
   {
+    id: 'business-card',
+    name: 'Kartu Nama Digital',
+    desc: 'Dengan 5 pilihan desain, lengkap dengan QR code.',
+    icon: CreditCard,
+    color: 'teal',
+    route: 'business-card',
+    active: true,
+  },
+  {
     id: 'voice-over',
     name: 'Voice Over Generator',
     desc: 'Buat voice over promosi paket umroh & haji',
@@ -80,15 +89,6 @@ const TOOLS: Tool[] = [
     icon: Bot,
     color: 'teal',
     route: 'mcp',
-    active: true,
-  },
-  {
-    id: 'business-card',
-    name: 'Kartu Nama Digital',
-    desc: 'Dengan 5 pilihan desain, lengkap dengan QR code.',
-    icon: CreditCard,
-    color: 'teal',
-    route: 'business-card',
     active: true,
   },
 ];
