@@ -457,3 +457,18 @@ test('the earliest upcoming scheduled leg is not skipped for a later unverified 
   assert.equal(merged.flightNumber, 'EK 802');
   assert.equal(merged.status, 'scheduled');
 });
+
+test('a pre-departure return journey surfaces the scheduled anchor (last leg), not the first unverified leg', () => {
+  const base = {
+    eventDate: '2026-08-15', group: '21', tourLeader: 'TEST LEADER', pax: 1,
+    _mergeSourceKey: 'return-anchor', _segmentCount: 2,
+  };
+  const [merged] = mergeFlightEntriesByTourLeader([
+    { ...base, id: 'leg1', flightNumber: 'EK 802', status: 'unverified', depCode: 'JED', arrCode: 'DXB', _segmentIndex: 0 },
+    { ...base, id: 'leg2', flightNumber: 'EK 358', status: 'scheduled', depCode: 'DXB', arrCode: 'CGK', arrScheduled: '22:25', _segmentIndex: 1 },
+  ]);
+  assert.equal(merged.flightNumber, 'EK 358');
+  assert.equal(merged.status, 'scheduled');
+  assert.equal(merged.arrCode, 'CGK');
+  assert.equal(merged.arrScheduled, '22:25');
+});
