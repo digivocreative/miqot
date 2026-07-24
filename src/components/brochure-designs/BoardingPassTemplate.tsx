@@ -1,7 +1,7 @@
 // Desain brosur "Boarding Pass" — setiap jadwal dirender sebagai tiket
-// pesawat: stub tanggal + perforasi/notch, rute CGK ✈ kode landing, chip
-// maskapai & durasi, barcode CSS, plus info sisa seat (badge kuning saat
-// kritis). Opsi desain tambahan; katalog PDF tetap memakai template klasik.
+// pesawat: stub tanggal + perforasi/notch, chip maskapai & durasi, barcode
+// CSS, plus info sisa seat (badge kuning saat kritis). Opsi desain tambahan;
+// katalog PDF tetap memakai template klasik.
 import { Check } from 'lucide-react';
 import WhatsAppIcon from '../bio/WhatsAppIcon';
 import {
@@ -9,7 +9,6 @@ import {
   BROCHURE_H,
   BROCHURE_FONT_FACE_CSS,
   BROCHURE_FONT_STACK,
-  BROCHURE_TABLE_FONT_STACK,
   BROCHURE_OSWALD_FONT_STACK,
   BROCHURE_ROBOTO_CONDENSED_FONT_STACK,
   BROCHURE_MONTSERRAT_FONT_STACK,
@@ -25,7 +24,6 @@ import {
   type BrochurePackage,
 } from '../BrochureScheduleTemplate';
 import {
-  landingIata,
   monthAbbrFromIso,
   promoChipLabel,
   stripDurationWord,
@@ -51,6 +49,12 @@ const AIRMAIL_BG = 'repeating-linear-gradient(135deg, #C8102E 0 26px, #F8FAFC 26
 const BARCODE_BG = 'repeating-linear-gradient(180deg, #0F172A 0 3px, transparent 3px 6px, #0F172A 6px 8px, transparent 8px 12px, #0F172A 12px 13px, transparent 13px 17px)';
 
 const STUB_W = 142;
+// Tinggi tiket adaptif: tiap tiket jadi flex-item yang membagi rata ruang
+// daftar. Sedikit (n kecil) → mentok TICKET_MAX_H, sisa ruang jatuh di bawah;
+// penuh (n=10) → mengecil ke arah TICKET_MIN_H sambil mengisi penuh & rata,
+// jadi tidak lagi mepet/berantakan.
+const TICKET_MIN_H = 82;
+const TICKET_MAX_H = 106;
 
 function PlaneIcon({ size = 20, color = RED }: { size?: number; color?: string }) {
   return (
@@ -60,18 +64,17 @@ function PlaneIcon({ size = 20, color = RED }: { size?: number; color?: string }
   );
 }
 
-function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: number; displayMode: 'hari' | 'seat' }) {
+function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari' | 'seat' }) {
   const chip = promoChipLabel(p);
   const packageName = stripDurationWord(stripPromoWord(cleanPackageDisplayName(p.nama), chip));
   const pills = detectPackagePills(p.nama, p.umrohDulu);
   const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
-  const dest = landingIata(p.landing);
   const isSoldOut = !!p.soldOut;
   const seat = p.seatSisa;
   const seatCritical = typeof seat === 'number' && seat > 0 && seat <= 5;
-  // Toggle HARI/SEAT eksklusif (selaras desain lain): mode 'hari' → chip durasi
-  // di baris rute; mode 'seat' → badge sisa seat di blok harga. Tidak pernah
-  // keduanya dalam satu brosur.
+  // Toggle HARI/SEAT eksklusif (selaras desain lain): mode 'hari' → durasi di
+  // bawah harga; mode 'seat' → sisa seat di bawah harga. Tidak pernah keduanya
+  // dalam satu brosur.
   const showDuration = displayMode !== 'seat' && !!tripDays;
   const showSeat = displayMode === 'seat' && !isSoldOut;
 
@@ -84,19 +87,16 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
   return (
     <div style={{
       position: 'relative', display: 'grid', gridTemplateColumns: `${STUB_W}px 1fr 196px`,
-      height: ticketH, borderRadius: 15, overflow: 'hidden',
+      flex: '1 1 0', minHeight: TICKET_MIN_H, maxHeight: TICKET_MAX_H, borderRadius: 15, overflow: 'hidden',
       background: isSoldOut ? '#F5F7F9' : chip ? '#FFFBF0' : '#fff',
       border: `1px solid ${BORDER}`, boxShadow: '0 7px 16px rgba(15,23,42,0.07)',
     }}>
       {/* Stub tanggal */}
       <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, background: stubBg, color: '#fff' }}>
         <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 700, fontSize: 42, lineHeight: 1, fontSynthesis: 'none' }}>{formatDepartureDay(p.berangkat_tgl)}</span>
-        <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 500, fontSize: 13, letterSpacing: 2.5, opacity: 0.9, fontSynthesis: 'none' }}>
+        <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 500, fontSize: 15, letterSpacing: 2, opacity: 0.92, fontSynthesis: 'none' }}>
           {monthAbbrFromIso(p.berangkat_tgl, MONTH_ABBR_ID)} {yearFromIso(p.berangkat_tgl)}
         </span>
-        {chip && (
-          <span style={{ marginTop: 3, fontSize: 10.5, fontWeight: 800, letterSpacing: 1.5, background: 'rgba(255,255,255,0.25)', borderRadius: 999, padding: '2px 8px' }}>{chip}</span>
-        )}
       </div>
       {/* Notch perforasi di batas stub */}
       <span style={{ position: 'absolute', left: STUB_W - 7, top: -8.5, width: 15, height: 15, borderRadius: '50%', background: PAGE_BG, border: `1px solid ${BORDER}`, zIndex: 3 }} />
@@ -111,6 +111,16 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
             color: isSoldOut ? '#8B95A5' : INK,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{packageName}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+          {p.maskapai && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '4px 11px 5px', borderRadius: 7,
+              background: '#F1F5F9', border: `1px solid ${BORDER}`,
+              fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK, fontWeight: 600, fontSize: 15.5, letterSpacing: 0.6,
+              color: isSoldOut ? '#8B95A5' : '#334155',
+            }}>{p.maskapai}</span>
+          )}
           {pills.map(pill => (
             <span key={pill.label} style={{
               display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '3.5px 10px 4.5px', borderRadius: 999,
@@ -120,34 +130,6 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
               lineHeight: 1, letterSpacing: 0.3, whiteSpace: 'nowrap',
             }}>{pill.label}</span>
           ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
-          {dest && (
-            <>
-              <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 700, fontSize: 21, color: isSoldOut ? '#8B95A5' : INK, letterSpacing: 1, fontSynthesis: 'none' }}>CGK</span>
-              <span style={{ position: 'relative', width: 86, alignSelf: 'center', borderTop: '2.5px dotted #94A3B8' }}>
-                <span style={{ position: 'absolute', left: '50%', top: -11, transform: 'translateX(-50%)' }}>
-                  <PlaneIcon color={isSoldOut ? '#94A3B8' : RED} />
-                </span>
-              </span>
-              <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 700, fontSize: 21, color: isSoldOut ? '#8B95A5' : INK, letterSpacing: 1, fontSynthesis: 'none' }}>{dest}</span>
-            </>
-          )}
-          {p.maskapai && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', padding: '4px 11px 5px', borderRadius: 7,
-              background: '#F1F5F9', border: `1px solid ${BORDER}`,
-              fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK, fontWeight: 600, fontSize: 15.5, letterSpacing: 0.6,
-              color: isSoldOut ? '#8B95A5' : '#334155',
-            }}>{p.maskapai}</span>
-          )}
-          {showDuration && (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', padding: '3.5px 10px 4.5px', borderRadius: 7,
-              border: `1.5px solid ${isSoldOut ? '#AAB2BF' : RED}`, color: isSoldOut ? '#8B95A5' : RED,
-              fontFamily: BROCHURE_ROBOTO_CONDENSED_FONT_STACK, fontWeight: 700, fontSize: 14.5, letterSpacing: 0.5,
-            }}>{tripDays} HARI</span>
-          )}
         </div>
       </div>
 
@@ -164,8 +146,8 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
             <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, whiteSpace: 'nowrap' }}>
               {typeof p.harga === 'number' ? (
                 <>
-                  <span style={{ fontSize: 36, fontWeight: 900, color: RED, letterSpacing: -0.5 }}>{formatHargaJt(p.harga)}</span>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: RED }}> Jt</span>
+                  <span style={{ fontSize: 33, fontWeight: 900, color: RED, letterSpacing: -0.5 }}>{formatHargaJt(p.harga)}</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: RED }}> Jt</span>
                 </>
               ) : (
                 <span style={{ fontSize: 19, fontWeight: 800, color: RED }}>Hubungi kami</span>
@@ -173,12 +155,17 @@ function TicketRow({ p, ticketH, displayMode }: { p: BrochurePackage; ticketH: n
             </span>
             {showSeat && (
               <span style={seatCritical ? {
-                fontSize: 13, fontWeight: 800, color: '#92400E', letterSpacing: 0.3,
+                fontSize: 15, fontWeight: 800, color: '#7C2D12', letterSpacing: 0.3,
                 background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 999, padding: '2.5px 10px',
               } : {
-                fontSize: 13, fontWeight: 600, color: '#64748B', letterSpacing: 0.3,
+                fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3,
               }}>
                 {typeof seat === 'number' ? `SISA ${seat} SEAT${seatCritical ? '!' : ''}` : 'SISA - SEAT'}
+              </span>
+            )}
+            {showDuration && (
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3 }}>
+                {tripDays} HARI
               </span>
             )}
           </>
@@ -195,11 +182,11 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
   const landingUrl = landingUrlForAgent(agent);
   const agentName = agent.name || 'Alhijaz';
   const title = month.label.toUpperCase();
-  const titleFontSize = title.length >= 17 ? 100 : 114;
+  // Montserrat Black jauh lebih lebar & berisi dari Bebas Neue (yang tinggi-kurus):
+  // ukur agar judul tetap muat satu baris (nowrap) di lebar area ~980px, lalu
+  // batasi maksimum supaya nama bulan pendek tak berlebihan.
+  const titleFontSize = Math.max(50, Math.min(96, Math.floor(900 / (title.length * 0.66))));
   const agentNameFontSize = agentName.length > 28 ? 30 : agentName.length > 22 ? 34 : 38;
-
-  const n = month.packages.length;
-  const ticketH = Math.max(85, Math.min(106, 85 + (10 - n) * 7));
 
   return (
     <div style={{
@@ -207,6 +194,8 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
       height: BROCHURE_H,
       position: 'relative',
       overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
       fontFamily: BROCHURE_FONT_STACK,
       fontSynthesis: 'none',
       background: CANVAS_BG,
@@ -220,20 +209,26 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 14, zIndex: 10, background: AIRMAIL_BG }} />
 
       {/* Header */}
-      <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '34px 50px 8px' }}>
+      <div style={{ position: 'relative', zIndex: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '34px 50px 8px' }}>
         <img src="/logo-alhijaz-besar.png" alt="Alhijaz" style={{ height: 96, display: 'block' }} />
         <img src="/img-brosur/pasti-umrah.png" alt="5 Pasti Umrah" style={{ width: 102, display: 'block', filter: 'drop-shadow(0 8px 16px rgba(16,24,40,0.14))' }} />
       </div>
 
       {/* Blok judul ala papan departures */}
-      <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', padding: '6px 50px 10px' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 14, background: '#0F172A', borderRadius: 12, padding: '11px 24px', boxShadow: '0 10px 22px rgba(15,23,42,0.18)' }}>
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="#FFB300" aria-hidden="true" style={{ display: 'block' }}>
-            <path d="M21.48 13.7 13.5 11V4.5A1.5 1.5 0 0 0 12 3a1.5 1.5 0 0 0-1.5 1.5V11l-7.98 2.7a.75.75 0 0 0-.52.71v1.09a.75.75 0 0 0 .9.73l7.6-1.73v4.13l-1.8 1.35a.6.6 0 0 0-.24.48v.94a.6.6 0 0 0 .74.58L12 21.5l2.8.48a.6.6 0 0 0 .74-.58v-.94a.6.6 0 0 0-.24-.48l-1.8-1.35V14.5l7.6 1.73a.75.75 0 0 0 .9-.73v-1.09a.75.75 0 0 0-.52-.71z" />
-          </svg>
-          <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 500, fontSize: 21, letterSpacing: 4, color: '#FFB300', fontSynthesis: 'none' }}>DEPARTURES — JADWAL KEBERANGKATAN UMROH</span>
+      <div style={{ position: 'relative', zIndex: 2, flexShrink: 0, textAlign: 'center', padding: '6px 50px 10px' }}>
+        {/* Eyebrow ringan: caps ber-tracking diapit garis rambut — memberi napas
+            untuk headline, tanpa kotak gelap yang beradu dengan poster. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 15 }}>
+          <span style={{ width: 58, height: 2, borderRadius: 2, background: 'linear-gradient(90deg, rgba(203,213,225,0) 0%, #CBD5E1 100%)' }} />
+          <PlaneIcon size={17} />
+          <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontSize: 17, letterSpacing: 3, fontSynthesis: 'none', whiteSpace: 'nowrap' }}>
+            <span style={{ fontWeight: 700, color: '#1E293B' }}>DEPARTURES</span>
+            <span style={{ color: '#CBD5E1', fontWeight: 500, margin: '0 9px' }}>|</span>
+            <span style={{ fontWeight: 500, color: '#64748B' }}>JADWAL KEBERANGKATAN UMROH</span>
+          </span>
+          <span style={{ width: 58, height: 2, borderRadius: 2, background: 'linear-gradient(270deg, rgba(203,213,225,0) 0%, #CBD5E1 100%)' }} />
         </div>
-        <div style={{ fontFamily: BROCHURE_TABLE_FONT_STACK, fontSize: titleFontSize, lineHeight: 0.94, marginTop: 10, color: INK, letterSpacing: 2, whiteSpace: 'nowrap' }}>
+        <div style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontWeight: 900, fontSize: titleFontSize, lineHeight: 1, marginTop: 12, color: INK, letterSpacing: -0.5, whiteSpace: 'nowrap' }}>
           {title.replace(/\s+(\d{4})$/, '')}{/\d{4}$/.test(title) ? ' ' : ''}
           {/\d{4}$/.test(title) && <span style={{ color: RED }}>{title.match(/\d{4}$/)?.[0]}</span>}
         </div>
@@ -248,16 +243,17 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
         </div>
       </div>
 
-      {/* Daftar tiket */}
-      <div style={{ position: 'relative', zIndex: 2, margin: '4px 50px 0', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {/* Daftar tiket — flex-grow: mengisi ruang antara judul & footer, tiap
+          tiket membagi rata (lihat TICKET_MIN_H/TICKET_MAX_H). */}
+      <div style={{ position: 'relative', zIndex: 2, flex: '1 1 auto', minHeight: 0, margin: '8px 50px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
         {month.packages.map(p => (
-          <TicketRow key={p.id} p={p} ticketH={ticketH} displayMode={displayMode} />
+          <TicketRow key={p.id} p={p} displayMode={displayMode} />
         ))}
       </div>
 
       {month.truncatedCount > 0 && (
         <div style={{
-          margin: '10px 50px 0', position: 'relative', zIndex: 2,
+          flexShrink: 0, margin: '0 50px 12px', position: 'relative', zIndex: 2,
           border: '2px dashed #C3CCD9', borderRadius: 13, background: 'rgba(255,255,255,0.75)',
           color: '#475569', fontWeight: 700, fontSize: 19, textAlign: 'center', padding: 11,
         }}>
@@ -267,7 +263,7 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
 
       {/* Footer gelap dengan aksen merah */}
       <div style={{
-        position: 'absolute', left: 50, right: 50, bottom: 44, zIndex: 3,
+        flexShrink: 0, margin: '0 50px 44px', zIndex: 3,
         display: 'flex', alignItems: 'center', gap: 22, padding: '17px 26px', borderRadius: 20,
         background: '#0F172A',
         boxShadow: `inset 6px 0 0 ${RED}, 0 18px 38px rgba(15,23,42,0.28)`,
