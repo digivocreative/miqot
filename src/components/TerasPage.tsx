@@ -1477,6 +1477,13 @@ export default function TerasPage({
   const [replyExpansions, setReplyExpansions] = useState<Record<string, ReplyExpansionStatus>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  // Sheet balasan ala Threads: komposer menumpang di atas layar sekarang,
+  // dikunci ke satu komentar target — TANPA navigasi ke halaman utas.
+  // Mesin komentar dipakai apa adanya dengan panel key = id komentar target
+  // (endpoint, draf, mention, dan media semuanya sudah ter-key ke id itu),
+  // jadi sheet hanya menyumbang chrome modal + kartu pratinjau.
+  // `comment` = snapshot untuk pratinjau; datanya tidak di-refetch.
+  const [replySheet, setReplySheet] = useState<{ comment: CommunityComment } | null>(null);
   const [menuOpenPostId, setMenuOpenPostId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
@@ -1518,6 +1525,20 @@ export default function TerasPage({
   const composerSentIdsRef = useRef<Set<string>>(new Set());
   const closeComposerRef = useRef<() => void>(() => {});
   const composerPageStateRef = useRef<{
+    previousOverflow: string;
+    trigger: HTMLElement | null;
+    pageRoot: HTMLDivElement | null;
+    previousPageAriaHidden: string | null;
+    appRoot: HTMLElement | null;
+    previousAppAriaHidden: string | null;
+    previousAppInert: boolean;
+  } | null>(null);
+  // Infra sheet balasan — cermin pola composer (kunci halaman + focus trap +
+  // pemulihan fokus ke trigger), ref terpisah karena siklus hidupnya sendiri.
+  const replySheetRef = useRef<HTMLDivElement>(null);
+  const replySheetTriggerRef = useRef<HTMLElement | null>(null);
+  const closeReplySheetRef = useRef<() => void>(() => {});
+  const replySheetPageStateRef = useRef<{
     previousOverflow: string;
     trigger: HTMLElement | null;
     pageRoot: HTMLDivElement | null;
@@ -1588,6 +1609,24 @@ export default function TerasPage({
     else state.appRoot?.setAttribute('aria-hidden', state.previousAppAriaHidden);
     if (state.appRoot) state.appRoot.inert = state.previousAppInert;
     if (composerTriggerRef.current === state.trigger) composerTriggerRef.current = null;
+    if (restoreFocus && state.trigger?.isConnected) {
+      window.requestAnimationFrame(() => state.trigger?.focus());
+    }
+  }, []);
+
+  // Pasangan restoreComposerPageState untuk sheet balasan — idempoten, dipanggil
+  // dari cleanup effect (jaminan React) dan onExitComplete (jaring pengaman).
+  const restoreReplySheetPageState = useCallback((restoreFocus = true) => {
+    const state = replySheetPageStateRef.current;
+    if (!state) return;
+    replySheetPageStateRef.current = null;
+    document.body.style.overflow = state.previousOverflow;
+    if (state.previousPageAriaHidden === null) state.pageRoot?.removeAttribute('aria-hidden');
+    else state.pageRoot?.setAttribute('aria-hidden', state.previousPageAriaHidden);
+    if (state.previousAppAriaHidden === null) state.appRoot?.removeAttribute('aria-hidden');
+    else state.appRoot?.setAttribute('aria-hidden', state.previousAppAriaHidden);
+    if (state.appRoot) state.appRoot.inert = state.previousAppInert;
+    if (replySheetTriggerRef.current === state.trigger) replySheetTriggerRef.current = null;
     if (restoreFocus && state.trigger?.isConnected) {
       window.requestAnimationFrame(() => state.trigger?.focus());
     }
@@ -2303,6 +2342,65 @@ export default function TerasPage({
       restoreComposerPageState(true);
     };
   }, [composerSheetVisible, restoreComposerPageState]);
+
+  // Sheet balasan: kunci halaman + focus trap + autofocus, cermin effect
+  // composer di atas (termasuk invarian "syarat render == syarat kunci" —
+  // sheet dirender murni dari `replySheet`, tanpa syarat profil/rute lain,
+  // jadi turunannya satu ini saja).
+  const replySheetVisible = replySheet !== null;
+  useLayoutEffect(() => {
+    if (!replySheetVisible) return;
+    const trigger = replySheetTriggerRef.current;
+    const appRoot = document.getElementById('root');
+    const pageRoot = pageRootRef.current;
+    replySheetPageStateRef.current = {
+      previousOverflow: document.body.style.overflow,
+      trigger,
+      pageRoot,
+      previousPageAriaHidden: pageRoot?.getAttribute('aria-hidden') ?? null,
+      appRoot,
+      previousAppAriaHidden: appRoot?.getAttribute('aria-hidden') ?? null,
+      previousAppInert: appRoot?.inert ?? false,
+    };
+
+    document.body.style.overflow = 'hidden';
+    pageRoot?.setAttribute('aria-hidden', 'true');
+    appRoot?.setAttribute('aria-hidden', 'true');
+    if (appRoot) appRoot.inert = true;
+    replySheetRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+
+    const handleReplySheetKeyDown = (event: globalThis.KeyboardEvent) => {
+      // Escape yang sudah dimakan popover mention (handleMentionKeyDown
+      // preventDefault) hanya menutup popover — bukan sheet-nya sekalian.
+      if (event.defaultPrevented) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeReplySheetRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !replySheetRef.current) return;
+
+      const focusable = Array.from(replySheetRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.getAttribute('aria-hidden') !== 'true');
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleReplySheetKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleReplySheetKeyDown);
+      restoreReplySheetPageState(true);
+    };
+  }, [replySheetVisible, restoreReplySheetPageState]);
 
   // Auto-grow textarea kini milik ComposerSegment (tiap segmen mengurus
   // tingginya sendiri), jadi efek tunggal yang dulu ada di sini dihapus.
@@ -3475,16 +3573,18 @@ export default function TerasPage({
     return () => window.clearTimeout(timer);
   }, [commentPanels, agent.slug]);
 
-  const sendComment = async (postId: string) => {
+  // Mengembalikan true hanya bila komentar benar-benar terkirim — sheet balasan
+  // memakainya untuk memutuskan menutup diri; jalur panel mengabaikannya.
+  const sendComment = async (postId: string): Promise<boolean> => {
     const panel = commentPanels[postId];
     const body = panel?.input.trim() || '';
     const bodyLength = Array.from(body).length;
-    if (!panel || commentSendingRef.current.has(postId) || bodyLength < 1 || bodyLength > MAX_COMMUNITY_COMMENT_CHARS) return;
+    if (!panel || commentSendingRef.current.has(postId) || bodyLength < 1 || bodyLength > MAX_COMMUNITY_COMMENT_CHARS) return false;
     const mediaSnapshot = panel.media;
     const unavailableMedia = mediaSnapshot.find(item => item.status !== 'ready');
     if (unavailableMedia) {
       setCommentPanelError(postId, unavailableMedia.error || 'Tunggu media selesai diproses');
-      return;
+      return false;
     }
 
     const requestKey = commentRequestKey(postId);
@@ -3541,10 +3641,13 @@ export default function TerasPage({
       );
       if (!created.data) throw new Error('Komentar baru tidak tersedia');
 
-      // Balas komentar = mengomentari sebuah komentar/balasan (baris kiriman
-      // ber-is_reply) yang dibuka sebagai halaman; komentar kiriman biasa = false.
+      // Balas komentar = target adalah komentar/balasan, lewat halaman utasnya
+      // (baris `posts` ber-is_reply) ATAU lewat sheet balasan (target hanya ada
+      // sebagai baris komentar di sebuah panel); komentar kiriman biasa = false.
       const commentTarget = postsRef.current.find(post => post.id === postId);
-      trackEvent('action', 'add_comment', { is_reply: !!commentTarget?.is_reply });
+      const targetIsReply = !!commentTarget?.is_reply
+        || Object.values(commentPanelsRef.current).some(candidate => !!findCommentInPanel(candidate.comments, postId));
+      trackEvent('action', 'add_comment', { is_reply: targetIsReply });
 
       mediaSnapshot.forEach(item => {
         if (item.previewUrl.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl);
@@ -3553,7 +3656,7 @@ export default function TerasPage({
       setCommentPanels(current => {
         const currentPanel = current[postId] || emptyCommentPanel();
         const comments = [...currentPanel.comments.filter(comment => comment.id !== newComment.id), newComment];
-        return {
+        const next = {
           ...current,
           [postId]: {
             ...currentPanel,
@@ -3564,6 +3667,41 @@ export default function TerasPage({
             comments,
           },
         };
+        // Target yang berupa KOMENTAR juga tampil sebagai baris di panel lain
+        // (panel kiriman induknya; atau sebagai balasan nested di panel
+        // kakeknya). Perbarui reply_count baris itu di tempat — tanpa ini,
+        // balasan yang dikirim dari sheet/halaman utas tidak terlihat di feed
+        // sampai panelnya di-reload. Untuk baris top-level balasan baru juga
+        // diselipkan ke preview_replies: saat utasnya sedang di-expand ia
+        // langsung tampil, saat tertutup ia tak dirender (renderedReplies
+        // kosong) dan expand berikutnya toh me-refetch daftar penuh.
+        for (const [pid, otherPanel] of Object.entries(current)) {
+          if (pid === postId || otherPanel.comments.length === 0) continue;
+          let panelChanged = false;
+          const patched = otherPanel.comments.map(comment => {
+            if (comment.id === postId) {
+              panelChanged = true;
+              const previews = comment.preview_replies ?? [];
+              return {
+                ...comment,
+                reply_count: (comment.reply_count ?? 0) + 1,
+                preview_replies: [...previews.filter(reply => reply.id !== newComment.id), newComment],
+              };
+            }
+            if ((comment.preview_replies ?? []).some(reply => reply.id === postId)) {
+              panelChanged = true;
+              return {
+                ...comment,
+                preview_replies: (comment.preview_replies ?? []).map(reply => (reply.id === postId
+                  ? { ...reply, reply_count: (reply.reply_count ?? 0) + 1 }
+                  : reply)),
+              };
+            }
+            return comment;
+          });
+          if (panelChanged) next[pid] = { ...otherPanel, comments: patched };
+        }
+        return next;
       });
       clearDraft(window.localStorage, replyDraftKey(agent.slug, postId));
       replyDraftPrevRef.current[postId] = '';
@@ -3582,6 +3720,7 @@ export default function TerasPage({
         commentInputEl.style.overflowY = 'hidden';
       }
       commentRequestIdsRef.current.delete(requestKey);
+      return true;
     } catch (commentError) {
       const message = errorMessage(commentError, 'Gagal menambahkan komentar');
       // Server menolak client_id yang sudah dipakai dengan 409 + pesan ini.
@@ -3602,12 +3741,19 @@ export default function TerasPage({
         },
       }));
       showToast(message, 'error');
+      return false;
     } finally {
       commentSendingRef.current.delete(postId);
     }
   };
 
-  const handleCommentKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>, postId: string) => {
+  // `submit` menggantikan kirim bawaan (dipakai sheet balasan yang perlu
+  // menutup diri setelah sukses); tanpa itu, Enter kirim ke panel seperti biasa.
+  const handleCommentKeyDown = (
+    event: KeyboardEvent<HTMLTextAreaElement>,
+    postId: string,
+    submit?: () => void,
+  ) => {
     if (handleMentionKeyDown(event, postId)) return; // mention popover owns the key
     // Shift+Enter = baris baru; Enter saja = kirim.
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -3615,7 +3761,8 @@ export default function TerasPage({
     // baris baru (perilaku bawaan textarea); pengiriman lewat tombol kirim.
     if (isCoarsePointerDevice()) return;
     event.preventDefault();
-    void sendComment(postId);
+    if (submit) submit();
+    else void sendComment(postId);
   };
 
   const autoGrowCommentInput = (element: HTMLTextAreaElement) => {
@@ -3952,6 +4099,45 @@ export default function TerasPage({
     openQuoteComposerForComment(comment);
   };
 
+  // ---- Sheet balasan (ala Threads) ----
+  const openReplySheet = (panelId: string, commentId: string) => {
+    const panel = commentPanelsRef.current[panelId];
+    const comment = panel && findCommentInPanel(panel.comments, commentId);
+    if (!comment) return;
+    replySheetTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    // Panel target dibuat/dibuka lebih dulu supaya seluruh mesin komentar yang
+    // ter-key panel (input, draf restore/auto-save, media picker, mention)
+    // langsung bekerja untuk sheet. Key-nya SAMA dengan panel halaman utas
+    // komentar itu, jadi draf yang diketik di sheet dan di halaman utas
+    // otomatis satu.
+    setCommentPanels(current => ({
+      ...current,
+      [commentId]: { ...(current[commentId] || emptyCommentPanel()), open: true },
+    }));
+    setReplySheet({ comment });
+  };
+
+  const closeReplySheet = useCallback(() => {
+    // Tanpa konfirmasi buang: input sheet hidup di panel + draf localStorage
+    // (auto-save 500 ms), jadi menutup tidak menghilangkan apa pun — buka lagi
+    // dan teksnya masih ada.
+    setReplySheet(null);
+  }, []);
+  closeReplySheetRef.current = closeReplySheet;
+
+  const submitReplySheet = async () => {
+    const target = replySheet;
+    if (!target) return;
+    if (await sendComment(target.comment.id)) {
+      setReplySheet(null);
+      // Balasan tampil di bawah komentarnya hanya bila utas sedang di-expand —
+      // toast memastikan ada konfirmasi terlihat pada kasus tertutup.
+      showToast('Balasan terkirim', 'success');
+    }
+  };
+
   const deletePost = async (postId: string) => {
     if (deletingPostId) return;
     setDeletingPostId(postId);
@@ -4203,6 +4389,179 @@ export default function TerasPage({
     </>
   );
 
+  /**
+   * Baris komposer komentar (kapsul input + mention + media + tombol kirim),
+   * dipakai DUA tempat: panel komentar di kartu kiriman dan sheet balasan.
+   * `targetId` = key panel SEKALIGUS sasaran POST .../comments — mesin komentar
+   * (draf, mention, media picker, idempotensi) semuanya sudah ter-key ke sana.
+   * `submit` menggantikan kirim bawaan (sheet menutup diri setelah sukses).
+   */
+  const renderCommentComposer = (
+    targetId: string,
+    panel: CommentPanelState,
+    placeholder: string,
+    submit?: () => void,
+  ) => {
+    const inputLength = Array.from(panel.input.trim()).length;
+    const send = submit ?? (() => void sendComment(targetId));
+    return (
+      <div className="flex min-w-0 items-end gap-1.5 pb-3">
+        <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
+          {mentionState?.context === targetId && (
+            <MentionAutocomplete
+              items={mentionItems}
+              activeIndex={mentionState.index}
+              onSelect={applyMention}
+              onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
+              placement={mentionState.placement}
+            />
+          )}
+          <div className="flex min-h-11 min-w-0 items-end px-3.5">
+            <div className="relative min-w-0 flex-1 self-center">
+              <MentionHighlightLayer
+                text={panel.input}
+                memberBySlug={memberBySlug}
+                className="py-[11px] text-[15px] leading-snug"
+              />
+              <textarea
+                id={`teras-comment-input-${targetId}`}
+                rows={1}
+                value={panel.input}
+                readOnly={panel.sending}
+                aria-disabled={panel.sending}
+                onChange={event => {
+                  updateCommentInput(targetId, event.target.value);
+                  autoGrowCommentInput(event.target);
+                  detectMention(targetId, event.target);
+                }}
+                onKeyDown={event => handleCommentKeyDown(event, targetId, submit)}
+                onScroll={event => {
+                  const layer = event.currentTarget.previousElementSibling as HTMLElement | null;
+                  if (layer) layer.scrollTop = event.currentTarget.scrollTop;
+                }}
+                aria-label="Tulis komentar"
+                placeholder={placeholder}
+                maxLength={COMMENT_BODY_HARD_CAP}
+                className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[15px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => openCommentMediaPicker(targetId)}
+              disabled={panel.sending || panel.media.length >= MAX_COMMUNITY_MEDIA}
+              aria-label="Tambah foto atau video ke komentar"
+              title="Tambah foto atau video"
+              className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:text-emerald-600 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
+            >
+              <ImageIcon size={18} strokeWidth={1.8} />
+            </button>
+            {panel.media.length > 0 && (
+              <span className="flex h-11 min-w-0 items-center truncate pl-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
+                Lampiran tidak ikut tersimpan di draf
+              </span>
+            )}
+            <span
+              aria-live="polite"
+              className={`flex h-11 shrink-0 items-center pl-2 text-[10px] font-semibold tabular-nums ${
+                inputLength > MAX_COMMUNITY_COMMENT_CHARS
+                  ? 'text-red-500 dark:text-red-400'
+                  : 'text-gray-400 dark:text-slate-500'
+              }`}
+            >
+              {inputLength}/{MAX_COMMUNITY_COMMENT_CHARS}
+            </span>
+          </div>
+          {panel.media.length > 0 && (
+            <div
+              role="group"
+              aria-label={`${panel.media.length} media komentar dipilih`}
+              className="flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain px-3 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {panel.media.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="relative h-24 shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
+                >
+                  {item.type === 'video' ? (
+                    <video
+                      src={videoPreviewSrc(item.previewUrl)}
+                      onError={event => {
+                        // Fragment poster ditolak — mundur ke blob URL polos
+                        // supaya videonya tetap bisa diputar.
+                        const fallback = videoPreviewFallbackSrc(item.previewUrl);
+                        if (fallback && event.currentTarget.src !== fallback) {
+                          event.currentTarget.src = fallback;
+                        }
+                      }}
+                      playsInline
+                      muted
+                      preload="metadata"
+                      aria-label={`Pratinjau video komentar ${index + 1}`}
+                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+                    />
+                  ) : (
+                    <img
+                      src={item.previewUrl}
+                      alt={`Pratinjau foto komentar ${index + 1}`}
+                      className="block h-full w-auto max-w-[60vw] object-contain"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeCommentMedia(targetId, item.id)}
+                    disabled={panel.sending}
+                    aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} komentar ${index + 1}`}
+                    title="Hapus media"
+                    className="absolute right-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+                  >
+                    <X size={12} />
+                  </button>
+                  {(item.status === 'processing' || item.status === 'uploading') && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                      <Loader2 size={14} className="animate-spin" />
+                    </div>
+                  )}
+                  {item.status === 'error' && (
+                    <div className="pointer-events-none absolute inset-x-1 bottom-1 rounded bg-red-600/90 px-1.5 py-0.5 text-center text-[9px] font-semibold text-white">
+                      Gagal
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <AnimatePresence initial={false}>
+          {(inputLength > 0 || panel.media.length > 0) && (
+            <motion.button
+              key="send"
+              type="button"
+              disabled={panel.sending
+                || inputLength < 1
+                || inputLength > MAX_COMMUNITY_COMMENT_CHARS
+                || panel.media.some(item => item.status !== 'ready')}
+              onClick={send}
+              aria-label="Kirim komentar"
+              title="Kirim komentar"
+              initial={reduceMotion ? false : { scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { scale: 0.5, opacity: 0 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.88 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 28 }}
+              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center disabled:opacity-50"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/30 transition-colors hover:bg-emerald-600 dark:shadow-emerald-950/40">
+                {panel.sending
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : <ArrowUp size={16} strokeWidth={2.6} />}
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
   const composerSheet = typeof document === 'undefined' ? null : createPortal(
     <AnimatePresence onExitComplete={() => restoreComposerPageState(true)}>
       {composerSheetVisible && (
@@ -4359,6 +4718,87 @@ export default function TerasPage({
 
         </motion.form>
       )}
+    </AnimatePresence>,
+    document.body,
+  );
+
+  // Sheet balasan ala Threads: bottom-sheet (mobile) / dialog tengah (desktop)
+  // berisi kartu komentar yang dibalas + komposer komentar yang sama persis
+  // dengan panel (renderCommentComposer), dikunci ke id komentar target.
+  const replySheetPortal = typeof document === 'undefined' ? null : createPortal(
+    <AnimatePresence onExitComplete={() => restoreReplySheetPageState(true)}>
+      {replySheet && (() => {
+        const targetComment = replySheet.comment;
+        const targetPanel = commentPanels[targetComment.id] || emptyCommentPanel();
+        const targetName = targetComment.author.name || 'Agent';
+        return (
+          <motion.div
+            key="teras-reply-sheet"
+            className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4"
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.2 }}
+          >
+            <button
+              type="button"
+              aria-label="Tutup balasan"
+              tabIndex={-1}
+              onClick={closeReplySheet}
+              className="absolute inset-0 h-full w-full cursor-default bg-black/45"
+            />
+            <motion.div
+              ref={replySheetRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="teras-reply-sheet-title"
+              aria-busy={targetPanel.sending}
+              tabIndex={-1}
+              className="relative w-full max-w-lg rounded-t-3xl bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 shadow-2xl dark:bg-slate-900 sm:rounded-3xl"
+              initial={reduceMotion ? false : { y: 48, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { y: 40, opacity: 0 }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <p role="status" aria-live="polite" className="sr-only">
+                {targetPanel.sending ? 'Sedang mengirim komentar.' : ''}
+              </p>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center pb-1">
+                <button
+                  type="button"
+                  onClick={closeReplySheet}
+                  disabled={targetPanel.sending}
+                  className="min-h-11 justify-self-start px-1 text-[13px] font-semibold text-gray-600 transition-colors disabled:opacity-45 dark:text-slate-300"
+                >
+                  Batal
+                </button>
+                <h2 id="teras-reply-sheet-title" className="text-center text-sm font-bold text-gray-900 dark:text-white">
+                  Balas Komentar
+                </h2>
+              </div>
+              <QuotedPostCard
+                quoted={{
+                  available: true,
+                  id: targetComment.id,
+                  body: targetComment.body,
+                  media: normalizeCommentMedia(targetComment),
+                  created_at: targetComment.created_at,
+                  edited_at: targetComment.edited_at,
+                  author: targetComment.author,
+                }}
+              />
+              {targetPanel.error && (
+                <p role="alert" className="mt-2 min-w-0 text-[11px] font-medium text-red-500 [overflow-wrap:anywhere] dark:text-red-400">
+                  {targetPanel.error}
+                </p>
+              )}
+              <div className="mt-3">
+                {renderCommentComposer(targetComment.id, targetPanel, `Balas ke ${targetName}…`, () => void submitReplySheet())}
+              </div>
+            </motion.div>
+          </motion.div>
+        );
+      })()}
     </AnimatePresence>,
     document.body,
   );
@@ -4848,7 +5288,6 @@ export default function TerasPage({
             const commentsOpen = isDetailView ? true : !!commentPanel?.open;
             // Satu kolom komentar saja, di bawah segmen terakhir.
             const showCommentPanel = commentsOpen && (!isDetailView || isLastSegment);
-            const commentInputLength = Array.from(commentPanel?.input.trim() || '').length;
             const commentReactionMaps = commentPanel ? buildCommentReactionMaps(commentPanel.comments) : null;
             // Sasaran balas menempel ke panel komentar (commentTargetId =
             // segmen akar di detail), bukan ke segmen yang sedang dirender.
@@ -5507,160 +5946,7 @@ export default function TerasPage({
                             )}
                           </div>
                           <div className="min-w-0">
-                          <div className="flex min-w-0 items-end gap-1.5 pb-3">
-                            <div className="relative min-w-0 flex-1 rounded-3xl border border-gray-200 bg-gray-50 transition-colors focus-within:border-emerald-400/70 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/15 dark:border-slate-700 dark:bg-slate-800/60 dark:focus-within:border-emerald-500/50 dark:focus-within:bg-slate-900">
-                            {mentionState?.context === commentTargetId && (
-                              <MentionAutocomplete
-                                items={mentionItems}
-                                activeIndex={mentionState.index}
-                                onSelect={applyMention}
-                                onHoverIndex={index => setMentionState(s => (s ? { ...s, index } : s))}
-                                placement={mentionState.placement}
-                              />
-                            )}
-                            <div className="flex min-h-11 min-w-0 items-end px-3.5">
-                              <div className="relative min-w-0 flex-1 self-center">
-                              <MentionHighlightLayer
-                                text={commentPanel.input}
-                                memberBySlug={memberBySlug}
-                                className="py-[11px] text-[15px] leading-snug"
-                              />
-                              <textarea
-                                id={`teras-comment-input-${commentTargetId}`}
-                                rows={1}
-                                value={commentPanel.input}
-                                readOnly={commentPanel.sending}
-                                aria-disabled={commentPanel.sending}
-                                onChange={event => {
-                                  updateCommentInput(commentTargetId, event.target.value);
-                                  autoGrowCommentInput(event.target);
-                                  detectMention(commentTargetId, event.target);
-                                }}
-                                onKeyDown={event => handleCommentKeyDown(event, commentTargetId)}
-                                onScroll={event => {
-                                  const layer = event.currentTarget.previousElementSibling as HTMLElement | null;
-                                  if (layer) layer.scrollTop = event.currentTarget.scrollTop;
-                                }}
-                                aria-label="Tulis komentar"
-                                placeholder={`Balas ke ${authorName}…`}
-                                maxLength={COMMENT_BODY_HARD_CAP}
-                                className="relative block w-full resize-none overflow-hidden bg-transparent py-[11px] text-[15px] leading-snug text-gray-800 outline-none placeholder:text-gray-500 read-only:opacity-60 dark:text-white dark:placeholder:text-slate-400"
-                              />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => openCommentMediaPicker(commentTargetId)}
-                                disabled={commentPanel.sending || commentPanel.media.length >= MAX_COMMUNITY_MEDIA}
-                                aria-label="Tambah foto atau video ke komentar"
-                                title="Tambah foto atau video"
-                                className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:text-emerald-600 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
-                              >
-                                <ImageIcon size={18} strokeWidth={1.8} />
-                              </button>
-                              {commentPanel.media.length > 0 && (
-                                <span className="flex h-11 min-w-0 items-center truncate pl-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
-                                  Lampiran tidak ikut tersimpan di draf
-                                </span>
-                              )}
-                              <span
-                                aria-live="polite"
-                                className={`flex h-11 shrink-0 items-center pl-2 text-[10px] font-semibold tabular-nums ${
-                                  commentInputLength > MAX_COMMUNITY_COMMENT_CHARS
-                                    ? 'text-red-500 dark:text-red-400'
-                                    : 'text-gray-400 dark:text-slate-500'
-                                }`}
-                              >
-                                {commentInputLength}/{MAX_COMMUNITY_COMMENT_CHARS}
-                              </span>
-                              </div>
-                              {commentPanel.media.length > 0 && (
-                              <div
-                                role="group"
-                                aria-label={`${commentPanel.media.length} media komentar dipilih`}
-                                className="flex snap-x gap-1.5 overflow-x-auto overscroll-x-contain px-3 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                              >
-                                {commentPanel.media.map((item, index) => (
-                                  <div
-                                    key={item.id}
-                                    className="relative h-24 shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
-                                  >
-                                    {item.type === 'video' ? (
-                                      <video
-                                        src={videoPreviewSrc(item.previewUrl)}
-                                        onError={event => {
-                                          // Fragment poster ditolak — mundur ke blob URL polos
-                                          // supaya videonya tetap bisa diputar.
-                                          const fallback = videoPreviewFallbackSrc(item.previewUrl);
-                                          if (fallback && event.currentTarget.src !== fallback) {
-                                            event.currentTarget.src = fallback;
-                                          }
-                                        }}
-                                        playsInline
-                                        muted
-                                        preload="metadata"
-                                        aria-label={`Pratinjau video komentar ${index + 1}`}
-                                        className="block h-full w-auto max-w-[60vw] bg-black object-contain"
-                                      />
-                                    ) : (
-                                      <img
-                                        src={item.previewUrl}
-                                        alt={`Pratinjau foto komentar ${index + 1}`}
-                                        className="block h-full w-auto max-w-[60vw] object-contain"
-                                      />
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => removeCommentMedia(commentTargetId, item.id)}
-                                      disabled={commentPanel.sending}
-                                      aria-label={`Hapus ${item.type === 'video' ? 'video' : 'foto'} komentar ${index + 1}`}
-                                      title="Hapus media"
-                                      className="absolute right-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
-                                    >
-                                      <X size={12} />
-                                    </button>
-                                    {(item.status === 'processing' || item.status === 'uploading') && (
-                                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                                        <Loader2 size={14} className="animate-spin" />
-                                      </div>
-                                    )}
-                                    {item.status === 'error' && (
-                                      <div className="pointer-events-none absolute inset-x-1 bottom-1 rounded bg-red-600/90 px-1.5 py-0.5 text-center text-[9px] font-semibold text-white">
-                                        Gagal
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                              )}
-                            </div>
-                            <AnimatePresence initial={false}>
-                              {(commentInputLength > 0 || commentPanel.media.length > 0) && (
-                                <motion.button
-                                  key="send"
-                                  type="button"
-                                  disabled={commentPanel.sending
-                                    || commentInputLength < 1
-                                    || commentInputLength > MAX_COMMUNITY_COMMENT_CHARS
-                                    || commentPanel.media.some(item => item.status !== 'ready')}
-                                  onClick={() => void sendComment(commentTargetId)}
-                                  aria-label="Kirim komentar"
-                                  title="Kirim komentar"
-                                  initial={reduceMotion ? false : { scale: 0.5, opacity: 0 }}
-                                  animate={{ scale: 1, opacity: 1 }}
-                                  exit={reduceMotion ? { opacity: 0 } : { scale: 0.5, opacity: 0 }}
-                                  whileTap={reduceMotion ? undefined : { scale: 0.88 }}
-                                  transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-                                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center disabled:opacity-50"
-                                >
-                                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/30 transition-colors hover:bg-emerald-600 dark:shadow-emerald-950/40">
-                                    {commentPanel.sending
-                                      ? <Loader2 size={15} className="animate-spin" />
-                                      : <ArrowUp size={16} strokeWidth={2.6} />}
-                                  </span>
-                                </motion.button>
-                              )}
-                            </AnimatePresence>
-                          </div>
+                          {renderCommentComposer(commentTargetId, commentPanel, `Balas ke ${authorName}…`)}
                           </div>
                         </div>
 
@@ -5676,6 +5962,7 @@ export default function TerasPage({
                             reactionCounts={commentReactionMaps?.reactionCounts ?? {}}
                             onReact={(commentId, reaction) => handleCommentReact(commentTargetId, commentId, reaction)}
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
+                            onReply={commentId => openReplySheet(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
                             onEditSave={handleCommentEditSave}
                             onOpenThread={openPostDetail}
@@ -5756,6 +6043,7 @@ export default function TerasPage({
       </div>
 
       {composerSheet}
+      {replySheetPortal}
       {shareSheet}
       {mediaViewerSheet}
 

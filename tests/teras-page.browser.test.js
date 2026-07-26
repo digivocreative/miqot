@@ -1538,31 +1538,30 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     const app = await openApp({ api });
     try {
       const article = app.page.locator('article').filter({ hasText: 'Uji komentar' });
-      await article.getByRole('button', { name: '1 balasan', exact: true }).click();
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       const serverComment = article.getByText('Komentar dari server', { exact: true });
       await serverComment.waitFor();
-      // Threads-style: komentar datar (tanpa balasan nested) berdiri sendiri —
-      // tidak ada rail penyambung post/komentar/input. Pemisah antar komentar
-      // teratas adalah garis hairline (border-atas), bukan rail.
-      assert.equal(await article.locator('[data-thread-rail]').count(), 0,
-        'komentar datar tidak boleh punya rail penyambung apa pun');
+      // Desain railConnected (feed): post -> komposer -> komentar disambung
+      // rail vertikal di kolom avatar (dua rail untuk satu komentar datar),
+      // TANPA pemisah hairline yang dulu terbaca sebagai "post baru".
+      assert.equal(await article.locator('[data-thread-rail]').count(), 2,
+        'feed menyambung post -> komposer -> komentar lewat dua rail');
       assert.equal(
         await article.locator('[data-comment-row]').first().evaluate(element => getComputedStyle(element).borderTopWidth),
-        '1px',
-        'tiap komentar teratas dipisah garis hairline (border-atas)',
+        '0px',
+        'komentar teratas di feed tidak dipisah hairline (disambung rail)',
       );
       assert.equal(
         await article.locator('[data-thread-input]').evaluate(element => getComputedStyle(element).borderTopWidth),
-        '1px',
-        'baris komposer berdiri sebagai section ber-hairline',
+        '0px',
+        'baris komposer feed menyatu dengan utas (tanpa hairline)',
       );
       assert.doesNotMatch(await serverComment.evaluate(element => element.parentElement?.className || ''), /rounded|bg-|border/,
         'isi balasan harus flat tanpa bubble');
       assert.equal(matchingRequests(api, 'GET', '/api/community/posts/comments-post/comments').length, 1);
 
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
-      assert.equal(await article.locator('[data-thread-rail]').count(), 0);
-      await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
+      await serverComment.waitFor({ state: 'detached' });
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       await article.getByText('Komentar dari server', { exact: true }).waitFor();
       assert.equal(
@@ -1575,8 +1574,6 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal(await input.getAttribute('placeholder'), 'Balas ke Agent Lain…');
       assert.doesNotMatch(await input.getAttribute('class'), /rounded|border-gray|bg-white/,
         'input balasan harus transparan tanpa kapsul');
-      const sendCommentButton = article.getByRole('button', { name: 'Kirim komentar' });
-      assert.equal((await sendCommentButton.innerText()).trim(), 'Kirim');
       await input.fill('Komentar baru');
       await input.press('Enter');
       const commentStatus = article.getByRole('status').filter({ hasText: 'Sedang mengirim komentar.' });
@@ -1606,14 +1603,12 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await article.getByRole('button', { name: 'Hapus komentar' }).click();
       await article.getByText('Komentar baru', { exact: true }).waitFor({ state: 'detached' });
       assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/created-comment-1').length, 1);
-      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
-      await article.getByRole('button', { name: '1 balasan', exact: true }).waitFor();
     } finally {
       await app.close();
     }
   });
 
-  test('empty comments show a hairline section without any rail', { timeout: 30_000 }, async () => {
+  test('empty comments keep the post-to-composer rail without a hairline section', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({
         id: 'empty-comments-post',
@@ -1629,13 +1624,71 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const emptyNotice = article.getByText('Belum ada komentar — jadilah yang pertama membalas.', { exact: true });
       await emptyNotice.waitFor();
 
-      assert.equal(await article.locator('[data-thread-rail]').count(), 0,
-        'empty state tidak boleh punya rail penyambung');
+      // Desain railConnected: panel terbuka menyambung avatar post ke komposer
+      // lewat SATU rail; rail komposer -> komentar belum ada (komentar kosong)
+      // dan empty state tampil polos tanpa hairline.
+      assert.equal(await article.locator('[data-thread-rail]').count(), 1,
+        'panel kosong hanya punya rail post -> komposer');
       assert.equal(
         await emptyNotice.evaluate(element => getComputedStyle(element).borderTopWidth),
-        '1px',
-        'empty state tampil sebagai section ber-hairline',
+        '0px',
+        'empty state menyatu dengan utas (tanpa hairline)',
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('tombol Balas di komentar membuka sheet balasan tanpa pindah halaman', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'reply-sheet-post',
+        body: 'Uji sheet balasan',
+        comment_count: 1,
+      })],
+      comments: {
+        'reply-sheet-post': [makeComment({
+          id: 'komentar-target',
+          body: 'Komentar yang dibalas',
+          reply_count: 0,
+          preview_replies: [],
+        })],
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji sheet balasan' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByText('Komentar yang dibalas', { exact: true }).waitFor();
+
+      await article.getByRole('button', { name: 'Balas komentar' }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Balas Komentar' });
+      await dialog.waitFor();
+      // Konteks ala Threads: kartu komentar yang dibalas tampil di dalam sheet,
+      // dan TIDAK ada navigasi ke halaman utas (URL feed tetap).
+      await dialog.getByText('Komentar yang dibalas', { exact: true }).waitFor();
+      assert.equal(new URL(app.page.url()).pathname, '/dashboard/teras',
+        'membuka sheet balasan tidak boleh berpindah halaman');
+
+      const input = dialog.getByRole('textbox', { name: 'Tulis komentar' });
+      assert.equal(await input.getAttribute('placeholder'), 'Balas ke Agent Lain…');
+      assert.equal(await input.evaluate(element => document.activeElement === element), true,
+        'komposer sheet harus langsung terfokus (siap ketik)');
+
+      await input.fill('Balasan dari sheet');
+      await input.press('Enter');
+      await dialog.waitFor({ state: 'detached' });
+      const replyRequest = matchingRequests(api, 'POST', '/api/community/posts/komentar-target/comments')[0];
+      assert.ok(replyRequest, 'balasan harus dikirim ke id KOMENTAR, bukan kiriman induk');
+      assert.equal(replyRequest.body.body, 'Balasan dari sheet');
+      // reply_count baris komentar di feed langsung bertambah tanpa reload panel.
+      await article.getByRole('button', { name: 'Lihat 1 balasan', exact: true }).waitFor();
+      assert.equal(matchingRequests(api, 'GET', '/api/community/posts/reply-sheet-post/comments').length, 1,
+        'sheet tidak boleh memicu fetch ulang panel');
+
+      // Membaca utuh tetap lewat klik badan komentar -> halaman utas komentar.
+      await article.getByText('Komentar yang dibalas', { exact: true }).click();
+      await app.page.waitForURL('**/dashboard/teras/post/komentar-target', { timeout: 10_000 });
     } finally {
       await app.close();
     }

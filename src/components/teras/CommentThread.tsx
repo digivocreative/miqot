@@ -15,6 +15,8 @@ interface CommentThreadProps {
   reactionCounts: Record<string, number>;
   onReact: (commentId: string, reaction: ReactionType | null) => void;
   onQuote: (commentId: string) => void;
+  /** Buka sheet balasan (ala Threads) untuk komentar ini — tanpa pindah halaman. */
+  onReply: (commentId: string) => void;
   onDelete: (commentId: string) => void;
   /**
    * Simpan edit body komentar. `null` = sukses (state komentar sudah
@@ -67,6 +69,7 @@ interface CommentRowActions {
   replyCount: number;
   onReact: (reaction: ReactionType | null) => void;
   onQuote: () => void;
+  onReply: () => void;
 }
 
 /**
@@ -80,6 +83,7 @@ export default function CommentThread({
   reactionCounts,
   onReact,
   onQuote,
+  onReply,
   onDelete,
   onEditSave,
   onOpenThread,
@@ -148,6 +152,7 @@ export default function CommentThread({
                 replyCount,
                 onReact: reaction => onReact(comment.id, reaction),
                 onQuote: () => onQuote(comment.id),
+                onReply: () => onReply(comment.id),
               }}
             />
             {/* Balasan bertingkat ala Threads: baris SEJAJAR (avatar 40px di
@@ -181,6 +186,7 @@ export default function CommentThread({
                   replyCount: reply.reply_count ?? 0,
                   onReact: reaction => onReact(reply.id, reaction),
                   onQuote: () => onQuote(reply.id),
+                  onReply: () => onReply(reply.id),
                 }}
               />
             ))}
@@ -299,12 +305,17 @@ function CommentRow({
     if (target instanceof Element && target.closest('button, a, video, input, textarea, [role="menu"], [data-media-layout]')) return;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
+    // Kartu post di feed juga role="link" (handlePostAreaClick) — tanpa ini
+    // klik baris komentar ikut menggelembung ke sana dan navigasi kedua
+    // (halaman POST) menimpa navigasi ke halaman komentar ini.
+    event.stopPropagation();
     onOpenThreadRow();
   };
   const handleRowKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!onOpenThreadRow) return;
     if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
     event.preventDefault();
+    event.stopPropagation();
     onOpenThreadRow();
   };
 
@@ -508,13 +519,14 @@ function CommentRow({
               </AnimatePresence>
             </motion.button>
 
-            {/* Ikon balas membuka HALAMAN komentar ini (ala Threads) — balasan
-                ditulis dari sana, bukan lewat kolom balas inline. */}
+            {/* Ikon balas membuka SHEET komposer balasan (ala Threads) tanpa
+                pindah halaman — membaca utuh tetap lewat klik baris komentar
+                (onOpenThreadRow) yang membuka halaman komentar ini. */}
             <motion.button
               type="button"
-              aria-label="Buka balasan"
+              aria-label="Balas komentar"
               title="Balas"
-              onClick={() => onOpenThreadRow?.()}
+              onClick={actions.onReply}
               whileTap={reduceMotion ? undefined : { scale: 0.9 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
               className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
