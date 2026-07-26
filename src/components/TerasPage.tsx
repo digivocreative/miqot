@@ -339,6 +339,13 @@ const MAX_COMMUNITY_COMMENT_CHARS = 300;
 const POLL_MIN_OPTIONS = 2;
 const POLL_MAX_OPTIONS = 4;
 const POLL_MAX_OPTION_CHARS = 60;
+// Key harus dikenal COMMUNITY_POLL_DURATIONS di server; '1d' = default.
+type PollDurationKey = '1d' | '3d' | '7d';
+const POLL_DURATION_CHOICES: Array<{ key: PollDurationKey; label: string }> = [
+  { key: '1d', label: '24 jam' },
+  { key: '3d', label: '3 hari' },
+  { key: '7d', label: '1 minggu' },
+];
 // Small buffer over the limit so pasted text isn't silently truncated —
 // the counter turns red and submit stays disabled until it's trimmed.
 const COMPOSER_BODY_HARD_CAP = 520;
@@ -764,7 +771,8 @@ function formatPollTimeLeft(endsAt: string): string | null {
   const minutes = Math.ceil(remaining / 60_000);
   if (minutes < 60) return `Berakhir dalam ${minutes} mnt`;
   const hours = Math.round(minutes / 60);
-  return `Berakhir dalam ${hours} jam`;
+  if (hours < 24) return `Berakhir dalam ${hours} jam`;
+  return `Berakhir dalam ${Math.round(hours / 24)} hari`;
 }
 
 /**
@@ -1519,6 +1527,7 @@ export default function TerasPage({
   // Builder polling (segmen pertama saja): null = tanpa poll; array = teks
   // opsi yang sedang diketik. Saling-eksklusif dengan media segmen-1 & quote.
   const [composerPoll, setComposerPoll] = useState<string[] | null>(null);
+  const [composerPollDuration, setComposerPollDuration] = useState<PollDurationKey>('1d');
   const [composerLinkPreview, setComposerLinkPreview] = useState<LinkPreview | null>(null);
   const [composerLinkLoading, setComposerLinkLoading] = useState(false);
   const [composerDismissedUrl, setComposerDismissedUrl] = useState<string | null>(null);
@@ -2370,6 +2379,7 @@ export default function TerasPage({
     setComposerError(null);
     setComposerQuote(null);
     setComposerPoll(null);
+    setComposerPollDuration('1d');
     setComposerLinkPreview(null);
     setComposerLinkLoading(false);
     setComposerDismissedUrl(null);
@@ -2966,7 +2976,7 @@ export default function TerasPage({
             // Guard media/quote diulang di sini (server juga menolak) supaya
             // state builder yang tak sinkron tidak mengirim kombinasi ilegal.
             ...(composerPoll && !firstHasMedia && !composerQuote
-              ? { poll: { options: composerPoll.map(option => option.trim()) } }
+              ? { poll: { options: composerPoll.map(option => option.trim()), duration: composerPollDuration } }
               : {}),
             ...(composerLinkPreview && !firstHasMedia && !composerQuote
               ? { link_preview: composerLinkPreview }
@@ -4494,10 +4504,13 @@ export default function TerasPage({
         {isFirstSegment && !composerQuote && (
           <button
             type="button"
-            onClick={() => setComposerPoll(current => (current ? null : ['', '']))}
+            onClick={() => {
+              setComposerPollDuration('1d');
+              setComposerPoll(current => (current ? null : ['', '']));
+            }}
             disabled={composerBusy || segment.media.length > 0}
             aria-pressed={!!composerPoll}
-            title={segment.media.length > 0 ? 'Polling tidak bisa digabung dengan media' : 'Tambah polling (2-4 opsi, 24 jam)'}
+            title={segment.media.length > 0 ? 'Polling tidak bisa digabung dengan media' : 'Tambah polling (2-4 opsi)'}
             className={`flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
               composerPoll
                 ? 'text-emerald-600 dark:text-emerald-400'
@@ -4626,7 +4639,7 @@ export default function TerasPage({
               )}
             </div>
           ))}
-          <div className="mt-2 flex min-h-6 items-center justify-between gap-2">
+          <div className="mt-2 flex min-h-6 flex-wrap items-center justify-between gap-2">
             {composerPoll.length < POLL_MAX_OPTIONS ? (
               <button
                 type="button"
@@ -4639,7 +4652,30 @@ export default function TerasPage({
                 + Tambah opsi
               </button>
             ) : <span />}
-            <span className="text-[10px] font-medium text-gray-400 dark:text-slate-500">Berlangsung 24 jam</span>
+            <div
+              role="radiogroup"
+              aria-label="Durasi polling"
+              className="flex items-center gap-1"
+            >
+              <span className="mr-0.5 text-[10px] font-medium text-gray-400 dark:text-slate-500">Berlangsung</span>
+              {POLL_DURATION_CHOICES.map(choice => (
+                <button
+                  key={choice.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={composerPollDuration === choice.key}
+                  onClick={() => setComposerPollDuration(choice.key)}
+                  disabled={composerBusy}
+                  className={`rounded-full border px-2 py-1 text-[10.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-40 ${
+                    composerPollDuration === choice.key
+                      ? 'border-emerald-400/70 bg-emerald-50 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-900/25 dark:text-emerald-300'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

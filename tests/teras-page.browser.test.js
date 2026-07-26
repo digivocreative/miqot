@@ -212,6 +212,8 @@ function createCommunityApi({
         is_own: true,
       });
       if (record.body?.poll) {
+        const pollDurations = { '1d': 1, '3d': 3, '7d': 7 };
+        const durationDays = pollDurations[record.body.poll.duration] || 1;
         created.poll = {
           options: (record.body.poll.options || []).map(text => ({ text, votes: 0 })),
           total_votes: 0,
@@ -219,7 +221,7 @@ function createCommunityApi({
           // Relatif ke jam NYATA (bukan created_at beku 2026-07-18) — klien
           // menilai closed dari ends_at vs Date.now, jadi ends_at basi membuat
           // poll baru langsung tampak berakhir.
-          ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          ends_at: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString(),
           closed: false,
         };
       }
@@ -1740,7 +1742,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       // Poll aktif memblokir media segmen pertama (parity Threads).
       assert.equal(await dialog.getByRole('button', { name: 'Foto/Video' }).isDisabled(), true,
         'tombol media segmen pertama harus nonaktif saat polling aktif');
-      await dialog.getByText('Berlangsung 24 jam', { exact: true }).waitFor();
+      // Pilihan durasi: radiogroup dengan default 24 jam; pilih 1 minggu.
+      const durationGroup = dialog.getByRole('radiogroup', { name: 'Durasi polling' });
+      assert.equal(
+        await durationGroup.getByRole('radio', { name: '24 jam', exact: true }).getAttribute('aria-checked'),
+        'true',
+        'durasi default harus 24 jam',
+      );
+      await durationGroup.getByRole('radio', { name: '1 minggu', exact: true }).click();
 
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Enaknya ambil paket yang mana?');
       await dialog.getByRole('textbox', { name: 'Opsi 1 polling' }).fill('Makkah dulu');
@@ -1755,12 +1764,16 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor({ state: 'detached', timeout: 10_000 });
 
       const createRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
-      assert.deepEqual(createRequest.body.poll, { options: ['Makkah dulu', 'Madinah dulu', 'Dua-duanya'] });
+      assert.deepEqual(createRequest.body.poll, {
+        options: ['Makkah dulu', 'Madinah dulu', 'Dua-duanya'],
+        duration: '7d',
+      });
 
       const article = app.page.locator('article').filter({ hasText: 'Enaknya ambil paket yang mana?' });
       await article.locator('[data-poll]').waitFor();
       await article.getByRole('button', { name: /Makkah dulu/ }).waitFor();
-      await article.getByText('0 suara · Berakhir dalam', { exact: false }).waitFor();
+      // Durasi 1 minggu -> sisa waktu ditulis dalam hari.
+      await article.getByText('0 suara · Berakhir dalam 7 hari', { exact: true }).waitFor();
     } finally {
       await app.close();
     }

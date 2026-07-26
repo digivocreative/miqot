@@ -2,15 +2,40 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  COMMUNITY_POLL_DURATION_MS,
+  COMMUNITY_POLL_DEFAULT_DURATION,
+  COMMUNITY_POLL_DURATIONS,
   communityPollPayload,
   isCommunityPollClosed,
   normalizeCommunityPollInput,
 } from '../lib/community-poll.js';
 
 test('normalizeCommunityPollInput: tanpa poll -> null tanpa error', () => {
-  assert.deepEqual(normalizeCommunityPollInput(undefined), { options: null, error: null });
-  assert.deepEqual(normalizeCommunityPollInput(null), { options: null, error: null });
+  assert.deepEqual(normalizeCommunityPollInput(undefined), { options: null, durationMs: null, error: null });
+  assert.deepEqual(normalizeCommunityPollInput(null), { options: null, durationMs: null, error: null });
+});
+
+test('normalizeCommunityPollInput: durasi — default 24 jam, daftar tertutup', () => {
+  // Tanpa duration (klien lama) -> default 24 jam.
+  assert.equal(
+    normalizeCommunityPollInput({ options: ['a', 'b'] }).durationMs,
+    COMMUNITY_POLL_DURATIONS[COMMUNITY_POLL_DEFAULT_DURATION],
+  );
+  assert.equal(
+    normalizeCommunityPollInput({ options: ['a', 'b'], duration: '3d' }).durationMs,
+    3 * 24 * 60 * 60 * 1000,
+  );
+  assert.equal(
+    normalizeCommunityPollInput({ options: ['a', 'b'], duration: '7d' }).durationMs,
+    7 * 24 * 60 * 60 * 1000,
+  );
+  // Di luar daftar (termasuk angka bebas) -> ditolak.
+  for (const duration of ['2d', 3600000, '', null, '1w']) {
+    assert.equal(
+      normalizeCommunityPollInput({ options: ['a', 'b'], duration }).error,
+      'Durasi polling tidak valid',
+      JSON.stringify(duration),
+    );
+  }
 });
 
 test('normalizeCommunityPollInput: bentuk rusak ditolak', () => {
@@ -90,6 +115,11 @@ test('communityPollPayload: polling lewat ends_at ditandai closed', () => {
   assert.equal(payload.closed, true);
 });
 
-test('durasi poll = 24 jam', () => {
-  assert.equal(COMMUNITY_POLL_DURATION_MS, 24 * 60 * 60 * 1000);
+test('daftar durasi poll: 24 jam (default) / 3 hari / 1 minggu', () => {
+  assert.deepEqual(COMMUNITY_POLL_DURATIONS, {
+    '1d': 24 * 60 * 60 * 1000,
+    '3d': 3 * 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+  });
+  assert.equal(COMMUNITY_POLL_DEFAULT_DURATION, '1d');
 });

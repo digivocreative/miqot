@@ -76,7 +76,6 @@ import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js
 import { validateCommunityEdit } from './lib/community-edit.js';
 import { canPinCommunityPost } from './lib/community-pin.js';
 import {
-  COMMUNITY_POLL_DURATION_MS,
   communityPollPayload,
   isCommunityPollClosed,
   normalizeCommunityPollInput,
@@ -6387,9 +6386,14 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
     if (segmentError) return res.status(400).json({ error: segmentError });
 
     // Polling ala Threads: milik utas (menempel pada segmen pertama), 2-4 opsi,
-    // durasi tetap 24 jam. Validasi bentuk di sini; larangan gabung dengan
-    // media/quote menyusul setelah keduanya diketahui di bawah.
-    const { options: pollOptions, error: pollInputError } = normalizeCommunityPollInput(req.body?.poll);
+    // durasi dari daftar tetap (default 24 jam). Validasi bentuk di sini;
+    // larangan gabung dengan media/quote menyusul setelah keduanya diketahui
+    // di bawah.
+    const {
+      options: pollOptions,
+      durationMs: pollDurationMs,
+      error: pollInputError,
+    } = normalizeCommunityPollInput(req.body?.poll);
     if (pollInputError) return res.status(400).json({ error: pollInputError });
 
     // Segmen pertama memegang identitas utas: quote, link preview, dan @semua
@@ -6608,7 +6612,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
           .insert({
             post_id: createdPost.id,
             options: pollOptions,
-            ends_at: new Date(Date.now() + COMMUNITY_POLL_DURATION_MS).toISOString(),
+            ends_at: new Date(Date.now() + pollDurationMs).toISOString(),
           })
           .select('post_id, options, ends_at')
           .single();
