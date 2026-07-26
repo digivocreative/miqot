@@ -76,6 +76,12 @@ import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js
 import { validateCommunityEdit } from './lib/community-edit.js';
 import { canPinCommunityPost } from './lib/community-pin.js';
 import {
+  COMMUNITY_POLL_DURATION_MS,
+  communityPollPayload,
+  isCommunityPollClosed,
+  normalizeCommunityPollInput,
+} from './lib/community-poll.js';
+import {
   mergeNotifications,
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
@@ -4326,6 +4332,17 @@ function isCommunityQuoteSchemaMissing(error) {
     && /does not exist|could not find|schema cache/i.test(message);
 }
 
+// Tabel polling (community_polls / community_poll_votes) belum dimigrasi —
+// pola tabel-hilang yang sama dengan isCommunityCommentsTableMissing.
+function isCommunityPollSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (['42P01', 'PGRST205', 'PGRST200'].includes(code)) {
+    return /community_poll/i.test(message) || code === '42P01';
+  }
+  return false;
+}
+
 function isCommunityLinkPreviewSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
@@ -4446,6 +4463,56 @@ function normalizeStoredCommunityMedia(value, photoUrl = null) {
  * bukan lewat ambang limit() yang ditebak — sama seperti GET .../comments.
  * `context` hanya dipakai untuk melabeli console.warn saat terpotong.
  */
+/**
+ * Peta polling per kiriman: post_id -> payload siap-klien ({options, total_
+ * votes, my_vote, ends_at, closed}); kiriman tanpa poll tidak punya entri.
+ * Tabel belum dimigrasi -> peta kosong (poll lenyap senyap, feed tetap jalan)
+ * — beda dari jalur tulis yang menolak jelas dengan 503.
+ */
+async function loadCommunityPollMaps(postIds, viewerAgentId, context = 'loadCommunityPollMaps') {
+  const polls = new Map();
+  if (postIds.length === 0) return polls;
+
+  const { data: pollRows, error: pollError } = await supabase
+    .from('community_polls')
+    .select('post_id, options, ends_at')
+    .in('post_id', postIds);
+  if (pollError) {
+    if (isCommunityPollSchemaMissing(pollError)) return polls;
+    throw pollError;
+  }
+  if (!pollRows || pollRows.length === 0) return polls;
+
+  // Disiplin yang sama dengan reply/reaction count: limit() tidak bisa
+  // dipercaya apa adanya (max_rows PostgREST memperkecilnya diam-diam), jadi
+  // truncation dideteksi lewat count-exact vs panjang data diterima, dengan
+  // urutan deterministik.
+  const POLL_VOTE_LIMIT = 5000;
+  const pollPostIds = pollRows.map(row => row.post_id);
+  const { data: voteRows, error: voteError, count: voteCountTotal } = await supabase
+    .from('community_poll_votes')
+    .select('post_id, agent_id, option_index', { count: 'exact' })
+    .in('post_id', pollPostIds)
+    .order('created_at', { ascending: true })
+    .limit(POLL_VOTE_LIMIT);
+  if (voteError && !isCommunityPollSchemaMissing(voteError)) throw voteError;
+  const safeVoteRows = voteError ? [] : (voteRows || []);
+  if (!voteError && typeof voteCountTotal === 'number' && voteCountTotal > safeVoteRows.length) {
+    console.warn(`[community] poll vote count truncated: db count=${voteCountTotal} received=${safeVoteRows.length} at ${context} for posts: ${pollPostIds.join(',')}`);
+  }
+
+  const votesByPost = new Map(pollPostIds.map(id => [id, []]));
+  for (const row of safeVoteRows) {
+    votesByPost.get(row.post_id)?.push(row);
+  }
+  const now = new Date();
+  for (const row of pollRows) {
+    const payload = communityPollPayload(row, votesByPost.get(row.post_id), viewerAgentId, now);
+    if (payload) polls.set(row.post_id, payload);
+  }
+  return polls;
+}
+
 async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true, context = 'loadCommunityEngagementMaps' } = {}) {
   const reactionCounts = new Map(postIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
   const myReactions = new Map(postIds.map(id => [id, null]));
@@ -4453,11 +4520,11 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
   const commentCounts = new Map(postIds.map(id => [id, 0]));
   const quoteCounts = new Map(postIds.map(id => [id, 0]));
   if (postIds.length === 0) {
-    return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts };
+    return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts, polls: new Map() };
   }
 
   const COMMENT_COUNT_LIMIT = 2000;
-  const [reactionResult, commentResult, quoteResult] = await Promise.all([
+  const [reactionResult, commentResult, quoteResult, polls] = await Promise.all([
     supabase
       .from('community_post_reactions')
       .select('post_id, reaction, agent_id, agent:agents(name)')
@@ -4477,6 +4544,7 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
         .in('quoted_post_id', postIds)
         .is('deleted_at', null)
       : Promise.resolve({ data: [], error: null }),
+    loadCommunityPollMaps(postIds, viewerAgentId, context),
   ]);
   if (reactionResult.error) throw reactionResult.error;
   // Pra-migrasi (is_reply/parent_post_id belum ada): 0 komentar untuk semua,
@@ -4508,7 +4576,7 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
       quoteCounts.set(row.quoted_post_id, quoteCounts.get(row.quoted_post_id) + 1);
     }
   }
-  return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts };
+  return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts, polls };
 }
 
 // Allowed public URL prefixes for Teras media. Bunny CDN is the primary
@@ -5707,6 +5775,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       reactionSampleNames,
       commentCounts,
       quoteCounts,
+      polls,
     } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/feed' });
 
     // Mode profil saja: balasan sudah ikut terkirim (lihat buildPostsQuery di
@@ -5820,6 +5889,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
           ? communityQuotedPostPayload(quotedById.get(post.quoted_post_id))
           : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
+        poll: polls.get(post.id) || null,
         is_own: post.agent_id === agent.id,
         // parent_post_id/parent_author cuma berarti di mode profil (linimasa
         // selalu parent_post_id NULL, sudah disaring di buildPostsQuery).
@@ -5935,7 +6005,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       .maybeSingle();
     const needsAncestors = includeThread && !!post.parent_post_id;
 
-    const [reactionResult, commentResult, firstAncestorResult] = await Promise.all([
+    const [reactionResult, commentResult, firstAncestorResult, detailPolls] = await Promise.all([
       supabase
         .from('community_post_reactions')
         .select('post_id, reaction, agent_id, agent:agents(name)')
@@ -5956,6 +6026,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       // ini sudah menembakkan; hop-hop berikutnya baru bisa jalan setelah id
       // induk-dari-induk diketahui, jadi lanjutannya tetap berurutan di bawah.
       needsAncestors ? fetchCommunityAncestorRow(post.parent_post_id) : Promise.resolve({ data: null, error: null }),
+      loadCommunityPollMaps([post.id], req.user.id, 'GET /api/community/posts/:id'),
     ]);
     if (reactionResult.error) throw reactionResult.error;
     // Pra-migrasi (is_reply/parent_post_id belum ada): degradasi ke 0, bukan
@@ -6065,6 +6136,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
           reactionSampleNames: threadReactionSampleNames,
           commentCounts: threadCommentCounts,
           quoteCounts: threadQuoteCounts,
+          polls: threadPolls,
         } = await loadCommunityEngagementMaps(threadIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/posts/:id thread' });
         thread = threadRows.map(row => {
           const rowMedia = normalizeStoredCommunityMedia(row.media, row.photo_url);
@@ -6084,6 +6156,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
             reaction_sample_name: threadReactionSampleNames.get(row.id),
             comment_count: threadCommentCounts.get(row.id) || 0,
             quote_count: threadQuoteCounts.get(row.id) || 0,
+            poll: threadPolls.get(row.id) || null,
             is_own: row.agent_id === agent.id,
           };
         });
@@ -6111,6 +6184,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         quote_count: quoteCount,
         quoted_post: post.quoted_post_id ? quotedPost : null,
         link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
+        poll: detailPolls.get(post.id) || null,
         thread,
         parent_post_id: includeThread ? (post.parent_post_id || null) : null,
         ancestors,
@@ -6312,6 +6386,12 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
     const { segments: rawSegments, error: segmentError } = normalizeThreadSegments(req.body);
     if (segmentError) return res.status(400).json({ error: segmentError });
 
+    // Polling ala Threads: milik utas (menempel pada segmen pertama), 2-4 opsi,
+    // durasi tetap 24 jam. Validasi bentuk di sini; larangan gabung dengan
+    // media/quote menyusul setelah keduanya diketahui di bawah.
+    const { options: pollOptions, error: pollInputError } = normalizeCommunityPollInput(req.body?.poll);
+    if (pollInputError) return res.status(400).json({ error: pollInputError });
+
     // Segmen pertama memegang identitas utas: quote, link preview, dan @semua
     // hanya dinilai dari sini.
     const body = rawSegments[0].body;
@@ -6386,6 +6466,12 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
     }
     const media = segmentMedia[0];
     const photoUrl = media.find(item => item.type === 'image')?.url || null;
+
+    // Parity Threads: poll berdiri sendiri di segmen pertama — tidak digabung
+    // media segmen itu ataupun kutipan. (Segmen lanjutan boleh tetap bermedia.)
+    if (pollOptions && (media.length > 0 || quotedPostId)) {
+      return res.status(400).json({ error: 'Polling tidak bisa digabung dengan media atau kutipan' });
+    }
 
     // Link preview: hanya bila TIDAK ada media & TIDAK ada quote (prioritas).
     let linkPreview = null;
@@ -6502,6 +6588,67 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       throw failure.error;
     }
 
+    // Poll disimpan SETELAH seluruh rantai kiriman sukses; gagal -> rollback
+    // rantai yang baru dibuat (all-or-nothing yang sama dengan antar-segmen —
+    // kiriman "Pilih mana?" tanpa poll-nya lebih buruk daripada penolakan
+    // jelas). Retry idempoten (reused/23505) mengambil baris poll yang sudah
+    // ada dari percobaan pertama, bukan insert ulang.
+    let createdPollPayload = null;
+    if (pollOptions && createdPost) {
+      const loadExistingPoll = () => supabase
+        .from('community_polls')
+        .select('post_id, options, ends_at')
+        .eq('post_id', createdPost.id)
+        .maybeSingle();
+      let pollRow = null;
+      let pollFailure = null;
+      if (isFreshPostInsert) {
+        const { data: insertedPoll, error: pollInsertError } = await supabase
+          .from('community_polls')
+          .insert({
+            post_id: createdPost.id,
+            options: pollOptions,
+            ends_at: new Date(Date.now() + COMMUNITY_POLL_DURATION_MS).toISOString(),
+          })
+          .select('post_id, options, ends_at')
+          .single();
+        if (!pollInsertError) {
+          pollRow = insertedPoll;
+        } else if (pollInsertError.code === '23505') {
+          ({ data: pollRow } = await loadExistingPoll());
+        } else {
+          pollFailure = pollInsertError;
+        }
+      } else {
+        const { data: existingPoll, error: existingPollError } = await loadExistingPoll();
+        if (existingPollError && !isCommunityPollSchemaMissing(existingPollError)) {
+          pollFailure = existingPollError;
+        }
+        pollRow = existingPoll || null;
+      }
+      if (pollFailure) {
+        if (rollbackIds.length > 0) {
+          const { error: rollbackError } = await supabase
+            .from('community_posts')
+            .delete()
+            .in('id', rollbackIds)
+            .eq('agent_id', agent.id);
+          if (rollbackError) {
+            console.error(
+              '[community] ROLLBACK UTAS (poll) GAGAL — baris yatim perlu dibersihkan manual:',
+              rollbackIds.join(', '),
+              rollbackError.message,
+            );
+          }
+        }
+        if (isCommunityPollSchemaMissing(pollFailure)) {
+          return res.status(503).json({ error: 'Migrasi polling Teras belum diterapkan' });
+        }
+        throw pollFailure;
+      }
+      createdPollPayload = pollRow ? communityPollPayload(pollRow, [], agent.id) : null;
+    }
+
     // Pill "kiriman baru" menghitung baris feed, dan feed hanya menampilkan
     // segmen pertama — jadi satu utas menaikkan head sekali.
     bumpCommunityFeedHead(createdPost);
@@ -6526,6 +6673,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       quote_count: 0,
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
       link_preview: linkPreview,
+      poll: createdPollPayload,
       thread_count: chain.length > 1 ? chain.length : 0,
       is_own: true,
     };
@@ -6660,6 +6808,66 @@ app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ lim
   } catch (err) {
     console.error('[community] reaction error:', err);
     res.status(500).json({ error: 'Gagal memperbarui reaksi' });
+  }
+});
+
+// Vote polling ala Threads: satu suara per agent per poll, boleh diganti
+// selama polling terbuka (upsert), tidak bisa dicabut. Balasan membawa payload
+// poll terbaru supaya klien bisa merekonsiliasi hitungan dari suara paralel.
+app.post('/api/community/posts/:id/poll-vote', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+
+    const option = req.body?.option;
+    if (!Number.isInteger(option) || option < 0) {
+      return res.status(400).json({ error: 'Opsi polling tidak valid' });
+    }
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+    const post = await loadActiveCommunityPost(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+
+    const { data: pollRow, error: pollError } = await supabase
+      .from('community_polls')
+      .select('post_id, options, ends_at')
+      .eq('post_id', post.id)
+      .maybeSingle();
+    if (pollError) {
+      if (isCommunityPollSchemaMissing(pollError)) {
+        return res.status(503).json({ error: 'Migrasi polling Teras belum diterapkan' });
+      }
+      throw pollError;
+    }
+    if (!pollRow) return res.status(404).json({ error: 'Polling tidak ditemukan' });
+    const optionCount = Array.isArray(pollRow.options) ? pollRow.options.length : 0;
+    if (option >= optionCount) {
+      return res.status(400).json({ error: 'Opsi polling tidak valid' });
+    }
+    if (isCommunityPollClosed(pollRow.ends_at)) {
+      return res.status(409).json({ error: 'Polling sudah berakhir' });
+    }
+
+    const { error: voteError } = await supabase
+      .from('community_poll_votes')
+      .upsert(
+        { post_id: post.id, agent_id: agent.id, option_index: option },
+        { onConflict: 'post_id,agent_id' },
+      );
+    if (voteError) throw voteError;
+
+    const { data: voteRows, error: voteRowsError } = await supabase
+      .from('community_poll_votes')
+      .select('post_id, agent_id, option_index')
+      .eq('post_id', post.id);
+    if (voteRowsError) throw voteRowsError;
+
+    res.json({ success: true, data: communityPollPayload(pollRow, voteRows || [], agent.id) });
+  } catch (err) {
+    console.error('[community] poll vote error:', err);
+    res.status(500).json({ error: 'Gagal menyimpan suara polling' });
   }
 });
 

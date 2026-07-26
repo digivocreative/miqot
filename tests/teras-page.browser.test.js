@@ -211,8 +211,40 @@ function createCommunityApi({
         },
         is_own: true,
       });
+      if (record.body?.poll) {
+        created.poll = {
+          options: (record.body.poll.options || []).map(text => ({ text, votes: 0 })),
+          total_votes: 0,
+          my_vote: null,
+          // Relatif ke jam NYATA (bukan created_at beku 2026-07-18) — klien
+          // menilai closed dari ends_at vs Date.now, jadi ends_at basi membuat
+          // poll baru langsung tampak berakhir.
+          ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          closed: false,
+        };
+      }
       api.posts = [created, ...api.posts.filter(post => post.id !== created.id)];
       await responseJson(route, { success: true, data: clone(created) });
+      return;
+    }
+
+    const pollVoteMatch = record.pathname.match(/^\/api\/community\/posts\/([^/]+)\/poll-vote$/);
+    if (record.method === 'POST' && pollVoteMatch) {
+      const postId = decodeURIComponent(pollVoteMatch[1]);
+      const poll = api.posts.find(post => post.id === postId)?.poll;
+      if (!poll) {
+        await responseJson(route, { success: false, error: 'Polling tidak ditemukan' }, 404);
+        return;
+      }
+      const option = record.body?.option;
+      if (Number.isInteger(poll.my_vote)) {
+        poll.options[poll.my_vote].votes -= 1;
+      } else {
+        poll.total_votes += 1;
+      }
+      poll.options[option].votes += 1;
+      poll.my_vote = option;
+      await responseJson(route, { success: true, data: clone(poll) });
       return;
     }
 
@@ -1689,6 +1721,119 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       // Membaca utuh tetap lewat klik badan komentar -> halaman utas komentar.
       await article.getByText('Komentar yang dibalas', { exact: true }).click();
       await app.page.waitForURL('**/dashboard/teras/post/komentar-target', { timeout: 10_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('komposer membuat polling: toggle, opsi 2-4, kirim body.poll, render kartu', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({ posts: [] });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+
+      await dialog.getByRole('button', { name: 'Polling', exact: true }).click();
+      await dialog.getByRole('textbox', { name: 'Opsi 1 polling' }).waitFor();
+      await dialog.getByRole('textbox', { name: 'Opsi 2 polling' }).waitFor();
+      // Poll aktif memblokir media segmen pertama (parity Threads).
+      assert.equal(await dialog.getByRole('button', { name: 'Foto/Video' }).isDisabled(), true,
+        'tombol media segmen pertama harus nonaktif saat polling aktif');
+      await dialog.getByText('Berlangsung 24 jam', { exact: true }).waitFor();
+
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Enaknya ambil paket yang mana?');
+      await dialog.getByRole('textbox', { name: 'Opsi 1 polling' }).fill('Makkah dulu');
+      // Opsi belum lengkap -> tombol kirim masih nonaktif.
+      assert.equal(await dialog.getByRole('button', { name: 'Kirim kiriman' }).isDisabled(), true,
+        'submit harus nonaktif selama ada opsi polling kosong');
+      await dialog.getByRole('textbox', { name: 'Opsi 2 polling' }).fill('Madinah dulu');
+      await dialog.getByRole('button', { name: '+ Tambah opsi', exact: true }).click();
+      await dialog.getByRole('textbox', { name: 'Opsi 3 polling' }).fill('Dua-duanya');
+
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const createRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
+      assert.deepEqual(createRequest.body.poll, { options: ['Makkah dulu', 'Madinah dulu', 'Dua-duanya'] });
+
+      const article = app.page.locator('article').filter({ hasText: 'Enaknya ambil paket yang mana?' });
+      await article.locator('[data-poll]').waitFor();
+      await article.getByRole('button', { name: /Makkah dulu/ }).waitFor();
+      await article.getByText('0 suara · Berakhir dalam', { exact: false }).waitFor();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('vote polling optimistic, bisa ganti suara, polling berakhir jadi statis', { timeout: 30_000 }, async () => {
+    const openPoll = {
+      options: [
+        { text: 'Paket 9 Hari', votes: 3 },
+        { text: 'Paket 12 Hari', votes: 1 },
+      ],
+      total_votes: 4,
+      my_vote: null,
+      ends_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+      closed: false,
+    };
+    const closedPoll = {
+      options: [
+        { text: 'Subuh', votes: 2 },
+        { text: 'Dzuhur', votes: 8 },
+      ],
+      total_votes: 10,
+      my_vote: 1,
+      ends_at: '2026-07-01T00:00:00.000Z',
+      closed: true,
+    };
+    const api = createCommunityApi({
+      posts: [
+        makePost({ id: 'poll-open', body: 'Polling terbuka', poll: openPoll }),
+        makePost({ id: 'poll-closed', body: 'Polling tertutup', poll: closedPoll }),
+      ],
+    });
+    const app = await openApp({ api });
+    try {
+      const openArticle = app.page.locator('article').filter({ hasText: 'Polling terbuka' });
+      // Belum memilih: baris opsi polos tanpa bar/persentase.
+      await openArticle.getByRole('button', { name: 'Paket 9 Hari', exact: true }).waitFor();
+      assert.equal(await openArticle.locator('[data-poll-bar]').count(), 0,
+        'sebelum memilih tidak boleh ada bar hasil');
+      await openArticle.getByText('4 suara', { exact: false }).waitFor();
+
+      await openArticle.getByRole('button', { name: 'Paket 9 Hari', exact: true }).click();
+      const voteRequests = () => matchingRequests(api, 'POST', '/api/community/posts/poll-open/poll-vote');
+      await openArticle.getByText('5 suara', { exact: false }).waitFor();
+      assert.equal(voteRequests().length, 1);
+      assert.deepEqual(voteRequests()[0].body, { option: 0 });
+      // Hasil tampil: bar + persentase (4/5 = 80%, 1/5 = 20%).
+      await openArticle.getByText('80%', { exact: true }).waitFor();
+      await openArticle.getByText('20%', { exact: true }).waitFor();
+      assert.equal(await openArticle.locator('[data-poll-bar]').count(), 2);
+      assert.equal(
+        await openArticle.getByRole('button', { name: /Paket 9 Hari/ }).getAttribute('aria-pressed'),
+        'true',
+      );
+
+      // Ganti suara selama polling terbuka: total tetap, persentase pindah.
+      await openArticle.getByRole('button', { name: /Paket 12 Hari/ }).click();
+      await openArticle.getByText('60%', { exact: true }).waitFor();
+      await openArticle.getByText('40%', { exact: true }).waitFor();
+      await openArticle.getByText('5 suara', { exact: false }).waitFor();
+      assert.deepEqual(voteRequests()[1].body, { option: 1 });
+      assert.equal(
+        await openArticle.getByRole('button', { name: /Paket 12 Hari/ }).getAttribute('aria-pressed'),
+        'true',
+      );
+
+      // Polling berakhir: baris statis (bukan tombol), label berakhir, hasil tampil.
+      const closedArticle = app.page.locator('article').filter({ hasText: 'Polling tertutup' });
+      await closedArticle.getByText('10 suara · Polling berakhir', { exact: true }).waitFor();
+      assert.equal(await closedArticle.locator('button[data-poll-option]').count(), 0,
+        'opsi polling berakhir tidak boleh berupa tombol');
+      await closedArticle.getByText('80%', { exact: true }).waitFor();
+      assert.equal(voteRequests().length, 2, 'polling berakhir tidak boleh mengirim vote');
     } finally {
       await app.close();
     }

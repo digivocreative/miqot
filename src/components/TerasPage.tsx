@@ -19,6 +19,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
   ArrowUp,
+  BarChart3,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -133,6 +135,7 @@ interface CommunityPost {
   quote_count?: number;
   quoted_post?: QuotedPostPreview | null;
   link_preview?: LinkPreview | null;
+  poll?: CommunityPoll | null;
   is_own: boolean;
   /** Total segmen utas ini; 0 atau undefined berarti kiriman biasa. */
   thread_count?: number;
@@ -189,6 +192,21 @@ interface LinkPreview {
   title?: string;
   description?: string;
   image?: string;
+}
+
+interface CommunityPollOption {
+  text: string;
+  votes: number;
+}
+
+/** Polling ala Threads — payload dari server (lib/community-poll.js). */
+interface CommunityPoll {
+  options: CommunityPollOption[];
+  total_votes: number;
+  my_vote: number | null;
+  ends_at: string;
+  /** Dinilai server saat serve; klien tetap cek ends_at supaya tidak basi. */
+  closed: boolean;
 }
 
 export interface CommunityComment {
@@ -317,6 +335,10 @@ const composerMentionContext = (segmentKey: string) => `${COMPOSER_MENTION_PREFI
 const isComposerMentionContext = (context: string) => context.startsWith(COMPOSER_MENTION_PREFIX);
 const composerMentionSegmentKey = (context: string) => context.slice(COMPOSER_MENTION_PREFIX.length);
 const MAX_COMMUNITY_COMMENT_CHARS = 300;
+// Sama dengan batas server (lib/community-poll.js) — polling ala Threads.
+const POLL_MIN_OPTIONS = 2;
+const POLL_MAX_OPTIONS = 4;
+const POLL_MAX_OPTION_CHARS = 60;
 // Small buffer over the limit so pasted text isn't silently truncated —
 // the counter turns red and submit stays disabled until it's trimmed.
 const COMPOSER_BODY_HARD_CAP = 520;
@@ -734,6 +756,99 @@ function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
 }
 
 type PostMediaFit = 'natural' | 'height' | 'cover';
+
+/** "Berakhir dalam X" untuk polling terbuka; null bila sudah lewat/ends_at rusak. */
+function formatPollTimeLeft(endsAt: string): string | null {
+  const remaining = Date.parse(endsAt) - Date.now();
+  if (!Number.isFinite(remaining) || remaining <= 0) return null;
+  const minutes = Math.ceil(remaining / 60_000);
+  if (minutes < 60) return `Berakhir dalam ${minutes} mnt`;
+  const hours = Math.round(minutes / 60);
+  return `Berakhir dalam ${hours} jam`;
+}
+
+/**
+ * Polling ala Threads di kartu kiriman. Sebelum memilih: baris opsi polos.
+ * Setelah memilih ATAU polling berakhir: bar persentase + centang pilihan
+ * saya. Selama masih terbuka, menyentuh opsi lain MENGGANTI suara (tidak bisa
+ * dicabut) — baris tetap tombol; setelah berakhir baris jadi statis.
+ */
+function PollBlock({
+  poll,
+  onVote,
+}: {
+  poll: CommunityPoll;
+  onVote: (optionIndex: number) => void;
+}) {
+  // `closed` server bisa basi di klien yang lama terbuka — nilai waktu lokal
+  // ikut menentukan supaya polling kedaluwarsa tidak tampak masih menerima suara.
+  const closed = poll.closed || Date.parse(poll.ends_at) - Date.now() <= 0;
+  const showResults = closed || poll.my_vote !== null;
+  const timeLeft = closed ? null : formatPollTimeLeft(poll.ends_at);
+
+  return (
+    <div data-poll className="mt-2 min-w-0">
+      <div className="flex flex-col gap-1.5">
+        {poll.options.map((option, index) => {
+          const percent = poll.total_votes > 0
+            ? Math.round((option.votes / poll.total_votes) * 100)
+            : 0;
+          const isMine = poll.my_vote === index;
+          const rowContent = (
+            <>
+              {showResults && (
+                <span
+                  aria-hidden="true"
+                  data-poll-bar
+                  className={`absolute inset-y-0 left-0 rounded-[10px] transition-[width] duration-300 ease-out ${
+                    isMine ? 'bg-emerald-500/20 dark:bg-emerald-400/20' : 'bg-gray-100 dark:bg-slate-800'
+                  }`}
+                  style={{ width: `${percent}%` }}
+                />
+              )}
+              <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="min-w-0 truncate">{option.text}</span>
+                {isMine && <Check size={14} strokeWidth={3} className="shrink-0 text-emerald-600 dark:text-emerald-400" />}
+              </span>
+              {showResults && (
+                <span className="relative shrink-0 tabular-nums text-gray-600 dark:text-slate-300">{percent}%</span>
+              )}
+            </>
+          );
+          const rowClass = `relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-xl border px-3 text-left text-[13.5px] font-semibold ${
+            isMine
+              ? 'border-emerald-400/70 text-gray-800 dark:border-emerald-500/60 dark:text-slate-100'
+              : 'border-gray-200 text-gray-700 dark:border-slate-700 dark:text-slate-200'
+          }`;
+          // Berakhir: baris statis (bukan tombol) supaya tidak ada kontrol
+          // yang terlihat aktif tapi diam saat disentuh.
+          if (closed) {
+            return (
+              <div key={index} data-poll-option className={rowClass}>
+                {rowContent}
+              </div>
+            );
+          }
+          return (
+            <button
+              key={index}
+              type="button"
+              data-poll-option
+              aria-pressed={isMine}
+              onClick={() => onVote(index)}
+              className={`${rowClass} transition-colors hover:border-emerald-400/70 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:border-emerald-500/60 dark:active:bg-slate-900`}
+            >
+              {rowContent}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+        {poll.total_votes} suara · {closed ? 'Polling berakhir' : timeLeft}
+      </p>
+    </div>
+  );
+}
 
 function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
   const [imageBroken, setImageBroken] = useState(false);
@@ -1401,6 +1516,9 @@ export default function TerasPage({
   const [composerBusy, setComposerBusy] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerQuote, setComposerQuote] = useState<QuotedPostPreview | null>(null);
+  // Builder polling (segmen pertama saja): null = tanpa poll; array = teks
+  // opsi yang sedang diketik. Saling-eksklusif dengan media segmen-1 & quote.
+  const [composerPoll, setComposerPoll] = useState<string[] | null>(null);
   const [composerLinkPreview, setComposerLinkPreview] = useState<LinkPreview | null>(null);
   const [composerLinkLoading, setComposerLinkLoading] = useState(false);
   const [composerDismissedUrl, setComposerDismissedUrl] = useState<string | null>(null);
@@ -1558,6 +1676,8 @@ export default function TerasPage({
   const commentRequestIdsRef = useRef<Map<string, string>>(new Map());
   const reactionPendingRef = useRef<Set<string>>(new Set());
   const commentReactionPendingRef = useRef<Set<string>>(new Set());
+  // Penjaga in-flight vote polling per kiriman (pola reactionPendingRef).
+  const pollPendingRef = useRef<Set<string>>(new Set());
   // Penjaga in-flight togglePin: mencegah klik ganda (dobel tap/keyboard
   // repeat) mengirim POST+DELETE tumpang tindih sebelum respons pertama tiba.
   const pinBusyRef = useRef(false);
@@ -2249,6 +2369,7 @@ export default function TerasPage({
     setComposerOpen(false);
     setComposerError(null);
     setComposerQuote(null);
+    setComposerPoll(null);
     setComposerLinkPreview(null);
     setComposerLinkLoading(false);
     setComposerDismissedUrl(null);
@@ -2261,16 +2382,17 @@ export default function TerasPage({
   const closeComposer = useCallback(() => {
     if (composerBusy) return;
     // Cek SEMUA segmen: utas 4 segmen tidak boleh dibuang tanpa tanya hanya
-    // karena segmen pertama kebetulan kosong.
+    // karena segmen pertama kebetulan kosong. Opsi polling yang sudah diketik
+    // juga konten — jangan dibuang senyap.
     const hasComposerContent = composerSegments.some(
       segment => segment.body.trim() || segment.media.length > 0,
-    );
+    ) || (composerPoll?.some(option => option.trim().length > 0) ?? false);
     const discardMessage = composerSegments.length > 1
       ? 'Buang utas ini?'
       : 'Buang draft kiriman ini?';
     if (hasComposerContent && !window.confirm(discardMessage)) return;
     resetComposer();
-  }, [composerSegments, composerBusy, resetComposer]);
+  }, [composerSegments, composerBusy, composerPoll, resetComposer]);
   closeComposerRef.current = closeComposer;
 
   // Invarian: sheet komposer HANYA dirender kalau `composerSheetVisible`
@@ -2841,6 +2963,11 @@ export default function TerasPage({
             // Selalu bentuk `segments`, termasuk untuk satu segmen: satu jalur kode.
             segments: segmentsPayload,
             ...(composerQuote?.id ? { quoted_post_id: composerQuote.id } : {}),
+            // Guard media/quote diulang di sini (server juga menolak) supaya
+            // state builder yang tak sinkron tidak mengirim kombinasi ilegal.
+            ...(composerPoll && !firstHasMedia && !composerQuote
+              ? { poll: { options: composerPoll.map(option => option.trim()) } }
+              : {}),
             ...(composerLinkPreview && !firstHasMedia && !composerQuote
               ? { link_preview: composerLinkPreview }
               : {}),
@@ -2963,6 +3090,63 @@ export default function TerasPage({
         next.delete(postId);
         return next;
       });
+    }
+  };
+
+  // Vote polling ala Threads: optimistic pindahkan suara (my_vote lama -1,
+  // opsi baru +1) di posts & pinnedPost, lalu POST; respons server membawa
+  // payload otoritatif (rekonsiliasi suara paralel), galat -> rollback.
+  const votePoll = async (postId: string, optionIndex: number) => {
+    if (pollPendingRef.current.has(postId)) return;
+    const snapshot = postsRef.current.find(post => post.id === postId)
+      ?? (pinnedPost?.id === postId ? pinnedPost : undefined);
+    const snapshotPoll = snapshot?.poll;
+    if (!snapshotPoll) return;
+    if (snapshotPoll.closed || Date.parse(snapshotPoll.ends_at) - Date.now() <= 0) return;
+    if (snapshotPoll.my_vote === optionIndex) return;
+    if (optionIndex < 0 || optionIndex >= snapshotPoll.options.length) return;
+
+    const applyPollUpdate = (updater: (poll: CommunityPoll) => CommunityPoll) => {
+      const patchPost = (post: CommunityPost) => (
+        post.id === postId && post.poll ? { ...post, poll: updater(post.poll) } : post
+      );
+      setPosts(current => current.map(patchPost));
+      setPinnedPost(current => (current ? patchPost(current) : current));
+    };
+
+    pollPendingRef.current.add(postId);
+    applyPollUpdate(poll => ({
+      ...poll,
+      my_vote: optionIndex,
+      total_votes: poll.total_votes + (poll.my_vote === null ? 1 : 0),
+      options: poll.options.map((option, index) => ({
+        ...option,
+        votes: option.votes
+          + (index === optionIndex ? 1 : 0)
+          - (index === poll.my_vote ? 1 : 0),
+      })),
+    }));
+
+    try {
+      const result = await requestJson<CommunityPoll>(
+        `/api/community/posts/${encodeURIComponent(postId)}/poll-vote`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ option: optionIndex }),
+        },
+        'Gagal menyimpan suara polling',
+      );
+      trackEvent('action', 'vote_teras_poll');
+      if (result.data) {
+        const serverPoll = result.data;
+        applyPollUpdate(() => serverPoll);
+      }
+    } catch (pollError) {
+      applyPollUpdate(() => snapshotPoll);
+      showToast(errorMessage(pollError, 'Gagal menyimpan suara polling'), 'error');
+    } finally {
+      pollPendingRef.current.delete(postId);
     }
   };
 
@@ -4209,9 +4393,19 @@ export default function TerasPage({
   const composerMediaWithoutTextIndex = composerSegments.findIndex(
     segment => segment.body.trim().length === 0 && segment.media.length > 0,
   );
+  // Poll valid = semua opsi terisi (1..60 char) dan tak ada yang kembar —
+  // cermin validasi server (normalizeCommunityPollInput).
+  const composerPollValid = !composerPoll || (
+    composerPoll.every(option => {
+      const length = Array.from(option.trim()).length;
+      return length >= 1 && length <= POLL_MAX_OPTION_CHARS;
+    })
+    && new Set(composerPoll.map(option => option.trim().toLowerCase())).size === composerPoll.length
+  );
   const composerCanSubmit = composerFirstLength >= 1
     && composerOverLimitIndex === -1
     && composerMediaWithoutTextIndex === -1
+    && composerPollValid
     && !composerBusy
     && composerSegments.every(segment => segment.media.every(item => item.status === 'ready'));
 
@@ -4279,18 +4473,44 @@ export default function TerasPage({
     else composerTextareaNodesRef.current.delete(segmentKey);
   };
 
-  const renderComposerToolbar = (segment: ComposerSegmentState) => (
-    <button
-      type="button"
-      onClick={() => openComposerMediaPicker(segment.key)}
-      disabled={composerBusy || segment.media.length >= MAX_COMMUNITY_MEDIA}
-      title="Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)"
-      className="-ml-2 flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
-    >
-      <ImageIcon size={18} strokeWidth={1.8} />
-      Foto/Video
-    </button>
-  );
+  const renderComposerToolbar = (segment: ComposerSegmentState) => {
+    const isFirstSegment = composerSegments[0]?.key === segment.key;
+    // Parity Threads: poll milik segmen pertama & saling-eksklusif dengan
+    // media segmen itu serta quote — tombol yang tidak relevan dimatikan,
+    // bukan disembunyikan, supaya tata letak toolbar tidak melompat.
+    const pollBlocksMedia = isFirstSegment && !!composerPoll;
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => openComposerMediaPicker(segment.key)}
+          disabled={composerBusy || segment.media.length >= MAX_COMMUNITY_MEDIA || pollBlocksMedia}
+          title={pollBlocksMedia ? 'Polling tidak bisa digabung dengan media' : 'Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)'}
+          className="-ml-2 flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
+        >
+          <ImageIcon size={18} strokeWidth={1.8} />
+          Foto/Video
+        </button>
+        {isFirstSegment && !composerQuote && (
+          <button
+            type="button"
+            onClick={() => setComposerPoll(current => (current ? null : ['', '']))}
+            disabled={composerBusy || segment.media.length > 0}
+            aria-pressed={!!composerPoll}
+            title={segment.media.length > 0 ? 'Polling tidak bisa digabung dengan media' : 'Tambah polling (2-4 opsi, 24 jam)'}
+            className={`flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
+              composerPoll
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 size={18} strokeWidth={1.8} />
+            Polling
+          </button>
+        )}
+      </>
+    );
+  };
 
   const renderComposerMedia = (segment: ComposerSegmentState) => {
     const media = segment.media;
@@ -4357,10 +4577,72 @@ export default function TerasPage({
     );
   };
 
-  // Quote & pratinjau tautan hanya milik segmen pertama.
+  // Quote, polling, & pratinjau tautan hanya milik segmen pertama.
   const composerFirstSegmentFooter = (
     <>
       {composerQuote && <QuotedPostCard quoted={composerQuote} />}
+
+      {composerPoll && !composerQuote && (
+        <div data-composer-poll className="mt-2 rounded-2xl border border-gray-200/80 p-3 dark:border-slate-700/60">
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] font-bold text-gray-700 dark:text-slate-200">Polling</p>
+            <button
+              type="button"
+              onClick={() => setComposerPoll(null)}
+              disabled={composerBusy}
+              aria-label="Buang polling"
+              title="Buang polling"
+              className="-my-2 -mr-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          {composerPoll.map((option, index) => (
+            <div key={index} className="mt-2 flex items-center gap-1.5">
+              <input
+                type="text"
+                value={option}
+                maxLength={POLL_MAX_OPTION_CHARS}
+                placeholder={`Opsi ${index + 1}`}
+                aria-label={`Opsi ${index + 1} polling`}
+                disabled={composerBusy}
+                onChange={event => {
+                  const { value } = event.target;
+                  setComposerPoll(current => current?.map((item, i) => (i === index ? value : item)) ?? current);
+                }}
+                className="min-h-11 w-full min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-900 outline-none transition-colors focus:border-emerald-400 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              />
+              {composerPoll.length > POLL_MIN_OPTIONS && (
+                <button
+                  type="button"
+                  onClick={() => setComposerPoll(current => current?.filter((_, i) => i !== index) ?? current)}
+                  disabled={composerBusy}
+                  aria-label={`Hapus opsi ${index + 1} polling`}
+                  title="Hapus opsi"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+          <div className="mt-2 flex min-h-6 items-center justify-between gap-2">
+            {composerPoll.length < POLL_MAX_OPTIONS ? (
+              <button
+                type="button"
+                onClick={() => setComposerPoll(current => (
+                  current && current.length < POLL_MAX_OPTIONS ? [...current, ''] : current
+                ))}
+                disabled={composerBusy}
+                className="-ml-1 rounded-full px-2 py-1 text-[12px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
+              >
+                + Tambah opsi
+              </button>
+            ) : <span />}
+            <span className="text-[10px] font-medium text-gray-400 dark:text-slate-500">Berlangsung 24 jam</span>
+          </div>
+        </div>
+      )}
 
       {composerLinkLoading && !composerLinkPreview && (
         <div className="mt-2 h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
@@ -5720,6 +6002,10 @@ export default function TerasPage({
 
                     {post.link_preview && postMedia.length === 0 && !post.quoted_post && (
                       <LinkPreviewCard preview={post.link_preview} />
+                    )}
+
+                    {post.poll && (
+                      <PollBlock poll={post.poll} onVote={optionIndex => void votePoll(post.id, optionIndex)} />
                     )}
 
                     <div className="relative -ml-2 mt-0.5 mb-1 flex items-center gap-1">

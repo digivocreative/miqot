@@ -227,6 +227,7 @@ Komposer & konten post:
 - Teks dengan clamp tampilan, URL di body otomatis jadi tautan (`lib/teras-linkify.js`, dipakai FE dan server); URL yang sudah diwakili kartu preview disembunyikan dari teks.
 - Media post/komentar: maksimum 10 item, gambar ≤ 3MB, video ≤ 20MB — batas disinkron di **tiga titik**: klien, `server.js` (`COMMUNITY_MAX_MEDIA_ITEMS` dkk), dan constraint DB. Upload via `POST /api/community/media` ke Bunny CDN path `community/` (fallback Supabase Storage bila Bunny belum dikonfigurasi); video dapat poster pratinjau via media fragment.
 - Quote post ala Threads (`quoted_post_id`).
+- Polling ala Threads (2026-07-26): 2-4 opsi teks, durasi tetap 24 jam, hasil (persentase + bar) tampil setelah memilih, suara bisa diganti selama terbuka (upsert, tidak bisa dicabut). Tabel `community_polls` + `community_poll_votes` (migrasi `20260726010000`), helper murni `lib/community-poll.js`, vote via `POST /api/community/posts/:id/poll-vote`; poll milik segmen pertama utas dan tidak bisa digabung media segmen itu/quote (server & komposer sama-sama menolak). Feed/detail memuat poll lewat `loadCommunityPollMaps` (query terpisah ala engagement maps, degradasi senyap bila tabel belum ada).
 - Link preview ala Threads: metadata di kolom `community_posts.link_preview` (jsonb), diambil saat compose lewat proxy `GET /api/community/link-preview` dengan guard anti-SSRF (blokir IP privat, termasuk IPv6-embedded/6to4 IPv4) di `lib/community-link-preview.js`.
 - Mention `@slug` antar-agent: helper murni dua sisi (`lib/community-mentions.js` + `src/lib/communityMentions.ts`), maksimum 10 mention/post, pill mention dirender klien dari daftar `/members` dan menautkan ke profil. Pencatatan idempoten (read-then-insert karena partial unique index tidak bisa dipakai `on_conflict`); mention baru juga dikirim sebagai notifikasi Telegram ke agent tersebut dengan link detail post.
 
@@ -237,7 +238,7 @@ Notifikasi:
 
 Data & operasional:
 
-- Tabel: `community_posts` (+ `media` jsonb, `quoted_post_id`, `link_preview`, `pinned_at`), `community_post_reactions`, `community_post_comments` (+ `media`), `community_post_reports`, `community_reads`, `community_mentions` (unique parsial level post vs komentar).
+- Tabel: `community_posts` (+ `media` jsonb, `quoted_post_id`, `link_preview`, `pinned_at`), `community_post_reactions`, `community_post_comments` (+ `media`), `community_post_reports`, `community_reads`, `community_mentions` (unique parsial level post vs komentar), `community_polls` + `community_poll_votes` (polling).
 - **DDL diterapkan manual** dengan menempel SQL `migrations/2026071x-2x_community_*.sql` di Supabase SQL Editor (tidak ada pipeline migrasi otomatis). Endpoint post/komentar mengembalikan **503 "Migrasi ... Teras belum diterapkan"** bila kolom media/quote/mention belum ada — itu sinyal migrasi tertinggal, bukan bug kode.
 - Feed mode profil memakai `GET /api/community/feed?agent=<slug>`; identitas profil dari `GET /api/community/members`. `POST /api/community/read` menyimpan watermark baca feed untuk teaser unread (`TerasCard` di dashboard home via `/api/community/teaser`).
 - Moderasi ringan: report post, hapus post/komentar milik sendiri, pin (`pinned_at`).
