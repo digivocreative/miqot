@@ -692,9 +692,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }
                 navigateTab('home');
               }}
-              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-600 transition-all hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}
+              // Hit-area 44px (aturan a11y desain) dengan chip visual tetap
+              // 32/36px (d7d97bf): tombol transparan 44px membungkus chip;
+              // margin negatif menjaga tinggi/jarak header tidak berubah.
+              className={`group flex h-11 w-11 shrink-0 items-center justify-center ${compactHeader ? '-m-1.5' : '-m-1'}`}
             >
-              <ChevronLeft size={16} strokeWidth={2.5} />
+              <span className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-600 transition-all group-hover:bg-gray-200 group-active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}>
+                <ChevronLeft size={16} strokeWidth={2.5} />
+              </span>
             </button>
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {(() => {
@@ -833,9 +838,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               onClick={() => setIsDarkMode(p => !p)}
               aria-label={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
               title={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
-              className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}
+              // Pola hit-area yang sama dengan tombol back di atas.
+              className={`group flex h-11 w-11 shrink-0 items-center justify-center ${compactHeader ? '-m-1.5' : '-m-1'}`}
             >
-              {isDarkMode ? <Sun size={compactHeader ? 14 : 16} /> : <Moon size={compactHeader ? 14 : 16} />}
+              <span className={`flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors group-hover:bg-gray-200 group-active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700 ${compactHeader ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl'}`}>
+                {isDarkMode ? <Sun size={compactHeader ? 14 : 16} /> : <Moon size={compactHeader ? 14 : 16} />}
+              </span>
             </button>
           </div>
         </header>

@@ -6909,6 +6909,61 @@ app.get('/api/community/posts/:id/reactions', dbLoadShedGuard, authMiddleware, a
   }
 });
 
+// Daftar pemilih polling — dipakai popover "N suara" di PollBlock. Bentuknya
+// meniru daftar reaktor di atas, plus teks opsi yang dipilih tiap agent
+// (option_index diterjemahkan di sini supaya klien tidak perlu menjodohkan
+// index sendiri terhadap poll yang mungkin sudah berubah di state-nya).
+app.get('/api/community/posts/:id/poll-voters', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Postingan tidak ditemukan' });
+    }
+
+    const { data: pollRow, error: pollError } = await supabase
+      .from('community_polls')
+      .select('post_id, options')
+      .eq('post_id', req.params.id)
+      .maybeSingle();
+    if (pollError) {
+      if (isCommunityPollSchemaMissing(pollError)) {
+        return res.status(503).json({ error: 'Migrasi polling Teras belum diterapkan' });
+      }
+      throw pollError;
+    }
+    if (!pollRow) return res.status(404).json({ error: 'Polling tidak ditemukan' });
+    const optionTexts = Array.isArray(pollRow.options) ? pollRow.options : [];
+
+    const { data, error } = await supabase
+      .from('community_poll_votes')
+      .select('agent_id, option_index, created_at, agent:agents(name, slug, photo)')
+      .eq('post_id', req.params.id)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) throw error;
+
+    const voters = (data || [])
+      .map(row => {
+        const profile = communityAuthorProfile(row.agent);
+        return {
+          slug: profile.slug,
+          name: profile.name,
+          photo: profile.photo,
+          option_index: row.option_index,
+          option_text: typeof optionTexts[row.option_index] === 'string' ? optionTexts[row.option_index] : null,
+        };
+      })
+      .filter(voter => voter.name);
+
+    res.json({ success: true, data: voters });
+  } catch (err) {
+    console.error('[community] poll voters list error:', err);
+    res.status(500).json({ error: 'Gagal memuat daftar pemilih' });
+  }
+});
+
 app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);

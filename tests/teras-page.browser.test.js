@@ -101,6 +101,7 @@ function createCommunityApi({
   nextCursor = null,
   morePages = new Map(),
   comments = {},
+  pollVoters = {},
   members = [],
   broadcastQuota = {
     unlimited: false,
@@ -118,6 +119,7 @@ function createCommunityApi({
     members: clone(members),
     broadcastQuota: clone(broadcastQuota),
     comments: new Map(Object.entries(comments).map(([postId, value]) => [postId, clone(value)])),
+    pollVoters: new Map(Object.entries(pollVoters).map(([postId, value]) => [postId, clone(value)])),
     requests: [],
     createSequence: 0,
     commentSequence: 0,
@@ -227,6 +229,13 @@ function createCommunityApi({
       }
       api.posts = [created, ...api.posts.filter(post => post.id !== created.id)];
       await responseJson(route, { success: true, data: clone(created) });
+      return;
+    }
+
+    const pollVotersMatch = record.pathname.match(/^\/api\/community\/posts\/([^/]+)\/poll-voters$/);
+    if (record.method === 'GET' && pollVotersMatch) {
+      const postId = decodeURIComponent(pollVotersMatch[1]);
+      await responseJson(route, { success: true, data: clone(api.pollVoters.get(postId) || []) });
       return;
     }
 
@@ -442,7 +451,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     await viteServer?.close();
   });
 
-  test('Nikita sees Teras while another agent has no card and is redirected before feed fetch', { timeout: 45_000 }, async () => {
+  test('Teras terbuka untuk semua agent dan kartu dashboard tidak memicu fetch feed', { timeout: 45_000 }, async () => {
     const opened = [];
     try {
       const nikitaApi = createCommunityApi({
@@ -455,6 +464,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       });
       opened.push(nikita);
 
+      // Kartu Teras tampil di dashboard, tapi feed BARU di-fetch saat Teras
+      // benar-benar dibuka — bukan saat dashboard dirender.
       const terasCard = nikita.page.locator('main').getByRole('button', { name: 'Teras', exact: true });
       await terasCard.waitFor();
       assert.equal(await terasCard.count(), 1);
@@ -465,32 +476,22 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await directAllowed.page.getByText('Feed khusus Nikita', { exact: true }).waitFor();
       assert.equal(matchingRequests(nikitaApi, 'GET', '/api/community/feed').length, 1);
 
+      // Sejak 19 Jul 2026 Teras terbuka untuk SEMUA agent ber-slug
+      // (lib/community-access.js) — agent non-pilot juga langsung bisa masuk,
+      // tidak ada lagi redirect ke /dashboard.
       const otherAgent = makeAgent({ slug: 'agent-lain', name: 'Agent Lain' });
-      const otherHomeApi = createCommunityApi({ agent: otherAgent });
-      const otherHome = await openApp({
-        path: '/dashboard',
+      const otherApi = createCommunityApi({
         agent: otherAgent,
-        api: otherHomeApi,
-        waitForTeras: false,
+        posts: [makePost({ body: 'Feed untuk agent lain' })],
       });
-      opened.push(otherHome);
-      await otherHome.page.getByText('Agent Lain', { exact: true }).waitFor();
-      assert.equal(await otherHome.page.getByRole('button', { name: 'Teras', exact: true }).count(), 0);
-
-      const directApi = createCommunityApi({ agent: otherAgent });
-      const direct = await openApp({
+      const other = await openApp({
         path: '/dashboard/teras',
         agent: otherAgent,
-        api: directApi,
-        waitForTeras: false,
+        api: otherApi,
       });
-      opened.push(direct);
-      await direct.page.waitForURL(`${appOrigin}/dashboard`, { timeout: 10_000 });
-      assert.equal(
-        directApi.requests.filter(request => request.pathname.startsWith('/api/community/')).length,
-        0,
-        'guard harus redirect sebelum Teras membuat request',
-      );
+      opened.push(other);
+      await other.page.getByText('Feed untuk agent lain', { exact: true }).waitFor();
+      assert.equal(matchingRequests(otherApi, 'GET', '/api/community/feed').length, 1);
     } finally {
       await Promise.all(opened.map(instance => instance.close()));
     }
@@ -509,11 +510,23 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     });
     const app = await openApp({ api });
     try {
-      const loadingFeed = app.page.getByLabel('Memuat kiriman');
+      // Scope ke root TerasPage: DashboardLayout punya skeleton kembar sebagai
+      // fallback lazy-load yang bisa masih terpasang sesaat — tanpa scope,
+      // pengukuran bisa jatuh ke skeleton fallback itu (flaky).
+      const loadingFeed = app.page.locator('[data-teras-root]').getByLabel('Memuat kiriman');
       await loadingFeed.waitFor();
       assert.ok(initialFeedRoute, 'initial feed request harus tertahan');
       const mediaSkeleton = loadingFeed.locator('[data-teras-skeleton-media]');
       assert.equal(await mediaSkeleton.count(), 1, 'skeleton pertama harus mencadangkan ruang media');
+      // Layar feed masuk dengan animasi slide (x: -16 -> 0). Tunggu seluruh
+      // rantai transform settle dulu — mengukur mid-animasi menggeser x
+      // beberapa piksel ke kiri dan membuat asersi geometri flaky.
+      await app.page.waitForFunction(element => {
+        for (let node = element; node; node = node.parentElement) {
+          if (getComputedStyle(node).transform !== 'none') return false;
+        }
+        return true;
+      }, await mediaSkeleton.elementHandle());
       const mediaSkeletonBox = await mediaSkeleton.boundingBox();
       assert.ok(mediaSkeletonBox && mediaSkeletonBox.x >= 67 && mediaSkeletonBox.x + mediaSkeletonBox.width <= 345);
 
@@ -623,7 +636,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const preview = dialog.getByAltText('Pratinjau foto kiriman');
       await preview.waitFor();
       const textarea = dialog.getByLabel('Isi kiriman');
-      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      // Toolbar media di dalam composer kini berlabel "Foto/Video".
+      const attachment = dialog.getByRole('button', { name: 'Foto/Video' });
       const [textareaBox, attachmentBox, previewBox] = await Promise.all([
         textarea.boundingBox(),
         attachment.boundingBox(),
@@ -638,7 +652,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         attachmentBox.y + attachmentBox.height <= previewBox.y + 4,
         'toolbar media harus berada sebelum preview agar tidak terdorong ke bawah',
       );
-      assert.equal(await dialog.getByText('1/4', { exact: true }).count(), 1);
+      // Kuota media kini 10 per kiriman (MAX_COMMUNITY_MEDIA).
+      assert.equal(await dialog.getByText('1/10', { exact: true }).count(), 1);
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Kiriman dengan foto');
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
       await sendButton.waitFor({ state: 'visible' });
@@ -726,8 +741,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.getByAltText('Pratinjau foto 1').waitFor();
       await dialog.getByAltText('Pratinjau foto 2').waitFor();
+      // Multi-media di composer kini strip horizontal (tinggi seragam), bukan
+      // grid pair — feed yang tetap memakai layout pair untuk 2 media.
       const composerMediaGroup = dialog.getByRole('group', { name: '2 media kiriman dipilih' });
-      assert.equal(await composerMediaGroup.getAttribute('data-composer-media-layout'), 'pair');
+      assert.equal(await composerMediaGroup.getAttribute('data-composer-media-layout'), 'strip');
       const [firstPreviewBox, secondPreviewBox] = await Promise.all([
         dialog.getByAltText('Pratinjau foto 1').boundingBox(),
         dialog.getByAltText('Pratinjau foto 2').boundingBox(),
@@ -815,7 +832,10 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const createdArticle = app.page.locator('article').filter({ hasText: 'Video singkat perjalanan' });
       const renderedVideo = createdArticle.getByLabel('Video 1 dari 1 kiriman Nikita Test');
       await renderedVideo.waitFor();
-      assert.equal(await renderedVideo.getAttribute('controls'), '');
+      // Kontrol native diambil alih Plyr (atribut `controls` dicopot saat player
+      // terpasang) — kontraknya kini: player kustom hadir + tetap playsInline.
+      assert.equal(await createdArticle.locator('[data-media-content="video"] .plyr').count(), 1,
+        'video feed harus dibungkus player Plyr');
       assert.equal(await renderedVideo.getAttribute('playsinline'), '');
     } finally {
       await app.close();
@@ -860,15 +880,19 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         rail.locator('[data-media-slide]').nth(1).boundingBox(),
       ]);
       assert.ok(railBox && firstSlideBox && secondSlideBox, 'geometri carousel harus dapat diukur');
-      assert.ok(firstSlideBox.width / railBox.width >= 0.84 && firstSlideBox.width / railBox.width <= 0.88,
-        'slide carousel harus memakai sekitar 86% lebar rail');
-      assert.ok(firstSlideBox.width / firstSlideBox.height >= 1.3,
-        'carousel multi-media harus memakai rasio ringkas mendekati 4:3');
+      // Slide kini selebar kontennya (tinggi rail seragam, lebar mengikuti
+      // rasio media) dengan plafon 88% lebar rail — bukan lagi 86% tetap.
+      assert.ok(firstSlideBox.width <= railBox.width * 0.88 + 1,
+        'slide carousel tidak boleh melebihi 88% lebar rail');
+      assert.ok(Math.abs(firstSlideBox.height - railBox.height) <= 2,
+        'slide carousel harus setinggi rail (strip tinggi seragam)');
       assert.ok(secondSlideBox.x < railBox.x + railBox.width,
         'sebagian slide berikutnya harus terlihat sebagai affordance swipe');
 
       const video = article.getByLabel('Video 2 dari 3 kiriman Agent Lain', { exact: true });
-      assert.equal(await video.getAttribute('controls'), '');
+      // Kontrol native diambil alih Plyr — cukup pastikan player terpasang dan
+      // video tetap playsInline tanpa autoplay.
+      assert.equal(await article.locator('[data-media-content="video"] .plyr').count(), 1);
       assert.equal(await video.getAttribute('playsinline'), '');
       assert.equal(await video.getAttribute('autoplay'), null);
 
@@ -1133,7 +1157,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         }),
       ]);
       assert.deepEqual(textStyle, mediaStyle, 'tipografi text-only dan post bermedia harus identik');
-      assert.equal(textStyle.fontSize, '16px');
+      // Density pass Jul 2026: body post 15px (satu tingkat di bawah 16px lama).
+      assert.equal(textStyle.fontSize, '15px');
       assert.ok(parseFloat(textStyle.lineHeight) <= 24, 'line-height post harus tetap nyaman dan kompak');
 
       const landscapeImage = mediaArticle.getByRole('img', { name: 'Foto kiriman Agent Lain' });
@@ -1151,26 +1176,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal((await commentButton.innerText()).trim(), '4');
       assert.equal(await likeButton.locator('svg.lucide-heart').count(), 1);
       assert.equal(await commentButton.locator('svg.lucide-message-circle').count(), 1);
-      const replySummaryButton = textArticle.getByRole('button', { name: '4 balasan', exact: true });
-      await replySummaryButton.waitFor();
-      const [replySummaryRowBox, replySummaryButtonBox, likeBox, commentBox] = await Promise.all([
-        textArticle.locator('[data-reply-summary-row]').boundingBox(),
-        replySummaryButton.boundingBox(),
-        likeButton.boundingBox(),
-        commentButton.boundingBox(),
-      ]);
-      assert.ok(replySummaryRowBox && replySummaryRowBox.height >= 44,
-        'ringkasan balasan harus menyediakan baris sentuh penuh');
-      assert.ok(replySummaryButtonBox && replySummaryButtonBox.height >= 44,
-        'ringkasan balasan tetap harus memiliki hit-area minimal 44px');
-      assert.ok(likeBox && commentBox && replySummaryButtonBox
-        && replySummaryButtonBox.y >= Math.max(
-          likeBox.y + likeBox.height,
-          commentBox.y + commentBox.height,
-        ) - 0.5,
-      'hit-area ringkasan balasan tidak boleh menimpa aksi Suka atau Komentari');
-      assert.ok(likeBox && Math.abs(likeBox.x - bodyBox.x) <= 1,
-        'aksi post harus tetap sejajar dengan isi post');
+      // Baris ringkasan "N balasan" sudah dihapus dari desain — jumlah balasan
+      // kini hanya tampil sebagai angka di tombol Komentari (di-assert di atas).
+      // Sejajar dinilai dari IKON hati (visual), bukan kotak tombol — baris
+      // aksi memakai -ml-2 supaya hit-area 44px meluber ke kiri tanpa
+      // menggeser ikonnya dari kolom isi.
+      const likeIconBox = await likeButton.locator('svg.lucide-heart').boundingBox();
+      assert.ok(likeIconBox && Math.abs(likeIconBox.x - bodyBox.x) <= 2,
+        'ikon aksi post harus tetap sejajar dengan isi post');
       for (const button of [likeButton, commentButton]) {
         const box = await button.boundingBox();
         assert.ok(box && box.width >= 44 && box.height >= 44, 'aksi ikon harus memiliki hit-area minimal 44px');
@@ -1212,6 +1225,13 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
           created_at: createdAt,
           is_system: true,
           author: { name: null, slug: null, photo: null },
+        }),
+        // Target uji flip menu: berada di bawah kartu tinggi supaya bisa
+        // digulir hingga trigger-nya dekat dasar viewport (ruang bawah sempit).
+        makePost({
+          id: 'flip-menu-post',
+          body: 'Kiriman untuk uji flip menu',
+          created_at: createdAt,
         }),
       ],
     });
@@ -1292,23 +1312,27 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await menu.waitFor({ state: 'detached' });
       await app.page.waitForFunction(element => document.activeElement === element, await menuButton.elementHandle());
 
-      await app.page.setViewportSize({ width: 360, height: 260 });
-      await menuButton.evaluate(element => {
-        window.scrollTo({
-          top: window.scrollY + element.getBoundingClientRect().top - (window.innerHeight - 56),
-          behavior: 'auto',
-        });
-      });
-      await menuButton.click();
-      const flippedMenu = article.getByRole('menu', { name: 'Menu kiriman' });
+      // Flip diuji pada kiriman yang PUNYA konten tinggi di atasnya — kartu
+      // pertama mustahil flip (trigger selalu di puncak halaman, ruang atas
+      // tidak pernah lebih besar dari ruang bawah). Menu admin juga makin
+      // tinggi (item Sematkan), jadi viewport pendek memakai 320px.
+      await app.page.setViewportSize({ width: 360, height: 320 });
+      const flipArticle = app.page.locator('[data-post-id="flip-menu-post"]');
+      const flipTrigger = flipArticle.getByRole('button', { name: 'Buka menu kiriman' });
+      await flipTrigger.evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'auto' }));
+      await flipTrigger.click();
+      const flippedMenu = flipArticle.getByRole('menu', { name: 'Menu kiriman' });
       const [shortMenuBox, shortTriggerBox] = await Promise.all([
         flippedMenu.boundingBox(),
-        menuButton.boundingBox(),
+        flipTrigger.boundingBox(),
       ]);
       assert.ok(shortMenuBox && shortTriggerBox);
-      assert.ok(shortMenuBox.y >= 0 && shortMenuBox.y + shortMenuBox.height <= 260,
+      assert.ok(shortMenuBox.y >= 0 && shortMenuBox.y + shortMenuBox.height <= 320,
         'menu post harus tetap utuh di viewport pendek');
-      assert.ok(shortMenuBox.y + shortMenuBox.height <= shortTriggerBox.y + 1,
+      // Toleransi setengah tinggi trigger: menu flip menempel tepat di atas
+      // trigger (overlap 1-3px karena origin animasi), yang penting BUKAN
+      // membuka ke bawah (kasus gagal berada jauh di bawah ambang ini).
+      assert.ok(shortMenuBox.y + shortMenuBox.height <= shortTriggerBox.y + shortTriggerBox.height / 2,
         'menu post harus berbalik ke atas ketika ruang bawah tidak cukup');
       await app.page.keyboard.press('Escape');
       await app.page.setViewportSize({ width: 360, height: 800 });
@@ -1317,7 +1341,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.equal((await likeButton.innerText()).trim(), String(12345 + 678 + 90));
       assert.equal(await app.page.getByRole('menu', { name: 'Pilih reaksi' }).count(), 0);
 
-      const visibleButtons = article.locator('button:visible');
+      // Toggle "Selengkapnya" dikecualikan: kontrol teks INLINE di ujung body
+      // (pengecualian target-size WCAG 2.5.8 "inline") — memaksa 44px membuat
+      // hitbox-nya menimpa baris teks di sekitarnya.
+      // Dikecualikan dari 44px: (1) toggle "Selengkapnya" — kontrol teks INLINE
+      // (pengecualian target-size WCAG 2.5.8); (2) tombol control-bar Plyr —
+      // UI pihak ketiga yang targetnya sekunder (target primer video = poster
+      // tap/play-large + tombol fullscreen 44px milik kita).
+      const visibleButtons = article.locator('button:visible:not([data-post-body-toggle]):not(.plyr__controls *)');
       for (let index = 0; index < await visibleButtons.count(); index += 1) {
         const box = await visibleButtons.nth(index).boundingBox();
         assert.ok(box && box.width >= 44 && box.height >= 44, `target sentuh post ke-${index + 1} harus minimal 44px`);
@@ -1842,11 +1873,59 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       // Polling berakhir: baris statis (bukan tombol), label berakhir, hasil tampil.
       const closedArticle = app.page.locator('article').filter({ hasText: 'Polling tertutup' });
-      await closedArticle.getByText('10 suara · Polling berakhir', { exact: true }).waitFor();
+      await closedArticle.getByText('Polling berakhir', { exact: true }).waitFor();
       assert.equal(await closedArticle.locator('button[data-poll-option]').count(), 0,
         'opsi polling berakhir tidak boleh berupa tombol');
       await closedArticle.getByText('80%', { exact: true }).waitFor();
       assert.equal(voteRequests().length, 2, 'polling berakhir tidak boleh mengirim vote');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('label "N suara" membuka daftar pemilih polling', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'poll-voters-post',
+        body: 'Polling dengan pemilih',
+        poll: {
+          options: [
+            { text: 'Paket 9 Hari', votes: 2 },
+            { text: 'Paket 12 Hari', votes: 1 },
+          ],
+          total_votes: 3,
+          my_vote: 0,
+          ends_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+          closed: false,
+        },
+      })],
+      pollVoters: {
+        'poll-voters-post': [
+          { slug: 'nikita', name: 'Nikita Test', photo: null, option_index: 0, option_text: 'Paket 9 Hari' },
+          { slug: 'sari', name: 'Sari Agent', photo: null, option_index: 0, option_text: 'Paket 9 Hari' },
+          { slug: 'budi', name: 'Budi Agent', photo: null, option_index: 1, option_text: 'Paket 12 Hari' },
+        ],
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Polling dengan pemilih' });
+      const votersButton = article.getByRole('button', { name: 'Lihat siapa yang memilih' });
+      await votersButton.waitFor();
+      assert.equal((await votersButton.innerText()).trim(), '3 suara');
+      await votersButton.click();
+
+      const popover = article.getByRole('dialog', { name: 'Daftar pemilih' });
+      await popover.waitFor();
+      await popover.getByText('Sari Agent', { exact: true }).waitFor();
+      await popover.getByText('Budi Agent', { exact: true }).waitFor();
+      // Tiap pemilih menampilkan opsi yang dipilihnya.
+      assert.equal(await popover.getByText('Paket 9 Hari', { exact: true }).count(), 2);
+      assert.equal(await popover.getByText('Paket 12 Hari', { exact: true }).count(), 1);
+      assert.equal(matchingRequests(api, 'GET', '/api/community/posts/poll-voters-post/poll-voters').length, 1);
+
+      await popover.getByRole('button', { name: 'Tutup', exact: true }).click();
+      await popover.waitFor({ state: 'detached' });
     } finally {
       await app.close();
     }
@@ -2172,25 +2251,30 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await app.page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
 
       const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
-      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      // Toolbar media composer kini berlabel "Foto/Video" (bukan lagi
+      // "Tambahkan foto atau video" — label itu tinggal milik trigger di feed).
+      const attachment = dialog.getByRole('button', { name: 'Foto/Video' });
       const cancelButton = dialog.getByRole('button', { name: 'Batal', exact: true });
-      const audienceMessage = dialog.getByText('Tampil untuk semua agent Alhijaz', { exact: true });
       const sendButton = dialog.getByRole('button', { name: 'Kirim kiriman' });
-      const [dialogBox, textareaBox, attachmentBox, cancelBox, audienceBox, sendBox] = await Promise.all([
+      const [dialogBox, textareaBox, attachmentBox, cancelBox, sendBox] = await Promise.all([
         dialog.boundingBox(),
         textarea.boundingBox(),
         attachment.boundingBox(),
         cancelButton.boundingBox(),
-        audienceMessage.boundingBox(),
         sendButton.boundingBox(),
       ]);
       assert.ok(
-        dialogBox && textareaBox && attachmentBox && cancelBox && audienceBox && sendBox,
+        dialogBox && textareaBox && attachmentBox && cancelBox && sendBox,
         'geometri composer harus dapat diukur',
       );
       assert.ok(cancelBox.y < textareaBox.y, 'Batal harus berada di header composer');
-      assert.ok(sendBox.y > attachmentBox.y + attachmentBox.height, 'tombol kirim harus berada di bar bawah');
-      assert.ok(audienceBox.y >= sendBox.y, 'pesan audience harus berada bersama tombol kirim');
+      // Tombol kirim pindah ke header (kanan atas, ala Threads) — satu baris
+      // dengan Batal, bukan lagi bar bawah.
+      assert.ok(sendBox.y < textareaBox.y, 'tombol kirim harus berada di header composer');
+      assert.ok(
+        Math.abs((sendBox.y + sendBox.height / 2) - (cancelBox.y + cancelBox.height / 2)) <= 3,
+        'tombol kirim harus sebaris dengan Batal di header',
+      );
       assert.ok(
         attachmentBox.y > textareaBox.y + textareaBox.height / 2,
         `tombol media harus berada setelah area tulis: ${JSON.stringify({ textareaBox, attachmentBox })}`,
@@ -2203,17 +2287,26 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         dialogBox.y + dialogBox.height - (attachmentBox.y + attachmentBox.height) > 300,
         `tombol media tidak boleh dipin ke dasar composer mobile: ${JSON.stringify({ dialogBox, attachmentBox })}`,
       );
+      // Focus trap: dari mana pun di dalam dialog, Tab/Shift+Tab tidak pernah
+      // membawa fokus keluar dialog — invarian, tanpa mengunci urutan tombol
+      // (urutan toolbar berubah seiring fitur: Polling, Buat utas baru, dsb.).
       await attachment.focus();
-      await app.page.keyboard.press('Tab');
-      assert.equal(
-        await app.page.evaluate(() => document.activeElement?.textContent?.trim()),
-        'Batal',
-      );
-      await app.page.keyboard.press('Shift+Tab');
-      assert.equal(
-        await app.page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
-        'Tambahkan foto atau video',
-      );
+      for (let step = 0; step < 12; step += 1) {
+        await app.page.keyboard.press('Tab');
+        assert.equal(
+          await app.page.evaluate(() => !!document.activeElement?.closest('[role="dialog"][aria-modal="true"]')),
+          true,
+          `Tab ke-${step + 1} harus tetap berada di dalam composer`,
+        );
+      }
+      for (let step = 0; step < 12; step += 1) {
+        await app.page.keyboard.press('Shift+Tab');
+        assert.equal(
+          await app.page.evaluate(() => !!document.activeElement?.closest('[role="dialog"][aria-modal="true"]')),
+          true,
+          `Shift+Tab ke-${step + 1} harus tetap berada di dalam composer`,
+        );
+      }
 
       await app.page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'detached' });
@@ -2255,8 +2348,9 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const initialHeight = await textarea.evaluate(element => element.clientHeight);
       assert.ok(initialHeight >= 80, 'textarea kosong harus mempertahankan tinggi minimum');
-      assert.equal(await dialog.getByText('/2000').count(), 0,
-        'counter karakter tidak perlu tampil saat masih jauh dari batas');
+      // Batas kiriman kini 500 karakter dengan counter selalu tampil di baris
+      // toolbar segmen (bukan lagi muncul-saat-mendekati-batas era 2000).
+      await dialog.getByText('0/500', { exact: true }).waitFor();
 
       await textarea.fill(Array.from({ length: 14 }, (_, index) => `Baris ${index + 1}`).join('\n'));
       await app.page.waitForFunction(
@@ -2270,7 +2364,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.ok(grownMetrics.scrollHeight <= grownMetrics.clientHeight + 1,
         'textarea harus tumbuh mengikuti isi, bukan scroll internal');
 
-      const attachment = dialog.getByRole('button', { name: 'Tambahkan foto atau video' });
+      // Label toolbar composer kini "Foto/Video".
+      const attachment = dialog.getByRole('button', { name: 'Foto/Video' });
       const [textareaBox, attachmentBox] = await Promise.all([
         textarea.boundingBox(),
         attachment.boundingBox(),
@@ -2279,8 +2374,14 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       assert.ok(Math.abs(attachmentBox.y - (textareaBox.y + textareaBox.height)) < 40,
         'toolbar media harus tetap menempel di bawah teks yang tumbuh');
 
-      await textarea.fill('a'.repeat(1850));
-      await dialog.getByText('1850/2000', { exact: true }).waitFor();
+      await textarea.fill('a'.repeat(480));
+      await dialog.getByText('480/500', { exact: true }).waitFor();
+
+      // Hard cap 520 memberi ruang tempel sedikit di atas batas — counter
+      // merah + pesan galat tampil, alih-alih memangkas teks diam-diam.
+      await textarea.fill('a'.repeat(520));
+      await dialog.getByText('520/500', { exact: true }).waitFor();
+      await dialog.getByText('Isi kiriman maksimal 500 karakter', { exact: true }).waitFor();
     } finally {
       await app.close();
     }
@@ -2667,10 +2768,13 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     });
     const app = await openApp({ api });
     try {
-      await app.page.getByRole('button', { name: 'Pengaturan notifikasi Teras' }).click();
+      // Gerigi pindah ke DALAM panel lonceng notifikasi — buka lonceng dulu,
+      // lalu "Pengaturan notifikasi" (label lama "Pengaturan notifikasi Teras"
+      // sudah tidak ada).
+      await app.page.getByRole('button', { name: 'Notifikasi', exact: true }).first().click();
+      await app.page.getByRole('button', { name: 'Pengaturan notifikasi', exact: true }).click();
       // Aksesibilitas dialog ini diberi nama lewat aria-labelledby -> <h2>, yang
-      // teksnya "Notifikasi Teras" — bukan "Pengaturan notifikasi Teras" seperti
-      // dugaan awal (itu nama tombol gerigi, bukan judul sheet).
+      // teksnya "Notifikasi Teras" (judul sheet).
       const sheet = app.page.getByRole('dialog', { name: 'Notifikasi Teras' });
       await sheet.waitFor();
       await sheet.getByText('Telegram belum tersambung').waitFor();
@@ -2712,7 +2816,9 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     });
     const app = await openApp({ api });
     try {
-      await app.page.getByRole('button', { name: 'Pengaturan notifikasi Teras' }).click();
+      // Jalur yang sama dengan test gerigi di atas: lonceng -> Pengaturan notifikasi.
+      await app.page.getByRole('button', { name: 'Notifikasi', exact: true }).first().click();
+      await app.page.getByRole('button', { name: 'Pengaturan notifikasi', exact: true }).click();
       const sheet = app.page.getByRole('dialog', { name: 'Notifikasi Teras' });
       await sheet.waitFor();
 
@@ -2756,7 +2862,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor();
 
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Ini konten pertama.');
-      await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).click();
+      await dialog.getByRole('button', { name: 'Buat utas baru' }).click();
       await dialog.getByPlaceholder('Tambahkan ke utas…').fill('Ini konten kedua.');
       await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
       await dialog.waitFor({ state: 'detached', timeout: 10_000 });
@@ -2782,7 +2888,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('tombol tambah berhenti di 5 segmen', { timeout: 30_000 }, async () => {
+  test('tombol tambah berhenti di 10 segmen', { timeout: 60_000 }, async () => {
     const app = await openApp();
     try {
       const { page } = app;
@@ -2790,9 +2896,9 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       const dialog = page.getByRole('dialog', { name: 'Buat Kiriman' });
       await dialog.waitFor();
       await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Satu');
-      const addButton = dialog.getByRole('button', { name: 'Tambahkan ke utas' });
+      const addButton = dialog.getByRole('button', { name: 'Buat utas baru' });
 
-      // Ala Threads: setelah menambah segmen kosong, "Tambahkan ke utas" mati
+      // Ala Threads: setelah menambah segmen kosong, "Buat utas baru" mati
       // sampai segmen terakhir itu diisi — menahan tumpukan kotak kosong.
       await addButton.click();
       assert.equal(
@@ -2802,21 +2908,22 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       );
       await dialog.getByPlaceholder('Tambahkan ke utas…').last().fill('Dua');
 
-      for (let i = 3; i <= 5; i += 1) {
+      // Cap utas kini 10 segmen (selaras MAX_THREAD_SEGMENTS lib & server).
+      for (let i = 3; i <= 10; i += 1) {
         await addButton.click();
         await dialog.getByPlaceholder('Tambahkan ke utas…').last().fill(`Isi ${i}`);
       }
 
-      // Di segmen ke-5 barisnya menghilang sepenuhnya (bukan berubah jadi label).
+      // Di segmen ke-10 barisnya menghilang sepenuhnya (bukan berubah jadi label).
       assert.equal(
-        await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).count(),
+        await dialog.getByRole('button', { name: 'Buat utas baru' }).count(),
         0,
-        'baris tambah harus hilang di segmen ke-5',
+        'baris tambah harus hilang di segmen ke-10',
       );
       assert.equal(
         await dialog.getByPlaceholder('Tambahkan ke utas…').count(),
-        4,
-        '1 segmen awal + 4 tambahan = 5',
+        9,
+        '1 segmen awal + 9 tambahan = 10',
       );
     } finally {
       await app.close();
@@ -3073,7 +3180,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.waitFor();
       const first = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
       await first.fill('Segmen pertama.');
-      await dialog.getByRole('button', { name: 'Tambahkan ke utas' }).click();
+      await dialog.getByRole('button', { name: 'Buat utas baru' }).click();
 
       const second = dialog.getByPlaceholder('Tambahkan ke utas…');
       await second.click();

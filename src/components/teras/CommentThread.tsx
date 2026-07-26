@@ -191,22 +191,34 @@ export default function CommentThread({
               />
             ))}
             {showRepliesToggle && (
-              <button
-                type="button"
-                disabled={expansion === 'loading'}
-                onClick={() => (canToggleReplies ? onToggleReplies?.(comment.id) : onOpenThread(comment.id))}
-                aria-expanded={canToggleReplies ? expanded : undefined}
-                className="ml-[52px] mt-1 flex min-h-11 items-center gap-1.5 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-60 dark:text-slate-400 dark:hover:text-emerald-400"
-              >
-                {expansion === 'loading' && <Loader2 size={13} className="animate-spin" />}
-                {expansion === 'loading'
-                  ? 'Memuat balasan…'
-                  : expansion === 'error'
-                    ? 'Gagal memuat balasan — coba lagi'
-                    : expanded
-                      ? 'Sembunyikan balasan'
-                      : `Lihat ${replyCount} balasan`}
-              </button>
+              // Grid kolom-avatar yang sama dengan baris komentar: di feed
+              // (railConnected) rail penyambung ke grup berikutnya harus LEWAT
+              // baris tombol ini juga — dulu baris ini cuma ml-[52px] tanpa
+              // kolom avatar, jadi garis vertikal tampak terputus setinggi
+              // tombol sebelum menyambung lagi di komentar berikutnya.
+              <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+                <div className="flex justify-center">
+                  {railConnected && hasNextGroup && (
+                    <div data-thread-rail="comment" aria-hidden="true" className="-mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={expansion === 'loading'}
+                  onClick={() => (canToggleReplies ? onToggleReplies?.(comment.id) : onOpenThread(comment.id))}
+                  aria-expanded={canToggleReplies ? expanded : undefined}
+                  className="mt-1 flex min-h-11 items-center gap-1.5 text-left text-[12px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-60 dark:text-slate-400 dark:hover:text-emerald-400"
+                >
+                  {expansion === 'loading' && <Loader2 size={13} className="animate-spin" />}
+                  {expansion === 'loading'
+                    ? 'Memuat balasan…'
+                    : expansion === 'error'
+                      ? 'Gagal memuat balasan — coba lagi'
+                      : expanded
+                        ? 'Sembunyikan balasan'
+                        : `Lihat ${replyCount} balasan`}
+                </button>
+              </div>
             )}
           </div>
         );
@@ -529,7 +541,7 @@ function CommentRow({
               onClick={actions.onReply}
               whileTap={reduceMotion ? undefined : { scale: 0.9 }}
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-              className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+              className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
             >
               <MessageCircle size={19} />
               {actions.replyCount > 0 && <span className="tabular-nums">{actions.replyCount}</span>}
@@ -543,7 +555,7 @@ function CommentRow({
                 onClick={actions.onQuote}
                 whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                 transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+                className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
               >
                 <RefreshCw size={19} />
               </motion.button>

@@ -1,9 +1,34 @@
-import { motion, useReducedMotion } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { Check, Loader2, X } from 'lucide-react';
+import { AgentAvatar } from './AgentAvatar';
 
 export interface CommunityPollOption {
   text: string;
   votes: number;
+}
+
+/** Satu pemilih dari GET /api/community/posts/:id/poll-voters. */
+export interface PollVoter {
+  slug: string | null;
+  name: string | null;
+  photo?: string | null;
+  option_index: number;
+  option_text: string | null;
+}
+
+export interface PollVotersState {
+  status: 'loading' | 'loaded' | 'error';
+  list: PollVoter[];
+  error?: string;
+}
+
+/** Kendali popover pemilih — state & fetch dimiliki TerasPage (pola ReactorPopover). */
+export interface PollVotersControls {
+  open: boolean;
+  state?: PollVotersState;
+  onOpen: () => void;
+  onClose: () => void;
+  onRetry: () => void;
 }
 
 /** Polling ala Threads — payload dari server (lib/community-poll.js). */
@@ -35,12 +60,100 @@ export function formatPollTimeLeft(endsAt: string): string | null {
  * MENGGANTI suara (tidak bisa dicabut) — baris tetap tombol; setelah berakhir
  * baris jadi statis.
  */
+function PollVotersPopover({
+  state,
+  onClose,
+  onRetry,
+  reduceMotion,
+}: {
+  state?: PollVotersState;
+  onClose: () => void;
+  onRetry: () => void;
+  reduceMotion: boolean;
+}) {
+  const status = state?.status ?? 'loading';
+  const list = state?.list ?? [];
+  const showSkeleton = status === 'loading' && list.length === 0;
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-label="Daftar pemilih"
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      transition={{ duration: 0.14, ease: 'easeOut' }}
+      className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl shadow-black/10 dark:border-white/10 dark:bg-slate-900 dark:shadow-black/40"
+    >
+      <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2 dark:border-white/10">
+        <span className="text-[12.5px] font-semibold text-gray-700 dark:text-slate-200">Pemilih</span>
+        <button
+          type="button"
+          aria-label="Tutup"
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="max-h-64 overflow-y-auto overscroll-contain py-1">
+        {showSkeleton && (
+          <div className="flex items-center justify-center gap-2 px-3 py-6 text-[12.5px] text-gray-400 dark:text-slate-500">
+            <Loader2 size={15} className="animate-spin" />
+            Memuat…
+          </div>
+        )}
+
+        {status === 'error' && list.length === 0 && (
+          <div className="px-3 py-4 text-center">
+            <p className="text-[12.5px] text-gray-500 dark:text-slate-400">{state?.error || 'Gagal memuat daftar pemilih'}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 rounded-full px-3 py-1 text-[12px] font-semibold text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+            >
+              Coba lagi
+            </button>
+          </div>
+        )}
+
+        {!showSkeleton && status !== 'error' && list.length === 0 && (
+          <div className="px-3 py-6 text-center text-[12.5px] text-gray-400 dark:text-slate-500">
+            Belum ada yang memilih.
+          </div>
+        )}
+
+        {list.map((voter, index) => (
+          <div
+            key={`${voter.slug ?? 'agent'}-${index}`}
+            className="flex items-center gap-2.5 px-3 py-1.5"
+          >
+            <AgentAvatar name={voter.name || 'Agent'} photo={voter.photo} size="comment" />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-gray-800 dark:text-slate-200">
+              {voter.name}
+            </span>
+            {voter.option_text && (
+              <span className="max-w-[40%] truncate text-[11px] text-gray-400 dark:text-slate-500">
+                {voter.option_text}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 export default function PollBlock({
   poll,
   onVote,
+  voters,
 }: {
   poll: CommunityPoll;
   onVote: (optionIndex: number) => void;
+  /** Tanpa ini label "N suara" tetap teks biasa (mis. pratinjau/harness). */
+  voters?: PollVotersControls;
 }) {
   const reduceMotion = useReducedMotion();
   // `closed` server bisa basi di klien yang lama terbuka — nilai waktu lokal
@@ -143,9 +256,38 @@ export default function PollBlock({
           );
         })}
       </div>
-      <p className="mt-1.5 text-[11px] font-medium text-gray-500 dark:text-slate-400">
-        {poll.total_votes} suara · {closed ? 'Polling berakhir' : timeLeft}
-      </p>
+      <div className="relative mt-1.5 flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-slate-400">
+        {voters && poll.total_votes > 0 ? (
+          <>
+            {/* "N suara" bisa di-tap untuk melihat siapa saja yang memilih —
+                popover-nya milik TerasPage (state fetch), pola ReactorPopover. */}
+            <button
+              type="button"
+              aria-label="Lihat siapa yang memilih"
+              aria-haspopup="dialog"
+              aria-expanded={voters.open}
+              onClick={() => (voters.open ? voters.onClose() : voters.onOpen())}
+              className="-my-1 -ml-1 rounded-full px-1 py-1 font-semibold underline-offset-2 transition-colors hover:text-emerald-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:text-emerald-400"
+            >
+              {poll.total_votes} suara
+            </button>
+            <span aria-hidden="true">·</span>
+            <span>{closed ? 'Polling berakhir' : timeLeft}</span>
+          </>
+        ) : (
+          <p>{poll.total_votes} suara · {closed ? 'Polling berakhir' : timeLeft}</p>
+        )}
+        <AnimatePresence>
+          {voters?.open && (
+            <PollVotersPopover
+              state={voters.state}
+              onClose={voters.onClose}
+              onRetry={voters.onRetry}
+              reduceMotion={!!reduceMotion}
+            />
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

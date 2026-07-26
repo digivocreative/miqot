@@ -65,7 +65,7 @@ import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import ComposerSegment from './teras/ComposerSegment';
 import CommentThread from './teras/CommentThread';
-import PollBlock, { type CommunityPoll } from './teras/PollBlock';
+import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } from './teras/PollBlock';
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import { trackEvent } from '../utils/analytics';
@@ -1521,6 +1521,9 @@ export default function TerasPage({
   // hasil per kiriman (ditampilkan instan saat dibuka ulang, direvalidasi diam).
   const [reactorPopoverPostId, setReactorPopoverPostId] = useState<string | null>(null);
   const [reactorsByPost, setReactorsByPost] = useState<Record<string, ReactorPanelState>>({});
+  // Popover "siapa yang memilih" pada polling — pola yang sama dengan reaktor.
+  const [pollVotersPostId, setPollVotersPostId] = useState<string | null>(null);
+  const [pollVotersByPost, setPollVotersByPost] = useState<Record<string, PollVotersState>>({});
 
   const pageRootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1591,6 +1594,7 @@ export default function TerasPage({
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
   const reactorControllersRef = useRef<Map<string, AbortController>>(new Map());
   const reactorPopoverRef = useRef<HTMLDivElement>(null);
+  const pollVotersControllersRef = useRef<Map<string, AbortController>>(new Map());
   const commentSendingRef = useRef<Set<string>>(new Set());
   const toastTimerRef = useRef<number | null>(null);
   // Cermin sinkron dari composerSegments. Dipakai di jalur async (unggah,
@@ -3105,6 +3109,47 @@ export default function TerasPage({
 
   const closeReactorPopover = () => setReactorPopoverPostId(null);
 
+  // ---- Daftar pemilih polling (popover "N suara") ----
+  const loadPollVoters = async (postId: string) => {
+    pollVotersControllersRef.current.get(postId)?.abort();
+    const controller = new AbortController();
+    pollVotersControllersRef.current.set(postId, controller);
+    // Pertahankan daftar lama saat revalidasi supaya popover tak berkedip kosong.
+    setPollVotersByPost(current => ({
+      ...current,
+      [postId]: { status: 'loading', list: current[postId]?.list ?? [], error: undefined },
+    }));
+    try {
+      const payload = await requestJson<PollVoter[]>(
+        `/api/community/posts/${encodeURIComponent(postId)}/poll-voters`,
+        { headers: getAuthHeaders(), signal: controller.signal },
+        'Gagal memuat daftar pemilih',
+      );
+      const list = Array.isArray(payload.data) ? payload.data : [];
+      setPollVotersByPost(current => ({
+        ...current,
+        [postId]: { status: 'loaded', list, error: undefined },
+      }));
+    } catch (votersError) {
+      if (votersError instanceof Error && votersError.name === 'AbortError') return;
+      setPollVotersByPost(current => ({
+        ...current,
+        [postId]: {
+          status: 'error',
+          list: current[postId]?.list ?? [],
+          error: errorMessage(votersError, 'Gagal memuat daftar pemilih'),
+        },
+      }));
+    }
+  };
+
+  const openPollVoters = (postId: string) => {
+    setPollVotersPostId(postId);
+    void loadPollVoters(postId);
+  };
+
+  const closePollVoters = () => setPollVotersPostId(null);
+
   const clearLongPressTimer = () => {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
@@ -4388,7 +4433,7 @@ export default function TerasPage({
           onClick={() => openComposerMediaPicker(segment.key)}
           disabled={composerBusy || segment.media.length >= MAX_COMMUNITY_MEDIA || pollBlocksMedia}
           title={pollBlocksMedia ? 'Polling tidak bisa digabung dengan media' : 'Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)'}
-          className="-ml-2 flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
+          className="-ml-2 flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
         >
           <ImageIcon size={18} strokeWidth={1.8} />
           Foto/Video
@@ -4403,7 +4448,7 @@ export default function TerasPage({
             disabled={composerBusy || segment.media.length > 0}
             aria-pressed={!!composerPoll}
             title={segment.media.length > 0 ? 'Polling tidak bisa digabung dengan media' : 'Tambah polling (2-4 opsi)'}
-            className={`flex min-h-9 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
+            className={`flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
               composerPoll
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
@@ -4810,18 +4855,22 @@ export default function TerasPage({
                 Batal
               </button>
               <h2 id="teras-composer-title" className="text-center text-sm font-bold text-gray-900 dark:text-white">{composerQuote ? 'Quote Kiriman' : 'Buat Kiriman'}</h2>
+              {/* Hit-area 44px, pil visual tetap 36px — pola tombol kirim
+                  komentar (button transparan membungkus pil). */}
               <button
                 type="submit"
                 disabled={!composerCanSubmit}
                 aria-label="Kirim kiriman"
-                className="flex min-h-9 min-w-[72px] items-center justify-center gap-1.5 justify-self-end rounded-full bg-emerald-500 px-4 py-1.5 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-45 dark:bg-emerald-500 dark:shadow-emerald-950/40"
+                className="flex min-h-11 items-center justify-center justify-self-end transition-all active:scale-95 disabled:opacity-45"
               >
-                {composerBusy ? <Loader2 size={15} className="animate-spin" /> : (
-                  <>
-                    <Send size={14} strokeWidth={2.2} />
-                    Post
-                  </>
-                )}
+                <span className="flex min-h-9 min-w-[72px] items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 py-1.5 text-[12px] font-extrabold text-white shadow-md shadow-emerald-500/20 dark:bg-emerald-500 dark:shadow-emerald-950/40">
+                  {composerBusy ? <Loader2 size={15} className="animate-spin" /> : (
+                    <>
+                      <Send size={14} strokeWidth={2.2} />
+                      Post
+                    </>
+                  )}
+                </span>
               </button>
             </div>
           </header>
@@ -4890,7 +4939,7 @@ export default function TerasPage({
                   onClick={handleSegmentAdd}
                   disabled={!composerCanAddSegment}
                   aria-label="Buat utas baru"
-                  className="group mb-3 grid w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-x-3 rounded-lg py-1 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                  className="group mb-3 grid min-h-11 w-full grid-cols-[40px_minmax(0,1fr)] items-center gap-x-3 rounded-lg py-1 text-left transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {/* Avatar kecil di kolom yang sama dengan avatar segmen, jadi
                       garis penyambung dari segmen terakhir mengarah tepat ke
@@ -5248,7 +5297,9 @@ export default function TerasPage({
 
   const handlePostAreaClick = (event: MouseEvent<HTMLElement>, postId: string) => {
     const target = event.target;
-    if (target instanceof Element && target.closest('button, a, video, input, textarea, [role="menu"], [data-media-layout]')) return;
+    // [role="dialog"] mengecualikan popover daftar pemilih polling — klik nama
+    // di dalamnya tidak boleh ikut membuka halaman detail.
+    if (target instanceof Element && target.closest('button, a, video, input, textarea, [role="menu"], [role="dialog"], [data-media-layout]')) return;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) return;
     openPostDetail(postId);
@@ -5311,7 +5362,7 @@ export default function TerasPage({
                   onClick={() => openComposer(true)}
                   aria-label="Tambahkan foto atau video"
                   title="Tambahkan foto atau video"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-all hover:text-emerald-600 active:scale-95 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 transition-all hover:text-emerald-600 active:scale-95 active:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:text-emerald-400"
                 >
                   <ImageIcon size={18} strokeWidth={1.8} />
                 </button>
@@ -5933,7 +5984,17 @@ export default function TerasPage({
                     )}
 
                     {post.poll && (
-                      <PollBlock poll={post.poll} onVote={optionIndex => void votePoll(post.id, optionIndex)} />
+                      <PollBlock
+                        poll={post.poll}
+                        onVote={optionIndex => void votePoll(post.id, optionIndex)}
+                        voters={{
+                          open: pollVotersPostId === post.id,
+                          state: pollVotersByPost[post.id],
+                          onOpen: () => openPollVoters(post.id),
+                          onClose: closePollVoters,
+                          onRetry: () => void loadPollVoters(post.id),
+                        }}
+                      />
                     )}
 
                     <div className="relative -ml-2 mt-0.5 mb-1 flex items-center gap-1">
@@ -6038,7 +6099,7 @@ export default function TerasPage({
                         title="Komentari"
                         whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className={`flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:text-emerald-400 dark:active:bg-slate-900 ${
+                        className={`flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:text-emerald-400 dark:active:bg-slate-900 ${
                           commentsOpen
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-gray-500 dark:text-slate-400'
@@ -6068,7 +6129,7 @@ export default function TerasPage({
                         title="Quote"
                         whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+                        className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
                       >
                         <RefreshCw size={19} />
                         <AnimatePresence mode="popLayout" initial={false}>
@@ -6095,7 +6156,7 @@ export default function TerasPage({
                         title="Bagikan"
                         whileTap={reduceMotion ? undefined : { scale: 0.9 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className="flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
+                        className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
                       >
                         <Share2 size={18} />
                       </motion.button>
