@@ -1522,7 +1522,9 @@ export default function TerasPage({
   const [reactorPopoverPostId, setReactorPopoverPostId] = useState<string | null>(null);
   const [reactorsByPost, setReactorsByPost] = useState<Record<string, ReactorPanelState>>({});
   // Popover "siapa yang memilih" pada polling — pola yang sama dengan reaktor.
-  const [pollVotersPostId, setPollVotersPostId] = useState<string | null>(null);
+  // `placement` dihitung sekali saat buka dari posisi trigger di viewport,
+  // supaya popover tidak nyelip di bawah header sticky ataupun keluar layar.
+  const [pollVoters, setPollVoters] = useState<{ postId: string; placement: 'up' | 'down' } | null>(null);
   const [pollVotersByPost, setPollVotersByPost] = useState<Record<string, PollVotersState>>({});
 
   const pageRootRef = useRef<HTMLDivElement>(null);
@@ -3143,12 +3145,30 @@ export default function TerasPage({
     }
   };
 
-  const openPollVoters = (postId: string) => {
-    setPollVotersPostId(postId);
+  const openPollVoters = (postId: string, trigger: HTMLElement) => {
+    // Arah buka mengikuti ruang yang benar-benar tersedia di layar. Ruang atas
+    // dikurangi tinggi header sticky (z-30) supaya popover 'up' tidak pernah
+    // dihitung muat padahal ujungnya bakal tertutup header.
+    const POLL_VOTERS_POPOVER_MAX = 320;
+    const HEADER_CLEARANCE = 72;
+    const rect = trigger.getBoundingClientRect();
+    const spaceAbove = rect.top - HEADER_CLEARANCE;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placement: 'up' | 'down' = spaceAbove >= POLL_VOTERS_POPOVER_MAX || spaceAbove >= spaceBelow
+      ? 'up'
+      : 'down';
+    setPollVoters({ postId, placement });
     void loadPollVoters(postId);
   };
 
-  const closePollVoters = () => setPollVotersPostId(null);
+  const closePollVoters = () => setPollVoters(null);
+
+  // Berpindah halaman (feed <-> detail <-> profil) menutup popover pemilih —
+  // TerasPage tidak remount antar-rute ini, jadi tanpa efek ini popover
+  // menggantung di layar berikutnya.
+  useEffect(() => {
+    setPollVoters(null);
+  }, [detailPostId, profileSlug]);
 
   const clearLongPressTimer = () => {
     if (longPressTimerRef.current !== null) {
@@ -5988,9 +6008,10 @@ export default function TerasPage({
                         poll={post.poll}
                         onVote={optionIndex => void votePoll(post.id, optionIndex)}
                         voters={{
-                          open: pollVotersPostId === post.id,
+                          open: pollVoters?.postId === post.id,
+                          placement: pollVoters?.postId === post.id ? pollVoters.placement : 'up',
                           state: pollVotersByPost[post.id],
-                          onOpen: () => openPollVoters(post.id),
+                          onOpen: trigger => openPollVoters(post.id, trigger),
                           onClose: closePollVoters,
                           onRetry: () => void loadPollVoters(post.id),
                         }}

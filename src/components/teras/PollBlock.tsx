@@ -25,8 +25,13 @@ export interface PollVotersState {
 /** Kendali popover pemilih — state & fetch dimiliki TerasPage (pola ReactorPopover). */
 export interface PollVotersControls {
   open: boolean;
+  /**
+   * Arah buka, dihitung TerasPage saat onOpen dari posisi trigger di layar:
+   * dekat puncak (atau tertutup header sticky) -> 'down', dekat dasar -> 'up'.
+   */
+  placement: 'up' | 'down';
   state?: PollVotersState;
-  onOpen: () => void;
+  onOpen: (trigger: HTMLElement) => void;
   onClose: () => void;
   onRetry: () => void;
 }
@@ -62,11 +67,13 @@ export function formatPollTimeLeft(endsAt: string): string | null {
  */
 function PollVotersPopover({
   state,
+  placement,
   onClose,
   onRetry,
   reduceMotion,
 }: {
   state?: PollVotersState;
+  placement: 'up' | 'down';
   onClose: () => void;
   onRetry: () => void;
   reduceMotion: boolean;
@@ -74,16 +81,20 @@ function PollVotersPopover({
   const status = state?.status ?? 'loading';
   const list = state?.list ?? [];
   const showSkeleton = status === 'loading' && list.length === 0;
+  const offsetY = placement === 'up' ? 6 : -6;
 
   return (
     <motion.div
       role="dialog"
       aria-label="Daftar pemilih"
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      data-poll-voters-placement={placement}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: offsetY, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: offsetY, scale: 0.96 }}
       transition={{ duration: 0.14, ease: 'easeOut' }}
-      className="absolute bottom-full left-0 z-30 mb-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl shadow-black/10 dark:border-white/10 dark:bg-slate-900 dark:shadow-black/40"
+      className={`absolute left-0 z-30 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl shadow-black/10 dark:border-white/10 dark:bg-slate-900 dark:shadow-black/40 ${
+        placement === 'up' ? 'bottom-full mb-2 origin-bottom-left' : 'top-full mt-2 origin-top-left'
+      }`}
     >
       <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2 dark:border-white/10">
         <span className="text-[12.5px] font-semibold text-gray-700 dark:text-slate-200">Pemilih</span>
@@ -266,7 +277,7 @@ export default function PollBlock({
               aria-label="Lihat siapa yang memilih"
               aria-haspopup="dialog"
               aria-expanded={voters.open}
-              onClick={() => (voters.open ? voters.onClose() : voters.onOpen())}
+              onClick={event => (voters.open ? voters.onClose() : voters.onOpen(event.currentTarget))}
               className="-my-1 -ml-1 rounded-full px-1 py-1 font-semibold underline-offset-2 transition-colors hover:text-emerald-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:text-emerald-400"
             >
               {poll.total_votes} suara
@@ -281,6 +292,7 @@ export default function PollBlock({
           {voters?.open && (
             <PollVotersPopover
               state={voters.state}
+              placement={voters.placement}
               onClose={voters.onClose}
               onRetry={voters.onRetry}
               reduceMotion={!!reduceMotion}

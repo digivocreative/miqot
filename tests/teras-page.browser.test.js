@@ -1917,6 +1917,15 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const popover = article.getByRole('dialog', { name: 'Daftar pemilih' });
       await popover.waitFor();
+      // Post di puncak feed -> ruang atas sempit (dan ada header sticky) ->
+      // popover membuka ke BAWAH, bukan nyelip di bawah header.
+      assert.equal(await popover.getAttribute('data-poll-voters-placement'), 'down');
+      const [popoverBox, votersButtonBox] = await Promise.all([
+        popover.boundingBox(),
+        votersButton.boundingBox(),
+      ]);
+      assert.ok(popoverBox && votersButtonBox && popoverBox.y >= votersButtonBox.y + votersButtonBox.height - 1,
+        'popover pemilih harus membuka ke bawah saat trigger dekat puncak layar');
       await popover.getByText('Sari Agent', { exact: true }).waitFor();
       await popover.getByText('Budi Agent', { exact: true }).waitFor();
       // Tiap pemilih menampilkan opsi yang dipilihnya.
@@ -1926,6 +1935,13 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       await popover.getByRole('button', { name: 'Tutup', exact: true }).click();
       await popover.waitFor({ state: 'detached' });
+
+      // Berpindah halaman (feed -> detail) harus menutup popover yang terbuka.
+      await votersButton.click();
+      await popover.waitFor();
+      await article.getByText('Polling dengan pemilih', { exact: true }).click();
+      await app.page.waitForURL('**/dashboard/teras/post/poll-voters-post', { timeout: 10_000 });
+      await app.page.getByRole('dialog', { name: 'Daftar pemilih' }).waitFor({ state: 'detached' });
     } finally {
       await app.close();
     }
