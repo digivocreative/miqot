@@ -18,6 +18,7 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, fetchUmrahJamaahEditForm, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, submitUmrahJamaahEditWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
+import { isSameInternalAccount, escapeInternalAccountLike, internalAccountTakenMessage } from './lib/internal-account-guard.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
@@ -1297,6 +1298,28 @@ function invalidateAgentCache() {
   agentCacheByAlias = null;
   agentCacheTime = 0;
   agentCacheFailUntil = 0;
+}
+
+// One-account-per-agent guard: find another agent (≠ excludeAgentId) that
+// currently has the given legacy/internal account (jamaah_username) connected.
+// Case-insensitive exact match. Returns the claiming agent {id,slug,name} or
+// null. Fails open (returns null) on a DB error so a transient blip never locks
+// a legitimate agent out of connecting.
+async function findAgentUsingInternalAccount(username, excludeAgentId) {
+  const escaped = escapeInternalAccountLike(username);
+  if (!escaped) return null;
+  let query = supabase
+    .from('agents')
+    .select('id, slug, name')
+    .ilike('jamaah_username', escaped)
+    .limit(1);
+  if (excludeAgentId) query = query.neq('id', excludeAgentId);
+  const { data, error } = await query;
+  if (error) {
+    console.warn(`[internal-account-guard] lookup failed for ${username}: ${error.message}`);
+    return null;
+  }
+  return (data && data[0]) || null;
 }
 
 // ── umroh_schedules in-memory cache ──
@@ -10068,6 +10091,24 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   const { username, password, kantor } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username dan password wajib diisi' });
+  }
+
+  // One-account-per-agent: a legacy/internal account (SMxxxx) may only be
+  // connected to a single agent at a time. The current owner may always
+  // re-login (reconnect / password refresh), but any *other* agent trying to
+  // claim an account that is already in use is rejected. Checked BEFORE hitting
+  // the legacy system so a blocked claim never triggers Alhijaz anti-bruteforce.
+  const meNow = await getAgentById(req.user.id);
+  const alreadyMine = isSameInternalAccount(meNow?.jamaah_username, username);
+  if (!alreadyMine) {
+    const claimant = await findAgentUsingInternalAccount(username, req.user.id);
+    if (claimant) {
+      return res.status(409).json({
+        success: false,
+        code: 'internal_account_taken',
+        error: internalAccountTakenMessage(username, claimant.name),
+      });
+    }
   }
 
   const k = kantor || '2';
