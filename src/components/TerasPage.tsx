@@ -20,7 +20,6 @@ import {
   AlertCircle,
   ArrowUp,
   BarChart3,
-  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -66,6 +65,7 @@ import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import ComposerSegment from './teras/ComposerSegment';
 import CommentThread from './teras/CommentThread';
+import PollBlock, { type CommunityPoll } from './teras/PollBlock';
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import { trackEvent } from '../utils/analytics';
@@ -194,20 +194,6 @@ interface LinkPreview {
   image?: string;
 }
 
-interface CommunityPollOption {
-  text: string;
-  votes: number;
-}
-
-/** Polling ala Threads — payload dari server (lib/community-poll.js). */
-interface CommunityPoll {
-  options: CommunityPollOption[];
-  total_votes: number;
-  my_vote: number | null;
-  ends_at: string;
-  /** Dinilai server saat serve; klien tetap cek ends_at supaya tidak basi. */
-  closed: boolean;
-}
 
 export interface CommunityComment {
   id: string;
@@ -763,100 +749,6 @@ function PostSkeleton({ withMedia = false }: { withMedia?: boolean }) {
 }
 
 type PostMediaFit = 'natural' | 'height' | 'cover';
-
-/** "Berakhir dalam X" untuk polling terbuka; null bila sudah lewat/ends_at rusak. */
-function formatPollTimeLeft(endsAt: string): string | null {
-  const remaining = Date.parse(endsAt) - Date.now();
-  if (!Number.isFinite(remaining) || remaining <= 0) return null;
-  const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return `Berakhir dalam ${minutes} mnt`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `Berakhir dalam ${hours} jam`;
-  return `Berakhir dalam ${Math.round(hours / 24)} hari`;
-}
-
-/**
- * Polling ala Threads di kartu kiriman. Sebelum memilih: baris opsi polos.
- * Setelah memilih ATAU polling berakhir: bar persentase + centang pilihan
- * saya. Selama masih terbuka, menyentuh opsi lain MENGGANTI suara (tidak bisa
- * dicabut) — baris tetap tombol; setelah berakhir baris jadi statis.
- */
-function PollBlock({
-  poll,
-  onVote,
-}: {
-  poll: CommunityPoll;
-  onVote: (optionIndex: number) => void;
-}) {
-  // `closed` server bisa basi di klien yang lama terbuka — nilai waktu lokal
-  // ikut menentukan supaya polling kedaluwarsa tidak tampak masih menerima suara.
-  const closed = poll.closed || Date.parse(poll.ends_at) - Date.now() <= 0;
-  const showResults = closed || poll.my_vote !== null;
-  const timeLeft = closed ? null : formatPollTimeLeft(poll.ends_at);
-
-  return (
-    <div data-poll className="mt-2 min-w-0">
-      <div className="flex flex-col gap-1.5">
-        {poll.options.map((option, index) => {
-          const percent = poll.total_votes > 0
-            ? Math.round((option.votes / poll.total_votes) * 100)
-            : 0;
-          const isMine = poll.my_vote === index;
-          const rowContent = (
-            <>
-              {showResults && (
-                <span
-                  aria-hidden="true"
-                  data-poll-bar
-                  className={`absolute inset-y-0 left-0 rounded-[10px] transition-[width] duration-300 ease-out ${
-                    isMine ? 'bg-emerald-500/20 dark:bg-emerald-400/20' : 'bg-gray-100 dark:bg-slate-800'
-                  }`}
-                  style={{ width: `${percent}%` }}
-                />
-              )}
-              <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
-                <span className="min-w-0 truncate">{option.text}</span>
-                {isMine && <Check size={14} strokeWidth={3} className="shrink-0 text-emerald-600 dark:text-emerald-400" />}
-              </span>
-              {showResults && (
-                <span className="relative shrink-0 tabular-nums text-gray-600 dark:text-slate-300">{percent}%</span>
-              )}
-            </>
-          );
-          const rowClass = `relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-xl border px-3 text-left text-[13.5px] font-semibold ${
-            isMine
-              ? 'border-emerald-400/70 text-gray-800 dark:border-emerald-500/60 dark:text-slate-100'
-              : 'border-gray-200 text-gray-700 dark:border-slate-700 dark:text-slate-200'
-          }`;
-          // Berakhir: baris statis (bukan tombol) supaya tidak ada kontrol
-          // yang terlihat aktif tapi diam saat disentuh.
-          if (closed) {
-            return (
-              <div key={index} data-poll-option className={rowClass}>
-                {rowContent}
-              </div>
-            );
-          }
-          return (
-            <button
-              key={index}
-              type="button"
-              data-poll-option
-              aria-pressed={isMine}
-              onClick={() => onVote(index)}
-              className={`${rowClass} transition-colors hover:border-emerald-400/70 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:hover:border-emerald-500/60 dark:active:bg-slate-900`}
-            >
-              {rowContent}
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-1.5 text-[11px] font-medium text-gray-500 dark:text-slate-400">
-        {poll.total_votes} suara · {closed ? 'Polling berakhir' : timeLeft}
-      </p>
-    </div>
-  );
-}
 
 function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
   const [imageBroken, setImageBroken] = useState(false);
