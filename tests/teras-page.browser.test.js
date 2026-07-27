@@ -1704,6 +1704,40 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('rail baris "Lihat N balasan" tetap garis 1px yang segaris dengan rail lain', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({ id: 'rail-toggle-post', body: 'Uji rail toggle balasan', comment_count: 2 })],
+      comments: {
+        'rail-toggle-post': [
+          makeComment({ id: 'punya-balasan', body: 'Komentar punya balasan', reply_count: 2, preview_replies: [] }),
+          makeComment({ id: 'komentar-kedua', body: 'Komentar kedua di grup', reply_count: 0, preview_replies: [] }),
+        ],
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji rail toggle balasan' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByRole('button', { name: 'Lihat 2 balasan', exact: true }).waitFor();
+
+      // 4 rail: post -> komposer -> komentar-1 -> baris toggle -> komentar-2.
+      // SEMUA harus garis 1px pada sumbu-x yang sama — regresi flex arah row
+      // pernah membuat rail baris toggle melebar jadi balok 40px.
+      const rails = article.locator('[data-thread-rail]');
+      assert.equal(await rails.count(), 4, 'rail post/komposer/komentar/toggle harus hadir semua');
+      const centers = [];
+      for (let index = 0; index < 4; index += 1) {
+        const box = await rails.nth(index).boundingBox();
+        assert.ok(box && box.width <= 2, `rail ke-${index + 1} harus garis tipis, bukan balok (lebar ${box?.width})`);
+        centers.push(box.x + box.width / 2);
+      }
+      assert.ok(Math.max(...centers) - Math.min(...centers) <= 1,
+        'semua rail harus segaris vertikal (satu benang utas)');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('tombol Balas di komentar membuka sheet balasan tanpa pindah halaman', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({

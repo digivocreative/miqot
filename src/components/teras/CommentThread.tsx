@@ -197,7 +197,9 @@ export default function CommentThread({
               // kolom avatar, jadi garis vertikal tampak terputus setinggi
               // tombol sebelum menyambung lagi di komentar berikutnya.
               <div className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
-                <div className="flex justify-center">
+                {/* WAJIB flex-col: di flex arah row, flex-1 menumbuhkan LEBAR —
+                    "garis" w-px berubah jadi balok selebar kolom 40px. */}
+                <div className="flex flex-col items-center">
                   {railConnected && hasNextGroup && (
                     <div data-thread-rail="comment" aria-hidden="true" className="-mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
                   )}
