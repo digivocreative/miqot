@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
+import { isProgrammaticScrollActive } from '../lib/programmatic-scroll';
 import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
@@ -11,7 +12,7 @@ interface FloatingAgentBarProps {
 
 export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
   const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollYRef = useRef(0);
 
   // CAPI: get agent slug for event firing
   const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
@@ -19,6 +20,13 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
   // Smart Scroll Visibility
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
+    const lastScrollY = lastScrollYRef.current;
+    lastScrollYRef.current = currentScrollY;
+
+    // Scroll kompensasi anchor kartu, bukan gestur user — jangan munculkan bar
+    // di tengah animasi pindah kartu.
+    if (isProgrammaticScrollActive()) return;
+
     if (currentScrollY <= 50) {
       setIsVisible(true);
     } else if (currentScrollY > lastScrollY) {
@@ -26,8 +34,7 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
     } else {
       setIsVisible(true);
     }
-    setLastScrollY(currentScrollY);
-  }, [lastScrollY]);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('scroll', handleScroll, { passive: true });

@@ -169,9 +169,29 @@ function PackageCardImpl({
   const linkCheckTimerRef = useRef<number | null>(null);
   const linkToastTimerRef = useRef<number | null>(null);
 
+  // Mount blok brosur pada commit yang SAMA dengan isExpanded (render-phase update,
+  // bukan useEffect): framer-motion mengukur target height 'auto' saat animasi mulai,
+  // jadi mount tertunda satu commit membuat panel dianimasikan ke tinggi tanpa-brosur
+  // lalu melompat +574px dalam satu frame di akhir animasi.
+  if (isExpanded && !showBrosurPreview) {
+    setShowBrosurPreview(true);
+  }
+
+  // content-visibility:auto hanya untuk kartu tertutup yang sudah tenang. Kartu yang
+  // terbuka / baru saja menutup dirender penuh dulu: di WebKit, kartu off-screen yang
+  // skipped memakai remembered size basi (setinggi saat expanded) sehingga panel yang
+  // menutup tidak benar-benar menyusut — meninggalkan celah hantu yang kolaps mendadak
+  // saat kartu dirender lagi. Clear saat expand harus render-phase (bukan useEffect)
+  // supaya class tercabut pada commit yang sama dengan mulainya animasi.
+  const [isSettledClosed, setIsSettledClosed] = useState(!isExpanded);
+  if (isExpanded && isSettledClosed) {
+    setIsSettledClosed(false);
+  }
   useEffect(() => {
-    if (isExpanded) setShowBrosurPreview(true);
-  }, [isExpanded]);
+    if (isExpanded || isSettledClosed) return;
+    const timer = window.setTimeout(() => setIsSettledClosed(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [isExpanded, isSettledClosed]);
 
   useEffect(() => {
     return () => {
@@ -1624,7 +1644,7 @@ _________________________
       onClick={handleCardClick}
       className={`
         bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
-        [content-visibility:auto] [contain-intrinsic-size:auto_248px]
+        ${isSettledClosed ? '[content-visibility:auto] [contain-intrinsic-size:auto_248px]' : ''}
         transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'

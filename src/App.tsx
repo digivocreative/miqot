@@ -6,6 +6,7 @@ import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, typ
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
+import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
@@ -537,10 +538,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       const delta = card.getBoundingClientRect().top - anchorTop;
       if (delta !== 0) window.scrollBy(0, delta);
     });
+    beginProgrammaticScroll();
+    let cleanedUp = false;
     const timer = setTimeout(() => cleanup(), 600); // durasi animasi panel + margin
     const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       observer.disconnect();
       clearTimeout(timer);
+      endProgrammaticScroll();
       cardAnchorCleanupRef.current = null;
     };
     cardAnchorCleanupRef.current = cleanup;
@@ -551,6 +557,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     const currentId = expandedCardIdRef.current;
     if (currentId !== null && currentId !== id) {
       anchorCardDuringToggle(currentId, id);
+    } else if (currentId === id) {
+      // Menutup kartu tanpa membuka yang lain: dekat dasar halaman, docHeight yang
+      // menyusut membuat browser meng-clamp scrollY — terbaca "scroll naik" oleh
+      // overlay auto-hide. Supresi singkat tanpa anchor.
+      beginProgrammaticScroll();
+      setTimeout(endProgrammaticScroll, 600);
     }
     setExpandedCardId(prevId => prevId === id ? null : id);
   };

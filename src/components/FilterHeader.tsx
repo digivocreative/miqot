@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { isSessionValid } from '@/utils/authUtils';
+import { isProgrammaticScrollActive } from '@/lib/programmatic-scroll';
 import type { UmrohPackage } from '@/types';
 import {
   FilterMode,
@@ -107,13 +108,20 @@ export function FilterHeader({
 }: FilterHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollYRef = useRef(0);
   const loggedIn = useMemo(() => isSessionValid(), []);
 
 
 
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
+    const lastScrollY = lastScrollYRef.current;
+    lastScrollYRef.current = currentScrollY;
+
+    // Scroll kompensasi anchor kartu, bukan gestur user — jangan toggle header
+    // di tengah animasi pindah kartu (header melebar bisa menutupi kartu yang di-tap).
+    if (isProgrammaticScrollActive()) return;
+
     const windowHeight = window.innerHeight;
     const documentHeight = document.documentElement.scrollHeight;
 
@@ -130,9 +138,7 @@ export function FilterHeader({
       // Scroll ke atas -> muncul
       setIsVisible(true);
     }
-
-    setLastScrollY(currentScrollY);
-  }, [lastScrollY]);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('scroll', handleScroll, { passive: true });
