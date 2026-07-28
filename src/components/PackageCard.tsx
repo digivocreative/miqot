@@ -157,6 +157,10 @@ function PackageCardImpl({
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
+  const [brosurLoaded, setBrosurLoaded] = useState(false);
+  // Brosur ±300KB/gambar — di list, mount hanya setelah kartu pernah dibuka
+  // supaya deretan kartu tertutup tidak mengunduh semua brosur sekaligus.
+  const [showBrosurPreview, setShowBrosurPreview] = useState(isSingleView);
   const [isLinkCopying, setIsLinkCopying] = useState(false);
   const [linkCheckVisible, setLinkCheckVisible] = useState(false);
   const [linkToastVisible, setLinkToastVisible] = useState(false);
@@ -165,6 +169,10 @@ function PackageCardImpl({
   const brosurSectionRef = useRef<HTMLDivElement>(null);
   const linkCheckTimerRef = useRef<number | null>(null);
   const linkToastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isExpanded) setShowBrosurPreview(true);
+  }, [isExpanded]);
 
   useEffect(() => {
     return () => {
@@ -2187,9 +2195,13 @@ _________________________
           )}
 
 
-          {/* ---- Inline Brosur Preview (Single View Only) ---- */}
-          {isSingleView && !brosurError && pkg.brosurUrl && (
-            <div ref={brosurSectionRef} className="mb-4">
+          {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ---- */}
+          {showBrosurPreview && !brosurError && pkg.brosurUrl && (
+            <div
+              ref={brosurSectionRef}
+              className="mb-4"
+              {...(brosurLoaded ? {} : { 'data-screenshot-ignore': true })}
+            >
               <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
                 {/* Header */}
                 <div className="px-4 py-3 flex items-center gap-1.5">
@@ -2197,23 +2209,32 @@ _________________________
                   <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Brosur Paket</span>
                 </div>
 
-                {/* Image area */}
+                {/* Image area — skeleton 3:4 (rasio brosur 1081×1440) menahan tinggi
+                    sampai gambar siap agar animasi expand tidak loncat */}
                 <div
                   className="cursor-pointer relative"
                   onClick={() => { fireViewContent(); setIsBrochureOpen(true); }}
                 >
-                  <img
-                    src={brosurImageUrl}
-                    alt="Brosur paket"
-                    className="w-full h-auto block"
-                    loading="lazy"
-                    onError={() => setBrosurError(true)}
-                  />
-                  {/* Badge */}
-                  <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
-                    <Maximize2 size={12} />
-                    Lihat penuh
+                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-900/60 animate-pulse'}>
+                    <img
+                      src={brosurImageUrl}
+                      alt="Brosur paket"
+                      className={`w-full h-auto block transition-opacity duration-300 ${brosurLoaded ? 'opacity-100' : 'opacity-0'}`}
+                      loading="lazy"
+                      decoding="async"
+                      // Gambar dari cache bisa complete sebelum onLoad terpasang
+                      ref={(el) => { if (el?.complete && el.naturalWidth > 0) setBrosurLoaded(true); }}
+                      onLoad={() => setBrosurLoaded(true)}
+                      onError={() => setBrosurError(true)}
+                    />
                   </div>
+                  {/* Badge */}
+                  {brosurLoaded && (
+                    <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
+                      <Maximize2 size={12} />
+                      Lihat penuh
+                    </div>
+                  )}
                 </div>
 
                 {/* Footer */}
