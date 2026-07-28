@@ -5,7 +5,6 @@ export interface AgentData {
   website: string;
   phone: string; // Format: 628...
   photo: string; // Path ke folder public
-  card_variant?: string;
 }
 
 // ── localStorage cache key ──
@@ -36,7 +35,7 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
   try {
     const { data, error } = await supabase
       .from('agents')
-      .select('slug, name, website, phone, photo, card_variant')
+      .select('slug, name, website, phone, photo')
       .or('status.eq.active,status.is.null');
 
     if (error) throw error;
@@ -48,7 +47,6 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
           website: row.website,
           phone: row.phone,
           photo: row.photo,
-          card_variant: row.card_variant || 'default',
         };
       }
       // Update the exported object in-place so all imports see new data

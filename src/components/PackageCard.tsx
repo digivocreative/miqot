@@ -13,7 +13,6 @@ const AskAIModal = lazy(() => import('./AskAIModal'));
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
-import { SplitLayout, SpotlightLayout, TicketLayout, TiledLayout, MagazineLayout } from './CardVariants';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getDistance } from '@/data/hotelService';
 import { lookupHotelMetadata } from '@/data/hotelMetadata';
@@ -624,7 +623,7 @@ _________________________
     setIsCapturing(true);
     fireViewContent();
 
-    // Wait for React to re-render with default layout (isCapturing forces cardVariant = 'default')
+    // Wait for React to re-render in capture mode before cloning the card
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     try {
@@ -1185,6 +1184,10 @@ _________________________
       // Root kartu kini border-y (full-bleed); tanpa ini PNG brosur kehilangan
       // bingkai kiri/kanan dan hairline menipis di lengkung sudut 12px.
       clone.style.border = '1px solid #d1fae5';
+      // Kartu asli pakai content-visibility:auto (hemat layout saat animasi expand).
+      // Klon dirender di luar viewport, jadi tanpa override ini isinya dilewati
+      // renderer dan PNG brosur keluar kosong.
+      clone.style.contentVisibility = 'visible';
 
       // F1. Bump font sizes for screenshot readability (+2px for package name, +1px for others)
       const allTextEls = clone.querySelectorAll('h3, h4, span, p, div');
@@ -1562,8 +1565,8 @@ _________________________
       <div className={`
         seat-info-section flex items-end gap-4 transition-all duration-300
         ${isFooter
-          ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm"
-          : cardVariant === 'split' ? "mt-0 pt-2 pb-1" : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
+          ? "mb-[10px] p-3 bg-gray-50 dark:bg-slate-950/50 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm"
+          : "mt-3 pt-3 border-t border-gray-100 dark:border-slate-700/50"
         }
       `}>
         {/* Left: Seat Info & Progress Bar */}
@@ -1612,11 +1615,6 @@ _________________________
   );
 };
 
-  // ── Card variant ──
-  // Force default layout during screenshot capture so brosur output tetap rapih
-  const cardVariant = isCapturing ? 'default' : (currentAgent?.card_variant || 'default');
-  const variantProps = { pkg, hotelInfo, absoluteMinPrice, formatHeaderPrice, isExpanded, SeatAndDateSection, formatDate };
-
   return (
     <>
     <div
@@ -1625,11 +1623,12 @@ _________________________
       data-jadwal-id={pkg.jadwalId}
       onClick={handleCardClick}
       className={`
-        bg-white dark:bg-slate-800 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
+        bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
+        [content-visibility:auto] [contain-intrinsic-size:auto_248px]
         transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
-          : 'border-gray-100 dark:border-slate-700'
+          : 'border-gray-100 dark:border-slate-800'
         }
       `}
     >
@@ -1643,14 +1642,14 @@ _________________________
             {flags.length === 1 ? (
               <div className="relative w-[125px] h-[88px]">
                 <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
-                <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-800 to-transparent to-40%" />
+                <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
               </div>
             ) : (
               <div className="flex gap-1">
                 {flags.map((flag) => (
                   <div key={flag} className="relative w-[100px] h-[70px]">
                     <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
-                    <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-800 to-transparent to-40%" />
+                    <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
                   </div>
                 ))}
               </div>
@@ -1664,12 +1663,7 @@ _________________________
       {/* ============================================ */}
       {/* COLLAPSED VIEW (Always Visible) */}
       {/* ============================================ */}
-      {cardVariant === 'split' ? <SplitLayout {...variantProps} />
-        : cardVariant === 'spotlight' ? <SpotlightLayout {...variantProps} />
-        : cardVariant === 'ticket' ? <TicketLayout {...variantProps} />
-        : cardVariant === 'tiled' ? <TiledLayout {...variantProps} />
-        : cardVariant === 'magazine' ? <MagazineLayout {...variantProps} />
-        : <div className="p-4">
+      <div className="p-4">
         {/* Header: Title & Price */}
         <div className="flex justify-between items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
@@ -1798,10 +1792,10 @@ _________________________
 
         {/* Keep this row mounted in one position to avoid a flash during expansion. */}
         <SeatAndDateSection isFooter={false} />
-      </div>}
+      </div>
 
       {/* ============================================ */}
-      {/* EXPANDED VIEW (Animated) — shared across all variants */}
+      {/* EXPANDED VIEW (Animated) */}
       {/* ============================================ */}
       <motion.div
         data-expand-panel
@@ -1818,7 +1812,7 @@ _________________________
         <div className="px-4 pb-4">
 
           {/* ---- New Info Section: Landing & Manasik ---- */}
-          <div className="flex items-center gap-3 mb-2 bg-gray-50 dark:bg-slate-900/50 p-3 rounded-lg">
+          <div className="flex items-center gap-3 mb-2 bg-gray-50 dark:bg-slate-950/50 p-3 rounded-lg">
             <div className="grid grid-cols-2 gap-3 flex-1 min-w-0">
             {/* Landing Info */}
             <div className="flex items-start gap-2">
@@ -1857,9 +1851,9 @@ _________________________
           </div>
 
           {journeySteps.length > 0 && (
-            <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
               <div className="mb-3 flex min-w-0 items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-900 dark:text-emerald-400 dark:ring-slate-700">
                   <Route size={15} strokeWidth={2} />
                 </span>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
@@ -1885,10 +1879,10 @@ _________________________
                     <div className="flex min-w-0 flex-col items-center text-center">
                       <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
                         step.tone === 'tour'
-                          ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-800 dark:ring-slate-700'
+                          ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700'
                           : step.tone === 'madinah'
                             ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
-                            : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-800 dark:ring-emerald-800/60'
+                            : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-900 dark:ring-emerald-800/60'
                       }`}>
                         <span
                           role="img"
@@ -1920,14 +1914,16 @@ _________________________
           )}
 
 
-          {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ---- */}
+          {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ----
+               data-screenshot-ignore permanen: brosur punya tombol "Brosur" + Download
+               sendiri, jadi hasil "Simpan" tidak perlu ikut memuatnya. */}
           {showBrosurPreview && !brosurError && pkg.brosurUrl && (
             <div
               ref={brosurSectionRef}
               className="mb-4"
-              {...(brosurLoaded ? {} : { 'data-screenshot-ignore': true })}
+              data-screenshot-ignore
             >
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
                 {/* Header */}
                 <div className="px-4 py-3 flex items-center gap-1.5">
                   <FileText size={14} className="text-gray-400 dark:text-slate-500" />
@@ -1942,7 +1938,7 @@ _________________________
                   // (handleCardClick di root) sehingga kartu tertutup di balik popup
                   onClick={(e) => { e.stopPropagation(); fireViewContent(); setIsBrochureOpen(true); }}
                 >
-                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-900/60 animate-pulse'}>
+                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-950/60 animate-pulse'}>
                     <img
                       src={brosurImageUrl}
                       alt="Brosur paket"
@@ -2266,7 +2262,7 @@ _________________________
                 data-screenshot-ignore
                 role="tablist"
                 aria-label="Pilih tipe paket"
-                className="flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-900"
+                className="flex w-full gap-1 mb-3 p-1 rounded-xl bg-gray-100 dark:bg-slate-950"
               >
                 {tiers.map((tier) => {
                   const isActive = tier === activeTier;
@@ -2358,7 +2354,7 @@ _________________________
             ];
 
             return (
-              <div data-temp-section className="mb-4 bg-white dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <div data-temp-section className="mb-4 bg-white dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center mb-4">
                   <h4 
                     className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"

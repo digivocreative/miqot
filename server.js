@@ -2681,7 +2681,6 @@ app.post('/api/auth/login', async (req, res) => {
       phone: agent.phone,
       email: agent.email || '',
       email_alias: (agent.email_alias && agent.email_alias_enabled) ? agent.email_alias : null,
-      card_variant: agent.card_variant || 'default',
     },
   });
 });
@@ -2798,13 +2797,6 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Public: get agent card_variant (no auth required)
-app.get('/api/agent/:slug/card-variant', async (req, res) => {
-  const agent = await getAgentBySlug(req.params.slug?.toLowerCase());
-  if (!agent) return res.status(404).json({ card_variant: 'default' });
-  res.json({ card_variant: agent.card_variant || 'default' });
-});
-
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   const agent = await getAgentById(req.user.id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -2819,7 +2811,6 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     email: agent.email || '',
     email_alias: (agent.email_alias && agent.email_alias_enabled) ? agent.email_alias : null,
     telegram_chat_id: agent.telegram_chat_id || '',
-    card_variant: agent.card_variant || 'default',
     awapi_code: agent.awapi_code || '',
     has_awapi_key: !!agent.awapi_key,
   });
@@ -3204,18 +3195,13 @@ app.options('/api/admin/agents/:slug', (req, res) => {
 
 // Update own profile
 app.put('/api/admin/profile', authMiddleware, async (req, res) => {
-  const { name, website, phone, email, telegram_chat_id, slug: newSlug, password, card_variant } = req.body;
-  const VALID_CARD_VARIANTS = ['default', 'split', 'spotlight', 'ticket', 'tiled', 'magazine'];
-  if (card_variant && !VALID_CARD_VARIANTS.includes(card_variant)) {
-    return res.status(400).json({ error: 'Varian card tidak valid' });
-  }
+  const { name, website, phone, email, telegram_chat_id, slug: newSlug, password } = req.body;
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (website !== undefined) updates.website = website;
   if (phone !== undefined) updates.phone = phone;
   if (email !== undefined) updates.email = email;
   if (telegram_chat_id !== undefined) updates.telegram_chat_id = telegram_chat_id;
-  if (card_variant !== undefined) updates.card_variant = card_variant;
   // Handle optional password change
   if (password) {
     if (password.length < 6) {
@@ -9016,7 +9002,7 @@ app.get('/api/bio/:slug/featured-paket-preview', async (req, res) => {
 app.get('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
   const { data, error } = await supabase
     .from('agents')
-    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, card_variant, status, registered_at, last_jamaah_sync_at')
+    .select('slug, name, website, phone, email, photo, role, jamaah_username, jamaah_password, jamaah_kantor, status, registered_at, last_jamaah_sync_at')
     .order('name');
   if (error) return res.status(500).json({ error: error.message });
   // Don't expose raw encrypted password — just indicate if it's set.
@@ -21887,11 +21873,6 @@ app.get('{*path}', async (req, res) => {
     <script>window.__AGENT_CONTEXT__ = ${agentContext};</script>
     `;
     html = html.replace('</head>', `${metaTags}</head>`);
-
-    // Inject agent card_variant so the SPA can read it without waiting for Supabase
-    if (agent.card_variant && agent.card_variant !== 'default') {
-      html = html.replace('<body', `<body data-agent-card-variant="${agent.card_variant}"`);
-    }
   }
 
   res.set('Content-Type', 'text/html');

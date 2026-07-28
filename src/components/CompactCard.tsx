@@ -53,7 +53,7 @@ function CompactCardImpl({ package: pkg, onToggle, agent: _agent }: CompactCardP
       data-jadwal-id={pkg.jadwalId}
       onClick={onToggle}
       className={`
-        bg-white dark:bg-slate-800 rounded-xl overflow-hidden cursor-pointer
+        bg-white dark:bg-slate-900 rounded-xl overflow-hidden cursor-pointer
         shadow-sm border border-gray-100 dark:border-slate-700
         hover:shadow-md hover:border-gray-200 dark:hover:border-slate-600
         transition-all duration-200 active:scale-[0.995]

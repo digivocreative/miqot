@@ -16,7 +16,6 @@ interface AgentData {
   telegram_chat_id?: string;
   photo: string;
   role: string;
-  card_variant?: string;
 }
 
 type SettingsTab = 'profil' | 'telegram' | 'capi';

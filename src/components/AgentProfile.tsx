@@ -35,7 +35,7 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", dep
 
   return (
     // 1. Container dengan Gradient Background
-    <div data-agent-profile className="mt-2 mb-3 p-3 rounded-xl border border-emerald-100 dark:border-emerald-800/50 bg-gradient-to-r from-emerald-50 via-white to-white dark:from-emerald-950/40 dark:via-slate-800 dark:to-slate-800 flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+    <div data-agent-profile className="mt-2 mb-3 p-3 rounded-xl border border-emerald-100 dark:border-emerald-800/50 bg-gradient-to-r from-emerald-50 via-white to-white dark:from-emerald-950/40 dark:via-slate-900 dark:to-slate-900 flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
       
       {/* KIRI: Foto & Info */}
       <div className="flex items-center gap-3 overflow-hidden">

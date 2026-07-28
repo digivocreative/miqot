@@ -120,7 +120,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       website: ctx.website || '',
       phone: ctx.phone || '',
       photo: ctx.photo || '',
-      card_variant: 'default',
     };
   });
 
@@ -130,7 +129,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const isCustomDomain = !!serverAgentContext?.customDomain;
   const customDomainSlug = serverAgentContext?.slug || null;
 
-  // Load agents from Supabase on mount, then fetch card_variant from server API.
+  // Load agents from Supabase on mount.
   // On custom domain, agent slug comes from server context; on alhijaz.co, from URL.
   useEffect(() => {
     loadAgentsFromSupabase().then(() => {
@@ -143,19 +142,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       }
       if (!slug) return;
       const possibleAgent = AGENTS_DATA[slug];
-      if (possibleAgent) {
-        setCurrentAgent(possibleAgent);
-        fetch(`/api/agent/${slug}/card-variant`)
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (data?.card_variant && data.card_variant !== 'default') {
-              const updated = { ...AGENTS_DATA[slug!], card_variant: data.card_variant };
-              AGENTS_DATA[slug!] = updated;
-              setCurrentAgent(updated);
-            }
-          })
-          .catch(() => {});
-      }
+      if (possibleAgent) setCurrentAgent(possibleAgent);
     });
   }, [customDomainSlug]);
 
@@ -175,7 +162,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           website: serverAgentContext.website || '',
           phone: serverAgentContext.phone || '',
           photo: serverAgentContext.photo || '',
-          card_variant: 'default',
         };
       }
       if (segments.length >= 1) filterSlugFromUrl = segments[0];
@@ -579,7 +565,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     const backHref = isCustomDomain ? '/' : (agentSlug ? `/${agentSlug}` : '/');
 
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
         {/* Back Header */}
         <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
@@ -649,7 +635,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // Normal Mode (full app)
   // ============================================
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
       {/* ============================================ */}
       {/* FILTER HEADER */}
       {/* ============================================ */}
@@ -833,7 +819,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
             className="fixed inset-0 z-[9999] flex flex-col"
           >
             {/* Full Screen Container */}
-            <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900">
+            <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950">
               {/* Full PackageCard — tanpa px-4 agar kartu full-bleed */}
               <div className="max-w-lg mx-auto pt-4 pb-24">
                 <PackageCard

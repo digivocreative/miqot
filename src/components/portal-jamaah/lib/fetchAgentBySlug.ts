@@ -16,7 +16,6 @@ export async function fetchAgentBySlug(slug: string): Promise<PortalAgent | null
         phone: data.phone || '',
         photo: data.photo || '',
         website: data.website || '',
-        card_variant: 'default',
       };
     }
   } catch {
