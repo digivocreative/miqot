@@ -629,13 +629,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           )}
 
           {!loading && singlePkg && (
-            <PackageCard
-              package={singlePkg}
-              isExpanded={true}
-              onToggle={() => {}}
-              agent={currentAgent}
-              isSingleView={true}
-            />
+            <div className="-mx-4">
+              <PackageCard
+                package={singlePkg}
+                isExpanded={true}
+                onToggle={() => {}}
+                agent={currentAgent}
+                isSingleView={true}
+              />
+            </div>
           )}
         </main>
 
@@ -713,7 +715,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
         {/* Package List */}
         {!loading && !error && (
-          <div className={isCompactView ? 'space-y-1.5' : 'space-y-3'}>
+          <div className={isCompactView ? 'space-y-1.5' : '-mx-4 space-y-2'}>
             {/* Package Cards */}
             {filteredPackages.map((pkg) => (
               isCompactView ? (
@@ -832,8 +834,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           >
             {/* Full Screen Container */}
             <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900">
-              {/* Full PackageCard */}
-              <div className="max-w-lg mx-auto px-4 pt-4 pb-24">
+              {/* Full PackageCard — tanpa px-4 agar kartu full-bleed */}
+              <div className="max-w-lg mx-auto pt-4 pb-24">
                 <PackageCard
                   package={detailPkg}
                   isExpanded={true}

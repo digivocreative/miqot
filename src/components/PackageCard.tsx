@@ -1182,6 +1182,9 @@ _________________________
       clone.style.borderRadius = '12px';
       clone.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
       clone.style.overflow = 'hidden';
+      // Root kartu kini border-y (full-bleed); tanpa ini PNG brosur kehilangan
+      // bingkai kiri/kanan dan hairline menipis di lengkung sudut 12px.
+      clone.style.border = '1px solid #d1fae5';
 
       // F1. Bump font sizes for screenshot readability (+2px for package name, +1px for others)
       const allTextEls = clone.querySelectorAll('h3, h4, span, p, div');
@@ -1622,11 +1625,11 @@ _________________________
       data-jadwal-id={pkg.jadwalId}
       onClick={handleCardClick}
       className={`
-        bg-white dark:bg-slate-800 rounded-xl relative overflow-hidden cursor-pointer border pb-1
+        bg-white dark:bg-slate-800 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
         transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
-          ? 'shadow-lg border-emerald-100 dark:border-emerald-900 ring-1 ring-emerald-100 dark:ring-emerald-900'
-          : 'shadow-sm border-gray-100 dark:border-slate-700 hover:shadow-md'
+          ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
+          : 'border-gray-100 dark:border-slate-700'
         }
       `}
     >
