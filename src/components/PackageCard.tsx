@@ -1917,10 +1917,59 @@ _________________________
           )}
 
 
-          {/* Agent Profile (only visible when URL slug matches an agent) */}
-          {currentAgent && (
-            <div className="px-0">
-              <AgentProfile agent={currentAgent} packageName={pkg.nama} departureDate={pkg.keberangkatan.tgl} isCapturing={isCapturing} />
+          {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ---- */}
+          {showBrosurPreview && !brosurError && pkg.brosurUrl && (
+            <div
+              ref={brosurSectionRef}
+              className="mb-4"
+              {...(brosurLoaded ? {} : { 'data-screenshot-ignore': true })}
+            >
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+                {/* Header */}
+                <div className="px-4 py-3 flex items-center gap-1.5">
+                  <FileText size={14} className="text-gray-400 dark:text-slate-500" />
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Brosur Paket</span>
+                </div>
+
+                {/* Image area — skeleton 3:4 (rasio brosur 1081×1440) menahan tinggi
+                    sampai gambar siap agar animasi expand tidak loncat */}
+                <div
+                  className="cursor-pointer relative"
+                  onClick={() => { fireViewContent(); setIsBrochureOpen(true); }}
+                >
+                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-900/60 animate-pulse'}>
+                    <img
+                      src={brosurImageUrl}
+                      alt="Brosur paket"
+                      className={`w-full h-auto block transition-opacity duration-300 ${brosurLoaded ? 'opacity-100' : 'opacity-0'}`}
+                      loading="lazy"
+                      decoding="async"
+                      // Gambar dari cache bisa complete sebelum onLoad terpasang
+                      ref={(el) => { if (el?.complete && el.naturalWidth > 0) setBrosurLoaded(true); }}
+                      onLoad={() => setBrosurLoaded(true)}
+                      onError={() => setBrosurError(true)}
+                    />
+                  </div>
+                  {/* Badge */}
+                  {brosurLoaded && (
+                    <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
+                      <Maximize2 size={12} />
+                      Lihat penuh
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
+                    <Download size={16} className="text-emerald-500" />
+                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400">Download brosur</span>
+                  </button>
+                  <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+                    <Share2 size={16} />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2195,59 +2244,10 @@ _________________________
           )}
 
 
-          {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ---- */}
-          {showBrosurPreview && !brosurError && pkg.brosurUrl && (
-            <div
-              ref={brosurSectionRef}
-              className="mb-4"
-              {...(brosurLoaded ? {} : { 'data-screenshot-ignore': true })}
-            >
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-                {/* Header */}
-                <div className="px-4 py-3 flex items-center gap-1.5">
-                  <FileText size={14} className="text-gray-400 dark:text-slate-500" />
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Brosur Paket</span>
-                </div>
-
-                {/* Image area — skeleton 3:4 (rasio brosur 1081×1440) menahan tinggi
-                    sampai gambar siap agar animasi expand tidak loncat */}
-                <div
-                  className="cursor-pointer relative"
-                  onClick={() => { fireViewContent(); setIsBrochureOpen(true); }}
-                >
-                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-900/60 animate-pulse'}>
-                    <img
-                      src={brosurImageUrl}
-                      alt="Brosur paket"
-                      className={`w-full h-auto block transition-opacity duration-300 ${brosurLoaded ? 'opacity-100' : 'opacity-0'}`}
-                      loading="lazy"
-                      decoding="async"
-                      // Gambar dari cache bisa complete sebelum onLoad terpasang
-                      ref={(el) => { if (el?.complete && el.naturalWidth > 0) setBrosurLoaded(true); }}
-                      onLoad={() => setBrosurLoaded(true)}
-                      onError={() => setBrosurError(true)}
-                    />
-                  </div>
-                  {/* Badge */}
-                  {brosurLoaded && (
-                    <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
-                      <Maximize2 size={12} />
-                      Lihat penuh
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
-                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
-                    <Download size={16} className="text-emerald-500" />
-                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400">Download brosur</span>
-                  </button>
-                  <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
-                    <Share2 size={16} />
-                  </button>
-                </div>
-              </div>
+          {/* Agent Profile (only visible when URL slug matches an agent) */}
+          {currentAgent && (
+            <div className="px-0">
+              <AgentProfile agent={currentAgent} packageName={pkg.nama} departureDate={pkg.keberangkatan.tgl} isCapturing={isCapturing} />
             </div>
           )}
 
