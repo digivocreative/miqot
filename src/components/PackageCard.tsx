@@ -1935,7 +1935,9 @@ _________________________
                     sampai gambar siap agar animasi expand tidak loncat */}
                 <div
                   className="cursor-pointer relative"
-                  onClick={() => { fireViewContent(); setIsBrochureOpen(true); }}
+                  // stopPropagation: tanpa ini klik preview ikut men-toggle kartu
+                  // (handleCardClick di root) sehingga kartu tertutup di balik popup
+                  onClick={(e) => { e.stopPropagation(); fireViewContent(); setIsBrochureOpen(true); }}
                 >
                   <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-900/60 animate-pulse'}>
                     <img

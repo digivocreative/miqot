@@ -217,6 +217,9 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       {isOpen && (
         <motion.div
           className="fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col"
+          // Portal tetap bubble lewat pohon React — tahan klik di sini supaya
+          // tidak sampai ke onClick pemanggil (mis. toggle expand PackageCard)
+          onClick={(e) => e.stopPropagation()}
           initial={{ opacity: 0, y: '100%' }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: '100%' }}
