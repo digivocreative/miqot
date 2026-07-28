@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages, refreshPackages } from '@/services';
@@ -513,7 +513,45 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterSecondaryValue(value);
   };
 
+  // Saat pindah kartu (A terbuka → tap B), panel A yang menutup menggeser posisi B
+  // di viewport. Kompensasi scroll supaya kartu yang di-tap tetap diam di bawah jari
+  // user selama animasi collapse+expand (0.36s). ResizeObserver pada panel A yang
+  // menyusut jalan setelah layout tapi sebelum paint, jadi bebas wobble (rAF telat
+  // 1-2 frame dari framer-motion). Baca state via ref: memo PackageCard mengabaikan
+  // onToggle, jadi closure handleToggleCard di kartu bisa basi.
+  const cardAnchorCleanupRef = useRef<(() => void) | null>(null);
+  const expandedCardIdRef = useRef<string | null>(null);
+  expandedCardIdRef.current = expandedCardId;
+
+  const anchorCardDuringToggle = (closingId: string, openingId: string) => {
+    cardAnchorCleanupRef.current?.();
+    const closingPanel = document.querySelector(`[data-jadwal-id="${closingId}"] [data-expand-panel]`);
+    const card = document.querySelector(`[data-jadwal-id="${openingId}"]`);
+    if (!closingPanel || !card) return;
+    const anchorTop = card.getBoundingClientRect().top;
+    const observer = new ResizeObserver(() => {
+      if (!card.isConnected) {
+        cleanup();
+        return;
+      }
+      const delta = card.getBoundingClientRect().top - anchorTop;
+      if (delta !== 0) window.scrollBy(0, delta);
+    });
+    const timer = setTimeout(() => cleanup(), 600); // durasi animasi panel + margin
+    const cleanup = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      cardAnchorCleanupRef.current = null;
+    };
+    cardAnchorCleanupRef.current = cleanup;
+    observer.observe(closingPanel);
+  };
+
   const handleToggleCard = (id: string) => {
+    const currentId = expandedCardIdRef.current;
+    if (currentId !== null && currentId !== id) {
+      anchorCardDuringToggle(currentId, id);
+    }
     setExpandedCardId(prevId => prevId === id ? null : id);
   };
 
@@ -701,7 +739,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
         {/* Package List */}
         {!loading && !error && (
-          <div className={isCompactView ? 'space-y-1.5' : '-mx-4 space-y-2'}>
+          <div className={isCompactView ? 'space-y-1.5' : '-mx-4 space-y-2 [overflow-anchor:none]'}>
+            {/* [overflow-anchor:none] — matikan scroll anchoring bawaan browser; saat panel
+                collapse+expand bersamaan, browser bisa memilih anchor node di dalam panel yang
+                membuka dan ikut men-scroll halaman. Kompensasi ditangani anchorCardDuringToggle. */}
             {/* Package Cards */}
             {filteredPackages.map((pkg) => (
               isCompactView ? (
