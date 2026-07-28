@@ -181,7 +181,14 @@ export function FilterHeader({
         supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-slate-900/60
       `}
     >
-      <div className="max-w-lg mx-auto px-4 pt-4 pb-4">
+      {/* Vertical padding slims symmetrically (16px -> 8px) while the rows are hidden */}
+      <div
+        className="max-w-lg mx-auto px-4 transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        style={{
+          paddingTop: isVisible ? '16px' : '8px',
+          paddingBottom: isVisible ? '16px' : '8px',
+        }}
+      >
         {/* ============================================ */}
         {/* ROW 1: Title & Year Dropdown */}
         {/* ============================================ */}
@@ -251,12 +258,27 @@ export function FilterHeader({
         </div>
 
         {/* ============================================ */}
-        {/* ROW 2: Filter Dropdowns */}
+        {/* ROW 2 + ROW 3: Filters & Search (collapsible on scroll) */}
         {/* ============================================ */}
+        {/* Grid-rows 1fr/0fr animates to the exact content height (max-height overshoot causes a laggy start). */}
+        {/* Dropdown panels render via portal so the overflow-hidden collapse wrapper can't clip them. */}
+        <div
+          className="grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            gridTemplateRows: isVisible ? '1fr' : '0fr',
+            opacity: isVisible ? 1 : 0,
+          }}
+        >
+        <div className="min-h-0 overflow-hidden p-1 -m-1">
+        <div
+          className="transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{ transform: isVisible ? 'translateY(0)' : 'translateY(-10px)' }}
+        >
         <div className="flex gap-2 mt-3">
           {/* Main Filter Dropdown */}
           <FilterDropdown
             variant="default"
+            portal
             value={filterMode}
             onChange={(v) => {
               const newMode = v as FilterMode;
@@ -275,6 +297,7 @@ export function FilterHeader({
           {showSortDropdown && (
             <FilterDropdown
               variant="default"
+              portal
               value={sortOrder || ''}
               onChange={(v) => onSortOrderChange?.((v as SortOrder) || null)}
               options={[{ value: '', label: '- Urutkan -' }, ...SORT_OPTIONS]}
@@ -287,6 +310,7 @@ export function FilterHeader({
           {showLandingDropdown && (
             <FilterDropdown
               variant="default"
+              portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={[
@@ -302,6 +326,7 @@ export function FilterHeader({
           {showMonthDropdown && (
             <FilterDropdown
               variant="default"
+              portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={[
@@ -317,6 +342,7 @@ export function FilterHeader({
           {showDurationDropdown && (
             <FilterDropdown
               variant="default"
+              portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={[
@@ -329,18 +355,7 @@ export function FilterHeader({
           )}
         </div>
 
-        {/* ============================================ */}
-        {/* ROW 3: Search Bar & Filter Button (collapsible on scroll) */}
-        {/* ============================================ */}
-        <div
-          className="transition-all duration-300 ease-in-out overflow-hidden p-1 -m-1"
-          style={{
-            maxHeight: isVisible ? '68px' : '0px',
-            opacity: isVisible ? 1 : 0,
-            marginTop: isVisible ? '12px' : '0px',
-          }}
-        >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mt-3">
             {/* Search Input */}
             <div className="relative flex-1">
               <Search
@@ -431,6 +446,8 @@ export function FilterHeader({
               <LayoutList size={18} />
             </button>
           </div>
+        </div>
+        </div>
         </div>
 
       </div>
