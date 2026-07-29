@@ -49,6 +49,8 @@ interface PackageCardProps {
   isExpanded?: boolean;
   /** Callback to toggle expansion */
   onToggle?: () => void;
+  /** Tutup panel tanpa animasi (dipakai saat pindah kartu: kartu lama menutup instan) */
+  instantCollapse?: boolean;
   /** Callback when expand state changes (for backward compatibility or extra monitoring) */
   onExpandChange?: (expanded: boolean) => void;
   /** Agent data from URL slug (passed from parent to avoid per-card detection) */
@@ -135,9 +137,10 @@ const copyTextToClipboard = async (text: string): Promise<boolean> => {
  * Displays Umroh package information with expand/collapse functionality
  */
 function PackageCardImpl({
-  package: pkg, 
+  package: pkg,
   isExpanded = false,
   onToggle,
+  instantCollapse = false,
   onExpandChange,
   agent: currentAgent = null,
   isSingleView = false,
@@ -183,6 +186,10 @@ function PackageCardImpl({
   // menutup tidak benar-benar menyusut — meninggalkan celah hantu yang kolaps mendadak
   // saat kartu dirender lagi. Clear saat expand harus render-phase (bukan useEffect)
   // supaya class tercabut pada commit yang sama dengan mulainya animasi.
+  // Catatan: contain-intrinsic-size TIDAK ikut di-toggle — ia harus terpasang terus
+  // supaya browser merekam last remembered size selama kartu dirender penuh; tanpa
+  // itu, saat di-skip lagi kartu memakai placeholder 248px (≠ tinggi nyata) dan
+  // semua konten di bawahnya berkedip ±7px satu frame.
   const [isSettledClosed, setIsSettledClosed] = useState(!isExpanded);
   if (isExpanded && isSettledClosed) {
     setIsSettledClosed(false);
@@ -1644,7 +1651,7 @@ _________________________
       onClick={handleCardClick}
       className={`
         bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
-        ${isSettledClosed ? '[content-visibility:auto] [contain-intrinsic-size:auto_248px]' : ''}
+        [contain-intrinsic-size:auto_248px] ${isSettledClosed ? '[content-visibility:auto]' : ''}
         transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
@@ -1824,7 +1831,7 @@ _________________________
         animate={{
           height: isExpanded ? 'auto' : 0,
         }}
-        transition={shouldReduceMotion ? { duration: 0 } : {
+        transition={shouldReduceMotion || (instantCollapse && !isExpanded) ? { duration: 0 } : {
           height: { duration: 0.36, ease: [0.22, 1, 0.36, 1] },
         }}
         className="overflow-hidden"
@@ -2637,6 +2644,7 @@ _________________________
 const arePackageCardPropsEqual = (prev: PackageCardProps, next: PackageCardProps) =>
   prev.package === next.package &&
   prev.isExpanded === next.isExpanded &&
+  prev.instantCollapse === next.instantCollapse &&
   prev.agent === next.agent &&
   prev.isSingleView === next.isSingleView &&
   prev.isComparing === next.isComparing &&

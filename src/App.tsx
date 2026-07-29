@@ -514,55 +514,113 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterSecondaryValue(value);
   };
 
-  // Saat pindah kartu (A terbuka → tap B), panel A yang menutup menggeser posisi B
-  // di viewport. Kompensasi scroll supaya kartu yang di-tap tetap diam di bawah jari
-  // user selama animasi collapse+expand (0.36s). ResizeObserver pada panel A yang
-  // menyusut jalan setelah layout tapi sebelum paint, jadi bebas wobble (rAF telat
-  // 1-2 frame dari framer-motion). Baca state via ref: memo PackageCard mengabaikan
-  // onToggle, jadi closure handleToggleCard di kartu bisa basi.
+  // Saat pindah kartu (A terbuka → tap B), panel A ditutup INSTAN (prop
+  // instantCollapse di PackageCard) dan pergeserannya dikompensasi atomik oleh
+  // ResizeObserver (jalan setelah layout, sebelum paint) supaya kartu B tidak
+  // bergerak sama sekali — satu-satunya gerakan yang terlihat adalah panel B yang
+  // membuka. Kalau ikut dianimasikan, menutupnya panel A (~1200px) membuat seluruh
+  // konten di atasnya mengalir deras 0.36s di viewport: itu yang terasa
+  // "lompat-lompatan" meski kartu yang di-tap sendiri diam.
+  // Bila header kartu B ada di bagian bawah layar (kontennya bakal membuka di
+  // bawah fold), anchor-nya digeser perlahan ke dekat atas viewport (glide rAF)
+  // supaya yang membuka langsung terlihat.
+  // Baca state via ref: memo PackageCard mengabaikan onToggle, jadi closure
+  // handleToggleCard di kartu bisa basi.
   const cardAnchorCleanupRef = useRef<(() => void) | null>(null);
   const expandedCardIdRef = useRef<string | null>(null);
   expandedCardIdRef.current = expandedCardId;
+  const [instantCollapseId, setInstantCollapseId] = useState<string | null>(null);
+
+  const GLIDE_TRIGGER_RATIO = 0.62; // header di bawah 62% tinggi layar → glide
+  const GLIDE_TARGET_GAP = 12;      // jarak header kartu dari dasar header fixed
+  const GLIDE_DURATION_MS = 360;    // seirama animasi expand panel
 
   const anchorCardDuringToggle = (closingId: string, openingId: string) => {
     cardAnchorCleanupRef.current?.();
     const closingPanel = document.querySelector(`[data-jadwal-id="${closingId}"] [data-expand-panel]`);
     const card = document.querySelector(`[data-jadwal-id="${openingId}"]`);
     if (!closingPanel || !card) return;
-    const anchorTop = card.getBoundingClientRect().top;
+
+    const startTop = card.getBoundingClientRect().top;
+    const glide = startTop > window.innerHeight * GLIDE_TRIGGER_RATIO;
+    // Tinggi header fixed diukur saat tap (bisa 55px collapsed atau 181px expanded;
+    // supresi overlay membekukannya selama glide, jadi nilai ini stabil).
+    const glideTargetTop = (document.querySelector('header')?.getBoundingClientRect().bottom ?? 56) + GLIDE_TARGET_GAP;
+    // anchorTop bergeser selama glide; RO (atomik, utk collapse instan) dan loop
+    // glide sama-sama mengoreksi posisi kartu ke nilai ini.
+    let anchorTop = startTop;
+    let rafId: number | null = null;
+
+    const correct = () => {
+      const delta = card.getBoundingClientRect().top - anchorTop;
+      if (delta !== 0) window.scrollBy(0, delta);
+    };
+
     const observer = new ResizeObserver(() => {
       if (!card.isConnected) {
         cleanup();
         return;
       }
-      const delta = card.getBoundingClientRect().top - anchorTop;
-      if (delta !== 0) window.scrollBy(0, delta);
+      correct();
     });
     beginProgrammaticScroll();
     let cleanedUp = false;
-    const timer = setTimeout(() => cleanup(), 600); // durasi animasi panel + margin
+    const timer = setTimeout(() => cleanup(), 600); // window kompensasi + margin
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
       observer.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
       clearTimeout(timer);
       endProgrammaticScroll();
       cardAnchorCleanupRef.current = null;
     };
     cardAnchorCleanupRef.current = cleanup;
     observer.observe(closingPanel);
+
+    if (glide) {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        anchorTop = glideTargetTop;
+        correct();
+        return;
+      }
+      const glideStart = performance.now();
+      const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+      const step = () => {
+        if (!card.isConnected) {
+          cleanup();
+          return;
+        }
+        const t = Math.min(1, (performance.now() - glideStart) / GLIDE_DURATION_MS);
+        anchorTop = startTop + (glideTargetTop - startTop) * easeOutCubic(t);
+        correct();
+        rafId = t < 1 ? requestAnimationFrame(step) : null;
+      };
+      rafId = requestAnimationFrame(step);
+    }
   };
 
   const handleToggleCard = (id: string) => {
     const currentId = expandedCardIdRef.current;
     if (currentId !== null && currentId !== id) {
+      // Pindah kartu: kartu lama menutup instan, hanya kartu baru yang beranimasi.
+      setInstantCollapseId(currentId);
       anchorCardDuringToggle(currentId, id);
-    } else if (currentId === id) {
-      // Menutup kartu tanpa membuka yang lain: dekat dasar halaman, docHeight yang
-      // menyusut membuat browser meng-clamp scrollY — terbaca "scroll naik" oleh
-      // overlay auto-hide. Supresi singkat tanpa anchor.
-      beginProgrammaticScroll();
-      setTimeout(endProgrammaticScroll, 600);
+    } else {
+      setInstantCollapseId(null);
+      if (currentId === id) {
+        // Menutup kartu tanpa membuka yang lain: dekat dasar halaman, docHeight yang
+        // menyusut membuat browser meng-clamp scrollY — terbaca "scroll naik" oleh
+        // overlay auto-hide. Supresi HANYA bila clamp memang akan terjadi (jarak ke
+        // dasar < tinggi panel), supaya gestur user normal tetap responsif.
+        const panel = document.querySelector(`[data-jadwal-id="${id}"] [data-expand-panel]`);
+        const panelH = panel?.getBoundingClientRect().height ?? 0;
+        const distanceToBottom = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+        if (panelH > 0 && distanceToBottom < panelH + 100) {
+          beginProgrammaticScroll();
+          setTimeout(endProgrammaticScroll, 600);
+        }
+      }
     }
     setExpandedCardId(prevId => prevId === id ? null : id);
   };
@@ -769,6 +827,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                   key={pkg.jadwalId}
                   package={pkg}
                   isExpanded={expandedCardId === pkg.jadwalId}
+                  instantCollapse={instantCollapseId === pkg.jadwalId}
                   onToggle={() => handleToggleCard(pkg.jadwalId)}
                   agent={currentAgent}
                 />
