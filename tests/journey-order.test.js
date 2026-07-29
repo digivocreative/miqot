@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   inferJourneyOrderFromItinerary,
   inferSaudiJourneyOrderFromItinerary,
+  saudiOrderContradictsRoute,
 } from '../lib/journey-order.js';
 
 test('inferSaudiJourneyOrderFromItinerary: Jeddah landing can still mean Madinah first', () => {
@@ -186,4 +187,50 @@ test('inferJourneyOrderFromItinerary: package-style titles alone do not invent a
     inferJourneyOrderFromItinerary(content),
     ['Madinah', 'Umroh']
   );
+});
+
+test('saudiOrderContradictsRoute: landing MED vs itinerary Umroh-dulu = kontradiksi (kasus JBU1513)', () => {
+  assert.equal(
+    saudiOrderContradictsRoute(['Umroh', 'Tur Taif', 'Madinah', 'Ziarah Badar'], 'CGK - MED'),
+    true
+  );
+});
+
+test('saudiOrderContradictsRoute: landing MED via transit tetap kontradiksi', () => {
+  assert.equal(
+    saudiOrderContradictsRoute(['Umroh', 'Madinah'], 'CGK-DXB / DXB-MED'),
+    true
+  );
+});
+
+test('saudiOrderContradictsRoute: landing MED dengan Madinah dulu = konsisten', () => {
+  assert.equal(
+    saudiOrderContradictsRoute(['Madinah', 'Umroh', 'Tur Red Sea'], 'CGK - MED'),
+    false
+  );
+});
+
+test('saudiOrderContradictsRoute: landing JED sengaja tidak dianggap kontradiksi (pola Jum\'atain ambigu)', () => {
+  assert.equal(
+    saudiOrderContradictsRoute(['Madinah', 'Umroh'], 'CGK - JED'),
+    false
+  );
+  assert.equal(
+    saudiOrderContradictsRoute(['Umroh', 'Madinah'], 'CGK - JED'),
+    false
+  );
+});
+
+test('saudiOrderContradictsRoute: rute Turki-dulu (IST sebelum MED) tidak memicu guard (kasus JBU1565)', () => {
+  assert.equal(
+    saudiOrderContradictsRoute(['Tur Turki', 'Madinah', 'Umroh'], 'CGK-JED/JED-IST/IST-MED'),
+    false
+  );
+});
+
+test('saudiOrderContradictsRoute: rute kosong / order tanpa pasangan Saudi = tidak pernah kontradiksi', () => {
+  assert.equal(saudiOrderContradictsRoute(['Umroh', 'Madinah'], ''), false);
+  assert.equal(saudiOrderContradictsRoute(['Umroh', 'Madinah'], undefined), false);
+  assert.equal(saudiOrderContradictsRoute(['Umroh'], 'CGK - MED'), false);
+  assert.equal(saudiOrderContradictsRoute(null, 'CGK - MED'), false);
 });

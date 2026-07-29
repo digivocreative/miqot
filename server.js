@@ -159,7 +159,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
-import { inferJourneyOrderFromItinerary } from './lib/journey-order.js';
+import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
@@ -1980,7 +1980,10 @@ function lookupHotelDistance(hotelName) {
 
 function buildPackageContext(pkg, itineraryCtx = null) {
   if (!pkg) return null;
-  const itineraryOrder = inferJourneyOrderFromItinerary(itineraryCtx);
+  let itineraryOrder = inferJourneyOrderFromItinerary(itineraryCtx);
+  // Cache itinerary yang kontradiktif dengan rute (landing MED tapi Umroh dulu)
+  // = konten milik jadwal lain — jangan sampai Ask-AI meneruskannya ke user.
+  if (saudiOrderContradictsRoute(itineraryOrder, pkg.berangkat_rute)) itineraryOrder = null;
   const itinerarySaudiOrder = itineraryOrder?.filter(label => label === 'Madinah' || label === 'Umroh') || null;
   const routeOrder = inferItineraryOrder(pkg) || {};
   const itinerarySummary = itinerarySaudiOrder?.[0] === 'Madinah'
@@ -2418,6 +2421,7 @@ async function parseItineraryFromPdf(pdfUrl, meta = {}) {
   if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status}`);
 
   const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+  const sourceSha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
   const parser = new pdfParse({ data: pdfBuffer });
   await parser.load();
   const textResult = await parser.getText();
@@ -2430,7 +2434,7 @@ async function parseItineraryFromPdf(pdfUrl, meta = {}) {
   const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
 
 --- MULAI TEKS PDF ---
-${pdfText.substring(0, 6000)}
+${pdfText.substring(0, 20000)}
 --- AKHIR TEKS PDF ---
 
 Metadata paket:
@@ -2459,6 +2463,7 @@ Panduan:
 - Ambil SEMUA hari yang disebutkan di PDF, jangan skip
 - Jika PDF menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
 - Tiap aktivitas maksimal 15 kata, bahasa Indonesia yang rapi
+- Saat meringkas, PERTAHANKAN nama tempat wisata/tur yang disebut PDF (misal: Red Sea/laut merah, Taif, Badar, Istanbul, Dubai, Cairo) — jangan hilang karena diringkas
 - Field "time": ambil jam dari PDF jika tersedia (format "HH:MM"). Jika PDF hanya menyebut waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu sama sekali, gunakan "-"
 - JANGAN mengarang aktivitas atau jam yang tidak ada di PDF
 - JANGAN potong atau ringkas lokasi titik kumpul. Tulis lengkap termasuk terminal, gate, dan nama bandara`;
@@ -2487,7 +2492,13 @@ Panduan:
   }
 
   const aiResult = await openaiRes.json();
-  return JSON.parse(aiResult.choices[0].message.content);
+  const content = JSON.parse(aiResult.choices[0].message.content);
+  // response_format json_object hanya menjamin JSON valid, bukan skema — hasil
+  // degeneratif (days kosong) tidak boleh menimpa cache bagus lalu ter-stempel
+  // "fresh" selamanya.
+  const days = Array.isArray(content?.days) ? content.days : (Array.isArray(content) ? content : []);
+  if (!days.length) throw new Error('Parsed itinerary has no days');
+  return { content, sourceSha256 };
 }
 
 // ──────────────────────────────────────────────
@@ -2519,10 +2530,10 @@ app.get('/api/itinerary/:jadwalId', async (req, res) => {
     try { meta = JSON.parse(req.query.meta || '{}'); } catch { /* ignore */ }
 
     console.log(`[Itinerary] On-demand parse: ${jadwalId}`);
-    const content = await parseItineraryFromPdf(pdfUrl, meta);
+    const { content, sourceSha256 } = await parseItineraryFromPdf(pdfUrl, meta);
 
     // 3. Cache in Supabase
-    await supabase.from('itineraries').insert({ jadwal_id: jadwalId, content });
+    await supabase.from('itineraries').insert({ jadwal_id: jadwalId, content, source_sha256: sourceSha256 });
 
     return res.json({ success: true, data: content, cached: false });
   } catch (err) {
@@ -2541,9 +2552,9 @@ app.get('/api/itinerary/:jadwalId', async (req, res) => {
 async function syncAllItineraries() {
   console.log('[ItinerarySync] Starting background sync...');
 
-  // 1. Fetch all packages from both Hijri years
+  // 1. Fetch all packages from the active Hijri years
   let packages = [];
-  for (const year of ['1447', '1448']) {
+  for (const year of SCHEDULE_YEAR_CODES) {
     try {
       const res = await fetch(`https://jadwal.alhijaz.co/jadwal/api-get/${year}`, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -2565,42 +2576,100 @@ async function syncAllItineraries() {
     return;
   }
 
-  // 2. Check which ones are already cached
+  // 2. Tentukan yang perlu di-parse: belum ada cache, cache tanpa stempel sha
+  // (legacy), atau PDF sumber berubah sejak parse terakhir (sha dilacak Bunny
+  // sync di umroh_schedules). Tanpa pembanding sha, cache menyimpan itinerary
+  // lama selamanya meski PDF-nya diganti — kasus JBU1513 Jul 2026.
   const jadwalIds = withItinerary.map(p => p.jadwal_id);
-  const { data: cached } = await supabase
-    .from('itineraries')
-    .select('jadwal_id')
-    .in('jadwal_id', jadwalIds);
+  const [cachedRes, scheduleRes] = await Promise.all([
+    supabase.from('itineraries').select('jadwal_id, source_sha256').in('jadwal_id', jadwalIds),
+    supabase.from('umroh_schedules')
+      .select('jadwal_id, itinerary_source_sha256, itinerary_cdn')
+      .in('jadwal_id', jadwalIds)
+      .in('year_code', SCHEDULE_YEAR_CODES),
+  ]);
 
-  const cachedSet = new Set((cached || []).map(c => c.jadwal_id));
-  const uncached = withItinerary.filter(p => !cachedSet.has(p.jadwal_id));
-
-  console.log(`[ItinerarySync] ${withItinerary.length} packages, ${cachedSet.size} cached, ${uncached.length} to sync`);
-
-  if (!uncached.length) {
-    console.log('[ItinerarySync] All itineraries already cached');
+  // Select gagal (DB blip / kolom belum ada) tidak boleh dibaca sebagai "belum
+  // ada cache" — itu memicu burst re-parse OpenAI atas seluruh paket.
+  const selectError = cachedRes.error || scheduleRes.error;
+  if (selectError) {
+    console.warn('[ItinerarySync] Skip cycle — gagal baca pembanding sha:', selectError.message);
     return;
   }
 
-  // 3. Parse each uncached itinerary
+  const cachedShaById = new Map((cachedRes.data || []).map(c => [c.jadwal_id, c.source_sha256]));
+  // jadwal_id yang sama boleh punya baris di dua tahun aktif saat transisi;
+  // pilih baris yang punya stempel sha agar pembanding deterministik.
+  const schedById = new Map();
+  for (const row of scheduleRes.data || []) {
+    const prev = schedById.get(row.jadwal_id);
+    if (!prev || (!prev.itinerary_source_sha256 && row.itinerary_source_sha256)) {
+      schedById.set(row.jadwal_id, row);
+    }
+  }
+
+  const uncached = withItinerary.filter(p => {
+    if (!cachedShaById.has(p.jadwal_id)) return true; // belum pernah di-parse
+    const cachedSha = cachedShaById.get(p.jadwal_id);
+    if (!cachedSha) return true; // cache legacy tanpa stempel sha → re-parse sekali
+    const sourceSha = schedById.get(p.jadwal_id)?.itinerary_source_sha256;
+    return Boolean(sourceSha && sourceSha !== cachedSha); // PDF sumber berubah
+  });
+
+  const noComparator = withItinerary.filter(p =>
+    cachedShaById.get(p.jadwal_id) && !schedById.get(p.jadwal_id)?.itinerary_source_sha256
+  ).length;
+  if (noComparator) {
+    console.warn(`[ItinerarySync] ${noComparator} paket tanpa pembanding sha (Bunny sync belum menstempel) — perubahan PDF-nya tidak terdeteksi`);
+  }
+
+  console.log(`[ItinerarySync] ${withItinerary.length} packages, ${cachedShaById.size} cached, ${uncached.length} to sync`);
+
+  if (!uncached.length) {
+    console.log('[ItinerarySync] All itineraries fresh');
+    return;
+  }
+
+  // 3. Parse each uncached/stale itinerary
   let synced = 0;
   let failed = 0;
 
   for (const pkg of uncached) {
     try {
-      const pdfUrl = pkg.itinerary.replace(/^http:\/\//, 'https://');
       const meta = {
         nama_paket: pkg.jadwal_nama || '',
         maskapai: pkg.maskapai || '',
         tgl_berangkat: pkg.berangkat_tgl || '',
       };
 
+      // Salinan CDN dulu: byte-nya persis yang di-fingerprint Bunny sync jadi
+      // sha hasil parse pasti konvergen dengan pembanding. Origin lewat host
+      // Cloudflare kronis 522/lambat (generasi PDF on-the-fly bisa > timeout)
+      // dan edge-nya bisa menyajikan byte lama di URL yang sama.
+      const sched = schedById.get(pkg.jadwal_id);
+      const candidates = [];
+      if (sched?.itinerary_cdn) candidates.push(appendUrlVersion(sched.itinerary_cdn, sched.itinerary_source_sha256));
+      candidates.push(pkg.itinerary.replace(/^http:\/\//, 'https://'));
+
       console.log(`[ItinerarySync] Parsing: ${pkg.jadwal_nama} (${pkg.jadwal_id})`);
-      const content = await parseItineraryFromPdf(pdfUrl, meta);
+      let parsed = null;
+      let lastErr = null;
+      for (const pdfUrl of candidates) {
+        try {
+          parsed = await parseItineraryFromPdf(pdfUrl, meta);
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (!parsed) throw lastErr;
+      const { content, sourceSha256 } = parsed;
 
       await supabase.from('itineraries').upsert({
         jadwal_id: pkg.jadwal_id,
         content,
+        source_sha256: sourceSha256,
+        generated_at: new Date().toISOString(),
       }, { onConflict: 'jadwal_id' });
 
       synced++;
@@ -20562,6 +20631,10 @@ async function cleanupExpiredPackages() {
 // ──────────────────────────────────────────────
 // API: Read schedules from Supabase (with external API fallback)
 // ──────────────────────────────────────────────
+// Sekali per jadwal per proses — endpoint ini dipanggil tiap klien (TTL 30 mnt)
+// dan cache basi baru sembuh di siklus ItinerarySync berikutnya.
+const warnedContradictoryJourneyOrder = new Set();
+
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
 
@@ -20615,10 +20688,19 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
         if (itineraryError) {
           console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
         } else {
+          const routeById = new Map(scheduleRows.map(row => [row.jadwal_id, row.berangkat_rute]));
           journeyOrderById = new Map(
             (itineraryRows || [])
               .map(row => [row.jadwal_id, inferJourneyOrderFromItinerary(row.content)])
               .filter(([, order]) => Array.isArray(order) && order.length >= 2)
+              .filter(([jadwalId, order]) => {
+                if (!saudiOrderContradictsRoute(order, routeById.get(jadwalId))) return true;
+                if (!warnedContradictoryJourneyOrder.has(jadwalId)) {
+                  warnedContradictoryJourneyOrder.add(jadwalId);
+                  console.warn(`[Schedules] Itinerary order ${jadwalId} bertentangan dengan rute (${routeById.get(jadwalId)}) — cache dicurigai basi, pakai fallback rute`);
+                }
+                return false;
+              })
           );
         }
       }
