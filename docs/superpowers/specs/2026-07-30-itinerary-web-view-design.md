@@ -165,7 +165,9 @@ makna — jam dan teks selalu ada.
 
 ## Permukaan 1 — Tab web di modal
 
-Di `ItineraryModal`, tab segmented: `Dokumen asli` (default) | `Tampilan web`.
+Di `ItineraryModal`, tab segmented: `Dokumen asli` (default) | `Jadwal harian`
+(label direvisi 2026-07-30 dari "Tampilan web" — menamai isi yang didapat pengguna,
+bukan teknologinya).
 
 Urutan isi:
 

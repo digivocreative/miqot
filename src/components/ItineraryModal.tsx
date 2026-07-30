@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, FileText, ListTree, Link2, Check } from 'lucide-react';
+import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, FileText, CalendarDays, Link2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -517,8 +517,9 @@ export function ItineraryModal({
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         >
 
-      {/* ─── HEADER ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+      {/* ─── HEADER (judul + tab dalam satu blok agar padding simetris) ─── */}
+      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 shadow-sm flex flex-col gap-3">
+        <div className="flex justify-between items-center">
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
@@ -532,11 +533,10 @@ export function ItineraryModal({
         >
           <X className="w-6 h-6" />
         </button>
-      </div>
+        </div>
 
-      {/* ─── TAB PDF / WEB (hanya bila jadwalId tersedia — jangan render tab yang pasti gagal) ─── */}
-      {effectiveJadwalId && (
-        <div className="flex-none bg-white/90 dark:bg-slate-900/90 px-5 pb-3">
+        {/* Tab PDF / jadwal harian — hanya bila jadwalId tersedia (jangan render tab yang pasti gagal) */}
+        {effectiveJadwalId && (
           <div className="flex gap-1 rounded-xl bg-gray-100 p-[3px] dark:bg-slate-800">
             <button
               type="button"
@@ -556,11 +556,11 @@ export function ItineraryModal({
                   ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-600 dark:text-white'
                   : 'text-gray-400 dark:text-slate-400'}`}
             >
-              <ListTree size={14} /> Tampilan web
+              <CalendarDays size={14} /> Jadwal harian
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ─── TAB WEB (rail waktu, light-only) ─── */}
       {tab === 'web' && (
