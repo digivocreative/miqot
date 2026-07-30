@@ -87,8 +87,8 @@ Cacat #8 terjadi pada paket nyata (JBU1587), bukan hipotetis.
   Alhijaz `#8A0F0A`. Merah pindah dari Mekkah ke Turki; aturan bentuk D7 (burgundy interaktif
   = tombol penuh, burgundy timeline = badge/garis) tetap berlaku, kini untuk hari-hari Turki.
   Hasil audit kota lain di data ([server.js:13027](../../../server.js), daftar kota plus
-  :2062): **Mesir (Cairo + Alexandria) juga butuh warna** — diusulkan ungu `#6B3FA0`, belum
-  dikonfirmasi user. Kota yang TIDAK dapat warna sendiri: Taif (day-trip, ikut hari Mekkah),
+  :2062): **Mesir (Cairo + Alexandria) juga butuh warna** — ungu `#6B3FA0`, dikonfirmasi user
+  2026-07-30. Kota yang TIDAK dapat warna sendiri: Taif (day-trip, ikut hari Mekkah),
   Bir Ali (miqot, ikut hari perpindahan Madinah→Mekkah), Jeddah & Laut Merah (transit slate),
   Alexandria (ikut Mesir). Catatan D6 direvisi: larangan gold kini hanya untuk gold terang
   dekoratif `#D4AF37`; emas tua `#8A6D12` sah sebagai penanda Dubai.
@@ -108,7 +108,7 @@ Token baru, light-only. Semua nilai kontras dihitung terhadap putih.
 | Madinah | `#1F5F4B` | 7.51:1 | penanda kota — hijau Kubah Nabawi (termasuk miqot Bir Ali) |
 | Dubai | `#8A6D12` | 4.91:1 | penanda kota — emas tua |
 | Turki | `#8A0F0A` | 9.75:1 | penanda kota — merah Alhijaz (Istanbul, Bursa, Cappadocia, Ankara) |
-| Mesir | `#6B3FA0` | 7.38:1 | penanda kota — ungu (Cairo, Alexandria) — **usulan, belum dikonfirmasi** |
+| Mesir | `#6B3FA0` | 7.38:1 | penanda kota — ungu (Cairo, Alexandria) |
 | Transit (Jeddah, Laut Merah) | `#556072` | 6.36:1 | penanda kota — slate |
 | Indonesia | `#3D4451` | 9.79:1 | penanda kota — slate gelap |
 | burgundy | `#8A0F0A` → `#C0261C` | 9.75:1 / 5.94:1 | brand & tombol aksi (gradient 135°) |
