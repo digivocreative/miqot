@@ -81,9 +81,17 @@ Cacat #8 terjadi pada paket nyata (JBU1587), bukan hipotetis.
   burgundy di dalam timeline supaya badge Mekkah tak terbaca sebagai tombol.
 - **D8 — Tanpa cokelat di timeline harian (preferensi user, 2026-07-30).** Taupe transit
   `#6B5A50` dan coklat Indonesia `#4A3F39` diganti slate dingin (`#556072` / `#3D4451`).
-  Palet kota final: hanya dua kota suci yang berwarna (Madinah hijau, Mekkah merah Alhijaz);
-  kota transit dan tanah air netral dingin. Jangan memperkenalkan kembali warna keluarga
-  cokelat/taupe sebagai penanda kota.
+  Jangan memperkenalkan kembali warna keluarga cokelat/taupe sebagai penanda kota.
+- **D9 — Penugasan warna kota eksplisit dari user (2026-07-30), menggantikan D7.**
+  Mekkah biru `#2A5C9A`, Madinah hijau `#1F5F4B`, Dubai emas tua `#8A6D12`, Turki merah
+  Alhijaz `#8A0F0A`. Merah pindah dari Mekkah ke Turki; aturan bentuk D7 (burgundy interaktif
+  = tombol penuh, burgundy timeline = badge/garis) tetap berlaku, kini untuk hari-hari Turki.
+  Hasil audit kota lain di data ([server.js:13027](../../../server.js), daftar kota plus
+  :2062): **Mesir (Cairo + Alexandria) juga butuh warna** — diusulkan ungu `#6B3FA0`, belum
+  dikonfirmasi user. Kota yang TIDAK dapat warna sendiri: Taif (day-trip, ikut hari Mekkah),
+  Bir Ali (miqot, ikut hari perpindahan Madinah→Mekkah), Jeddah & Laut Merah (transit slate),
+  Alexandria (ikut Mesir). Catatan D6 direvisi: larangan gold kini hanya untuk gold terang
+  dekoratif `#D4AF37`; emas tua `#8A6D12` sah sebagai penanda Dubai.
 
 ## Palet
 
@@ -96,9 +104,12 @@ Token baru, light-only. Semua nilai kontras dihitung terhadap putih.
 | `ink/45` | `#7D6E64` | **4.90:1** | teks tersier: meta hari, nama hotel, "via Dubai" |
 | `line` | `#E9E1DD` | — | hairline, border kartu |
 | `canvas` | `#FAF7F5` | — | latar strip & chip |
-| Madinah | `#1F5F4B` | 7.51:1 | penanda kota — hijau Kubah Nabawi |
-| Mekkah | `#8A0F0A` | 9.75:1 | penanda kota — merah Alhijaz (burgundy-700) |
-| Transit (Dubai/Jeddah) | `#556072` | 6.36:1 | penanda kota — slate |
+| Mekkah | `#2A5C9A` | 6.78:1 | penanda kota — biru (termasuk day-trip Taif) |
+| Madinah | `#1F5F4B` | 7.51:1 | penanda kota — hijau Kubah Nabawi (termasuk miqot Bir Ali) |
+| Dubai | `#8A6D12` | 4.91:1 | penanda kota — emas tua |
+| Turki | `#8A0F0A` | 9.75:1 | penanda kota — merah Alhijaz (Istanbul, Bursa, Cappadocia, Ankara) |
+| Mesir | `#6B3FA0` | 7.38:1 | penanda kota — ungu (Cairo, Alexandria) — **usulan, belum dikonfirmasi** |
+| Transit (Jeddah, Laut Merah) | `#556072` | 6.36:1 | penanda kota — slate |
 | Indonesia | `#3D4451` | 9.79:1 | penanda kota — slate gelap |
 | burgundy | `#8A0F0A` → `#C0261C` | 9.75:1 / 5.94:1 | brand & tombol aksi (gradient 135°) |
 
@@ -108,10 +119,12 @@ Dua batasan yang wajib dipatuhi:
 
 1. Nilai `ink/45` sengaja `#7D6E64`, bukan `#8E8078`. Yang terakhir hanya **3.81:1** — gagal
    WCAG AA untuk teks normal, padahal dipakai untuk subtitle, meta hari, dan nama hotel.
-2. Mekkah dan tombol aksi berbagi burgundy `#8A0F0A` (keputusan D7). Pembedanya kini bentuk,
-   bukan warna: burgundy interaktif selalu tombol penuh ber-radius besar dengan teks putih,
-   burgundy timeline selalu teks/badge/garis kecil. Jangan tambahkan elemen interaktif
-   burgundy di dalam timeline.
+2. Turki dan tombol aksi berbagi burgundy `#8A0F0A` (D7 → D9). Pembedanya bentuk, bukan warna:
+   burgundy interaktif selalu tombol penuh ber-radius besar dengan teks putih, burgundy
+   timeline selalu teks/badge/garis kecil. Jangan tambahkan elemen interaktif burgundy di
+   dalam timeline.
+3. Emas Dubai wajib emas tua `#8A6D12`. Emas yang lebih terang gagal AA (`#9C7A00` = 4.04:1,
+   `#D4AF37` = 2.10:1) — jangan dicerahkan demi terlihat "lebih emas".
 
 Catatan: kolom kontras diukur terhadap putih, **kecuali** baris burgundy yang mengukur teks
 putih di atas burgundy — kedua ujung gradient (9.75:1 dan 5.94:1) lolos AA, jadi label putih
