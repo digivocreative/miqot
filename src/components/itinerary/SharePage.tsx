@@ -123,17 +123,7 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
           </div>
         </header>
 
-        <WebItineraryView
-          content={content}
-          loading={false}
-          error={null}
-          paket={paket}
-          agentSlug={slug}
-          agentName={agent?.name ?? null}
-          agentPhone={agent?.phone ?? null}
-          agentPhoto={agent?.photo ?? null}
-          hideAgentFooter
-        />
+        <WebItineraryView content={content} loading={false} error={null} paket={paket} />
 
         <div className="px-4">
           {pdfUrl && (

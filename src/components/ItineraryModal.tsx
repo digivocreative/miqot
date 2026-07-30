@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, FileText, CalendarDays, Link2, Check } from 'lucide-react';
+import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -10,9 +10,6 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
-import type { ItineraryContent } from './WebItineraryView';
-
-const WebItineraryView = lazy(() => import('./WebItineraryView'));
 
 // Setup PDF.js Worker — primary CDN with fallback
 try {
@@ -77,16 +74,11 @@ function PdfLoadingPlaceholder({ pageWidth }: { pageWidth: number }) {
 // ============================================
 
 export function ItineraryModal({
-  isOpen, onClose, fileUrl, title, paket, agentSlug, agentName, agentPhone, agentPhoto, jadwalId,
+  isOpen, onClose, fileUrl, title, paket, agentSlug, jadwalId,
 }: ItineraryModalProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
-  // ── Tab tampilan web (spec 2026-07-30): PDF default, web tab kedua ──
-  const [tab, setTab] = useState<'pdf' | 'web'>('pdf');
-  const [webContent, setWebContent] = useState<ItineraryContent | null>(null);
-  const [webLoading, setWebLoading] = useState(false);
-  const [webError, setWebError] = useState<string | null>(null);
+  // Link share halaman jadwal harian publik (/:slug/:jadwalId/itinerary)
   const [linkCopied, setLinkCopied] = useState(false);
-  const webFetchedRef = useRef(false);
   const effectiveJadwalId = paket?.jadwalId ?? jadwalId ?? null;
   const [isSharing, setIsSharing] = useState(false);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -133,32 +125,6 @@ export function ItineraryModal({
       ? originalUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
       : '';
 
-  // ── Tab web: fetch sekali per pembukaan modal (cache Supabase / parse on-demand) ──
-  const openWebTab = () => {
-    if (!effectiveJadwalId) return;
-    setTab('web');
-    trackEvent('action', 'view_itinerary_web', { paket: title });
-    if (webFetchedRef.current) return;
-    webFetchedRef.current = true;
-    setWebLoading(true);
-    const meta = JSON.stringify({
-      nama_paket: paket?.nama || title,
-      maskapai: paket?.maskapai || '',
-      tgl_berangkat: paket?.keberangkatan?.tgl || '',
-    });
-    fetch(`/api/itinerary/${encodeURIComponent(effectiveJadwalId)}?pdfUrl=${encodeURIComponent(originalUrl)}&meta=${encodeURIComponent(meta)}`)
-      .then(r => r.json())
-      .then(json => {
-        if (json?.success && Array.isArray(json.data?.days) && json.data.days.length) {
-          setWebContent(json.data);
-        } else {
-          setWebError('Itinerary belum bisa disusun otomatis.');
-        }
-      })
-      .catch(() => setWebError('Gagal memuat. Coba lagi nanti.'))
-      .finally(() => setWebLoading(false));
-  };
-
   // ── Link share publik (halaman /:slug/:jadwalId/itinerary) ──
   const shareUrl = agentSlug && effectiveJadwalId
     ? `https://alhijaz.co/${agentSlug}/${effectiveJadwalId}/itinerary`
@@ -196,11 +162,7 @@ export function ItineraryModal({
       scaleRef.current = 1;
       pendingScaleRef.current = 1;
       setContentSize({ width: 0, height: 0 });
-      setTab('pdf');
-      setWebContent(null);
-      setWebError(null);
       setLinkCopied(false);
-      webFetchedRef.current = false;
     }
   }, [isOpen, fileUrl]);
 
@@ -517,9 +479,8 @@ export function ItineraryModal({
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         >
 
-      {/* ─── HEADER (judul + tab dalam satu blok agar padding simetris) ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 shadow-sm flex flex-col gap-3">
-        <div className="flex justify-between items-center">
+      {/* ─── HEADER ─── */}
+      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
@@ -533,60 +494,12 @@ export function ItineraryModal({
         >
           <X className="w-6 h-6" />
         </button>
-        </div>
-
-        {/* Tab PDF / jadwal harian — hanya bila jadwalId tersedia (jangan render tab yang pasti gagal) */}
-        {effectiveJadwalId && (
-          <div className="flex gap-1 rounded-xl bg-gray-100 p-[3px] dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setTab('pdf')}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-[9px] px-2 py-2 text-[12.5px] font-semibold transition-colors ${
-                tab === 'pdf'
-                  ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-600 dark:text-white'
-                  : 'text-gray-400 dark:text-slate-400'}`}
-            >
-              <FileText size={14} /> Dokumen asli
-            </button>
-            <button
-              type="button"
-              onClick={openWebTab}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-[9px] px-2 py-2 text-[12.5px] font-semibold transition-colors ${
-                tab === 'web'
-                  ? 'bg-white text-gray-900 shadow-sm dark:bg-slate-600 dark:text-white'
-                  : 'text-gray-400 dark:text-slate-400'}`}
-            >
-              <CalendarDays size={14} /> Jadwal harian
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* ─── TAB WEB (rail waktu, light-only) ─── */}
-      {tab === 'web' && (
-        <div className="flex-1 min-h-0 overflow-y-auto bg-white">
-          <Suspense fallback={null}>
-            <WebItineraryView
-              content={webContent}
-              loading={webLoading}
-              error={webError}
-              paket={paket ?? null}
-              agentSlug={agentSlug ?? null}
-              agentName={agentName ?? null}
-              agentPhone={agentPhone ?? null}
-              agentPhoto={agentPhoto ?? null}
-              onRetryPdf={() => setTab('pdf')}
-            />
-          </Suspense>
-        </div>
-      )}
-
-      {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ───
-          Disembunyikan via CSS saat tab web (bukan unmount) supaya listener pinch
-          & halaman PDF yang telanjur dirender tidak hilang saat kembali ke tab ini. */}
+      {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
       <div
         ref={contentRef}
-        className={`flex-1 min-h-0 min-w-0 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative ${tab === 'web' ? 'hidden' : ''}`}
+        className="flex-1 min-h-0 min-w-0 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
         style={{
           touchAction: 'pan-x pan-y',
           overscrollBehavior: 'contain',

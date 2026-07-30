@@ -165,6 +165,14 @@ makna — jam dan teks selalu ada.
 
 ## Permukaan 1 — Tab web di modal
 
+**DIREVISI (keputusan user, 2026-07-30 malam): tab DIHAPUS.** Modal kembali
+PDF-only; jadwal harian hanya hidup di halaman share publik (Permukaan 2). Yang
+tersisa di modal: tombol **Link** di footer (samping "Download Itinerary") yang
+menyalin URL halaman share. Konsekuensi: event `view_itinerary_web` tidak pernah
+ter-fire (labelnya dibiarkan terdaftar, tak berbahaya); klasifikasi & komponen
+rail dipakai halaman share saja. Riwayat di bawah ini dipertahankan sebagai
+catatan desain tab yang sempat dibangun lalu dicabut.
+
 Di `ItineraryModal`, tab segmented: `Dokumen asli` (default) | `Jadwal harian`
 (label direvisi 2026-07-30 dari "Tampilan web" — menamai isi yang didapat pengguna,
 bukan teknologinya).

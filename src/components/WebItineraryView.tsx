@@ -7,7 +7,6 @@ import JourneyStrip from './itinerary/JourneyStrip';
 import DayRail, { type ItineraryDayData } from './itinerary/DayRail';
 import FlightCard from './itinerary/FlightCard';
 import HotelCard from './itinerary/HotelCard';
-import AgentFooter from './itinerary/AgentFooter';
 
 export interface ItineraryContent {
   days: ItineraryDayData[];
@@ -18,14 +17,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   paket?: UmrohPackage | null;
-  agentSlug?: string | null;
-  agentName?: string | null;
-  agentPhone?: string | null;
-  agentPhoto?: string | null;
   onRetryPdf?: () => void;
-  onWaClick?: () => void;
-  /** Sembunyikan kartu agent di akhir konten (halaman share sudah punya FloatingAgentBar) */
-  hideAgentFooter?: boolean;
 }
 
 function buildRouteText(paket?: UmrohPackage | null): string | null {
@@ -52,7 +44,7 @@ function dayDate(paket: UmrohPackage | null | undefined, dayIndex: number): stri
 }
 
 export default function WebItineraryView({
-  content, loading, error, paket, agentSlug, agentName, agentPhone, agentPhoto, onRetryPdf, onWaClick, hideAgentFooter,
+  content, loading, error, paket, onRetryPdf,
 }: Props) {
   if (loading) {
     return (
@@ -110,16 +102,6 @@ export default function WebItineraryView({
       <div className="mt-4 space-y-3.5 px-4">
         {paket && <FlightCard paket={paket} />}
         {paket?.hotel && <HotelCard hotel={paket.hotel} />}
-        {!hideAgentFooter && (
-          <AgentFooter
-            agentSlug={agentSlug ?? null}
-            agentName={agentName ?? null}
-            agentPhone={agentPhone ?? null}
-            agentPhoto={agentPhoto ?? null}
-            paketNama={paket?.nama || ''}
-            onWaClick={onWaClick}
-          />
-        )}
       </div>
     </div>
   );
