@@ -325,7 +325,7 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   html = replaceFaIcons(html);
 
   // Gambar promo (LCP sekunder, above-fold) jangan kena blanket lazy di bawah
-  html = html.replace(/(<img(?![^>]*loading=)[^>]*umroh-promo-milad[^>]*?)(\/?>)/, '$1 loading="eager" fetchpriority="high" $2');
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*umroh-promo-alhijaz-indowisata[^>]*?)(\/?>)/, '$1 loading="eager" fetchpriority="high" $2');
 
   // Gambar above-fold lain (logo banner ber-fetchpriority bawaan template, logo
   // Kemenag — lazy-nya terbakar di template, logo Google) juga jangan lazy.
