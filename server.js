@@ -17578,9 +17578,11 @@ const VALID_PUBLIC_EVENTS = [
   'open_portal_dokumen', 'open_portal_alquran', 'open_portal_doa_dzikir', 'open_portal_faq',
   'portal_login_request', 'portal_login_success', 'wa_click_portal',
   'view_portal_doc', 'open_quran_surah',
+  // Halaman share itinerary /:slug/:packageId/itinerary (publik, keyed by agent slug)
+  'open_itinerary_share', 'wa_click_itinerary',
 ];
 // Every event_name that counts as a "WhatsApp click" for the overview + per-agent + drill-down WA metrics.
-const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal'];
+const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal', 'wa_click_itinerary'];
 
 // Shared label dictionaries (used by /summary + /agent/:slug drill-down)
 const FEATURE_LABELS = {
@@ -17608,11 +17610,15 @@ const FEATURE_LABELS = {
   open_portal_perjalanan: 'Portal: Perjalanan', open_portal_pembayaran: 'Portal: Pembayaran',
   open_portal_dokumen: 'Portal: Dokumen', open_portal_alquran: 'Portal: Al-Quran',
   open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
+  // Itinerary web/share
+  open_itinerary_share: 'Itinerary Share',
 };
 const ACTION_LABELS = {
   sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
   share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
   download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
+  view_itinerary_web: 'Lihat Itinerary Web', copy_itinerary_link: 'Salin Link Itinerary',
+  wa_click_itinerary: 'WA dari Itinerary Share',
   save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
   change_password: 'Ganti Password',
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
