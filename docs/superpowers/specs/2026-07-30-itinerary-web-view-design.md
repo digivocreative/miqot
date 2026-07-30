@@ -66,6 +66,13 @@ Cacat #8 terjadi pada paket nyata (JBU1587), bukan hipotetis.
 - **D5 — Tona Alhijaz, burgundy tidak dipakai ganda.** Madinah memakai hijau Kubah Nabawi
   (Qubbah al-Khadra) supaya burgundy tetap murni untuk brand & aksi. Tanpa ini, mata tak bisa
   membedakan "ini Madinah" dari "ini tombol".
+- **D6 — Tanpa gold.** Gold dibuang dari kedua perannya: sebagai warna isi (Mekkah, semula
+  gold-700 `#8A6D12`) dan sebagai aksen dekoratif (garis 2px di journey strip & footer agent,
+  wordmark `INDOWISATA`, ikon pesawat). Mekkah jadi terracotta; wordmark jadi putih transparan
+  `#FFFFFFB0`; garis dekoratif dihapus tanpa pengganti. Dua kandidat lain sempat dimockup dan
+  ditolak: charcoal Kiswah `#2F2A26` praktis tak terbaca sebagai warna sehingga Mekkah — yang
+  memegang 5 dari 12 hari — kehilangan identitas, dan teal tua `#2F4F5A` terlalu dekat dengan
+  hijau Madinah pada bar aksen 3px dan teks mono 9.5px.
 
 ## Palet
 
@@ -79,18 +86,21 @@ Token baru, light-only. Semua nilai kontras dihitung terhadap putih.
 | `line` | `#E9E1DD` | — | hairline, border kartu |
 | `canvas` | `#FAF7F5` | — | latar strip & chip |
 | Madinah | `#1F5F4B` | 7.51:1 | penanda kota — hijau Kubah Nabawi |
-| Mekkah | `#8A6D12` | 4.91:1 | penanda kota — gold-700 |
+| Mekkah | `#8C4A32` | 6.69:1 | penanda kota — terracotta |
 | Transit (Dubai/Jeddah) | `#6B5A50` | 6.56:1 | penanda kota |
 | Indonesia | `#4A3F39` | 10.19:1 | penanda kota |
 | burgundy | `#8A0F0A` → `#C0261C` | 9.75:1 / 5.94:1 | brand & tombol aksi (gradient 135°) |
-| gold | `#D4AF37` | **2.10:1** | **hanya dekoratif** |
+
+**Gold tidak dipakai sama sekali** — lihat keputusan D6.
 
 Dua batasan yang wajib dipatuhi:
 
 1. Nilai `ink/45` sengaja `#7D6E64`, bukan `#8E8078`. Yang terakhir hanya **3.81:1** — gagal
    WCAG AA untuk teks normal, padahal dipakai untuk subtitle, meta hari, dan nama hotel.
-2. Gold `#D4AF37` hanya **2.10:1**. Boleh untuk garis 2px dekoratif; **tidak boleh** untuk teks
-   atau ikon yang jadi satu-satunya pembawa informasi. Mekkah memakai gold-700 yang lolos AA.
+2. Terracotta Mekkah `#8C4A32` sekeluarga hue dengan burgundy brand `#8A0F0A`. Ini aman
+   **hanya selama burgundy tak pernah masuk ke dalam timeline** — burgundy dibatasi ke tombol
+   penuh dan hero, terracotta dibatasi ke penanda kota. Kalau kelak ada elemen burgundy masuk
+   ke timeline, pasangan ini harus ditinjau ulang.
 
 Catatan: kolom kontras diukur terhadap putih, **kecuali** baris burgundy yang mengukur teks
 putih di atas burgundy — kedua ujung gradient (9.75:1 dan 5.94:1) lolos AA, jadi label putih
@@ -170,7 +180,8 @@ sudah menyuntik OG meta untuk preview WhatsApp bisa **diperluas**, bukan dibuat 
 Perbedaan dari tab modal:
 
 - Tanpa chrome modal. Diganti hero burgundy gradient: wordmark `ALHIJAZ INDOWISATA`
-  (gold), judul paket Calistoga, kicker `ITINERARY PERJALANAN`, 3 chip (tanggal, maskapai, malam)
+  (putih transparan), judul paket Calistoga, kicker `ITINERARY PERJALANAN`, 3 chip
+  (tanggal, maskapai, malam)
 - Kartu agent lebih besar + kalimat sapaan, karena jamaah yang membaca
 - Tombol sekunder `Lihat dokumen PDF asli`
 - CTA sticky: `Tanya <nama agent> via WhatsApp`
