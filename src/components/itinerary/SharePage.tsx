@@ -76,8 +76,24 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-md pb-24">
-        {/* Hero burgundy */}
-        <header className="bg-gradient-burgundy px-5 pb-5 pt-6 text-white">
+        {/* Hero burgundy + pola geometri islami (star-and-cross, goresan putih tipis) */}
+        <header className="relative overflow-hidden bg-gradient-burgundy px-5 pb-5 pt-6 text-white">
+          <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
+            <defs>
+              <pattern id="itin-hero-pattern" width="56" height="56" patternUnits="userSpaceOnUse">
+                {/* Bintang 8: dua persegi bertumpuk, satu diputar 45° (rub el hizb) */}
+                <rect x="14" y="14" width="28" height="28" fill="none" stroke="white" strokeOpacity="0.09" />
+                <rect x="14" y="14" width="28" height="28" fill="none" stroke="white" strokeOpacity="0.09" transform="rotate(45 28 28)" />
+                {/* Belah ketupat kecil di tiap sudut tile — membentuk silang saat berulang */}
+                <rect x="-5" y="-5" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 0 0)" />
+                <rect x="51" y="-5" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 56 0)" />
+                <rect x="-5" y="51" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 0 56)" />
+                <rect x="51" y="51" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 56 56)" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#itin-hero-pattern)" />
+          </svg>
+          <div className="relative">
           <p className="text-[11px] font-bold tracking-[0.22em]">
             ALHIJAZ <span className="font-normal text-white/70">INDOWISATA</span>
           </p>
@@ -100,6 +116,7 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
                 <Moon size={11} className="text-white/80" /> {content.days.length} hari
               </span>
             )}
+          </div>
           </div>
         </header>
 
