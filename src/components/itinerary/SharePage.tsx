@@ -83,15 +83,15 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
         >
           <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
             <defs>
-              <pattern id="itin-hero-pattern" width="56" height="56" patternUnits="userSpaceOnUse">
-                {/* Bintang 8: dua persegi bertumpuk, satu diputar 45° (rub el hizb) */}
-                <rect x="14" y="14" width="28" height="28" fill="none" stroke="white" strokeOpacity="0.09" />
-                <rect x="14" y="14" width="28" height="28" fill="none" stroke="white" strokeOpacity="0.09" transform="rotate(45 28 28)" />
+              <pattern id="itin-hero-pattern" width="72" height="72" patternUnits="userSpaceOnUse">
+                {/* Bintang 8: dua persegi bertumpuk, satu diputar 45° (rub el hizb) — samar */}
+                <rect x="18" y="18" width="36" height="36" fill="none" stroke="white" strokeOpacity="0.045" />
+                <rect x="18" y="18" width="36" height="36" fill="none" stroke="white" strokeOpacity="0.045" transform="rotate(45 36 36)" />
                 {/* Belah ketupat kecil di tiap sudut tile — membentuk silang saat berulang */}
-                <rect x="-5" y="-5" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 0 0)" />
-                <rect x="51" y="-5" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 56 0)" />
-                <rect x="-5" y="51" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 0 56)" />
-                <rect x="51" y="51" width="10" height="10" fill="none" stroke="white" strokeOpacity="0.07" transform="rotate(45 56 56)" />
+                <rect x="-6" y="-6" width="12" height="12" fill="none" stroke="white" strokeOpacity="0.035" transform="rotate(45 0 0)" />
+                <rect x="66" y="-6" width="12" height="12" fill="none" stroke="white" strokeOpacity="0.035" transform="rotate(45 72 0)" />
+                <rect x="-6" y="66" width="12" height="12" fill="none" stroke="white" strokeOpacity="0.035" transform="rotate(45 0 72)" />
+                <rect x="66" y="66" width="12" height="12" fill="none" stroke="white" strokeOpacity="0.035" transform="rotate(45 72 72)" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#itin-hero-pattern)" />
