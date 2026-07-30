@@ -13,5 +13,6 @@
       "runtimeArgs": ["start"],
       "port": 3000
     }
-  ]
+  ],
+  "autoVerify": false
 }
