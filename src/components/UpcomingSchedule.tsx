@@ -124,7 +124,7 @@ export default function UpcomingSchedule() {
   const [activeTab, setActiveTab] = useState<TabKey>('keberangkatan');
   const [calendarData, setCalendarData] = useState<Record<string, CalendarEvent[]>>({});
   const [loading, setLoading] = useState(true);
-  const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string } | null>(null);
+  const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string; jadwalId: string | null } | null>(null);
   const calendarDataRef = useRef(calendarData);
   calendarDataRef.current = calendarData;
 
@@ -514,6 +514,7 @@ export default function UpcomingSchedule() {
                               onClick={() => setActiveItinerary({
                                 url: detail.itinerary_url as string,
                                 title: paket.name,
+                                jadwalId: detail.jadwal_id ?? null,
                               })}
                               className={`flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[8px] font-extrabold tracking-wide transition-colors hover:bg-emerald-100 active:scale-95 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40 ${tabConfig.textColor} ${tabConfig.textColorDark}`}
                             >
@@ -576,6 +577,7 @@ export default function UpcomingSchedule() {
             onClose={() => setActiveItinerary(null)}
             fileUrl={activeItinerary.url}
             title={activeItinerary.title}
+            jadwalId={activeItinerary.jadwalId}
           />
         </Suspense>
       )}

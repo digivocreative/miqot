@@ -1858,14 +1858,15 @@ function resolveAskAiAttachment(pkg, attachmentType) {
       ? appendUrlVersion(pkg.brosur_cdn, pkg.brosur_source_sha256)
       : pkg.brosur;
     if (!url) return null;
-    return { type: 'brosur', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Brosur' };
+    return { type: 'brosur', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Brosur', jadwal_id: pkg.jadwal_id || null };
   }
   if (attachmentType === 'itinerary') {
     const url = pkg.itinerary_cdn
       ? appendUrlVersion(pkg.itinerary_cdn, pkg.itinerary_source_sha256)
       : pkg.itinerary;
     if (!url) return null;
-    return { type: 'itinerary', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Itinerary' };
+    // jadwal_id ikut supaya FE bisa buka tab "Tampilan web" (fetch /api/itinerary/:jadwalId)
+    return { type: 'itinerary', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Itinerary', jadwal_id: pkg.jadwal_id || null };
   }
   return null;
 }

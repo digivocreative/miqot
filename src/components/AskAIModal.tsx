@@ -37,6 +37,8 @@ interface Attachment {
   type: 'brosur' | 'itinerary';
   url: string;
   title: string;
+  /** Untuk tab "Tampilan web" di ItineraryModal (fetch /api/itinerary/:jadwalId) */
+  jadwal_id?: string | null;
 }
 
 type Message =
@@ -626,6 +628,7 @@ export default function AskAIModal({
             type: data.attachment.type,
             url: data.attachment.url,
             title: typeof data.attachment.title === 'string' ? data.attachment.title : '',
+            jadwal_id: typeof data.attachment.jadwal_id === 'string' ? data.attachment.jadwal_id : null,
           };
         }
       } else {
@@ -1068,6 +1071,7 @@ export default function AskAIModal({
             onClose={() => setActiveAttachment(null)}
             fileUrl={activeAttachment.url}
             title={activeAttachment.title}
+            jadwalId={activeAttachment.jadwal_id ?? null}
             agentSlug={agentSlug}
             agentName={agentName}
             agentPhone={agentPhone}
