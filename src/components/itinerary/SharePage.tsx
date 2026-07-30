@@ -76,8 +76,11 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-md pb-24">
-        {/* Hero burgundy + pola geometri islami (star-and-cross, goresan putih tipis) */}
-        <header className="relative overflow-hidden bg-gradient-burgundy px-5 pb-5 pt-6 text-white">
+        {/* Hero burgundy gelap (900→700, lebih dalam dari token global) + pola geometri islami */}
+        <header
+          className="relative overflow-hidden px-5 pb-5 pt-6 text-white"
+          style={{ background: 'linear-gradient(145deg, #4A0805, #8A0F0A)' }}
+        >
           <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
             <defs>
               <pattern id="itin-hero-pattern" width="56" height="56" patternUnits="userSpaceOnUse">
