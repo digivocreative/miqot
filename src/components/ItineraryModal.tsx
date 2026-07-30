@@ -618,14 +618,26 @@ export function ItineraryModal({
       {/* ─── FOOTER ─── */}
       <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">
         {shareUrl && (
-          <button
-            onClick={copyShareLink}
-            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 transition-all duration-200 active:scale-[0.98]"
-            aria-label="Salin link itinerary"
-          >
-            {linkCopied ? <Check size={20} className="text-emerald-600" /> : <Link2 size={20} />}
-            <span className="text-sm">{linkCopied ? 'Tersalin' : 'Link'}</span>
-          </button>
+          <div className="relative">
+            {/* Tooltip konfirmasi — label tombol tetap "Link" supaya lebarnya tak berubah */}
+            {linkCopied && (
+              <span
+                role="status"
+                className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg dark:bg-slate-700"
+              >
+                Tersalin
+                <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-slate-700" />
+              </span>
+            )}
+            <button
+              onClick={copyShareLink}
+              className="flex h-full items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 transition-all duration-200 active:scale-[0.98]"
+              aria-label="Salin link itinerary"
+            >
+              {linkCopied ? <Check size={20} className="text-emerald-600" /> : <Link2 size={20} />}
+              <span className="text-sm">Link</span>
+            </button>
+          </div>
         )}
         <button
           onClick={handleShareItinerary}
