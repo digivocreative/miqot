@@ -27,7 +27,13 @@ interface Props {
 }
 
 function buildRouteText(paket?: UmrohPackage | null): string | null {
-  const clean = (rute?: string) => rute?.replace(/\s*\/\s*|\s*-\s*|\s*–\s*/g, ' → ');
+  // "CGK-DXB / DXB-JED" → CGK → DXB → JED (kota transit muncul dobel di rute multi-leg)
+  const clean = (rute?: string) => {
+    if (!rute) return null;
+    const stops = rute.split(/[/,]|-|–/).map(s => s.trim()).filter(Boolean)
+      .filter((s, i, a) => s !== a[i - 1]);
+    return stops.length ? stops.join(' → ') : null;
+  };
   const dep = clean(paket?.keberangkatan?.rute);
   const ret = clean(paket?.kepulangan?.rute);
   if (!dep && !ret) return null;
