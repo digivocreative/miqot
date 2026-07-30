@@ -2827,7 +2827,7 @@ app.post('/api/auth/register', async (req, res) => {
       status: 'pending',
       role: 'agent',
       photo: `https://ui-avatars.com/api/?name=${encodeURIComponent(trimmedName)}&background=10b981&color=fff&size=200`,
-      website: '',
+      website: `alhijaz.co/${cleanedSlug}`,
       registered_at: new Date().toISOString(),
     });
 
@@ -9126,10 +9126,11 @@ app.post('/api/admin/agents', authMiddleware, adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'slug, name, dan password wajib diisi' });
   }
   const hashedPassword = await bcrypt.hash(rawPassword, 12);
+  const cleanSlug = slug.toLowerCase();
   const insert = {
-    slug: slug.toLowerCase(),
-    name, website: website || '', phone: phone || '',
-    photo: photo || `/agents/${slug.toLowerCase()}.jpg`,
+    slug: cleanSlug,
+    name, website: website || `alhijaz.co/${cleanSlug}`, phone: phone || '',
+    photo: photo || `/agents/${cleanSlug}.jpg`,
     password: hashedPassword, role: role || 'agent',
   };
   if (jamaah_username) insert.jamaah_username = jamaah_username;
