@@ -8,14 +8,22 @@ import { trackPublicEvent } from '../utils/analytics';
 
 interface FloatingAgentBarProps {
   agent: AgentData;
+  /** Override slug (dipakai halaman share itinerary; default: identity lookup di AGENTS_DATA) */
+  slug?: string;
+  /** Override pesan WA (default: pesan umum tanya paket umroh) */
+  message?: string;
+  /** Override nama event analytics publik (default: wa_click_public) */
+  eventName?: string;
+  /** Override metadata event (default: { source: 'floating_bar' }) */
+  eventMeta?: Record<string, unknown>;
 }
 
-export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
+export default function FloatingAgentBar({ agent, slug, message: messageProp, eventName, eventMeta }: FloatingAgentBarProps) {
   const [isVisible, setIsVisible] = useState(true);
   const lastScrollYRef = useRef(0);
 
   // CAPI: get agent slug for event firing
-  const agentSlug = Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
+  const agentSlug = slug || Object.entries(AGENTS_DATA).find(([, v]) => v === agent)?.[0] || '';
 
   // Smart Scroll Visibility
   const handleScroll = useCallback(() => {
@@ -41,14 +49,14 @@ export default function FloatingAgentBar({ agent }: FloatingAgentBarProps) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // General WA message (not package-specific)
-  const message = 'Assalamualaikum, Saya mau tanya paket umroh di Alhijaz';
+  // General WA message (not package-specific) — bisa dioverride via prop
+  const message = messageProp || 'Assalamualaikum, Saya mau tanya paket umroh di Alhijaz';
   const waLink = `https://wa.me/${agent.phone}?text=${encodeURIComponent(message)}`;
 
   const handleCtaClick = () => {
     if (agentSlug) {
       sendCapiEvent(agentSlug, 'contact');
-      trackPublicEvent(agentSlug, 'wa_click_public', { source: 'floating_bar' });
+      trackPublicEvent(agentSlug, eventName || 'wa_click_public', eventMeta || { source: 'floating_bar' });
     }
   };
 

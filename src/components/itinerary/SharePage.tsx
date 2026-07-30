@@ -7,12 +7,18 @@ import { trackPublicEvent } from '@/utils/analytics';
 import { getPackageById } from '@/services/data-service';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import WebItineraryView, { type ItineraryContent } from '../WebItineraryView';
+import FloatingAgentBar from '../FloatingAgentBar';
 
 export default function ItinerarySharePage({ slug, packageId }: { slug: string; packageId: string }) {
   const [content, setContent] = useState<ItineraryContent | null>(null);
   const [paket, setPaket] = useState<UmrohPackage | null>(null);
   const [agent, setAgent] = useState<AgentData | null>(AGENTS_DATA[slug] || null);
   const [state, setState] = useState<'loading' | 'ready' | 'notfound'>('loading');
+
+  // Halaman share light-only — jangan warisi kelas `dark` dari sesi app agent di browser yang sama
+  useEffect(() => {
+    document.documentElement.classList.remove('dark');
+  }, []);
 
   useEffect(() => {
     trackPublicEvent(slug, 'open_itinerary_share', { paket: packageId });
@@ -34,13 +40,6 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
       }
     });
   }, [slug, packageId]);
-
-  const openWa = () => {
-    if (!agent?.phone) return;
-    trackPublicEvent(slug, 'wa_click_itinerary', { paket: packageId });
-    const msg = encodeURIComponent(`Assalamualaikum, saya mau tanya terkait paket ${paket?.nama || packageId}`);
-    window.open(`https://wa.me/${agent.phone}?text=${msg}`, '_blank');
-  };
 
   if (state === 'loading') {
     return (
@@ -133,20 +132,15 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
         </div>
       </div>
 
-      {/* CTA sticky */}
+      {/* Profil agent melayang — komponen yang sama dengan jadwal (FloatingAgentBar) */}
       {agent?.phone && (
-        <div className="fixed inset-x-0 bottom-0 border-t border-itin-line bg-white px-4 pb-4 pt-3">
-          <div className="mx-auto max-w-md">
-            <button
-              type="button"
-              onClick={openWa}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-burgundy py-3.5 text-[13.5px] font-bold text-white active:scale-[0.98]"
-            >
-              Tanya {agent.name.split(' ')[0]} via WhatsApp
-            </button>
-            <p className="mt-1.5 text-center font-mono text-[9.5px] text-itin-ink3">alhijaz.co/{slug}</p>
-          </div>
-        </div>
+        <FloatingAgentBar
+          agent={agent}
+          slug={slug}
+          message={`Assalamualaikum, saya mau tanya terkait paket ${paket?.nama || packageId}`}
+          eventName="wa_click_itinerary"
+          eventMeta={{ paket: packageId }}
+        />
       )}
     </div>
   );
