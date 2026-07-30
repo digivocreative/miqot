@@ -4,7 +4,8 @@
  * Reads the original HTML from /public/haji-plus.html and replaces
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
-import { replaceFaIcons, rewriteAssetsToCdn, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
+import { replaceFaIcons, rewriteAssetsToCdn, deferBlockingStylesheets, eagerizeImg, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
+import { HAJI_USED_CSS } from './landing-critical';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -378,14 +379,24 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   // 8. PERFORMANCE OPTIMIZATIONS
   // ═══════════════════════════════════════════════════
 
+  // CSS render-blocking (elementor/pro/landingpress/swiper) → inline used-CSS
+  // + muat file penuh async. FCP/LCP tak lagi menunggu CDN.
+  html = deferBlockingStylesheets(html, HAJI_USED_CSS);
+
   // Ganti semua <i class="fa..."> dengan inline SVG (lepas dependensi icon-font/cdnjs)
   html = replaceFaIcons(html);
 
   // Hero main-new.avif (LCP, sudah fetchpriority=high) jangan kena blanket lazy di bawah
   html = html.replace(/(<img(?![^>]*loading=)[^>]*main-new\.avif[^>]*?)(\/?>)/, '$1 loading="eager" $2');
 
+  // Logo teratas (above-fold, lazy-nya terbakar di template WP): paksa eager.
+  // width/height intrinsik (469×180) mencegah layout shift saat logo tiba —
+  // CSS elementor `img{height:auto;max-width:100%}` menjaga rasio saat lebar
+  // dibatasi (mis. max-width:160px di mobile).
+  html = eagerizeImg(html, 'alhijazindowisata-1-1.avif', 'width="469" height="180"');
+
   // Add lazy loading to all images that don't already have it
-  html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*?)(\s*\/?>)/g, '$1 loading="lazy"$2');
 
   // Keep decoding="async" for performance
 

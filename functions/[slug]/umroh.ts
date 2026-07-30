@@ -4,7 +4,8 @@
  * Reads the original HTML from /public/umroh.html and replaces
  * WhatsApp links with agent-specific links, injects sticky agent bar.
  */
-import { replaceFaIcons, rewriteAssetsToCdn, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
+import { replaceFaIcons, rewriteAssetsToCdn, deferBlockingStylesheets, eagerizeImg, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
+import { UMROH_USED_CSS } from './landing-critical';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -316,16 +317,25 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   // 8. PERFORMANCE OPTIMIZATIONS
   // ═══════════════════════════════════════════════════
 
+  // CSS render-blocking (elementor/pro/landingpress/swiper/e-gallery) → inline
+  // used-CSS + muat file penuh async. FCP/LCP tak lagi menunggu CDN.
+  html = deferBlockingStylesheets(html, UMROH_USED_CSS);
+
   // Ganti semua <i class="fa..."> dengan inline SVG (lepas dependensi icon-font/cdnjs)
   html = replaceFaIcons(html);
 
   // Gambar promo (LCP sekunder, above-fold) jangan kena blanket lazy di bawah
   html = html.replace(/(<img(?![^>]*loading=)[^>]*umroh-promo-milad[^>]*?)(\/?>)/, '$1 loading="eager" fetchpriority="high" $2');
 
-  // Add lazy loading to all images that don't already have it
-  html = html.replace(/(<img(?![^>]*loading=)[^>]*)(\/?>)/g, '$1 loading="lazy" $2');
+  // Gambar above-fold lain (logo banner ber-fetchpriority bawaan template, logo
+  // Kemenag — lazy-nya terbakar di template, logo Google) juga jangan lazy.
+  html = eagerizeImg(html, 'alhijaz-indowisata-logo');
+  html = eagerizeImg(html, 'kemenag-logo');
+  html = eagerizeImg(html, 'logo-google');
 
-  // Remove fetchpriority="high" from non-hero images (only first image should be high priority)
+  // Add lazy loading to all images that don't already have it
+  html = html.replace(/(<img(?![^>]*loading=)[^>]*?)(\s*\/?>)/g, '$1 loading="lazy"$2');
+
   // Keep decoding="async" for performance
 
   // 5. Inject sticky bar + FAB before </body>

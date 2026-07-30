@@ -49,6 +49,58 @@ export function replaceFaIcons(html: string): string {
   });
 }
 
+// Paksa <img> tertentu (marker = substring unik, mis. nama file) dimuat eager.
+// Template WP kadang membakar loading="lazy" langsung di markup — untuk gambar
+// above-fold, lazy dilewati preload scanner sehingga baru di-fetch setelah
+// layout (~1.1 dtk): logo tampak pop-in telat. extraAttrs (mis. width/height
+// untuk cegah layout shift) hanya disisipkan bila img belum punya width.
+// Hanya kemunculan PERTAMA (urutan dokumen) yang diproses.
+export function eagerizeImg(html: string, marker: string, extraAttrs = ''): string {
+  const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('<img[^>]*' + escaped + '[^>]*?\\/?>');
+  return html.replace(re, (tag) => {
+    let t = tag.replace(/\s+loading=(["'])lazy\1/, '');
+    let inject = ' loading="eager"';
+    if (extraAttrs && !/\swidth=/.test(t)) inject += ' ' + extraAttrs;
+    return t.replace(/\s*(\/?>)$/, inject + ' $1');
+  });
+}
+
+// Hilangkan CSS render-blocking: inline subset "used CSS" (hasil generator
+// scripts/generate-landing-used-css.mjs → landing-critical.ts) di posisi link
+// stylesheet pertama, lalu ubah semua link stylesheet di <head> menjadi async
+// (media="print" + onload swap; download prioritas rendah, tidak memblokir
+// render). Stylesheet PENUH tetap dimuat → rule yang luput dari subset
+// tersembuhkan sendiri begitu file tiba (worst case FOUC singkat di bawah
+// fold, bukan tampilan rusak permanen). <noscript> memuat link asli untuk
+// browser tanpa JS. Wajib dipanggil SETELAH pembuangan link icon/google-fonts
+// dan SEBELUM rewriteAssetsToCdn (href & url() masih root-relative di sini).
+// Escape hatch: env LANDING_ASYNC_CSS=off mengembalikan perilaku blocking.
+export function deferBlockingStylesheets(html: string, usedCss: string): string {
+  if ((process.env.LANDING_ASYNC_CSS || '').toLowerCase() === 'off') return html;
+  if (!usedCss || usedCss.includes('</style')) return html; // jaga-jaga: jangan pernah pecahkan <style>
+  const headEnd = html.indexOf('</head>');
+  if (headEnd === -1) return html;
+  let head = html.slice(0, headEnd);
+  const linkRe = /<link[^>]*rel=['"]stylesheet['"][^>]*>/g;
+  let count = 0;
+  head = head.replace(linkRe, (tag) => {
+    const href = tag.match(/href=['"]([^'"]+)['"]/)?.[1];
+    if (!href) return tag;
+    count++;
+    // Fallback <noscript> menempel per-link, di posisi aslinya — bukan digabung
+    // di akhir head — karena ada blok <style> inline WP di sela-sela link;
+    // memindahkan posisi apply mengubah urutan cascade (terbukti menggeser
+    // spacing saat JS mati). Inline used-css mengisi posisi cascade link pertama.
+    const out = '<link rel="stylesheet" href="' + href
+      + '" media="print" onload="this.onload=null;this.media=\'all\'">'
+      + '<noscript><link rel="stylesheet" href="' + href + '"></noscript>';
+    return count === 1 ? '<style id="alhijaz-used-css">' + usedCss + '</style>' + out : out;
+  });
+  if (!count) return html;
+  return head + html.slice(headEnd);
+}
+
 // Rewrite asset relatif → Bunny CDN saat env BUNNY_CDN_HOSTNAME terisi.
 // Template WAJIB tetap relatif (lihat memory proyek); absolutisasi hanya saat serve.
 export function rewriteAssetsToCdn(html: string): string {
