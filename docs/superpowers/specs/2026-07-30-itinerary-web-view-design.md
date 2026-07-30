@@ -79,6 +79,11 @@ Cacat #8 terjadi pada paket nyata (JBU1587), bukan hipotetis.
   disadari dan diterima — kota terpenting perjalanan memakai warna brand. Konsekuensi:
   pemisahan "burgundy = aksi" tak lagi berlaku; jangan tambahkan elemen interaktif berwarna
   burgundy di dalam timeline supaya badge Mekkah tak terbaca sebagai tombol.
+- **D8 — Tanpa cokelat di timeline harian (preferensi user, 2026-07-30).** Taupe transit
+  `#6B5A50` dan coklat Indonesia `#4A3F39` diganti slate dingin (`#556072` / `#3D4451`).
+  Palet kota final: hanya dua kota suci yang berwarna (Madinah hijau, Mekkah merah Alhijaz);
+  kota transit dan tanah air netral dingin. Jangan memperkenalkan kembali warna keluarga
+  cokelat/taupe sebagai penanda kota.
 
 ## Palet
 
@@ -93,8 +98,8 @@ Token baru, light-only. Semua nilai kontras dihitung terhadap putih.
 | `canvas` | `#FAF7F5` | — | latar strip & chip |
 | Madinah | `#1F5F4B` | 7.51:1 | penanda kota — hijau Kubah Nabawi |
 | Mekkah | `#8A0F0A` | 9.75:1 | penanda kota — merah Alhijaz (burgundy-700) |
-| Transit (Dubai/Jeddah) | `#6B5A50` | 6.56:1 | penanda kota |
-| Indonesia | `#4A3F39` | 10.19:1 | penanda kota |
+| Transit (Dubai/Jeddah) | `#556072` | 6.36:1 | penanda kota — slate |
+| Indonesia | `#3D4451` | 9.79:1 | penanda kota — slate gelap |
 | burgundy | `#8A0F0A` → `#C0261C` | 9.75:1 / 5.94:1 | brand & tombol aksi (gradient 135°) |
 
 **Gold tidak dipakai sama sekali** — lihat keputusan D6.
