@@ -21197,6 +21197,66 @@ app.get('/:slug/bio', async (req, res, next) => {
 });
 
 // ──────────────────────────────────────────────
+// Itinerary share: /:slug/:packageId/itinerary — SSR OG meta (SPA renders body).
+// Pola sama dengan bio di atas: resolveSlug + getIndexHtml + replace meta.
+// ──────────────────────────────────────────────
+
+app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // unknown slug → SPA fallback
+    if (resolved.redirect) {
+      return res.redirect(301, `/${resolved.redirect}/${packageId}/itinerary`);
+    }
+    const agent = resolved.agent;
+
+    let nama = packageId;
+    try {
+      const { data } = await supabase
+        .from('umroh_schedules')
+        .select('jadwal_nama')
+        .eq('jadwal_id', packageId)
+        .limit(1);
+      if (data?.[0]?.jadwal_nama) nama = data[0].jadwal_nama;
+    } catch { /* fallback: pakai packageId */ }
+
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const pageUrl = `${origin}/${slug}/${packageId}/itinerary`;
+    const title = `Itinerary ${nama} | ${agent.name} — Alhijaz Indowisata`;
+    const description = `Rencana perjalanan hari per hari paket ${nama} bersama ${agent.name}, Alhijaz Indowisata.`;
+
+    let html = getIndexHtml();
+    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtmlAttr(title)}</title>`);
+    html = html.replace(
+      /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+      `<meta name="description" content="${escapeHtmlAttr(description)}" />`
+    );
+    html = html.replace(
+      /<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/i,
+      `<meta property="og:title" content="${escapeHtmlAttr(title)}" />`
+    );
+    html = html.replace(
+      /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/i,
+      `<meta property="og:description" content="${escapeHtmlAttr(description)}" />`
+    );
+    html = html.replace(
+      /<meta\s+property="og:site_name"/i,
+      `<meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />\n    <meta property="og:site_name"`
+    );
+
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+    }).send(html);
+  } catch (err) {
+    console.error('[itinerary-share] SSR error:', slug, packageId, err.message);
+    next(); // fallback ke SPA tanpa OG
+  }
+});
+
+// ──────────────────────────────────────────────
 // Haji Plus: Scrape + Sync + API
 // ──────────────────────────────────────────────
 
