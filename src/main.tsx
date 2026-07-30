@@ -60,6 +60,7 @@ const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
 const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
 const RahmahJuliLandingPage = lazy(() => import('./components/RahmahJuliLandingPage.tsx'))
+const ItinerarySharePage = lazy(() => import('./components/itinerary/SharePage.tsx'))
 const LocalAgentation = import.meta.env.DEV && getBrowserStorage('local')
   ? lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))
   : null
@@ -450,6 +451,10 @@ if (isPwaHost && isSsrLandingPath) {
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
       if (isRahmahJuliLanding) return <RahmahJuliLandingPage />
+      // Halaman share itinerary: /:slug/:jadwalId/itinerary (publik, dilihat jamaah)
+      if (isSinglePackageWithAgent && segments[2]?.toLowerCase() === 'itinerary') {
+        return <ItinerarySharePage slug={firstSlug} packageId={segments[1]} />
+      }
       return <App singlePackageId={singlePackageId} />
     })()
 

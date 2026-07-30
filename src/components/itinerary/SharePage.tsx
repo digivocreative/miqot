@@ -1,0 +1,153 @@
+// Halaman share publik /:slug/:packageId/itinerary — dilihat jamaah, tanpa auth.
+// Light-only, tona Alhijaz (spec 2026-07-30). OG meta disuntik server.js (rute SSR).
+import { useEffect, useState } from 'react';
+import { CalendarRange, FileText, Moon, Plane } from 'lucide-react';
+import type { UmrohPackage } from '@/types';
+import { trackPublicEvent } from '@/utils/analytics';
+import { getPackageById } from '@/services/data-service';
+import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
+import WebItineraryView, { type ItineraryContent } from '../WebItineraryView';
+
+export default function ItinerarySharePage({ slug, packageId }: { slug: string; packageId: string }) {
+  const [content, setContent] = useState<ItineraryContent | null>(null);
+  const [paket, setPaket] = useState<UmrohPackage | null>(null);
+  const [agent, setAgent] = useState<AgentData | null>(AGENTS_DATA[slug] || null);
+  const [state, setState] = useState<'loading' | 'ready' | 'notfound'>('loading');
+
+  useEffect(() => {
+    trackPublicEvent(slug, 'open_itinerary_share', { paket: packageId });
+    loadAgentsFromSupabase().then(map => setAgent(map[slug] || null)).catch(() => {});
+    Promise.allSettled([
+      fetch(`/api/itinerary/${encodeURIComponent(packageId)}`).then(r => r.json()),
+      getPackageById(packageId),
+    ]).then(([itin, pkg]) => {
+      const days: ItineraryContent | null =
+        itin.status === 'fulfilled' && itin.value?.success ? itin.value.data : null;
+      const p = pkg.status === 'fulfilled' ? pkg.value : null;
+      if (p) setPaket(p);
+      if (days?.days?.length) {
+        setContent(days);
+        setState('ready');
+      } else {
+        // Share tanpa itinerary tersusun = 404 lembut (spec, bagian State)
+        setState('notfound');
+      }
+    });
+  }, [slug, packageId]);
+
+  const openWa = () => {
+    if (!agent?.phone) return;
+    trackPublicEvent(slug, 'wa_click_itinerary', { paket: packageId });
+    const msg = encodeURIComponent(`Assalamualaikum, saya mau tanya terkait paket ${paket?.nama || packageId}`);
+    window.open(`https://wa.me/${agent.phone}?text=${msg}`, '_blank');
+  };
+
+  if (state === 'loading') {
+    return (
+      <div className="min-h-screen bg-white">
+        <div className="mx-auto max-w-md px-4 pt-10">
+          <div className="h-36 animate-pulse rounded-2xl bg-itin-canvas" />
+          <div className="mt-4 h-20 animate-pulse rounded-2xl bg-itin-canvas" />
+        </div>
+      </div>
+    );
+  }
+
+  if (state === 'notfound') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-itin-canvas px-4">
+        <div className="w-full max-w-sm rounded-2xl border border-itin-line bg-white p-6 text-center">
+          <p className="text-sm font-bold text-itin-ink">Itinerary belum tersedia</p>
+          <p className="mt-1 text-xs leading-5 text-itin-ink3">
+            Silakan buka halaman paket untuk info lengkap.
+          </p>
+          <a
+            href={`/${slug}/${packageId}`}
+            className="mt-4 inline-block rounded-xl bg-gradient-burgundy px-4 py-2.5 text-xs font-bold text-white"
+          >
+            Buka halaman paket
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  const pdfUrl = paket?.itineraryUrl || null;
+
+  return (
+    <div className="min-h-screen bg-white">
+      <div className="mx-auto max-w-md pb-24">
+        {/* Hero burgundy */}
+        <header className="bg-gradient-burgundy px-5 pb-5 pt-6 text-white">
+          <p className="text-[11px] font-bold tracking-[0.22em]">
+            ALHIJAZ <span className="font-normal text-white/70">INDOWISATA</span>
+          </p>
+          <h1 className="mt-2 font-display text-[24px] leading-[1.18]">{paket?.nama || packageId}</h1>
+          <p className="mt-1.5 text-[9px] font-bold tracking-[0.14em] text-white/70">ITINERARY PERJALANAN</p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {paket?.keberangkatan?.tgl && (
+              <span className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2 py-1 text-[10px] font-semibold">
+                <CalendarRange size={11} className="text-white/80" />
+                {new Date(paket.keberangkatan.tgl).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
+            )}
+            {paket?.maskapai && (
+              <span className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2 py-1 text-[10px] font-semibold">
+                <Plane size={11} className="text-white/80" /> {paket.maskapai}
+              </span>
+            )}
+            {content && content.days.length > 1 && (
+              <span className="flex items-center gap-1.5 rounded-lg bg-white/15 px-2 py-1 text-[10px] font-semibold">
+                <Moon size={11} className="text-white/80" /> {content.days.length} hari
+              </span>
+            )}
+          </div>
+        </header>
+
+        <WebItineraryView
+          content={content}
+          loading={false}
+          error={null}
+          paket={paket}
+          agentSlug={slug}
+          agentName={agent?.name ?? null}
+          agentPhone={agent?.phone ?? null}
+          agentPhoto={agent?.photo ?? null}
+          onWaClick={() => trackPublicEvent(slug, 'wa_click_itinerary', { paket: packageId })}
+        />
+
+        <div className="px-4">
+          {pdfUrl && (
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl border border-itin-line py-2.5 text-[12.5px] font-semibold text-itin-ink2"
+            >
+              <FileText size={15} /> Lihat dokumen PDF asli
+            </a>
+          )}
+          <p className="mt-3 text-center text-[9.5px] leading-[1.45] text-itin-ink3">
+            Jadwal dapat berubah menyesuaikan kondisi di lapangan.
+          </p>
+        </div>
+      </div>
+
+      {/* CTA sticky */}
+      {agent?.phone && (
+        <div className="fixed inset-x-0 bottom-0 border-t border-itin-line bg-white px-4 pb-4 pt-3">
+          <div className="mx-auto max-w-md">
+            <button
+              type="button"
+              onClick={openWa}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-burgundy py-3.5 text-[13.5px] font-bold text-white active:scale-[0.98]"
+            >
+              Tanya {agent.name.split(' ')[0]} via WhatsApp
+            </button>
+            <p className="mt-1.5 text-center font-mono text-[9.5px] text-itin-ink3">alhijaz.co/{slug}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
