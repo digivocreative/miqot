@@ -24,6 +24,8 @@ interface Props {
   agentPhoto?: string | null;
   onRetryPdf?: () => void;
   onWaClick?: () => void;
+  /** Sembunyikan kartu agent di akhir konten (halaman share sudah punya FloatingAgentBar) */
+  hideAgentFooter?: boolean;
 }
 
 function buildRouteText(paket?: UmrohPackage | null): string | null {
@@ -50,7 +52,7 @@ function dayDate(paket: UmrohPackage | null | undefined, dayIndex: number): stri
 }
 
 export default function WebItineraryView({
-  content, loading, error, paket, agentSlug, agentName, agentPhone, agentPhoto, onRetryPdf, onWaClick,
+  content, loading, error, paket, agentSlug, agentName, agentPhone, agentPhoto, onRetryPdf, onWaClick, hideAgentFooter,
 }: Props) {
   if (loading) {
     return (
@@ -108,14 +110,16 @@ export default function WebItineraryView({
       <div className="mt-4 space-y-3.5 px-4">
         {paket && <FlightCard paket={paket} />}
         {paket?.hotel && <HotelCard hotel={paket.hotel} />}
-        <AgentFooter
-          agentSlug={agentSlug ?? null}
-          agentName={agentName ?? null}
-          agentPhone={agentPhone ?? null}
-          agentPhoto={agentPhoto ?? null}
-          paketNama={paket?.nama || ''}
-          onWaClick={onWaClick}
-        />
+        {!hideAgentFooter && (
+          <AgentFooter
+            agentSlug={agentSlug ?? null}
+            agentName={agentName ?? null}
+            agentPhone={agentPhone ?? null}
+            agentPhoto={agentPhoto ?? null}
+            paketNama={paket?.nama || ''}
+            onWaClick={onWaClick}
+          />
+        )}
       </div>
     </div>
   );

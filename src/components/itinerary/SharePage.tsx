@@ -112,7 +112,7 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
           agentName={agent?.name ?? null}
           agentPhone={agent?.phone ?? null}
           agentPhoto={agent?.photo ?? null}
-          onWaClick={() => trackPublicEvent(slug, 'wa_click_itinerary', { paket: packageId })}
+          hideAgentFooter
         />
 
         <div className="px-4">
