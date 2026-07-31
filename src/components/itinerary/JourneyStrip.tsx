@@ -112,10 +112,12 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
       {(pdfUrl || showBrosur) && (
         <div className="mt-3 flex gap-2">
           {showBrosur && (
+            /* Ghost burgundy — dipilih user dari 3 alternatif (2026-07-31),
+               mengesampingkan D7 "burgundy = tombol penuh saja" untuk tombol ini. */
             <button
               type="button"
               onClick={() => setBrosurOpen(true)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gold-100 bg-gold-50 py-2.5 text-[13px] font-bold text-[#6B550C]"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border-[1.5px] border-burgundy-600 bg-white py-2.5 text-[13px] font-bold text-burgundy-700"
             >
               <BookOpen size={15} /> Brosur
             </button>
