@@ -1,5 +1,5 @@
 import { Users, PlaneTakeoff, PlaneLanding, Bus, TrainFront, MapPin, Route, CircleDot, type LucideIcon } from 'lucide-react';
-import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate, splitDayTitleDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
+import { classifyActivity, activityIconName, cityKeyForLocation, cityKeysInOrder, splitImportantPlaces, retitleDayWithDate, splitDayTitleDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, CITY_FLAG, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Ikon HANYA untuk momen bermakna (kumpul/takeoff/landing/transit) — baris biasa
@@ -54,6 +54,17 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
   const cityKey = (cityKeyForLocation(day.location || '') || DEFAULT_CITY) as CityKey;
   const dayNum = day.dayNumber?.match(/\d[\d\-–]*/)?.[0] || String(dayIndex + 1);
 
+  // Hari perpindahan antarnegara ("Makkah – Jeddah – Istanbul") menampilkan
+  // bendera KEDUA negara, urut arah perjalanan. Dedup per aset bendera —
+  // Mekkah/Madinah/Jeddah sama-sama Saudi, jangan tampil dobel. Fallback ke
+  // bendera cityKey supaya hari tanpa location tetap berbendera seperti semula.
+  const flagSrcs = [...new Set(
+    (cityKeysInOrder(day.location || '') as CityKey[])
+      .map(k => CITY_FLAG[k])
+      .filter((src): src is string => Boolean(src)),
+  )].slice(0, 2);
+  if (!flagSrcs.length && CITY_FLAG[cityKey]) flagSrcs.push(CITY_FLAG[cityKey] as string);
+
   // Tanggal di judul PDF bisa salah → ditulis ulang dari jadwal, lalu DIPINDAH
   // ke baris bawah supaya judul tak memanjang sampai terpotong ("Jakarta –
   // Madinah (Sabtu, 05 Septemb…"). Kalau judul aslinya hanya tanggal, lokasi
@@ -95,14 +106,24 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
           )}
         </div>
         {/* Bendera negara hari ini — aset sama dengan kartu jadwal, samar saja.
-            Absolut agar hampir setinggi header tanpa membuat barisnya melar. */}
-        {CITY_FLAG[cityKey] && (
-          <img
-            src={CITY_FLAG[cityKey]}
-            alt=""
+            Absolut agar hampir setinggi header tanpa membuat barisnya melar.
+            Hari dua negara: bendera ditumpuk vertikal (asal di atas, tujuan di
+            bawah) — berdampingan memakan lebar dan menimpa judul panjang
+            ("Makkah – Jeddah – Istanbul") di layar 375px. */}
+        {flagSrcs.length > 0 && (
+          <div
             aria-hidden
-            className="absolute inset-y-1 right-2 h-[calc(100%-8px)] w-auto rounded-md opacity-30"
-          />
+            className={`absolute inset-y-1 right-2 flex ${flagSrcs.length > 1 ? 'flex-col justify-center gap-[3px]' : 'items-center'}`}
+          >
+            {flagSrcs.map(src => (
+              <img
+                key={src}
+                src={src}
+                alt=""
+                className={`w-auto opacity-30 ${flagSrcs.length > 1 ? 'h-[calc(50%-3px)] rounded' : 'h-full rounded-md'}`}
+              />
+            ))}
+          </div>
         )}
       </div>
       {/* Timeline: satu garis tenang + titik per baris; momen penting = panel emas */}

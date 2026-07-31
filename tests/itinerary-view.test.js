@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cityKeyForLocation,
+  cityKeysInOrder,
   classifyActivity,
   activityIconName,
   computeNightSegments,
@@ -30,6 +31,17 @@ test('alias & kota khusus', () => {
   assert.equal(cityKeyForLocation('Jeddah'), 'transit');
   assert.equal(cityKeyForLocation(''), null);
   assert.equal(cityKeyForLocation(null), null);
+});
+
+// ── cityKeysInOrder ──
+test('cityKeysInOrder: urut kemunculan (arah perjalanan), duplikat dibuang', () => {
+  assert.deepEqual(cityKeysInOrder('Makkah – Jeddah – Istanbul'), ['mekkah', 'transit', 'turki']);
+  assert.deepEqual(cityKeysInOrder('Jakarta - Dubai'), ['home', 'dubai']);
+  assert.deepEqual(cityKeysInOrder('Dubai – Jeddah - Medinah'), ['dubai', 'transit', 'madinah']);
+  assert.deepEqual(cityKeysInOrder('Cairo - Alexandria'), ['mesir']);
+  assert.deepEqual(cityKeysInOrder('Mekkah'), ['mekkah']);
+  assert.deepEqual(cityKeysInOrder(''), []);
+  assert.deepEqual(cityKeysInOrder(null), []);
 });
 
 // ── classifyActivity ──
