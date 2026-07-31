@@ -8,11 +8,21 @@ import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } fro
 import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
 import { getFlightStatusPresentation } from '../lib/flightStatusPresentation';
+import { formatFlightNumberCompact } from '../lib/flightNumberFormat';
 import { isReturnFlight } from '../lib/flightDirection';
 import FlightRouteLine from './FlightRouteLine';
 import { compareFlightDepartureTimestamp } from '../../lib/flight-entry-merge.js';
 
 const FlightMap = lazy(() => import('./FlightMap'));
+
+/**
+ * Bentuk tunggal untuk semua badge di baris judul kartu penerbangan (status,
+ * "Pulang"). Hanya warna alas yang boleh berbeda — begitu salah satunya memakai
+ * border atau padding sendiri, tingginya ikut berubah dan kedua badge terlihat
+ * beda ukuran meski font dan paddingnya sama.
+ */
+const FLIGHT_BADGE_CLASS =
+  'flex-shrink-0 text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide';
 
 // ── Types ──
 
@@ -186,7 +196,7 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-[11px] font-bold text-gray-800 dark:text-white truncate">
-                  {segment.flightNumber}
+                  {formatFlightNumberCompact(segment.flightNumber)}
                 </span>
                 <span className={`text-[7px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
                   {sc.label}
@@ -747,15 +757,20 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Flight info */}
                   <div className="flex-1 min-w-0">
                     {/* Row 1: flight number + status badge + total pax */}
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="min-w-0 truncate text-[13px] font-bold text-gray-800 dark:text-white">
-                        {summaryFlight.flightNumber}
+                    {/* `flex-wrap`: badge yang turun ke baris kedua, bukan nomor
+                        penerbangan yang terpotong jadi "GA…". `truncate` tetap
+                        dipertahankan sebagai pengaman terakhir — nomor multi-leg
+                        yang sendirian pun lebih lebar dari kartu harus terpotong,
+                        bukan menjebol lebar kartu. */}
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      <span className="min-w-0 truncate text-[12px] font-bold text-gray-800 dark:text-white">
+                        {formatFlightNumberCompact(summaryFlight.flightNumber)}
                       </span>
-                      <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
+                      <span className={`${FLIGHT_BADGE_CLASS} ${sc.bg}`}>
                         {sc.label}
                       </span>
                       {isReturn && (
-                        <span className="flex-shrink-0 text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md tracking-wide bg-indigo-50 text-indigo-600 border border-indigo-100 dark:bg-indigo-500 dark:text-white dark:border-indigo-500">
+                        <span className={`${FLIGHT_BADGE_CLASS} bg-indigo-500`}>
                           Pulang
                         </span>
                       )}

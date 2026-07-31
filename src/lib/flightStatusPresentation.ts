@@ -21,7 +21,7 @@ export const FLIGHT_STATUS_PRESENTATION: Record<FlightDisplayStatus, FlightStatu
     badge: 'bg-blue-50 text-blue-700 border border-blue-200',
   },
   scheduled: {
-    label: 'Dijadwalkan',
+    label: 'Terjadwal',
     color: '#d97706',
     // amber-700, bukan -500: teks putih di atas amber-500 hanya 2,15:1 dan nyaru.
     // `color` tetap amber-600 — itu garis tipis penghubung jam, bukan alas teks.
