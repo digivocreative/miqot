@@ -119,6 +119,36 @@ function formatDate(iso?: string | null): string {
   }
 }
 
+/** Ambang waktu hari dalam pemakaian sehari-hari; di luar itu dianggap malam. */
+function timeOfDayLabel(hhmm: string): string {
+  const m = /^(\d{1,2}):\d{2}$/.exec(hhmm);
+  if (!m) return '';
+  const hour = Number(m[1]);
+  if (hour >= 4 && hour < 11) return 'pagi';
+  if (hour >= 11 && hour < 15) return 'siang';
+  if (hour >= 15 && hour < 18) return 'sore';
+  return 'malam';
+}
+
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Tanggal keberangkatan esok hari ditulis "Besok sore", bukan "1 Agustus".
+ * Perbandingannya kunci tanggal lokal (YYYY-MM-DD) lawan string, bukan selisih
+ * milidetik — string vs string kebal terhadap jam parsing dan pergantian DST.
+ * Jam keberangkatan tak diketahui → "Besok" saja, tanpa mengarang waktu.
+ */
+function formatFlightDateLabel(dateKey: string, depTime: string, fallback: string): string {
+  if (!dateKey) return fallback;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (localDateKey(tomorrow) !== dateKey) return fallback;
+  const part = timeOfDayLabel(depTime);
+  return part ? `Besok ${part}` : 'Besok';
+}
+
 function cleanTourLeader(tl?: string): string {
   if (!tl) return '';
   // Strip all bullet/dot prefixes and normalize whitespace
@@ -757,11 +787,11 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   {/* Flight info */}
                   <div className="flex-1 min-w-0">
                     {/* Row 1: flight number + status badge + total pax */}
-                    {/* `flex-wrap`: badge yang turun ke baris kedua, bukan nomor
-                        penerbangan yang terpotong jadi "GA…". `truncate` tetap
-                        dipertahankan sebagai pengaman terakhir — nomor multi-leg
-                        yang sendirian pun lebih lebar dari kartu harus terpotong,
-                        bukan menjebol lebar kartu. */}
+                    {/* `flex-wrap` = pengaman, bukan perilaku sehari-hari: ruang
+                        baris ini sudah cukup sejak tanggal pindah ke kolom
+                        chevron. Yang tersisa hanya kasus nomor multi-leg panjang
+                        — di situ badge yang turun, bukan nomor yang terpotong
+                        jadi "GA…". */}
                     <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                       <span className="min-w-0 truncate text-[12px] font-bold text-gray-800 dark:text-white">
                         {formatFlightNumberCompact(summaryFlight.flightNumber)}
@@ -801,35 +831,43 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                     </div>
                   </div>
 
-                  {/* Right info — date + chevron */}
+                  {/* Kolom kanan — tanggal di atas, lalu terminal/gate + chevron
+                      sebaris di bawahnya.
+                      Chevron sengaja ditumpuk di sini, bukan jadi kolom sendiri:
+                      satu kolom hilang berarti satu gap hilang juga, dan lebarnya
+                      kini mengikuti tanggal (chevron cuma 13px). Ruang yang bebas
+                      itulah yang membuat badge "Pulang" tetap muat di baris judul. */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span className="text-[9px] font-semibold text-gray-400 dark:text-slate-500">
-                      {formatDate(flightCardDisplayDateValue(summaryFlight))}
+                    <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400">
+                      {formatFlightDateLabel(
+                        flightCardDateKey(summaryFlight),
+                        depTime,
+                        formatDate(flightCardDisplayDateValue(summaryFlight)),
+                      )}
                     </span>
-                    {(summaryFlight.depTerminal || summaryFlight.depGate) && (
-                      <div className="flex items-center gap-1">
-                        {summaryFlight.depTerminal && (
-                          <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            T{summaryFlight.depTerminal}
-                          </span>
-                        )}
-                        {summaryFlight.depGate && (
-                          <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                            {summaryFlight.depGate}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {/* Terminal/gate sebaris di kiri chevron — bukan baris sendiri,
+                        supaya kolom ini tetap dua baris dan tinggi kartu tidak
+                        bertambah saat data terminal tersedia. */}
+                    <div className="flex items-center gap-1">
+                      {summaryFlight.depTerminal && (
+                        <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                          T{summaryFlight.depTerminal}
+                        </span>
+                      )}
+                      {summaryFlight.depGate && (
+                        <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                          {summaryFlight.depGate}
+                        </span>
+                      )}
+                      <motion.div
+                        animate={{ rotate: isExpanded ? 180 : 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        className="text-gray-300 dark:text-slate-600"
+                      >
+                        <ChevronDown size={13} />
+                      </motion.div>
+                    </div>
                   </div>
-
-                  {/* Chevron */}
-                  <motion.div
-                    animate={{ rotate: isExpanded ? 180 : 0 }}
-                    transition={{ duration: 0.2, ease: 'easeInOut' }}
-                    className="text-gray-300 dark:text-slate-600 flex-shrink-0 mt-1"
-                  >
-                    <ChevronDown size={13} />
-                  </motion.div>
                 </button>
 
                 <FlightSegmentRows segments={segments} />
@@ -854,7 +892,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                         {/* Pax + Name */}
                         <span className="flex-1 text-[11px] text-gray-500 dark:text-slate-400 truncate">
                           <span className="font-semibold text-gray-600 dark:text-slate-300">{kloter.pax}</span> pax
-                          {tlClean && <> · {tlClean.toUpperCase()}</>}
+                          {tlClean && <> · {tlClean}</>}
                         </span>
                       </div>
                     );
