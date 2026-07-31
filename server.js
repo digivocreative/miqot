@@ -2464,6 +2464,7 @@ Panduan:
 - Ambil SEMUA hari yang disebutkan, jangan skip
 - Jika dokumen menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
 - Tiap aktivitas maksimal 15 kata, bahasa Indonesia yang rapi
+- PERBAIKI typo dan ejaan yang salah di dokumen — PDF sumber sering mengandung salah ketik. Contoh: "idcard"/"ide card" → "ID Card", "bording pass"/"boarding pas" → "boarding pass", "cek in"/"cekin" → "check-in", "kabah" → "Ka'bah", "masjid nabawi" → "Masjid Nabawi", "madinah al munawaroh" → "Madinah Al Munawwarah". Rapikan juga kapitalisasi nama tempat/masjid/hotel. Ini KOREKSI EJAAN SAJA — jangan mengubah makna, menambah, atau menghapus informasi
 - Saat meringkas, PERTAHANKAN nama tempat wisata/tur yang disebut (misal: Red Sea/laut merah, Taif, Badar, Istanbul, Dubai, Cairo) — jangan hilang karena diringkas
 - Field "time": ambil jam jika tersedia (format "HH:MM"). Jika hanya waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu, gunakan "-"
 - Field "location": kota/rute hari itu; string kosong jika tidak disebut
@@ -2487,7 +2488,7 @@ async function callItineraryModel(userContent, timeoutMs) {
     body: JSON.stringify({
       model: ITINERARY_MODEL,
       messages: [
-        { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF itinerary umroh. Kamu HANYA menggunakan informasi yang ada di dokumen. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
+        { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF itinerary umroh. Kamu HANYA menggunakan informasi yang ada di dokumen. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli. Kamu memperbaiki typo dan ejaan dari dokumen tanpa mengubah makna.' },
         { role: 'user', content: userContent },
       ],
       response_format: { type: 'json_schema', json_schema: ITINERARY_JSON_SCHEMA },
