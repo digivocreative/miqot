@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileDown, Loader2, Plane } from 'lucide-react';
+import { FileDown, Loader2, Plane, Share2 } from 'lucide-react';
 import { computeNightSegments } from '../../../lib/itinerary-view.js';
+import { canShareFiles, isTouchPrimary } from '../../utils/share';
 import { CITY_HEX, CITY_LABEL, type CityKey } from './cityTheme';
 
 interface Props {
@@ -9,21 +10,50 @@ interface Props {
 }
 
 export default function JourneyStrip({ days, pdfUrl }: Props) {
-  // Animasi unduh 2 detik: bar terisi + pesawat terbang menyeberangi tombol, lalu buka PDF.
-  // Navigasi via location.assign (bukan window.open) — aman dari popup blocker setelah delay.
+  // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol. Sesudahnya:
+  // - Perangkat sentuh → share sheet native (PDF di-fetch paralel selama
+  //   animasi; share dipanggil ±2 dtk setelah klik, masih di jendela user
+  //   activation). Batal share = bukan error, cukup reset.
+  // - Desktop → unduh langsung via location.assign (aman dari popup blocker).
   const [downloading, setDownloading] = useState(false);
   const timerRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
   }, []);
+  const shareMode = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
   const startDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     if (downloading || !pdfUrl) return;
     setDownloading(true);
-    timerRef.current = window.setTimeout(() => {
-      setDownloading(false);
-      window.location.assign(pdfUrl);
-    }, 2000);
+    const animationDone = new Promise<void>(resolve => {
+      timerRef.current = window.setTimeout(resolve, 2000);
+    });
+    const run = async () => {
+      if (shareMode) {
+        const fileName = `itinerary-${(pdfUrl.split('/').pop() || 'alhijaz.pdf').replace(/\?.*$/, '')}`;
+        const blobPromise = fetch(pdfUrl).then(r => (r.ok ? r.blob() : null)).catch(() => null);
+        const [blob] = await Promise.all([blobPromise, animationDone]);
+        setDownloading(false);
+        const file = blob ? new File([blob], fileName, { type: 'application/pdf' }) : null;
+        try {
+          if (file && canShareFiles([file])) {
+            await navigator.share({ files: [file], title: 'Itinerary Alhijaz' });
+          } else {
+            await navigator.share({ title: 'Itinerary Alhijaz', url: pdfUrl });
+          }
+        } catch (err) {
+          // Batal (AbortError) = keputusan pengguna; selain itu (activation
+          // kedaluwarsa dsb.) → fallback buka PDF langsung.
+          if ((err as DOMException)?.name !== 'AbortError') window.location.assign(pdfUrl);
+        }
+      } else {
+        await animationDone;
+        setDownloading(false);
+        window.location.assign(pdfUrl);
+      }
+    };
+    void run();
   };
 
   const allSegments = computeNightSegments(days) as Array<{ key: CityKey; nights: number }> | null;
@@ -87,6 +117,10 @@ export default function JourneyStrip({ days, pdfUrl }: Props) {
             {downloading ? (
               <>
                 <Loader2 size={15} className="animate-spin" /> Menyiapkan dokumen…
+              </>
+            ) : shareMode ? (
+              <>
+                <Share2 size={15} /> Bagikan Itinerary PDF
               </>
             ) : (
               <>

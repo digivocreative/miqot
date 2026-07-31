@@ -1,5 +1,5 @@
 import { Users, PlaneTakeoff, PlaneLanding, CircleDot, type LucideIcon } from 'lucide-react';
-import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
+import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate, splitDayTitleDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, CITY_FLAG, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Ikon HANYA untuk momen bermakna (kumpul/takeoff/landing/transit) — baris biasa
@@ -46,15 +46,20 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
   const cityKey = (cityKeyForLocation(day.location || '') || DEFAULT_CITY) as CityKey;
   const dayNum = day.dayNumber?.match(/\d[\d\-–]*/)?.[0] || String(dayIndex + 1);
 
-  // Judul PDF sering SUDAH berupa tanggal, dan tanggal itu bisa salah. Ditulis
-  // ulang dari jadwal; kalau judulnya memang tanggal, baris bawah tak lagi
-  // mengulanginya supaya tak tampil dua kali di kartu yang sama.
-  const { title, hadDate } = retitleDayWithDate(day.title, dayDateISO) as { title: string; hadDate: boolean };
-  const dateLabel = !hadDate && dayDateISO
-    ? new Date(`${dayDateISO}T00:00:00Z`).toLocaleDateString('id-ID', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
-    })
-    : null;
+  // Tanggal di judul PDF bisa salah → ditulis ulang dari jadwal, lalu DIPINDAH
+  // ke baris bawah supaya judul tak memanjang sampai terpotong ("Jakarta –
+  // Madinah (Sabtu, 05 Septemb…"). Kalau judul aslinya hanya tanggal, lokasi
+  // naik menjadi judul.
+  const { title: retitled } = retitleDayWithDate(day.title, dayDateISO) as { title: string };
+  const { rest, dateText } = splitDayTitleDate(retitled) as { rest: string; dateText: string | null };
+  const title = rest || day.location || dateText || day.title;
+  const dateLabel = dateText
+    ? (title === dateText ? null : dateText)
+    : dayDateISO
+      ? new Date(`${dayDateISO}T00:00:00Z`).toLocaleDateString('id-ID', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+      })
+      : null;
   // Judul "Mekkah" + baris bawah "Mekkah · tanggal" = redundan; lokasi hanya
   // tampil bila menambah informasi di luar judul.
   const showLocation = Boolean(day.location) && !isRedundantDayLocation(title, day.location);

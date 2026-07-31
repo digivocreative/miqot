@@ -99,7 +99,9 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
               <rect width="100%" height="100%" fill="url(#itin-hero-pattern)" />
             </svg>
             <div className="relative flex items-center justify-between gap-3">
-              <img src={logoAlhijazWhite} alt="" aria-hidden className="h-6 w-auto object-contain" />
+              <a href={`/${slug}`} aria-label={`Lihat jadwal ${agent?.name || 'agent'}`}>
+                <img src={logoAlhijazWhite} alt="" aria-hidden className="h-6 w-auto object-contain" />
+              </a>
               <span className="rounded-md border border-white/30 px-2 py-1 text-[10px] font-bold tracking-[0.14em] text-white/80">
                 ITINERARY
               </span>
@@ -128,7 +130,11 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
           </svg>
           <div className="relative">
           <div className="flex items-center justify-between gap-3">
-            <img src={logoAlhijazWhite} alt="Alhijaz Indowisata" className="h-7 w-auto object-contain" />
+            {/* Logo → halaman jadwal si agent (di custom domain, middleware
+                canonicalize meneruskan /slug ke akarnya) */}
+            <a href={`/${slug}`} aria-label={`Lihat jadwal ${agent?.name || 'agent'}`}>
+              <img src={logoAlhijazWhite} alt="Alhijaz Indowisata" className="h-7 w-auto object-contain" />
+            </a>
             <span className="rounded-md border border-white/30 px-2 py-1 text-[10px] font-bold tracking-[0.14em] text-white/80">
               ITINERARY
             </span>

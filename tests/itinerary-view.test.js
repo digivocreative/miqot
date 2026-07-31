@@ -8,6 +8,7 @@ import {
   splitImportantPlaces,
   retitleDayWithDate,
   itineraryDayDates,
+  splitDayTitleDate,
   isRedundantDayLocation,
 } from '../lib/itinerary-view.js';
 
@@ -275,4 +276,32 @@ test('itineraryDayDates: satu hari melewati pulang_tgl ditoleransi (tiba keesoka
 test('itineraryDayDates: melewati pulang_tgl lebih dari sehari tetap ditahan', () => {
   const days = Array.from({ length: 10 }, (_, i) => ({ dayNumber: String(i + 1) }));
   assert.deepEqual(itineraryDayDates(days, '2026-08-15', '2026-08-22'), Array(10).fill(null));
+});
+
+test('splitDayTitleDate: tanggal dalam kurung dipisah dari judul', () => {
+  // JBU1511 hari 1
+  assert.deepEqual(splitDayTitleDate('Jakarta – Madinah (Sabtu, 05 September 2026)'), {
+    rest: 'Jakarta – Madinah', dateText: 'Sabtu, 05 September 2026',
+  });
+  // JBU1551 hari 1
+  assert.deepEqual(splitDayTitleDate('Jakarta (Senin, 21 Desember 2026)'), {
+    rest: 'Jakarta', dateText: 'Senin, 21 Desember 2026',
+  });
+});
+
+test('splitDayTitleDate: kurung berisi dipertahankan, pemisah yatim dibersihkan', () => {
+  // JBU1586 hari 1: "(Hari 0)" bukan tanggal — harus selamat
+  assert.deepEqual(splitDayTitleDate('Jakarta (Hari 0) – Senin, 07 Desember 2026'), {
+    rest: 'Jakarta (Hari 0)', dateText: 'Senin, 07 Desember 2026',
+  });
+});
+
+test('splitDayTitleDate: judul hanya tanggal → rest kosong', () => {
+  assert.deepEqual(splitDayTitleDate('Sabtu, 05 September 2026'), {
+    rest: '', dateText: 'Sabtu, 05 September 2026',
+  });
+});
+
+test('splitDayTitleDate: judul tanpa tanggal tak berubah', () => {
+  assert.deepEqual(splitDayTitleDate('Mekkah - Madinah'), { rest: 'Mekkah - Madinah', dateText: null });
 });
