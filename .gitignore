@@ -17,5 +17,9 @@ exports/
 # pre-cutover env backup (old secrets) — keep local, never commit
 .env.cutover-bak
 
+# semua varian/backup .env — repo ini publik, jangan pernah ter-commit
+.env.*
+!.env.example
+
 # runtime log artifact
 server.log

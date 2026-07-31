@@ -13,6 +13,7 @@
  * Daily limit: max 7 pesan/hari (4 rutin + 3 realtime)
  */
 
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,8 +22,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const STATE_FILE = path.join(PROJECT_ROOT, 'data', 'telegram-state.json');
 
-const BOT_TOKEN = '8750758900:AAFTNVxNaNWf3vIO4snUTePYRi87H1sFMRc';
-const CHAT_ID = '-1003839802558';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+// Skrip legacy ini historisnya mengirim ke grup dev, bukan grup produksi
+const CHAT_ID = process.env.TELEGRAM_CHAT_ID_DEV || '';
 const API_URL = 'https://jadwal.alhijaz.co/jadwal/api-get/1448';
 
 const DAILY_LIMIT = 7;
@@ -600,6 +602,11 @@ async function main() {
   if (!command || !COMMANDS[command]) {
     console.log('Usage: node scripts/telegram-notify.mjs <command>');
     console.log('Commands:', Object.keys(COMMANDS).join(', '));
+    process.exit(1);
+  }
+
+  if (!BOT_TOKEN || !CHAT_ID) {
+    console.error('TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID_DEV wajib tersedia di .env');
     process.exit(1);
   }
 
