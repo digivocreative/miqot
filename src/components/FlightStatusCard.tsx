@@ -135,18 +135,30 @@ function localDateKey(d: Date): string {
 }
 
 /**
- * Tanggal keberangkatan esok hari ditulis "Besok sore", bukan "1 Agustus".
+ * Tanggal dekat ditulis relatif: "Sore ini" untuk hari ini, "Besok sore" untuk
+ * esok, selebihnya tanggal biasa ("1 Agustus").
+ *
  * Perbandingannya kunci tanggal lokal (YYYY-MM-DD) lawan string, bukan selisih
  * milidetik — string vs string kebal terhadap jam parsing dan pergantian DST.
- * Jam keberangkatan tak diketahui → "Besok" saja, tanpa mengarang waktu.
+ * Jam keberangkatan tak diketahui → "Hari ini"/"Besok" saja, tanpa mengarang
+ * waktu.
  */
 function formatFlightDateLabel(dateKey: string, depTime: string, fallback: string): string {
   if (!dateKey) return fallback;
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (localDateKey(tomorrow) !== dateKey) return fallback;
   const part = timeOfDayLabel(depTime);
-  return part ? `Besok ${part}` : 'Besok';
+
+  const today = new Date();
+  if (localDateKey(today) === dateKey) {
+    return part ? `${part.charAt(0).toUpperCase()}${part.slice(1)} ini` : 'Hari ini';
+  }
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (localDateKey(tomorrow) === dateKey) {
+    return part ? `Besok ${part}` : 'Besok';
+  }
+
+  return fallback;
 }
 
 function cleanTourLeader(tl?: string): string {
