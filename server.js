@@ -32,7 +32,8 @@ import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCachea
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
@@ -2410,64 +2411,71 @@ FORMAT OUTPUT (JSON):
 // Itinerary: shared PDF→OpenAI extraction logic
 // ──────────────────────────────────────────────
 
-async function parseItineraryFromPdf(pdfUrl, meta = {}) {
-  const OPENAI_KEY = process.env.OPENAI_API_KEY;
-  if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not configured');
+const ITINERARY_MODEL = 'gpt-5.6-luna';
 
-  // Download PDF
-  const pdfRes = await fetch(pdfUrl, {
-    headers: { 'Referer': 'https://jadwal.alhijaz.co/', 'User-Agent': 'Mozilla/5.0' },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status}`);
+// Skema strict — semua properti wajib + additionalProperties:false (syarat strict mode).
+// location boleh string kosong; FE sudah menangani via `day.location || ''`.
+const ITINERARY_JSON_SCHEMA = {
+  name: 'itinerary',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      days: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            dayNumber: { type: 'string' },
+            title: { type: 'string' },
+            location: { type: 'string' },
+            activities: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  time: { type: 'string' },
+                  text: { type: 'string' },
+                },
+                required: ['time', 'text'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['dayNumber', 'title', 'location', 'activities'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['days'],
+    additionalProperties: false,
+  },
+};
 
-  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-  const sourceSha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
-  const parser = new pdfParse({ data: pdfBuffer });
-  await parser.load();
-  const textResult = await parser.getText();
-  await parser.destroy();
-  const pdfText = textResult?.text?.trim() || '';
-
-  if (!pdfText || pdfText.length < 50) throw new Error('PDF text too short');
-
-  // OpenAI structuring
-  const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
-
---- MULAI TEKS PDF ---
-${pdfText.substring(0, 20000)}
---- AKHIR TEKS PDF ---
-
-Metadata paket:
+function itineraryTaskPrompt(meta) {
+  return `Metadata paket:
 - Nama paket: ${meta.nama_paket || ''}
 - Maskapai: ${meta.maskapai || ''}
 - Tanggal berangkat: ${meta.tgl_berangkat || ''}
 
-TUGAS: Strukturkan teks PDF di atas menjadi JSON. HANYA gunakan informasi yang ADA di teks PDF. JANGAN menambahkan, mengarang, atau mengasumsikan informasi apapun yang tidak ada di teks.
-
-Kembalikan JSON dengan struktur PERSIS ini:
-{
-  "days": [
-    {
-      "dayNumber": "Hari 1",
-      "title": "Judul singkat dari PDF (maks 6 kata)",
-      "location": "Kota/rute sesuai PDF",
-      "activities": [
-        { "time": "08:00", "text": "Aktivitas persis dari PDF" },
-        { "time": "12:00", "text": "Aktivitas kedua dari PDF" }
-      ]
-    }
-  ]
-}
+TUGAS: Strukturkan itinerary di atas menjadi JSON sesuai skema. HANYA gunakan informasi yang ADA di dokumen. JANGAN menambahkan, mengarang, atau mengasumsikan informasi apapun yang tidak ada.
 
 Panduan:
-- Ambil SEMUA hari yang disebutkan di PDF, jangan skip
-- Jika PDF menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
+- Ambil SEMUA hari yang disebutkan, jangan skip
+- Jika dokumen menggabungkan beberapa hari (misal "Hari 3-5"), ikuti format itu
 - Tiap aktivitas maksimal 15 kata, bahasa Indonesia yang rapi
-- Saat meringkas, PERTAHANKAN nama tempat wisata/tur yang disebut PDF (misal: Red Sea/laut merah, Taif, Badar, Istanbul, Dubai, Cairo) — jangan hilang karena diringkas
-- Field "time": ambil jam dari PDF jika tersedia (format "HH:MM"). Jika PDF hanya menyebut waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu sama sekali, gunakan "-"
-- JANGAN mengarang aktivitas atau jam yang tidak ada di PDF
+- Saat meringkas, PERTAHANKAN nama tempat wisata/tur yang disebut (misal: Red Sea/laut merah, Taif, Badar, Istanbul, Dubai, Cairo) — jangan hilang karena diringkas
+- Field "time": ambil jam jika tersedia (format "HH:MM"). Jika hanya waktu umum, gunakan "Pagi", "Siang", "Sore", "Malam", atau "Subuh". Jika tidak ada info waktu, gunakan "-"
+- Field "location": kota/rute hari itu; string kosong jika tidak disebut
+- JANGAN mengarang aktivitas atau jam yang tidak ada di dokumen
 - JANGAN potong atau ringkas lokasi titik kumpul. Tulis lengkap termasuk terminal, gate, dan nama bandara`;
+}
+
+// userContent: string (jalur teks) atau array content-part (jalur PDF-native).
+// Tanpa temperature — keluarga GPT-5 menolak nilai non-default; skema sudah mengunci output.
+async function callItineraryModel(userContent, timeoutMs) {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not configured');
 
   const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -2475,15 +2483,14 @@ Panduan:
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENAI_KEY}`,
     },
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
+      model: ITINERARY_MODEL,
       messages: [
-        { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF. Kamu HANYA menggunakan informasi yang ada di teks PDF. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
-        { role: 'user', content: prompt },
+        { role: 'system', content: 'Kamu adalah asisten yang mengekstrak dan menstrukturkan data dari dokumen PDF itinerary umroh. Kamu HANYA menggunakan informasi yang ada di dokumen. Kamu TIDAK PERNAH menambahkan informasi baru yang tidak ada di dokumen asli.' },
+        { role: 'user', content: userContent },
       ],
-      response_format: { type: 'json_object' },
+      response_format: { type: 'json_schema', json_schema: ITINERARY_JSON_SCHEMA },
     }),
   });
 
@@ -2494,11 +2501,70 @@ Panduan:
 
   const aiResult = await openaiRes.json();
   const content = JSON.parse(aiResult.choices[0].message.content);
-  // response_format json_object hanya menjamin JSON valid, bukan skema — hasil
-  // degeneratif (days kosong) tidak boleh menimpa cache bagus lalu ter-stempel
-  // "fresh" selamanya.
-  const days = Array.isArray(content?.days) ? content.days : (Array.isArray(content) ? content : []);
+  // Skema menjamin bentuk, bukan isi — hasil degeneratif (days kosong) tidak
+  // boleh menimpa cache bagus lalu ter-stempel "fresh" selamanya.
+  const days = Array.isArray(content?.days) ? content.days : [];
   if (!days.length) throw new Error('Parsed itinerary has no days');
+  return content;
+}
+
+async function parseItineraryFromPdf(pdfUrl, meta = {}) {
+  // Download PDF
+  const pdfRes = await fetch(pdfUrl, {
+    headers: { 'Referer': 'https://jadwal.alhijaz.co/', 'User-Agent': 'Mozilla/5.0' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status}`);
+
+  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+  const sourceSha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+
+  // Jalur utama (murah): ekstrak teks lokal → model menstrukturkan teks.
+  // pdf-parse bisa melempar pada PDF korup — jangan gugurkan seluruh parse,
+  // biarkan jatuh ke jalur PDF-native di bawah.
+  let pdfText = '';
+  try {
+    const parser = new pdfParse({ data: pdfBuffer });
+    await parser.load();
+    const textResult = await parser.getText();
+    await parser.destroy();
+    pdfText = textResult?.text?.trim() || '';
+  } catch (err) {
+    console.warn('[Itinerary] pdf-parse gagal:', err.message);
+  }
+
+  if (pdfText.length >= 50) {
+    try {
+      const prompt = `Berikut adalah teks yang diekstrak dari dokumen PDF itinerary perjalanan umroh:
+
+--- MULAI TEKS PDF ---
+${pdfText.substring(0, 60000)}
+--- AKHIR TEKS PDF ---
+
+${itineraryTaskPrompt(meta)}`;
+      const content = await callItineraryModel(prompt, 60000);
+      return { content, sourceSha256 };
+    } catch (err) {
+      // Timeout jaringan biarkan naik (endpoint menerjemahkan ke 503) — fallback
+      // PDF-native hampir pasti ikut timeout dan hanya menggandakan latensi.
+      if (err.name === 'TimeoutError' || err.name === 'AbortError') throw err;
+      console.warn('[Itinerary] Jalur teks gagal, coba PDF-native:', err.message);
+    }
+  }
+
+  // Fallback (PDF hasil scan / layout teracak / jalur teks gagal): kirim PDF-nya
+  // langsung — model membaca teks + visual tiap halaman.
+  if (pdfBuffer.length > 15 * 1024 * 1024) throw new Error('PDF too large for native parsing');
+  const content = await callItineraryModel([
+    {
+      type: 'file',
+      file: {
+        filename: 'itinerary.pdf',
+        file_data: `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
+      },
+    },
+    { type: 'text', text: `Dokumen PDF itinerary umroh terlampir di atas.\n\n${itineraryTaskPrompt(meta)}` },
+  ], 90000);
   return { content, sourceSha256 };
 }
 
@@ -21221,20 +21287,42 @@ app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
     }
     const agent = resolved.agent;
 
-    let nama = packageId;
+    const canonicalSlug = String(agent.slug || slug).toLowerCase();
+
+    let schedule = null;
     try {
       const { data } = await supabase
         .from('umroh_schedules')
-        .select('jadwal_nama')
+        .select('jadwal_nama, berangkat_tgl, maskapai, itinerary_source_sha256')
         .eq('jadwal_id', packageId)
         .limit(1);
-      if (data?.[0]?.jadwal_nama) nama = data[0].jadwal_nama;
+      schedule = data?.[0] || null;
     } catch { /* fallback: pakai packageId */ }
 
+    let days = [];
+    try {
+      const itinerary = await getItineraryContext(packageId);
+      days = itinerary?.days || [];
+    } catch { /* itinerary belum tersusun — kartu OG dilewati */ }
+
+    const { title, description } = buildItineraryShareMeta({
+      paketName: schedule?.jadwal_nama || '',
+      packageId,
+      segments: ogSegments(days),
+      dayCount: days.length,
+      departDate: schedule?.berangkat_tgl || null,
+      airline: schedule?.maskapai || null,
+      agentName: agent.name,
+    });
+
     const origin = `${req.protocol}://${req.get('host')}`;
-    const pageUrl = `${origin}/${slug}/${packageId}/itinerary`;
-    const title = `Itinerary ${nama} | ${agent.name} — Alhijaz Indowisata`;
-    const description = `Rencana perjalanan hari per hari paket ${nama} bersama ${agent.name}, Alhijaz Indowisata.`;
+    const pageUrl = `${origin}/${canonicalSlug}/${packageId}/itinerary`;
+    // Bot menyimpan preview per-URL. Tanpa penanda versi, itinerary yang
+    // di-resync tetap tampil dengan kartu lama sampai cache bot kedaluwarsa.
+    const sha = String(schedule?.itinerary_source_sha256 || '').slice(0, 8);
+    const ogImage = days.length
+      ? `${origin}/og/itinerary/${canonicalSlug}/${packageId}.png${sha ? `?v=${sha}` : ''}`
+      : null;
 
     let html = getIndexHtml();
     html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtmlAttr(title)}</title>`);
@@ -21251,9 +21339,27 @@ app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
       `<meta property="og:description" content="${escapeHtmlAttr(description)}" />`
     );
     html = html.replace(
-      /<meta\s+property="og:site_name"/i,
-      `<meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />\n    <meta property="og:site_name"`
+      /<meta\s+property="og:type"\s+content="[^"]*"\s*\/?>/i,
+      '<meta property="og:type" content="article" />'
     );
+
+    // og:title/og:description/og:type ADA di index.html jadi cukup diganti.
+    // og:image, canonical, dan twitter:* TIDAK ada di sana — .replace() untuk
+    // tag yang tak ada gagal diam-diam dan tagnya tak akan pernah muncul, jadi
+    // yang ini harus disisipkan.
+    const extraTags = `
+    <link rel="canonical" href="${escapeHtmlAttr(pageUrl)}" />
+    <meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtmlAttr(title)}" />
+    <meta name="twitter:description" content="${escapeHtmlAttr(description)}" />${ogImage ? `
+    <meta property="og:image" content="${escapeHtmlAttr(ogImage)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />` : ''}
+    `;
+    html = html.replace('</head>', `${extraTags}</head>`);
 
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
@@ -21573,6 +21679,55 @@ app.get('/og/teras/:code.png', async (req, res) => {
     }).send(png);
   } catch (err) {
     console.error('[og/teras] generation failed:', err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
+// Kartu OG halaman share itinerary. Dirender on-demand seperti kartu lain; bot
+// menyimpannya sejam. Slug ikut di path supaya kartunya membawa identitas agent
+// yang membagikan, bukan cuma paketnya.
+app.get('/og/itinerary/:slug/:packageId.png', async (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  if (!/^[a-z0-9-]{1,64}$/.test(slug) || !/^[A-Z0-9-]{3,32}$/.test(packageId)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved || !resolved.agent) return res.status(404).type('text/plain').send('not found');
+    const agent = resolved.agent;
+
+    const { data: rows } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_nama, berangkat_tgl, maskapai')
+      .eq('jadwal_id', packageId)
+      .limit(1);
+    const schedule = rows?.[0] || null;
+
+    const itinerary = await getItineraryContext(packageId);
+    const days = itinerary?.days || [];
+    // Tanpa itinerary tersusun, halamannya sendiri menampilkan "belum
+    // tersedia" — lebih baik tak ada gambar daripada gambar yang menjanjikan
+    // isi yang tidak ada.
+    if (!days.length) return res.status(404).type('text/plain').send('not found');
+
+    const agentPhotoBuffer = await loadAgentPhotoBuffer(agent.photo, agent.slug);
+    const png = await generateItineraryOgPng({
+      paketName: schedule?.jadwal_nama || packageId,
+      departDate: schedule?.berangkat_tgl || null,
+      airline: schedule?.maskapai || null,
+      dayCount: days.length,
+      segments: ogSegments(days),
+      agentName: agent.name,
+      agentPhotoBuffer,
+    });
+
+    return res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    }).send(png);
+  } catch (err) {
+    console.error('[og/itinerary] generation failed:', slug, packageId, err.message);
     return res.status(500).type('text/plain').send('og generation failed');
   }
 });
