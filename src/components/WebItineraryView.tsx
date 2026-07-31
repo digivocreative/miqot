@@ -99,7 +99,13 @@ export default function WebItineraryView({
   return (
     <div className="bg-[#F6F1EA] pb-4">
       <div className="pt-3">
-        <JourneyStrip days={days} pdfUrl={paket?.itineraryUrl} />
+        <JourneyStrip
+          days={days}
+          pdfUrl={paket?.itineraryUrl}
+          brosurUrl={paket?.brosurUrl}
+          departISO={paket?.keberangkatan?.tgl}
+          paketNama={paket?.nama}
+        />
       </div>
       <div>
         {dayISO.map((iso, i) => (

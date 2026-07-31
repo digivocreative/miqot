@@ -4,6 +4,7 @@ import {
   cityKeyForLocation,
   cityKeysInOrder,
   classifyActivity,
+  daysUntilDeparture,
   activityIconName,
   computeNightSegments,
   splitImportantPlaces,
@@ -42,6 +43,22 @@ test('cityKeysInOrder: urut kemunculan (arah perjalanan), duplikat dibuang', () 
   assert.deepEqual(cityKeysInOrder('Mekkah'), ['mekkah']);
   assert.deepEqual(cityKeysInOrder(''), []);
   assert.deepEqual(cityKeysInOrder(null), []);
+});
+
+// ── daysUntilDeparture ──
+test('daysUntilDeparture: selisih hari kalender; tombol brosur tampil hanya > 3', () => {
+  assert.equal(daysUntilDeparture('2026-09-05', '2026-07-31'), 36);
+  assert.equal(daysUntilDeparture('2026-09-05', '2026-09-01'), 4);  // H-4: brosur masih tampil
+  assert.equal(daysUntilDeparture('2026-09-05', '2026-09-02'), 3);  // H-3: brosur hilang
+  assert.equal(daysUntilDeparture('2026-09-05', '2026-09-05'), 0);  // hari-H
+  assert.equal(daysUntilDeparture('2026-09-05', '2026-09-10'), -5); // sudah lewat
+});
+
+test('daysUntilDeparture: tanggal tak terbaca → null (fail-closed)', () => {
+  assert.equal(daysUntilDeparture('', '2026-07-31'), null);
+  assert.equal(daysUntilDeparture('2026-09-05', ''), null);
+  assert.equal(daysUntilDeparture('besok', '2026-07-31'), null);
+  assert.equal(daysUntilDeparture(null, '2026-07-31'), null);
 });
 
 // ── classifyActivity ──

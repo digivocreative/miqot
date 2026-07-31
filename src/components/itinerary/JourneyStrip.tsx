@@ -1,21 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileDown, Loader2, Plane, Share2 } from 'lucide-react';
-import { computeNightSegments } from '../../../lib/itinerary-view.js';
+import { BookOpen, FileText, Loader2, Plane } from 'lucide-react';
+import { computeNightSegments, daysUntilDeparture } from '../../../lib/itinerary-view.js';
 import { canShareFiles, isTouchPrimary } from '../../utils/share';
+import BrochureModal from '../BrochureModal';
 import { CITY_HEX, CITY_LABEL, type CityKey } from './cityTheme';
 
 interface Props {
   days: Array<{ location?: string | null }>;
   pdfUrl?: string | null;
+  /** URL gambar brosur paket — tombol Brosur hanya tampil bila ada. */
+  brosurUrl?: string | null;
+  /** berangkat_tgl (YYYY-MM-DD) — brosur disembunyikan mulai H-3. */
+  departISO?: string | null;
+  /** Nama paket untuk judul/berkas share brosur. */
+  paketNama?: string | null;
 }
 
-export default function JourneyStrip({ days, pdfUrl }: Props) {
+export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama }: Props) {
   // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol. Sesudahnya:
   // - Perangkat sentuh → share sheet native (PDF di-fetch paralel selama
   //   animasi; share dipanggil ±2 dtk setelah klik, masih di jendela user
   //   activation). Batal share = bukan error, cukup reset.
   // - Desktop → unduh langsung via location.assign (aman dari popup blocker).
   const [downloading, setDownloading] = useState(false);
+  const [brosurOpen, setBrosurOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -56,6 +64,14 @@ export default function JourneyStrip({ days, pdfUrl }: Props) {
     void run();
   };
 
+  // Brosur = materi promosi pra-berangkat: tampil hanya bila asetnya ada DAN
+  // masih jauh dari berangkat — HILANG mulai H-3 (permintaan user 2026-07-31).
+  // Tanggal berangkat tak terbaca → sembunyikan (fail-closed).
+  const now = new Date();
+  const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const untilDepart = daysUntilDeparture(departISO || '', todayISO) as number | null;
+  const showBrosur = Boolean(brosurUrl) && untilDepart !== null && untilDepart > 3;
+
   const allSegments = computeNightSegments(days) as Array<{ key: CityKey; nights: number }> | null;
   // Hitungan tak masuk akal → lebih baik hilang daripada salah (spec, bagian rawan #1)
   if (!allSegments) return null;
@@ -93,42 +109,61 @@ export default function JourneyStrip({ days, pdfUrl }: Props) {
           </div>
         ))}
       </div>
-      {pdfUrl && (
-        <a
-          href={pdfUrl}
-          onClick={startDownload}
-          aria-busy={downloading}
-          className={`relative mt-3 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-burgundy py-2.5 text-[13px] font-bold text-white ${
-            downloading ? 'pointer-events-none' : ''}`}
-        >
-          {/* Bar kemajuan terisi 2 detik + pesawat terbang di ujungnya (selalu ter-mount agar transisi jalan) */}
-          <span
-            aria-hidden
-            className={`absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-[2000ms] ease-in-out ${
-              downloading ? 'w-full' : 'w-0'}`}
-          />
-          <Plane
-            aria-hidden
-            size={15}
-            className={`absolute top-1/2 -translate-y-1/2 transition-[left,opacity] duration-[2000ms] ease-in-out ${
-              downloading ? 'left-[calc(100%-26px)] opacity-90' : 'left-2 opacity-0'}`}
-          />
-          <span className="relative flex items-center gap-2">
-            {downloading ? (
-              <>
-                <Loader2 size={15} className="animate-spin" /> Menyiapkan dokumen…
-              </>
-            ) : shareMode ? (
-              <>
-                <Share2 size={15} /> Bagikan Itinerary PDF
-              </>
-            ) : (
-              <>
-                <FileDown size={15} /> Unduh Itinerary PDF
-              </>
-            )}
-          </span>
-        </a>
+      {(pdfUrl || showBrosur) && (
+        <div className="mt-3 flex gap-2">
+          {showBrosur && (
+            <button
+              type="button"
+              onClick={() => setBrosurOpen(true)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#EAE2D8] bg-white py-2.5 text-[13px] font-bold text-itin-ink2"
+            >
+              <BookOpen size={15} /> Brosur
+            </button>
+          )}
+          {pdfUrl && (
+            <a
+              href={pdfUrl}
+              onClick={startDownload}
+              aria-busy={downloading}
+              className={`relative flex flex-1 items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-burgundy py-2.5 text-[13px] font-bold text-white ${
+                downloading ? 'pointer-events-none' : ''}`}
+            >
+              {/* Bar kemajuan terisi 2 detik + pesawat terbang di ujungnya (selalu ter-mount agar transisi jalan) */}
+              <span
+                aria-hidden
+                className={`absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-[2000ms] ease-in-out ${
+                  downloading ? 'w-full' : 'w-0'}`}
+              />
+              <Plane
+                aria-hidden
+                size={15}
+                className={`absolute top-1/2 -translate-y-1/2 transition-[left,opacity] duration-[2000ms] ease-in-out ${
+                  downloading ? 'left-[calc(100%-26px)] opacity-90' : 'left-2 opacity-0'}`}
+              />
+              {/* Wording & ikon SERAGAM mobile/desktop (permintaan user 2026-07-31) —
+                  yang berbeda hanya fungsinya: sentuh = share sheet, desktop = unduh. */}
+              <span className="relative flex items-center gap-2">
+                {downloading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Menyiapkan dokumen…
+                  </>
+                ) : (
+                  <>
+                    <FileText size={15} /> Itinerary PDF
+                  </>
+                )}
+              </span>
+            </a>
+          )}
+        </div>
+      )}
+      {showBrosur && brosurUrl && (
+        <BrochureModal
+          isOpen={brosurOpen}
+          onClose={() => setBrosurOpen(false)}
+          imageUrl={brosurUrl}
+          title={paketNama || 'Paket Alhijaz'}
+        />
       )}
     </div>
   );
