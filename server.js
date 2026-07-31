@@ -17780,25 +17780,32 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     for (const e of last7dAggEvents) if (e.agent_id && e.count > 0) recentIds.add(e.agent_id);
     const activeAgents = recentIds.size;
 
-    // Daily logins (current 7-day window). Bucket by Jakarta (UTC+7, no DST) so
-    // these bars line up with the drill-down timeline/heatmap (which also use +7h)
-    // and don't drift with the server's local timezone.
+    // Daily activity (current 7-day window): agent-side activity only — login +
+    // klik fitur + aksi. Public traffic (page_view / WA klik publik) is excluded
+    // on purpose: its volume would swamp the agent signal this card is about.
+    // Bucket by Jakarta (UTC+7, no DST) so these bars line up with the drill-down
+    // timeline/heatmap (which also use +7h) and don't drift with the server's
+    // local timezone.
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
     const TZ_SHIFT_MS = 7 * 60 * 60 * 1000;
     const toJakartaDateStr = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT_MS).toISOString().slice(0, 10);
     const jakartaNow = new Date(now.getTime() + TZ_SHIFT_MS);
     const todayJakartaMidMs = Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate());
-    const dailyLogins = [];
+    const dailyActivity = [];
     for (let i = 6; i >= 0; i--) {
       const dMid = new Date(todayJakartaMidMs - i * 24 * 60 * 60 * 1000);
       const dateStr = dMid.toISOString().slice(0, 10);
-      const count = countMatches(
-        last7dRawEvents,
-        last7dAggEvents,
-        // raw rows carry a UTC timestamp (shift to Jakarta); agg rows are already day-keyed.
-        e => e.event_name === 'login' && (e.created_at ? toJakartaDateStr(e.created_at) : e.date) === dateStr,
-      );
-      dailyLogins.push({ date: dateStr, day: dayNames[dMid.getUTCDay()], count });
+      // raw rows carry a UTC timestamp (shift to Jakarta); agg rows are already day-keyed.
+      const onDay = e => (e.created_at ? toJakartaDateStr(e.created_at) : e.date) === dateStr;
+      const logins = countMatches(last7dRawEvents, last7dAggEvents, e => onDay(e) && e.event_name === 'login');
+      const features = countMatches(last7dRawEvents, last7dAggEvents, e => onDay(e) && e.event_type === 'feature');
+      const actions = countMatches(last7dRawEvents, last7dAggEvents, e => onDay(e) && e.event_type === 'action');
+      dailyActivity.push({
+        date: dateStr,
+        day: dayNames[dMid.getUTCDay()],
+        logins, features, actions,
+        total: logins + features + actions,
+      });
     }
 
     // Agent Activity. Per-agent metrics merge raw + agg.
@@ -17931,7 +17938,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
           totalLogins, activeAgents, totalAgents: agentList.length,
           totalPageViews, totalWAClicks,
         },
-        dailyLogins,
+        dailyActivity,
         agentActivity,
         featureUsage,
         actionTracking,

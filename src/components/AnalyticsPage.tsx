@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import AgentDrillDownModal from './AgentDrillDownModal';
@@ -15,7 +15,7 @@ interface AnalyticsData {
     totalPageViews: number;
     totalWAClicks: number;
   };
-  dailyLogins: { date: string; day: string; count: number }[];
+  dailyActivity: { date: string; day: string; logins: number; features: number; actions: number; total: number }[];
   agentActivity: {
     slug: string;
     name: string;
@@ -146,13 +146,30 @@ function AgentActivityAvatar({
   );
 }
 
+// Segments of the daily-activity bar chart (order = bottom → top of the stack)
+const ACTIVITY_SEGMENTS = [
+  { key: 'logins', label: 'Login', color: '#10b981' },
+  { key: 'features', label: 'Fitur', color: '#8b5cf6' },
+  { key: 'actions', label: 'Aksi', color: '#f59e0b' },
+] as const;
+
 // Custom tooltip for bar chart
-function LoginTooltip({ active, payload }: any) {
+function ActivityTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="bg-gray-800 dark:bg-slate-700 text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg shadow-lg">
-      {d.day} — {d.count} login
+      <p>{d.day} — {d.total} aktivitas</p>
+      {d.total > 0 && (
+        <div className="mt-1 space-y-0.5 font-medium text-white/80">
+          {ACTIVITY_SEGMENTS.filter(s => d[s.key] > 0).map(s => (
+            <p key={s.key} className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} />
+              {s.label} · {d[s.key]}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -324,7 +341,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
 
   if (!data) return null;
 
-  const { overview, dailyLogins, agentActivity, featureUsage, actionTracking, recentActivity } = data;
+  const { overview, dailyActivity, agentActivity, featureUsage, actionTracking, recentActivity } = data;
 
   // Feature usage percentage
   const totalFeatureClicks = featureUsage.reduce((s, f) => s + f.count, 0) || 1;
@@ -391,31 +408,43 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
             </div>
           </div>
 
-          {/* Login per Hari */}
+          {/* Aktivitas Harian */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
             <div className="px-4 pt-4 pb-2">
-              <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Login per Hari</p>
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Minggu ini</p>
+              <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aktivitas Harian</p>
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Login · fitur · aksi — minggu ini</p>
+            </div>
+            {/* Legend */}
+            <div className="flex gap-3 px-4 pb-1 flex-wrap">
+              {ACTIVITY_SEGMENTS.map(s => (
+                <span key={s.key} className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                  <span className="text-[9px] text-gray-400 dark:text-slate-500">{s.label}</span>
+                </span>
+              ))}
             </div>
             <div className="px-2 pb-3" style={{ height: 160 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dailyLogins} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <BarChart data={dailyActivity} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                   <XAxis
                     dataKey="day"
                     tick={{ fontSize: 10, fill: '#9ca3af', fontWeight: 600 }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip content={<LoginTooltip />} cursor={false} />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={32}>
-                    {dailyLogins.map((entry, i) => (
-                      <Cell
-                        key={i}
-                        fill={entry.count > 0 ? '#10b981' : '#e5e7eb'}
-                        className="dark:opacity-90"
-                      />
-                    ))}
-                  </Bar>
+                  <Tooltip content={<ActivityTooltip />} cursor={false} />
+                  {ACTIVITY_SEGMENTS.map((s, i) => (
+                    <Bar
+                      key={s.key}
+                      dataKey={s.key}
+                      stackId="activity"
+                      fill={s.color}
+                      className="dark:opacity-90"
+                      maxBarSize={32}
+                      // rounded cap only on the topmost segment of the stack
+                      radius={i === ACTIVITY_SEGMENTS.length - 1 ? [4, 4, 0, 0] : undefined}
+                    />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
             </div>
