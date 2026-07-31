@@ -723,7 +723,7 @@ export function ItineraryModal({
           ) : useShareLabel ? (
             <>
               <Share2 size={20} />
-              <span>Bagikan Itinerary</span>
+              <span>Bagikan PDF</span>
             </>
           ) : (
             <>
