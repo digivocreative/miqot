@@ -755,7 +755,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                         {sc.label}
                       </span>
                       {isReturn && (
-                        <span className="flex-shrink-0 text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md tracking-wide bg-indigo-50 text-indigo-600 border border-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800/40">
+                        <span className="flex-shrink-0 text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md tracking-wide bg-indigo-50 text-indigo-600 border border-indigo-100 dark:bg-indigo-500 dark:text-white dark:border-indigo-500">
                           Pulang
                         </span>
                       )}
