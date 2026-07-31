@@ -12,6 +12,8 @@ import {
   itineraryDayDates,
   splitDayTitleDate,
   isRedundantDayLocation,
+  isHomeArrival,
+  rewriteHomeArrivalTerminal,
 } from '../lib/itinerary-view.js';
 
 // ── cityKeyForLocation ──
@@ -358,4 +360,39 @@ test('splitDayTitleDate: judul hanya tanggal → rest kosong', () => {
 
 test('splitDayTitleDate: judul tanpa tanggal tak berubah', () => {
   assert.deepEqual(splitDayTitleDate('Mekkah - Madinah'), { rest: 'Mekkah - Madinah', dateText: null });
+});
+
+// ── isHomeArrival & rewriteHomeArrivalTerminal ──
+test('isHomeArrival: butuh penanda rumah DAN kata tiba', () => {
+  assert.equal(isHomeArrival('Tiba di Terminal 3 Bandara Soekarno-Hatta dengan selamat'), true);
+  assert.equal(isHomeArrival('Mengucapkan Alhamdulillah setibanya di tanah air'), true);
+  assert.equal(isHomeArrival('Kembali ke tanah air dengan pesawat SV 820'), false); // terbang pulang, belum mendarat
+  assert.equal(isHomeArrival('Tiba di Bandara King Abdulaziz Jeddah'), false); // bukan rumah
+  assert.equal(isHomeArrival(''), false);
+});
+
+test('rewriteHomeArrivalTerminal: T3→T2 hanya di baris kedatangan tanah air paruh akhir', () => {
+  const days = [
+    { activities: ['Berkumpul di Terminal 3 Bandara Soekarno-Hatta'] }, // keberangkatan: dibiarkan
+    { activities: ['Ibadah di Masjidil Haram'] },
+    { activities: [{ time: '16:00', text: 'Tiba di Terminal 3 Bandara Soekarno-Hatta dengan selamat' }] },
+  ];
+  const out = rewriteHomeArrivalTerminal(days);
+  assert.equal(out[0].activities[0], 'Berkumpul di Terminal 3 Bandara Soekarno-Hatta');
+  assert.equal(out[2].activities[0].text, 'Tiba di Terminal 2 Bandara Soekarno-Hatta dengan selamat');
+  assert.equal(out[2].activities[0].time, '16:00');
+  // Tanpa mutasi input — hari yang berubah adalah objek baru
+  assert.equal(days[2].activities[0].text, 'Tiba di Terminal 3 Bandara Soekarno-Hatta dengan selamat');
+  assert.notEqual(out[2], days[2]);
+  assert.equal(out[1], days[1]); // hari tak tersentuh: referensi sama
+});
+
+test('rewriteHomeArrivalTerminal: ejaan "terminal 3" dipertahankan kapitalisasinya, input cacat aman', () => {
+  const days = [
+    { activities: [] },
+    { activities: ['tiba di terminal 3 bandara Soekarno – Hatta'] },
+  ];
+  assert.equal(rewriteHomeArrivalTerminal(days)[1].activities[0], 'tiba di terminal 2 bandara Soekarno – Hatta');
+  assert.deepEqual(rewriteHomeArrivalTerminal(null), []);
+  assert.deepEqual(rewriteHomeArrivalTerminal([null, { activities: null }]), [null, { activities: null }]);
 });

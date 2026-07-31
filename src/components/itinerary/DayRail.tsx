@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { Users, PlaneTakeoff, PlaneLanding, Bus, TrainFront, MapPin, Route, CircleDot, type LucideIcon } from 'lucide-react';
 import { classifyActivity, activityIconName, cityKeyForLocation, cityKeysInOrder, splitImportantPlaces, retitleDayWithDate, splitDayTitleDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
+import { destinationPhotoUrl } from '../../../lib/itinerary-destinasi.js';
 import { CITY_HEX, CITY_FLAG, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Ikon HANYA untuk momen bermakna (kumpul/takeoff/landing/transit) — baris biasa
@@ -36,6 +38,41 @@ function ActivityText({ text }: { text: string }) {
   );
 }
 
+export interface ActivityPhoto {
+  file: string;
+  label: string;
+}
+
+// Foto destinasi di bawah teks aktivitas. Wrapper aspect-video memesan tinggi
+// SEBELUM gambar termuat sehingga struktur halaman tak bergeser di jaringan
+// lambat; selama menunggu, wrapper jadi skeleton pulse (pola sama dengan state
+// loading WebItineraryView). alt = nama destinasi, bukan teks aktivitas.
+function DestinasiPhoto({ photo }: { photo: ActivityPhoto }) {
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  // Gambar dari cache bisa selesai sebelum React memasang onLoad — cek complete.
+  useEffect(() => {
+    if (imgRef.current?.complete) setLoaded(true);
+  }, []);
+  return (
+    <div
+      className={`mt-2 aspect-video w-full overflow-hidden rounded-xl border border-[#EAE2D8] ${
+        loaded ? 'bg-white' : 'animate-pulse bg-itin-canvas'
+      }`}
+    >
+      <img
+        ref={imgRef}
+        src={destinationPhotoUrl(photo.file)}
+        alt={photo.label}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className={`h-full w-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+    </div>
+  );
+}
+
 export interface ItineraryDayData {
   dayNumber: string;
   title: string;
@@ -48,9 +85,11 @@ interface Props {
   dayIndex: number;
   /** Tanggal hari ini (YYYY-MM-DD) dihitung dari jadwal, bukan dari judul PDF. */
   dayDateISO?: string | null;
+  /** Foto destinasi per aktivitas (sejajar day.activities), dedup global di WebItineraryView. */
+  activityPhotos?: Array<ActivityPhoto | null>;
 }
 
-export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
+export default function DayRail({ day, dayIndex, dayDateISO, activityPhotos }: Props) {
   const cityKey = (cityKeyForLocation(day.location || '') || DEFAULT_CITY) as CityKey;
   const dayNum = day.dayNumber?.match(/\d[\d\-–]*/)?.[0] || String(dayIndex + 1);
 
@@ -140,6 +179,7 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
           const hasTime = Boolean(act.time && act.time !== '-');
           const showTime = hasTime && act.time !== lastShownTime;
           if (showTime) lastShownTime = act.time;
+          const photo = activityPhotos?.[i] || null;
 
           if (!highlight) {
             return (
@@ -148,9 +188,12 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
                   {showTime ? act.time : ''}
                 </span>
                 <span className="relative z-10 mr-2.5 mt-[5px] h-2 w-2 shrink-0 rounded-full border-2 border-[#C9B18A] bg-white" />
-                <p className="min-w-0 text-[13.5px] leading-[1.5] text-itin-ink">
-                  <ActivityText text={act.text} />
-                </p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] leading-[1.5] text-itin-ink">
+                    <ActivityText text={act.text} />
+                  </p>
+                  {photo && <DestinasiPhoto photo={photo} />}
+                </div>
               </div>
             );
           }
@@ -170,6 +213,7 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
               <p className="mt-1 text-[13.5px] font-medium leading-[1.45] text-itin-ink">
                 <ActivityText text={act.text} />
               </p>
+              {photo && <DestinasiPhoto photo={photo} />}
             </div>
           );
           });

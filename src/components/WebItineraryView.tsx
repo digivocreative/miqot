@@ -3,7 +3,8 @@
 // sekali saat render (bug dark-mode), location tak dirender (cacat #1–#7 spec).
 import { AlertCircle, FileText } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
-import { classifyActivity, itineraryDayDates } from '../../lib/itinerary-view.js';
+import { classifyActivity, itineraryDayDates, rewriteHomeArrivalTerminal } from '../../lib/itinerary-view.js';
+import { destinationPhotosForDays } from '../../lib/itinerary-destinasi.js';
 import JourneyStrip from './itinerary/JourneyStrip';
 import DayRail, { type ItineraryDayData } from './itinerary/DayRail';
 import FlightCard from './itinerary/FlightCard';
@@ -69,9 +70,9 @@ export default function WebItineraryView({
     );
   }
 
-  const days = content?.days;
+  const rawDays = content?.days;
   // Kosong = error (spec State): jangan pernah membuat pengguna kandas — PDF selalu jalan keluar.
-  if (error || !days?.length) {
+  if (error || !rawDays?.length) {
     return (
       <div className="flex flex-col items-center bg-white px-6 py-14 text-center">
         <AlertCircle size={22} className="text-itin-ink3" />
@@ -92,9 +93,15 @@ export default function WebItineraryView({
     );
   }
 
+  // Koreksi terminal kedatangan (T3→T2 untuk grup umroh) SEBELUM semua turunan
+  // data supaya teks yang dirender dan yang dipindai konsisten.
+  const days = rewriteHomeArrivalTerminal(rawDays) as ItineraryDayData[];
   const dayISO = itineraryDayDates(
     days, paket?.keberangkatan?.tgl, paket?.kepulangan?.tgl,
   ) as (string | null)[];
+  // Foto destinasi dihitung sekali untuk seluruh itinerary (bukan per DayRail)
+  // karena dedup-nya global: tiap foto hanya tampil di kemunculan pertamanya.
+  const photosByDay = destinationPhotosForDays(days) as Array<Array<{ file: string; label: string } | null>>;
 
   return (
     <div className="bg-[#F6F1EA] pb-4">
@@ -109,7 +116,7 @@ export default function WebItineraryView({
       </div>
       <div>
         {dayISO.map((iso, i) => (
-          <DayRail key={i} day={days[i]} dayIndex={i} dayDateISO={iso} />
+          <DayRail key={i} day={days[i]} dayIndex={i} dayDateISO={iso} activityPhotos={photosByDay[i]} />
         ))}
       </div>
       <div className="mt-2.5 space-y-2.5 px-3">
