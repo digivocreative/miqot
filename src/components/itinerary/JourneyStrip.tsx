@@ -115,7 +115,7 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
             <button
               type="button"
               onClick={() => setBrosurOpen(true)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#EAE2D8] bg-white py-2.5 text-[13px] font-bold text-itin-ink2"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gold-100 bg-gold-50 py-2.5 text-[13px] font-bold text-[#6B550C]"
             >
               <BookOpen size={15} /> Brosur
             </button>
@@ -163,6 +163,7 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
           onClose={() => setBrosurOpen(false)}
           imageUrl={brosurUrl}
           title={paketNama || 'Paket Alhijaz'}
+          tone="burgundy"
         />
       )}
     </div>

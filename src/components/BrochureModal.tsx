@@ -21,13 +21,19 @@ interface BrochureModalProps {
   onPackageValue?: () => void;
   /** When provided, shows a "Buat Ulang (AI)" button — opens the ChatGPT prompt generator (agent-only). */
   onPrompt?: () => void;
+  /**
+   * Warna tombol share/download di footer. Default 'emerald' = gaya app agent
+   * (PackageCard, AskAIModal) — JANGAN diubah. 'burgundy' khusus halaman share
+   * itinerary yang bertema burgundy Alhijaz (permintaan user 2026-07-31).
+   */
+  tone?: 'emerald' | 'burgundy';
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald' }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -320,13 +326,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
               <button
                 onClick={handleShareBrosur}
                 disabled={isSharing}
-                className="
-                  flex-1 flex items-center justify-center gap-1.5 py-3
+                className={`flex-1 flex items-center justify-center gap-1.5 py-3
                   rounded-xl text-sm font-bold text-white
-                  bg-emerald-500 hover:bg-emerald-600
-                  shadow-md shadow-emerald-500/20
-                  transition-all duration-200 active:scale-95 disabled:opacity-70
-                "
+                  transition-all duration-200 active:scale-95 disabled:opacity-70 ${
+                  tone === 'burgundy'
+                    ? 'bg-gradient-burgundy hover:opacity-90 shadow-md shadow-burgundy-700/20'
+                    : 'bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20'}`}
               >
                 {isSharing ? (
                   <>
