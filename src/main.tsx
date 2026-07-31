@@ -455,6 +455,12 @@ if (isPwaHost && isSsrLandingPath) {
       if (isSinglePackageWithAgent && segments[2]?.toLowerCase() === 'itinerary') {
         return <ItinerarySharePage slug={firstSlug} packageId={segments[1]} />
       }
+      // Custom domain: slug tersirat dari host → /:jadwalId/itinerary. Redirect
+      // canonicalize server.js membuang slug dari path, jadi bentuk 3-segmen
+      // tidak pernah sampai ke sini di custom domain.
+      if (isCustomDomainHost && ctxSlug && segments.length === 2 && segments[1]?.toLowerCase() === 'itinerary') {
+        return <ItinerarySharePage slug={ctxSlug} packageId={segments[0]} />
+      }
       return <App singlePackageId={singlePackageId} />
     })()
 

@@ -21,13 +21,40 @@ interface Props {
   onRetryPdf?: () => void;
 }
 
-function dayDate(paket: UmrohPackage | null | undefined, dayIndex: number): string | null {
-  const tgl = paket?.keberangkatan?.tgl;
-  if (!tgl) return null;
-  const d = new Date(tgl);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setDate(d.getDate() + dayIndex);
-  return d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+function isoToUtc(value: string | null | undefined): Date | null {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Tanggal hari ke-N dihitung dari berangkat_tgl, bukan dibaca dari judul PDF —
+ * judul PDF bisa salah (lihat retitleDayWithDate). Aritmetikanya UTC supaya
+ * tidak bergeser sehari di zona waktu negatif.
+ *
+ * Mengembalikan null untuk SEMUA hari kalau jumlah hari itinerary tidak sama
+ * dengan rentang berangkat→pulang. Kalau keduanya tak cocok, kita tidak tahu
+ * hari mana yang hilang atau berlebih, dan menebak berarti memasang tanggal
+ * salah di semua kartu — lebih baik menahan diri, sama seperti
+ * computeNightSegments yang memilih menghilang ketimbang salah.
+ */
+function dayDatesISO(paket: UmrohPackage | null | undefined, dayCount: number): (string | null)[] {
+  const none = Array.from({ length: dayCount }, () => null);
+  const start = isoToUtc(paket?.keberangkatan?.tgl);
+  if (!start || dayCount < 1) return none;
+
+  const end = isoToUtc(paket?.kepulangan?.tgl);
+  if (end) {
+    const span = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    if (span !== dayCount) return none;
+  }
+
+  return Array.from({ length: dayCount }, (_, i) => {
+    const d = new Date(start.getTime());
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
 }
 
 // Jam tiba tak ada di data paket — ambil dari baris LANDING itinerary: landing di paruh
@@ -94,14 +121,16 @@ export default function WebItineraryView({
     );
   }
 
+  const dayISO = dayDatesISO(paket, days.length);
+
   return (
     <div className="bg-[#F6F1EA] pb-4">
       <div className="pt-3">
         <JourneyStrip days={days} pdfUrl={paket?.itineraryUrl} />
       </div>
       <div>
-        {days.map((day, i) => (
-          <DayRail key={i} day={day} dayIndex={i} dateLabel={dayDate(paket, i)} />
+        {dayISO.map((iso, i) => (
+          <DayRail key={i} day={days[i]} dayIndex={i} dayDateISO={iso} />
         ))}
       </div>
       <div className="mt-2.5 space-y-2.5 px-3">

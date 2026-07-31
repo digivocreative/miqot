@@ -21276,19 +21276,7 @@ app.get('/:slug/bio', async (req, res, next) => {
 // Pola sama dengan bio di atas: resolveSlug + getIndexHtml + replace meta.
 // ──────────────────────────────────────────────
 
-app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
-  const slug = String(req.params.slug || '').toLowerCase();
-  const packageId = String(req.params.packageId || '').toUpperCase();
-  try {
-    const resolved = await resolveSlug(slug);
-    if (!resolved) return next(); // unknown slug → SPA fallback
-    if (resolved.redirect) {
-      return res.redirect(301, `/${resolved.redirect}/${packageId}/itinerary`);
-    }
-    const agent = resolved.agent;
-
-    const canonicalSlug = String(agent.slug || slug).toLowerCase();
-
+async function renderItineraryShareSSR(req, res, { agent, canonicalSlug, packageId, pagePath }) {
     let schedule = null;
     try {
       const { data } = await supabase
@@ -21316,7 +21304,7 @@ app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
     });
 
     const origin = `${req.protocol}://${req.get('host')}`;
-    const pageUrl = `${origin}/${canonicalSlug}/${packageId}/itinerary`;
+    const pageUrl = `${origin}${pagePath}`;
     // Bot menyimpan preview per-URL. Tanpa penanda versi, itinerary yang
     // di-resync tetap tampil dengan kartu lama sampai cache bot kedaluwarsa.
     const sha = String(schedule?.itinerary_source_sha256 || '').slice(0, 8);
@@ -21347,7 +21335,12 @@ app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
     // og:image, canonical, dan twitter:* TIDAK ada di sana — .replace() untuk
     // tag yang tak ada gagal diam-diam dan tagnya tak akan pernah muncul, jadi
     // yang ini harus disisipkan.
-    const extraTags = `
+    // Di custom domain SPA butuh __AGENT_CONTEXT__ untuk tahu slug tersirat host
+    // (rute /:jadwalId/itinerary tanpa slug) — pola sama dengan bio SSR di atas.
+    const agentContextScript = req.customDomain
+      ? `\n    <script>window.__AGENT_CONTEXT__ = ${serializeInlineJson(buildAgentContextPayload(agent, req.customDomain))};</script>`
+      : '';
+    const extraTags = `${agentContextScript}
     <link rel="canonical" href="${escapeHtmlAttr(pageUrl)}" />
     <meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -21365,8 +21358,48 @@ app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=300',
     }).send(html);
+}
+
+app.get('/:slug/:packageId/itinerary', async (req, res, next) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // unknown slug → SPA fallback
+    if (resolved.redirect) {
+      return res.redirect(301, `/${resolved.redirect}/${packageId}/itinerary`);
+    }
+    const agent = resolved.agent;
+    const canonicalSlug = String(agent.slug || slug).toLowerCase();
+    await renderItineraryShareSSR(req, res, {
+      agent,
+      canonicalSlug,
+      packageId,
+      pagePath: `/${canonicalSlug}/${packageId}/itinerary`,
+    });
   } catch (err) {
     console.error('[itinerary-share] SSR error:', slug, packageId, err.message);
+    next(); // fallback ke SPA tanpa OG
+  }
+});
+
+// Bentuk tanpa slug di custom domain: /:packageId/itinerary. Redirect
+// canonicalize custom-domain membuang slug dari path, jadi link share
+// alhijaz.co/:slug/:id/itinerary milik agent berdomain custom mendarat di
+// sini — slug diambil dari host (req.customDomainAgent).
+app.get('/:packageId/itinerary', async (req, res, next) => {
+  if (!req.customDomainAgent) return next();
+  const agent = req.customDomainAgent;
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  try {
+    await renderItineraryShareSSR(req, res, {
+      agent,
+      canonicalSlug: String(agent.slug || '').toLowerCase(),
+      packageId,
+      pagePath: `/${packageId}/itinerary`,
+    });
+  } catch (err) {
+    console.error('[itinerary-share] SSR error (custom domain):', packageId, err.message);
     next(); // fallback ke SPA tanpa OG
   }
 });

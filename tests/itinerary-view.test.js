@@ -6,6 +6,7 @@ import {
   activityIconName,
   computeNightSegments,
   splitImportantPlaces,
+  retitleDayWithDate,
 } from '../lib/itinerary-view.js';
 
 // ── cityKeyForLocation ──
@@ -133,4 +134,63 @@ test('splitImportantPlaces: teks tanpa tempat dan teks kosong', () => {
     { text: 'Makan siang di hotel', bold: false },
   ]);
   assert.deepEqual(splitImportantPlaces(''), []);
+});
+
+// --- retitleDayWithDate ----------------------------------------------------
+
+test('retitleDayWithDate: tanggal salah di judul ditulis ulang dari jadwal', () => {
+  // JBU1504: PDF menulis 05 September dua kali, seluruh hari sesudahnya mundur.
+  assert.deepEqual(retitleDayWithDate('Ahad, 05 September 2026', '2026-09-06'), {
+    title: 'Ahad, 06 September 2026', hadDate: true,
+  });
+  assert.deepEqual(retitleDayWithDate('Senin, 06 September 2026', '2026-09-07'), {
+    title: 'Senin, 07 September 2026', hadDate: true,
+  });
+});
+
+test('retitleDayWithDate: tanggal yang sudah benar tidak berubah', () => {
+  assert.deepEqual(retitleDayWithDate('Sabtu, 05 September 2026', '2026-09-05'), {
+    title: 'Sabtu, 05 September 2026', hadDate: true,
+  });
+});
+
+test('retitleDayWithDate: nama hari diambil dari tanggal, konvensi Ahad dijaga', () => {
+  // 2026-09-13 = Minggu. Judul asli memakai "Ahad" → tetap "Ahad".
+  assert.equal(retitleDayWithDate('Ahad, 12 September 2026', '2026-09-13').title, 'Ahad, 13 September 2026');
+  // Judul asli memakai "Minggu" → tetap "Minggu".
+  assert.equal(retitleDayWithDate('Minggu, 12 September 2026', '2026-09-13').title, 'Minggu, 13 September 2026');
+});
+
+test('retitleDayWithDate: padding nol dipertahankan, tanpa padding tetap tanpa padding', () => {
+  assert.equal(retitleDayWithDate('05 September 2026', '2026-09-06').title, '06 September 2026');
+  assert.equal(retitleDayWithDate('5 September 2026', '2026-09-06').title, '6 September 2026');
+});
+
+test('retitleDayWithDate: judul yang bukan tanggal dibiarkan', () => {
+  assert.deepEqual(retitleDayWithDate('Jakarta – Madinah', '2026-09-05'), {
+    title: 'Jakarta – Madinah', hadDate: false,
+  });
+});
+
+test('retitleDayWithDate: tanggal di tengah judul campuran', () => {
+  assert.deepEqual(retitleDayWithDate('Hari 2 – Ahad, 05 September 2026', '2026-09-06'), {
+    title: 'Hari 2 – Ahad, 06 September 2026', hadDate: true,
+  });
+});
+
+test('retitleDayWithDate: tanpa tanggal acuan, judul dibiarkan apa adanya', () => {
+  assert.deepEqual(retitleDayWithDate('Ahad, 05 September 2026', null), {
+    title: 'Ahad, 05 September 2026', hadDate: true,
+  });
+});
+
+test('retitleDayWithDate: ejaan nama hari dipertahankan kalau harinya sudah benar', () => {
+  // 2026-12-04 = Jumat. Judul asli "Jum’at" sudah menunjuk hari yang benar → jangan diubah.
+  assert.equal(retitleDayWithDate('Jum’at, 04 Desember 2026', '2026-12-04').title, 'Jum’at, 04 Desember 2026');
+  assert.equal(retitleDayWithDate("Jum'at, 04 Desember 2026", '2026-12-04').title, "Jum'at, 04 Desember 2026");
+});
+
+test('retitleDayWithDate: nama hari yang salah tetap diganti', () => {
+  // 2026-09-06 = Minggu, judul menulis "Senin" → harus dikoreksi.
+  assert.equal(retitleDayWithDate('Senin, 05 September 2026', '2026-09-06').title, 'Minggu, 06 September 2026');
 });

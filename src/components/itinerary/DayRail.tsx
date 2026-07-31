@@ -1,5 +1,5 @@
 import { Users, PlaneTakeoff, PlaneLanding, CircleDot, type LucideIcon } from 'lucide-react';
-import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces } from '../../../lib/itinerary-view.js';
+import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Ikon HANYA untuk momen bermakna (kumpul/takeoff/landing/transit) — baris biasa
@@ -38,12 +38,23 @@ export interface ItineraryDayData {
 interface Props {
   day: ItineraryDayData;
   dayIndex: number;
-  dateLabel?: string | null;
+  /** Tanggal hari ini (YYYY-MM-DD) dihitung dari jadwal, bukan dari judul PDF. */
+  dayDateISO?: string | null;
 }
 
-export default function DayRail({ day, dayIndex, dateLabel }: Props) {
+export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
   const cityKey = (cityKeyForLocation(day.location || '') || DEFAULT_CITY) as CityKey;
   const dayNum = day.dayNumber?.match(/\d[\d\-–]*/)?.[0] || String(dayIndex + 1);
+
+  // Judul PDF sering SUDAH berupa tanggal, dan tanggal itu bisa salah. Ditulis
+  // ulang dari jadwal; kalau judulnya memang tanggal, baris bawah tak lagi
+  // mengulanginya supaya tak tampil dua kali di kartu yang sama.
+  const { title, hadDate } = retitleDayWithDate(day.title, dayDateISO) as { title: string; hadDate: boolean };
+  const dateLabel = !hadDate && dayDateISO
+    ? new Date(`${dayDateISO}T00:00:00Z`).toLocaleDateString('id-ID', {
+      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+    })
+    : null;
 
   return (
     <section className="mx-3 mt-2.5 overflow-hidden rounded-2xl border border-[#EAE2D8] bg-white">
@@ -53,7 +64,7 @@ export default function DayRail({ day, dayIndex, dateLabel }: Props) {
           {dayNum}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-bold text-itin-ink">{day.title}</div>
+          <div className="truncate text-[14px] font-bold text-itin-ink">{title}</div>
           <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-itin-ink3">
             {day.location && (
               <span
