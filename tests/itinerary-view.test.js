@@ -5,6 +5,7 @@ import {
   classifyActivity,
   activityIconName,
   computeNightSegments,
+  splitImportantPlaces,
 } from '../lib/itinerary-view.js';
 
 // ── cityKeyForLocation ──
@@ -95,4 +96,41 @@ test('gagal identifikasi >30% → null (strip disembunyikan)', () => {
   ]), null);
   assert.equal(computeNightSegments([]), null);
   assert.equal(computeNightSegments([{ location: 'Mekkah' }]), null); // 0 malam
+});
+
+// --- splitImportantPlaces --------------------------------------------------
+
+test('splitImportantPlaces: nama tempat penting ditandai bold', () => {
+  assert.deepEqual(splitImportantPlaces('Ziarah ke Masjid Nabawi dan Jabal Uhud'), [
+    { text: 'Ziarah ke ', bold: false },
+    { text: 'Masjid Nabawi', bold: true },
+    { text: ' dan ', bold: false },
+    { text: 'Jabal Uhud', bold: true },
+  ]);
+});
+
+test('splitImportantPlaces: frasa terpanjang menang', () => {
+  const parts = splitImportantPlaces('Menuju Masjidil Haram untuk umroh');
+  assert.deepEqual(parts[1], { text: 'Masjidil Haram', bold: true });
+  assert.equal(parts.filter(p => p.bold).length, 1);
+});
+
+test('splitImportantPlaces: kapitalisasi asli dipertahankan', () => {
+  assert.deepEqual(splitImportantPlaces('tiba di MEKKAH'), [
+    { text: 'tiba di ', bold: false },
+    { text: 'MEKKAH', bold: true },
+  ]);
+});
+
+test('splitImportantPlaces: batas kata dihormati', () => {
+  assert.deepEqual(splitImportantPlaces('Terminal keberangkatan'), [
+    { text: 'Terminal keberangkatan', bold: false },
+  ]);
+});
+
+test('splitImportantPlaces: teks tanpa tempat dan teks kosong', () => {
+  assert.deepEqual(splitImportantPlaces('Makan siang di hotel'), [
+    { text: 'Makan siang di hotel', bold: false },
+  ]);
+  assert.deepEqual(splitImportantPlaces(''), []);
 });
