@@ -3,7 +3,7 @@
 // sekali saat render (bug dark-mode), location tak dirender (cacat #1–#7 spec).
 import { AlertCircle, FileText } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
-import { classifyActivity } from '../../lib/itinerary-view.js';
+import { classifyActivity, itineraryDayDates } from '../../lib/itinerary-view.js';
 import JourneyStrip from './itinerary/JourneyStrip';
 import DayRail, { type ItineraryDayData } from './itinerary/DayRail';
 import FlightCard from './itinerary/FlightCard';
@@ -21,41 +21,9 @@ interface Props {
   onRetryPdf?: () => void;
 }
 
-function isoToUtc(value: string | null | undefined): Date | null {
-  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-/**
- * Tanggal hari ke-N dihitung dari berangkat_tgl, bukan dibaca dari judul PDF —
- * judul PDF bisa salah (lihat retitleDayWithDate). Aritmetikanya UTC supaya
- * tidak bergeser sehari di zona waktu negatif.
- *
- * Mengembalikan null untuk SEMUA hari kalau jumlah hari itinerary tidak sama
- * dengan rentang berangkat→pulang. Kalau keduanya tak cocok, kita tidak tahu
- * hari mana yang hilang atau berlebih, dan menebak berarti memasang tanggal
- * salah di semua kartu — lebih baik menahan diri, sama seperti
- * computeNightSegments yang memilih menghilang ketimbang salah.
- */
-function dayDatesISO(paket: UmrohPackage | null | undefined, dayCount: number): (string | null)[] {
-  const none = Array.from({ length: dayCount }, () => null);
-  const start = isoToUtc(paket?.keberangkatan?.tgl);
-  if (!start || dayCount < 1) return none;
-
-  const end = isoToUtc(paket?.kepulangan?.tgl);
-  if (end) {
-    const span = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-    if (span !== dayCount) return none;
-  }
-
-  return Array.from({ length: dayCount }, (_, i) => {
-    const d = new Date(start.getTime());
-    d.setUTCDate(d.getUTCDate() + i);
-    return d.toISOString().slice(0, 10);
-  });
-}
+// Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
+// (banyak PDF mulai dari "Hari 0"), bukan ke posisi array, dan menahan diri
+// kalau penomoran tak sepakat dengan rentang jadwal.
 
 // Jam tiba tak ada di data paket — ambil dari baris LANDING itinerary: landing di paruh
 // awal perjalanan = kedatangan berangkat, landing terakhir di paruh akhir = kedatangan pulang.
@@ -121,7 +89,9 @@ export default function WebItineraryView({
     );
   }
 
-  const dayISO = dayDatesISO(paket, days.length);
+  const dayISO = itineraryDayDates(
+    days, paket?.keberangkatan?.tgl, paket?.kepulangan?.tgl,
+  ) as (string | null)[];
 
   return (
     <div className="bg-[#F6F1EA] pb-4">

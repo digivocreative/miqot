@@ -7,6 +7,7 @@ import {
   computeNightSegments,
   splitImportantPlaces,
   retitleDayWithDate,
+  itineraryDayDates,
 } from '../lib/itinerary-view.js';
 
 // ── cityKeyForLocation ──
@@ -193,4 +194,47 @@ test('retitleDayWithDate: ejaan nama hari dipertahankan kalau harinya sudah bena
 test('retitleDayWithDate: nama hari yang salah tetap diganti', () => {
   // 2026-09-06 = Minggu, judul menulis "Senin" → harus dikoreksi.
   assert.equal(retitleDayWithDate('Senin, 05 September 2026', '2026-09-06').title, 'Minggu, 06 September 2026');
+});
+
+// --- itineraryDayDates -----------------------------------------------------
+
+test('itineraryDayDates: ditambatkan ke dayNumber, bukan posisi array', () => {
+  // JBU1517: PDF punya "Hari 0" (kumpul di Jakarta) sebelum hari berangkat.
+  const days = [
+    { dayNumber: '0' }, { dayNumber: '1' }, { dayNumber: '2' }, { dayNumber: '3' },
+    { dayNumber: '4' }, { dayNumber: '5' }, { dayNumber: '6' }, { dayNumber: '7' },
+    { dayNumber: '8' }, { dayNumber: '9' },
+  ];
+  const got = itineraryDayDates(days, '2026-06-13', '2026-06-21');
+  assert.equal(got[0], '2026-06-12'); // Hari 0 = sehari sebelum berangkat
+  assert.equal(got[1], '2026-06-13'); // Hari 1 = hari berangkat
+  assert.equal(got[9], '2026-06-21'); // Hari 9 = pulang_tgl
+});
+
+test('itineraryDayDates: penomoran mulai 1 seperti biasa', () => {
+  const days = Array.from({ length: 9 }, (_, i) => ({ dayNumber: String(i + 1) }));
+  const got = itineraryDayDates(days, '2026-09-05', '2026-09-13');
+  assert.equal(got[0], '2026-09-05');
+  assert.equal(got[8], '2026-09-13');
+});
+
+test('itineraryDayDates: format "Hari N" ikut terbaca', () => {
+  const days = [{ dayNumber: 'Hari 1' }, { dayNumber: 'Hari 2' }];
+  assert.deepEqual(itineraryDayDates(days, '2026-09-05', '2026-09-06'), ['2026-09-05', '2026-09-06']);
+});
+
+test('itineraryDayDates: hari terakhir tak sampai pulang_tgl → semua ditahan', () => {
+  // JBU1511: 15 hari terurai untuk jadwal 8 hari — PDF program lain.
+  const days = Array.from({ length: 15 }, (_, i) => ({ dayNumber: `Hari ${i + 1}` }));
+  assert.deepEqual(itineraryDayDates(days, '2026-09-05', '2026-09-12'), Array(15).fill(null));
+});
+
+test('itineraryDayDates: nomor hari mundur atau hilang → ditahan', () => {
+  assert.deepEqual(itineraryDayDates([{ dayNumber: '2' }, { dayNumber: '1' }], '2026-09-05', '2026-09-06'), [null, null]);
+  assert.deepEqual(itineraryDayDates([{ dayNumber: '1' }, { dayNumber: '' }], '2026-09-05', '2026-09-06'), [null, null]);
+});
+
+test('itineraryDayDates: tanpa pulang_tgl tetap dihitung dari dayNumber', () => {
+  const days = [{ dayNumber: '1' }, { dayNumber: '2' }];
+  assert.deepEqual(itineraryDayDates(days, '2026-09-05', null), ['2026-09-05', '2026-09-06']);
 });
