@@ -8,6 +8,7 @@ import {
   splitImportantPlaces,
   retitleDayWithDate,
   itineraryDayDates,
+  isRedundantDayLocation,
 } from '../lib/itinerary-view.js';
 
 // ── cityKeyForLocation ──
@@ -237,4 +238,41 @@ test('itineraryDayDates: nomor hari mundur atau hilang → ditahan', () => {
 test('itineraryDayDates: tanpa pulang_tgl tetap dihitung dari dayNumber', () => {
   const days = [{ dayNumber: '1' }, { dayNumber: '2' }];
   assert.deepEqual(itineraryDayDates(days, '2026-09-05', null), ['2026-09-05', '2026-09-06']);
+});
+
+test('isRedundantDayLocation: judul sama persis dengan lokasi → redundan', () => {
+  // JBU1528: semua hari bertitle nama kota yang sama dengan location
+  assert.equal(isRedundantDayLocation('Mekkah', 'Mekkah'), true);
+  assert.equal(isRedundantDayLocation('Jakarta - Jeddah - Mekkah', 'Jakarta - Jeddah - Mekkah'), true);
+});
+
+test('isRedundantDayLocation: beda pemisah/kapitalisasi tetap redundan', () => {
+  assert.equal(isRedundantDayLocation('Mekkah - Madinah', 'mekkah – madinah'), true);
+  assert.equal(isRedundantDayLocation('MADINAH', 'Madinah'), true);
+});
+
+test('isRedundantDayLocation: lokasi yang menambah informasi tetap tampil', () => {
+  assert.equal(isRedundantDayLocation('Perjalanan ke Madinah', 'Jakarta - Madinah'), false);
+  assert.equal(isRedundantDayLocation('Ziarah Madinah', 'Madinah'), false);
+  assert.equal(isRedundantDayLocation('Kamis, 20 Agustus 2026', 'Mekkah'), false);
+});
+
+test('isRedundantDayLocation: lokasi kosong tidak pernah redundan', () => {
+  assert.equal(isRedundantDayLocation('Mekkah', ''), false);
+  assert.equal(isRedundantDayLocation('Mekkah', null), false);
+});
+
+test('itineraryDayDates: satu hari melewati pulang_tgl ditoleransi (tiba keesokan hari)', () => {
+  // JBU1528: itinerary 9 hari untuk jadwal 8 hari — Hari 9 = tiba Jakarta
+  // keesokan harinya setelah penerbangan malam.
+  const days = Array.from({ length: 9 }, (_, i) => ({ dayNumber: String(i + 1) }));
+  const got = itineraryDayDates(days, '2026-08-15', '2026-08-22');
+  assert.equal(got[0], '2026-08-15');
+  assert.equal(got[7], '2026-08-22'); // Hari 8 = pulang_tgl
+  assert.equal(got[8], '2026-08-23'); // Hari 9 = tiba, sehari setelahnya
+});
+
+test('itineraryDayDates: melewati pulang_tgl lebih dari sehari tetap ditahan', () => {
+  const days = Array.from({ length: 10 }, (_, i) => ({ dayNumber: String(i + 1) }));
+  assert.deepEqual(itineraryDayDates(days, '2026-08-15', '2026-08-22'), Array(10).fill(null));
 });

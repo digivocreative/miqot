@@ -14,6 +14,17 @@ export const CITY_LABEL: Record<CityKey, string> = {
 
 export const DEFAULT_CITY: CityKey = 'transit';
 
+/**
+ * Bendera negara per kota — aset yang sama dengan kartu jadwal (public/flags/).
+ * `null` untuk Indonesia: asetnya tidak ada di flags/, hari Jakarta tampil
+ * tanpa bendera.
+ */
+export const CITY_FLAG: Record<CityKey, string | null> = {
+  mekkah: '/flags/saudi.png', madinah: '/flags/saudi.png', transit: '/flags/saudi.png',
+  dubai: '/flags/uae.png', turki: '/flags/turki.png', mesir: '/flags/mesir.png',
+  home: null,
+};
+
 /** Garis rail: warna kota pada alpha ~22% */
 export function railColor(key: CityKey): string {
   return `${CITY_HEX[key]}38`;

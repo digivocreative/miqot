@@ -1,6 +1,6 @@
 import { Users, PlaneTakeoff, PlaneLanding, CircleDot, type LucideIcon } from 'lucide-react';
-import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate } from '../../../lib/itinerary-view.js';
-import { CITY_HEX, DEFAULT_CITY, type CityKey } from './cityTheme';
+import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
+import { CITY_HEX, CITY_FLAG, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Ikon HANYA untuk momen bermakna (kumpul/takeoff/landing/transit) — baris biasa
 // tampil polos sebagai lembar jam+teks supaya highlight benar-benar menonjol.
@@ -52,38 +52,60 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
   const { title, hadDate } = retitleDayWithDate(day.title, dayDateISO) as { title: string; hadDate: boolean };
   const dateLabel = !hadDate && dayDateISO
     ? new Date(`${dayDateISO}T00:00:00Z`).toLocaleDateString('id-ID', {
-      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
     })
     : null;
+  // Judul "Mekkah" + baris bawah "Mekkah · tanggal" = redundan; lokasi hanya
+  // tampil bila menambah informasi di luar judul.
+  const showLocation = Boolean(day.location) && !isRedundantDayLocation(title, day.location);
+  const subtitle = [showLocation ? day.location : null, dateLabel].filter(Boolean).join('  ·  ');
 
   return (
     <section className="mx-3 mt-2.5 overflow-hidden rounded-2xl border border-[#EAE2D8] bg-white">
       {/* Header hari — chip angka burgundy sebagai jangkar (tanpa serif) */}
-      <div className="flex items-center gap-2.5 border-b border-[#F1EAE1] px-3.5 py-2.5">
+      <div className="relative flex items-center gap-2.5 border-b border-[#F1EAE1] px-3.5 py-2.5">
         <span className="flex h-8 min-w-[32px] shrink-0 items-center justify-center rounded-[10px] bg-gradient-burgundy px-1.5 text-[14px] font-extrabold text-white">
           {dayNum}
         </span>
         <div className="min-w-0">
           <div className="truncate text-[14px] font-bold text-itin-ink">{title}</div>
-          <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-itin-ink3">
-            {day.location && (
-              <span
-                className="h-[7px] w-[7px] shrink-0 rounded-full"
-                style={{ backgroundColor: CITY_HEX[cityKey] }}
-              />
-            )}
-            <span className="truncate">{[day.location, dateLabel].filter(Boolean).join('  ·  ')}</span>
-          </div>
+          {subtitle && (
+            <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-itin-ink3">
+              {showLocation && (
+                <span
+                  className="h-[7px] w-[7px] shrink-0 rounded-full"
+                  style={{ backgroundColor: CITY_HEX[cityKey] }}
+                />
+              )}
+              <span className="truncate">{subtitle}</span>
+            </div>
+          )}
         </div>
+        {/* Bendera negara hari ini — aset sama dengan kartu jadwal, samar saja.
+            Absolut agar hampir setinggi header tanpa membuat barisnya melar. */}
+        {CITY_FLAG[cityKey] && (
+          <img
+            src={CITY_FLAG[cityKey]}
+            alt=""
+            aria-hidden
+            className="absolute inset-y-1 right-2 h-[calc(100%-8px)] w-auto rounded-md opacity-30"
+          />
+        )}
       </div>
       {/* Timeline: satu garis tenang + titik per baris; momen penting = panel emas */}
       <div className="relative px-3.5 py-3">
         <span aria-hidden className="absolute bottom-4 left-[61.5px] top-4 w-px bg-[#EFE7DC]" />
-        {day.activities.map((raw, i) => {
+        {(() => {
+          // PDF sering menulis jam yang sama di baris beruntun ("07:00" enam kali
+          // untuk satu rangkaian ziarah) — tampilkan hanya saat jamnya berubah.
+          let lastShownTime = '';
+          return day.activities.map((raw, i) => {
           const act = typeof raw === 'string' ? { time: '-', text: raw } : raw;
           const kind = classifyActivity(act.text, { dayIndex, activityIndex: i });
           const highlight = kind !== 'regular';
-          const showTime = act.time && act.time !== '-';
+          const hasTime = Boolean(act.time && act.time !== '-');
+          const showTime = hasTime && act.time !== lastShownTime;
+          if (showTime) lastShownTime = act.time;
 
           if (!highlight) {
             return (
@@ -116,7 +138,8 @@ export default function DayRail({ day, dayIndex, dayDateISO }: Props) {
               </p>
             </div>
           );
-        })}
+          });
+        })()}
       </div>
     </section>
   );
