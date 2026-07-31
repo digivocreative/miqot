@@ -10,6 +10,7 @@ import 'leaflet/dist/leaflet.css';
 import logoWhite from '@/logo-alhijaz-white.png';
 import FlightRouteLine from './FlightRouteLine';
 import { getFlightStatusPresentation, normalizeFlightStatus } from '../lib/flightStatusPresentation';
+import { isReturnFlight } from '../lib/flightDirection';
 
 // ── Types ──
 
@@ -498,6 +499,8 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   const tlClean = cleanTourLeader(flight.tour_leader);
   const arrCityName = flight.arr_city || CITY_COORDS[flight.arr_iata]?.name || flight.arr_iata;
   const status = getFlightStatusPresentation(currentFlightStatus);
+  // Payload share tidak membawa event_type — arah diturunkan dari bandara tujuan.
+  const isReturn = isReturnFlight({ arrCode: flight.arr_iata });
   const airlineName = AIRLINE_NAMES[flight.airline_code || ''] || null;
   const dfn = displayFlightNum(flight.flight_number);
 
@@ -569,12 +572,19 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
                 {formatDate(flight.flight_date)}
               </div>
             </div>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide flex-shrink-0 ${status.badge}`}>
-              {currentFlightStatus === 'en-route' && (
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {isReturn && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  Pulang
+                </span>
               )}
-              {status.label}
-            </span>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide ${status.badge}`}>
+                {currentFlightStatus === 'en-route' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                )}
+                {status.label}
+              </span>
+            </div>
           </div>
 
           {/* Route status — shared with the Dashboard card */}

@@ -8,6 +8,7 @@ import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } fro
 import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
 import { getFlightStatusPresentation } from '../lib/flightStatusPresentation';
+import { isReturnFlight } from '../lib/flightDirection';
 import FlightRouteLine from './FlightRouteLine';
 import { compareFlightDepartureTimestamp } from '../../lib/flight-entry-merge.js';
 
@@ -47,6 +48,7 @@ interface FlightSegmentData {
   isLive?: boolean;
   trackingSource?: string;
   departureTimestamp?: number | null;
+  direction?: string | null; // 'pergi' | 'pulang' — dari event_type kalender
 }
 
 interface FlightData extends FlightSegmentData {
@@ -700,6 +702,9 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const hasSegmentRows = segments.length > 1;
             const summaryFlight = flightWithActiveSegment(first);
             const sc = getFlightStatusPresentation(summaryFlight.status);
+            // Arah dibaca dari `first` (bukan summaryFlight): pada multi-leg,
+            // arrCode ringkasan adalah segmen aktif, bukan tujuan akhir.
+            const isReturn = isReturnFlight(first);
             const totalPax = group.reduce((sum, f) => sum + (f.pax ?? 0), 0);
             const depTime = formatTime(summaryFlight.depActual || summaryFlight.depScheduled);
             const arrTime = formatTime(summaryFlight.arrEstimated || summaryFlight.arrScheduled);
@@ -749,6 +754,11 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       <span className={`text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
                         {sc.label}
                       </span>
+                      {isReturn && (
+                        <span className="flex-shrink-0 text-[8px] font-bold uppercase px-1.5 py-[2px] rounded-md tracking-wide bg-indigo-50 text-indigo-600 border border-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800/40">
+                          Pulang
+                        </span>
+                      )}
                       {summaryFlight.delayed > 0 && (
                         <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{summaryFlight.delayed}m</span>
                       )}
