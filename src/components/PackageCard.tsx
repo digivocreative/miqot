@@ -1831,8 +1831,17 @@ _________________________
         animate={{
           height: isExpanded ? 'auto' : 0,
         }}
-        transition={shouldReduceMotion || (instantCollapse && !isExpanded) ? { duration: 0 } : {
-          height: { duration: 0.36, ease: [0.22, 1, 0.36, 1] },
+        transition={shouldReduceMotion || (instantCollapse && !isExpanded) ? { duration: 0 } : isExpanded ? {
+          // Expand: spring tanpa pantulan, bukan tween — panel ini tinggi (±1500px);
+          // easing ber-start curam membuat frame awal melompat ratusan px (terbaca
+          // "loncat", bukan animasi). Spring mulai dari kecepatan nol lalu mendarat
+          // asimtotik. Ubah durasi? Sinkronkan GLIDE_DURATION_MS di App.tsx.
+          height: { type: 'spring', duration: 0.55, bounce: 0 },
+        } : {
+          // Collapse: tween cepat — WAJIB selesai < 500ms (timer isSettledClosed
+          // memasang content-visibility:auto; panel yang masih bergerak saat itu
+          // memicu celah hantu WebKit, lihat komentar isSettledClosed).
+          height: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
         }}
         className="overflow-hidden"
       >

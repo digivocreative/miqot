@@ -519,7 +519,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ResizeObserver (jalan setelah layout, sebelum paint) supaya kartu B tidak
   // bergerak sama sekali — satu-satunya gerakan yang terlihat adalah panel B yang
   // membuka. Kalau ikut dianimasikan, menutupnya panel A (~1200px) membuat seluruh
-  // konten di atasnya mengalir deras 0.36s di viewport: itu yang terasa
+  // konten di atasnya mengalir deras di viewport: itu yang terasa
   // "lompat-lompatan" meski kartu yang di-tap sendiri diam.
   // Bila header kartu B ada di bagian bawah layar (kontennya bakal membuka di
   // bawah fold), anchor-nya digeser perlahan ke dekat atas viewport (glide rAF)
@@ -533,7 +533,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   const GLIDE_TRIGGER_RATIO = 0.62; // header di bawah 62% tinggi layar → glide
   const GLIDE_TARGET_GAP = 12;      // jarak header kartu dari dasar header fixed
-  const GLIDE_DURATION_MS = 360;    // seirama animasi expand panel
+  const GLIDE_DURATION_MS = 500;    // seirama animasi expand panel (spring ~0.55s di PackageCard)
 
   const anchorCardDuringToggle = (closingId: string, openingId: string) => {
     cardAnchorCleanupRef.current?.();
@@ -565,7 +565,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     });
     beginProgrammaticScroll();
     let cleanedUp = false;
-    const timer = setTimeout(() => cleanup(), 600); // window kompensasi + margin
+    const timer = setTimeout(() => cleanup(), 750); // window kompensasi + margin (> glide 500ms + settle spring)
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
