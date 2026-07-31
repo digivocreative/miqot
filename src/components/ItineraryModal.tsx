@@ -728,7 +728,7 @@ export function ItineraryModal({
           ) : (
             <>
               <Download size={20} />
-              <span>Download Itinerary</span>
+              <span>Unduh PDF</span>
             </>
           )}
         </button>
