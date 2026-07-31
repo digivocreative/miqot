@@ -32,7 +32,7 @@ export default {
         // Tampilan web itinerary — light-only (spec 2026-07-30, D9).
         // Warna kota: hanya via CITY_HEX di src/components/itinerary/cityTheme.ts (inline style).
         itin: {
-          ink: '#1E1512', ink2: '#5A4F49', ink3: '#7D6E64',
+          ink: '#1E1512', ink2: '#453B35', ink3: '#63564D',
           line: '#E9E1DD', canvas: '#FAF7F5',
         },
         // Warm neutrals for the portal (secondary text via `text-ink/60`, keeps one warm ink).

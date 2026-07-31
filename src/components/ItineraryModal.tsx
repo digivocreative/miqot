@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, Check } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck } from 'lucide-react';
+import { motion, AnimatePresence, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -79,6 +79,8 @@ export function ItineraryModal({
   const [numPages, setNumPages] = useState<number | null>(null);
   // Link share halaman jadwal harian publik (/:slug/:jadwalId/itinerary)
   const [linkCopied, setLinkCopied] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
+  const copyPop = useAnimationControls();
   const effectiveJadwalId = paket?.jadwalId ?? jadwalId ?? null;
   const [isSharing, setIsSharing] = useState(false);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -127,7 +129,7 @@ export function ItineraryModal({
 
   // ── Link share publik (halaman /:slug/:jadwalId/itinerary) ──
   const shareUrl = agentSlug && effectiveJadwalId
-    ? `https://alhijaz.co/${agentSlug}/${effectiveJadwalId}/itinerary`
+    ? `${window.location.origin}/${agentSlug}/${effectiveJadwalId}/itinerary`
     : null;
   const copyShareLink = async () => {
     if (!shareUrl) return;
@@ -139,6 +141,13 @@ export function ItineraryModal({
       return;
     }
     setLinkCopied(true);
+    // "Pop" singkat: tekan lalu memantul balik — memberi rasa tombol benar-benar bekerja
+    if (!prefersReducedMotion) {
+      copyPop.start({
+        scale: [1, 0.95, 1.04, 1],
+        transition: { duration: 0.28, times: [0, 0.2, 0.55, 1], ease: 'easeOut' },
+      });
+    }
     setTimeout(() => setLinkCopied(false), 2000);
   };
 
@@ -619,24 +628,80 @@ export function ItineraryModal({
       <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">
         {shareUrl && (
           <div className="relative">
-            {/* Tooltip konfirmasi — label tombol tetap "Link" supaya lebarnya tak berubah */}
-            {linkCopied && (
-              <span
-                role="status"
-                className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg dark:bg-slate-700"
-              >
-                Tersalin
-                <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-slate-700" />
-              </span>
-            )}
-            <button
+            {/* Konfirmasi in-place (konvensi repo: label jadi "Tersalin"), bukan tooltip */}
+            <span role="status" aria-live="polite" className="sr-only">
+              {linkCopied ? 'Link itinerary tersalin' : ''}
+            </span>
+            <motion.button
               onClick={copyShareLink}
-              className="flex h-full items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 transition-all duration-200 active:scale-[0.98]"
+              animate={copyPop}
+              whileTap={{ scale: 0.97 }}
+              className={`relative flex h-full items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold border transition-colors duration-300 ${
+                linkCopied
+                  ? 'border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300'
+                  : 'border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+              }`}
               aria-label="Salin link itinerary"
             >
-              {linkCopied ? <Check size={20} className="text-emerald-600" /> : <Link2 size={20} />}
-              <span className="text-sm">Link</span>
-            </button>
+              {/* Gelombang konfirmasi yang melebar lalu memudar */}
+              <AnimatePresence>
+                {linkCopied && !prefersReducedMotion && (
+                  <motion.span
+                    key="ring"
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 rounded-xl ring-2 ring-emerald-400/70"
+                    initial={{ opacity: 0.75, scale: 0.94 }}
+                    animate={{ opacity: 0, scale: 1.25 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                  />
+                )}
+              </AnimatePresence>
+              {/* Ikon bertukar di ruang tetap 20×20 agar lebar tombol tak bergeser */}
+              <span className="relative block h-5 w-5 shrink-0">
+                <AnimatePresence initial={false}>
+                  {linkCopied ? (
+                    <motion.span
+                      key="check"
+                      className="absolute inset-0 flex items-center justify-center"
+                      initial={{ opacity: 0, scale: 0.4, rotate: -25 }}
+                      animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                      exit={{ opacity: 0, scale: 0.6, transition: { duration: 0.12 } }}
+                      transition={{ type: 'spring', stiffness: 620, damping: 18 }}
+                    >
+                      <ClipboardCheck size={20} className="text-emerald-600 dark:text-emerald-400" />
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="link"
+                      className="absolute inset-0 flex items-center justify-center"
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.6, transition: { duration: 0.12 } }}
+                      transition={{ type: 'spring', stiffness: 620, damping: 24 }}
+                    >
+                      <Link2 size={20} />
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </span>
+              {/* Label bertukar di atas sizer tersembunyi → lebar tombol tetap */}
+              <span className="relative grid place-items-center text-sm">
+                <span aria-hidden className="invisible col-start-1 row-start-1">Tersalin</span>
+                <AnimatePresence initial={false}>
+                  <motion.span
+                    key={linkCopied ? 'copied' : 'idle'}
+                    className="col-start-1 row-start-1 whitespace-nowrap"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                  >
+                    {linkCopied ? 'Tersalin' : 'Link'}
+                  </motion.span>
+                </AnimatePresence>
+              </span>
+            </motion.button>
           </div>
         )}
         <button

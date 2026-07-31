@@ -3,6 +3,7 @@
 // sekali saat render (bug dark-mode), location tak dirender (cacat #1–#7 spec).
 import { AlertCircle, FileText } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
+import { classifyActivity } from '../../lib/itinerary-view.js';
 import JourneyStrip from './itinerary/JourneyStrip';
 import DayRail, { type ItineraryDayData } from './itinerary/DayRail';
 import FlightCard from './itinerary/FlightCard';
@@ -20,20 +21,6 @@ interface Props {
   onRetryPdf?: () => void;
 }
 
-function buildRouteText(paket?: UmrohPackage | null): string | null {
-  // "CGK-DXB / DXB-JED" → CGK → DXB → JED (kota transit muncul dobel di rute multi-leg)
-  const clean = (rute?: string) => {
-    if (!rute) return null;
-    const stops = rute.split(/[/,]|-|–/).map(s => s.trim()).filter(Boolean)
-      .filter((s, i, a) => s !== a[i - 1]);
-    return stops.length ? stops.join(' → ') : null;
-  };
-  const dep = clean(paket?.keberangkatan?.rute);
-  const ret = clean(paket?.kepulangan?.rute);
-  if (!dep && !ret) return null;
-  return [dep, ret ? `pulang ${ret}` : null].filter(Boolean).join('  ·  ');
-}
-
 function dayDate(paket: UmrohPackage | null | undefined, dayIndex: number): string | null {
   const tgl = paket?.keberangkatan?.tgl;
   if (!tgl) return null;
@@ -41,6 +28,24 @@ function dayDate(paket: UmrohPackage | null | undefined, dayIndex: number): stri
   if (Number.isNaN(d.getTime())) return null;
   d.setDate(d.getDate() + dayIndex);
   return d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Jam tiba tak ada di data paket — ambil dari baris LANDING itinerary: landing di paruh
+// awal perjalanan = kedatangan berangkat, landing terakhir di paruh akhir = kedatangan pulang.
+function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | null; pulang: string | null } {
+  const landings: Array<{ time: string; dayIndex: number }> = [];
+  days.forEach((day, di) => day.activities.forEach((raw, ai) => {
+    const act = typeof raw === 'string' ? { time: '-', text: raw } : raw;
+    if (!act.time || act.time === '-') return;
+    if (classifyActivity(act.text, { dayIndex: di, activityIndex: ai }) === 'landing') {
+      landings.push({ time: act.time, dayIndex: di });
+    }
+  }));
+  const half = days.length / 2;
+  return {
+    berangkat: landings.find(l => l.dayIndex < half)?.time ?? null,
+    pulang: [...landings].reverse().find(l => l.dayIndex >= half)?.time ?? null,
+  };
 }
 
 export default function WebItineraryView({
@@ -59,7 +64,7 @@ export default function WebItineraryView({
             </div>
           </div>
         ))}
-        <p className="mt-6 text-center text-[10px] text-itin-ink3">
+        <p className="mt-6 text-center text-[11.5px] text-itin-ink3">
           Membaca PDF & menyusun itinerary… bisa sampai 1 menit untuk paket baru.
         </p>
       </div>
@@ -90,17 +95,17 @@ export default function WebItineraryView({
   }
 
   return (
-    <div className="bg-white pb-4">
-      <div className="pt-3.5">
-        <JourneyStrip days={days} routeText={buildRouteText(paket)} />
+    <div className="bg-[#F6F1EA] pb-4">
+      <div className="pt-3">
+        <JourneyStrip days={days} pdfUrl={paket?.itineraryUrl} />
       </div>
-      <div className="mt-3.5">
+      <div>
         {days.map((day, i) => (
           <DayRail key={i} day={day} dayIndex={i} dateLabel={dayDate(paket, i)} />
         ))}
       </div>
-      <div className="mt-4 space-y-3.5 px-4">
-        {paket && <FlightCard paket={paket} />}
+      <div className="mt-2.5 space-y-2.5 px-3">
+        {paket && <FlightCard paket={paket} arrivals={extractArrivalTimes(days)} />}
         {paket?.hotel && <HotelCard hotel={paket.hotel} />}
       </div>
     </div>

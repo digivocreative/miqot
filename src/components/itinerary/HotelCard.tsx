@@ -28,13 +28,16 @@ export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
   const rows = tierRows(hotel[activeTier] as Record<string, string | undefined>);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-itin-line bg-white">
-      <div className="flex items-center justify-between gap-2 border-b border-itin-line px-3.5 py-2.5">
-        <span className="flex items-center gap-1.5 text-[12.5px] font-bold text-itin-ink">
-          <BedDouble size={14} className="text-itin-ink2" /> Hotel
+    <div className="overflow-hidden rounded-2xl border border-[#EAE2D8] bg-white">
+      <div className="flex items-center justify-between gap-2 border-b border-[#F1EAE1] px-3.5 py-2.5">
+        <span className="flex items-center gap-2 text-[13.5px] font-bold text-itin-ink">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gold-50 text-[#8A0F0A]">
+            <BedDouble size={14} />
+          </span>
+          Hotel
         </span>
         {tiers.length === 1 ? (
-          <span className="rounded-md bg-itin-canvas px-2 py-0.5 text-[9.5px] font-bold tracking-[0.03em] text-itin-ink2">
+          <span className="rounded-md bg-itin-canvas px-2 py-0.5 text-[10px] font-bold tracking-[0.03em] text-itin-ink2">
             PAKET {tiers[0].toUpperCase()}
           </span>
         ) : (
@@ -44,7 +47,7 @@ export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
                 key={t}
                 type="button"
                 onClick={() => setActive(i)}
-                className={`rounded-md px-2 py-0.5 text-[9.5px] font-bold tracking-[0.03em] ${
+                className={`rounded-md px-2 py-0.5 text-[10px] font-bold tracking-[0.03em] ${
                   i === active ? 'bg-itin-ink text-white' : 'bg-itin-canvas text-itin-ink2'}`}
               >
                 {t.toUpperCase()}
@@ -53,27 +56,34 @@ export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
           </div>
         )}
       </div>
-      <div className="px-3.5 py-1">
+      <div className="px-3.5 py-0.5">
         {rows.map((row, i) => {
           const key = (cityKeyForLocation(row.city) || DEFAULT_CITY) as CityKey;
+          const starCount = row.stars ? Math.min(parseInt(row.stars, 10) || 0, 5) : 0;
           return (
             <div
               key={row.city}
-              className={`flex items-center justify-between gap-2.5 py-2.5 ${
-                i < rows.length - 1 ? 'border-b border-itin-line' : ''}`}
+              className={`flex items-center justify-between gap-2.5 py-3 ${
+                i < rows.length - 1 ? 'border-b border-[#F1EAE1]' : ''}`}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: CITY_HEX[key] }} />
-                <span className="min-w-0">
-                  <span className="block text-[12.5px] font-semibold capitalize text-itin-ink">{row.city}</span>
-                  <span className="block truncate text-[10.5px] text-itin-ink3">{row.name}</span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: CITY_HEX[key] }} />
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-itin-ink3">{row.city}</span>
+                </span>
+                <span className="mt-0.5 block truncate text-[13.5px] font-semibold capitalize text-itin-ink">
+                  {row.name.toLowerCase()}
                 </span>
               </span>
-              {row.stars && (
-                <span className="flex shrink-0 items-center gap-1 text-[10.5px] font-semibold text-itin-ink2">
-                  <Star size={10} className="text-itin-ink3" /> {row.stars}
+              {starCount > 0 ? (
+                <span className="flex shrink-0 items-center gap-0.5">
+                  {Array.from({ length: starCount }, (_, s) => (
+                    <Star key={s} size={12} fill="#D4AF37" className="text-[#D4AF37]" />
+                  ))}
                 </span>
-              )}
+              ) : row.stars ? (
+                <span className="shrink-0 text-[11.5px] font-semibold text-itin-ink2">{row.stars}</span>
+              ) : null}
             </div>
           );
         })}
