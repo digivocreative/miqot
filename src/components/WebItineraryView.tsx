@@ -25,14 +25,17 @@ interface Props {
 // (banyak PDF mulai dari "Hari 0"), bukan ke posisi array, dan menahan diri
 // kalau penomoran tak sepakat dengan rentang jadwal.
 
-// Jam tiba tak ada di data paket — ambil dari baris LANDING itinerary: landing di paruh
-// awal perjalanan = kedatangan berangkat, landing terakhir di paruh akhir = kedatangan pulang.
+// Jam tiba tak ada di data paket — ambil dari baris kedatangan itinerary: kedatangan di paruh
+// awal perjalanan = kedatangan berangkat, kedatangan terakhir di paruh akhir = kedatangan pulang.
+// 'landing' = mendarat eksplisit; 'tiba' = "tiba di <kota>" tanpa moda (bisa jadi penerbangan).
+// Kedatangan bus/kereta ('bus'/'kereta') sengaja TIDAK dihitung — itu bukan jam pesawat tiba.
 function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | null; pulang: string | null } {
   const landings: Array<{ time: string; dayIndex: number }> = [];
   days.forEach((day, di) => day.activities.forEach((raw, ai) => {
     const act = typeof raw === 'string' ? { time: '-', text: raw } : raw;
     if (!act.time || act.time === '-') return;
-    if (classifyActivity(act.text, { dayIndex: di, activityIndex: ai }) === 'landing') {
+    const kind = classifyActivity(act.text, { dayIndex: di, activityIndex: ai });
+    if (kind === 'landing' || kind === 'tiba') {
       landings.push({ time: act.time, dayIndex: di });
     }
   }));

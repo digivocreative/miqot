@@ -54,8 +54,29 @@ test('takeoff / landing / transit dari teks nyata', () => {
   assert.equal(classifyActivity('Dengan pesawat Emirates Airlines EK 357 berangkat menuju Dubai', { dayIndex: 0, activityIndex: 3 }), 'takeoff');
   assert.equal(classifyActivity('Melanjutkan dengan EK 358 menuju Jakarta', { dayIndex: 11, activityIndex: 2 }), 'takeoff');
   assert.equal(classifyActivity('Tiba di bandara King Abdul Aziz Jeddah, menuju Medinah', { dayIndex: 1, activityIndex: 3 }), 'landing');
-  assert.equal(classifyActivity('Tiba di Dubai, cek in hotel dan istirahat', { dayIndex: 0, activityIndex: 4 }), 'landing');
   assert.equal(classifyActivity('Tiba di bandara Dubai (transit)', { dayIndex: 11, activityIndex: 1 }), 'transit');
+});
+
+// Feedback 2026-07-31: Madinah↔Mekkah bisa bus ATAU kereta cepat, pindah kota
+// paket plus naik bus — jangan pernah dilabeli LANDING/TAKE OFF.
+test('perpindahan darat: bus & kereta cepat, bukan penerbangan', () => {
+  assert.equal(classifyActivity('Berangkat menuju Mekkah dengan bus', { dayIndex: 5, activityIndex: 1 }), 'bus');
+  assert.equal(classifyActivity('Perjalanan menuju Bursa dengan bus', { dayIndex: 3, activityIndex: 2 }), 'bus');
+  assert.equal(classifyActivity('Menuju Madinah dengan kereta cepat Haramain', { dayIndex: 6, activityIndex: 1 }), 'kereta');
+  assert.equal(classifyActivity('Tiba di Mekkah dengan bus, cek in hotel', { dayIndex: 5, activityIndex: 3 }), 'bus');
+});
+
+test('perpindahan kota tanpa moda disebut → label netral, bukan penerbangan', () => {
+  assert.equal(classifyActivity('Tiba di Dubai, cek in hotel dan istirahat', { dayIndex: 0, activityIndex: 4 }), 'tiba');
+  assert.equal(classifyActivity('Tiba di Mekkah, cek in hotel dan istirahat', { dayIndex: 5, activityIndex: 3 }), 'tiba');
+  assert.equal(classifyActivity('Berangkat menuju Mekkah', { dayIndex: 5, activityIndex: 1 }), 'perjalanan');
+  assert.equal(classifyActivity('Melanjutkan perjalanan menuju Madinah', { dayIndex: 6, activityIndex: 2 }), 'perjalanan');
+});
+
+test('bus untuk ziarah/tour atau tanpa kota tetap regular', () => {
+  assert.equal(classifyActivity('Ziarah dengan bus menuju Thaif', { dayIndex: 4, activityIndex: 1 }), 'regular');
+  assert.equal(classifyActivity('City tour Istanbul dengan bus', { dayIndex: 8, activityIndex: 0 }), 'regular');
+  assert.equal(classifyActivity('Melanjutkan dengan bus menuju hotel', { dayIndex: 2, activityIndex: 2 }), 'regular');
 });
 
 test('bukan highlight: tiba di hotel & menuju biasa', () => {
@@ -68,6 +89,10 @@ test('bukan highlight: tiba di hotel & menuju biasa', () => {
 test('ikon highlight & regular', () => {
   assert.equal(activityIconName('kumpul', 'apa pun'), 'users');
   assert.equal(activityIconName('takeoff', 'x'), 'plane-takeoff');
+  assert.equal(activityIconName('bus', 'x'), 'bus');
+  assert.equal(activityIconName('kereta', 'x'), 'train-front');
+  assert.equal(activityIconName('tiba', 'x'), 'map-pin');
+  assert.equal(activityIconName('perjalanan', 'x'), 'route');
   assert.equal(activityIconName('regular', 'Sarapan di hotel'), 'utensils');
   assert.equal(activityIconName('regular', 'City tour Dubai photostop Burj Khalifah'), 'camera');
   assert.equal(activityIconName('regular', 'Ziarah Raudlah dan Makam Rasulullah'), 'landmark');

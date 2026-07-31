@@ -1,4 +1,4 @@
-import { Users, PlaneTakeoff, PlaneLanding, CircleDot, type LucideIcon } from 'lucide-react';
+import { Users, PlaneTakeoff, PlaneLanding, Bus, TrainFront, MapPin, Route, CircleDot, type LucideIcon } from 'lucide-react';
 import { classifyActivity, activityIconName, cityKeyForLocation, splitImportantPlaces, retitleDayWithDate, splitDayTitleDate, isRedundantDayLocation } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, CITY_FLAG, DEFAULT_CITY, type CityKey } from './cityTheme';
 
@@ -8,10 +8,18 @@ const ICONS: Record<string, LucideIcon> = {
   'users': Users,
   'plane-takeoff': PlaneTakeoff,
   'plane-landing': PlaneLanding,
+  'bus': Bus,
+  'train-front': TrainFront,
+  'map-pin': MapPin,
+  'route': Route,
 };
 
+// LANDING/TAKE OFF hanya untuk penerbangan sungguhan; pindah kota lewat darat
+// (Madinah↔Mekkah, antar kota paket plus) memakai badge bus/kereta, dan yang
+// modanya tak disebut PDF memakai label netral TIBA/PERJALANAN.
 const BADGE_TEXT: Record<string, string> = {
   kumpul: 'TITIK KUMPUL', takeoff: 'TAKE OFF', landing: 'LANDING', transit: 'TRANSIT',
+  bus: 'PERJALANAN BUS', kereta: 'KERETA CEPAT', tiba: 'TIBA', perjalanan: 'PERJALANAN',
 };
 
 // Nama tempat penting ditebalkan supaya baris aktivitas bisa dipindai sekilas —
