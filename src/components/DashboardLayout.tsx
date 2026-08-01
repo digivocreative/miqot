@@ -14,6 +14,7 @@ import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
+import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
 import { useTerasNotifications } from '../hooks/useTerasNotifications';
 import TerasNotificationSettings from './TerasNotificationSettings';
@@ -407,6 +408,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     setBrosurDisplayMode(mode);
     try { localStorage.setItem('brosurDisplayMode', mode); } catch { /* private mode: ignore */ }
   };
+  // Mode halaman Brosur (jadwal/paket) sengaja TIDAK disimpan sebagai state di
+  // sini: sumber kebenarannya URL, dan dibaca saat render seperti
+  // getSubTabFromPath/getAIToolsSubFromPath. State salinan akan basi satu frame
+  // setiap kali halaman Brosur di-remount. Tick ini hanya pemicu re-render,
+  // karena BrochureSchedulePage berganti mode lewat replaceState yang tidak
+  // melewati navigatePath sehingga pathTick tidak ikut naik.
+  const [, setBrosurModeTick] = useState(0);
+  const handleBrosurModeChange = useCallback(() => setBrosurModeTick(t => t + 1), []);
   // Jamaah status: lazy check on Statistik click
   const [checkingStatistik, setCheckingStatistik] = useState(false);
   const [showStatAlert, setShowStatAlert] = useState(false);
@@ -781,7 +790,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             {activeTab === 'statistik' && statistikHeaderRight}
             {activeTab === 'analytics' && analyticsHeaderRight}
             {activeTab === 'jamaah' && jamaahSub !== 'daftar' && jamaahSub !== 'edit' && jamaahHeaderRight}
-            {activeTab === 'brosur' && (
+            {/* Mode Paket menampilkan brosur resmi apa adanya — tidak ada kolom
+                ke-3 yang bisa diubah, jadi toggle-nya disembunyikan. */}
+            {activeTab === 'brosur' && readBrosurModeFromPath() === 'jadwal' && (
               <div className="flex items-center h-9 rounded-lg bg-gray-100 dark:bg-slate-800 p-0.5 shrink-0">
                 {(['hari', 'seat'] as const).map(mode => (
                   <button
@@ -925,7 +936,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               phone: agentData.phone,
               photo: agentData.photo || '',
               website: agentData.website || '',
-            }} displayMode={brosurDisplayMode} />
+            }} displayMode={brosurDisplayMode} onModeChange={handleBrosurModeChange} />
           )}
           {activeTab === 'teras' && terasEnabled && (
             <TerasPage

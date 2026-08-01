@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
+import { brosurModePath, readBrosurModeFromPath, type BrosurMode } from '../lib/brosur-mode';
 import {
   BrochureScheduleTemplate,
   BrochureCatalogCover,
@@ -23,7 +24,7 @@ import {
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
 import { BrochurePromptModal } from './BrochurePromptModal';
-import BrochurePaketGrid from './BrochurePaketGrid';
+import BrochurePaketGrid, { BrochurePaketGridSkeleton } from './BrochurePaketGrid';
 import SegmentedControl from './common/SegmentedControl';
 import { formatBrochurePrice, type BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
 import { getAuthHeaders } from './LoginPage';
@@ -70,6 +71,11 @@ interface BrochureSchedulePageProps {
   /** Kolom ke-3 brosur: 'hari' (default) atau 'seat'. Dikontrol oleh toggle di
    *  header dashboard (DashboardLayout), yang juga memiliki state-nya. */
   displayMode?: 'hari' | 'seat';
+  /** Dipanggil saat mode efektif berubah (termasuk sekali saat mount). Dipakai
+   *  DashboardLayout untuk menyembunyikan toggle HARI/SEAT di mode Paket:
+   *  perubahan mode memakai replaceState yang tidak lewat navigatePath, jadi
+   *  header tidak punya cara lain untuk tahu ia harus render ulang. */
+  onModeChange?: (mode: BrosurMode) => void;
 }
 
 interface ApiResponse {
@@ -151,7 +157,7 @@ function catalogFilename(agent: BrochureAgent): string {
 }
 
 type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
-type BrochureMode = 'jadwal' | 'paket';
+type BrochureMode = BrosurMode;
 type CatalogMode = 'active-filter' | 'all-ready';
 
 const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
@@ -161,27 +167,6 @@ const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
 
 // TODO: Remove gate — rollout bertahap, "Brosur Paket" baru dibuka utk nikita.
 const PAKET_MODE_AGENT_SLUGS = new Set(['nikita']);
-
-// Mode "Brosur Paket" punya slug sendiri (…/paket) supaya reload, bookmark, dan
-// link yang dibagikan mendarat di mode yang sama — bukan lompat balik ke Brosur
-// Jadwal. Base path dibaca dari URL, bukan dihardcode, karena halaman ini
-// dipasang di dua rute: /dashboard/brosur dan /dashboard/ai-tools/brosur-jadwal.
-const PAKET_PATH_SEGMENT = 'paket';
-
-function currentBrochureBasePath(): string {
-  const path = window.location.pathname.replace(/\/+$/, '');
-  return path.replace(new RegExp(`/${PAKET_PATH_SEGMENT}$`), '') || '/dashboard/brosur';
-}
-
-function readModeFromPath(): BrochureMode {
-  const segments = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/');
-  return segments[segments.length - 1] === PAKET_PATH_SEGMENT ? 'paket' : 'jadwal';
-}
-
-function brochureModePath(mode: BrochureMode): string {
-  const base = currentBrochureBasePath();
-  return mode === 'paket' ? `${base}/${PAKET_PATH_SEGMENT}` : base;
-}
 
 type CatalogStage =
   | { kind: 'cover' }
@@ -327,12 +312,12 @@ function formatPromptHotels(hotels?: BrochureHotel[]): string[] {
 // FilterDropdown (custom, animated) now lives in ./FilterDropdown and is shared
 // with the public jadwal-paket header. See docs/DESIGN-SYSTEM.md.
 
-export default function BrochureSchedulePage({ agent: agentProp, displayMode = 'hari' }: BrochureSchedulePageProps) {
+export default function BrochureSchedulePage({ agent: agentProp, displayMode = 'hari', onModeChange }: BrochureSchedulePageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState<BrochureMonth[]>([]);
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
-  const [mode, setMode] = useState<BrochureMode>(readModeFromPath);
+  const [mode, setMode] = useState<BrochureMode>(readBrosurModeFromPath);
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [availableOnly, setAvailableOnly] = useState(true);
@@ -348,15 +333,19 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   // …/paket langsung dikembalikan ke URL jadwal alih-alih menyimpan slug yang
   // isinya tidak pernah ia lihat.
   useEffect(() => {
-    if (readModeFromPath() === effectiveMode) return;
-    window.history.replaceState(window.history.state, '', brochureModePath(effectiveMode));
-  }, [effectiveMode]);
+    if (readBrosurModeFromPath() !== effectiveMode) {
+      window.history.replaceState(window.history.state, '', brosurModePath(effectiveMode));
+    }
+    // Setelah URL benar, baru beri tahu header — DashboardLayout membaca mode
+    // dari path, jadi urutannya tidak boleh terbalik.
+    onModeChange?.(effectiveMode);
+  }, [effectiveMode, onModeChange]);
 
   // Back/forward browser (mis. dari halaman lain kembali ke …/paket) tidak
   // me-remount komponen ini kalau tab dashboard-nya sama, jadi mode harus
   // dibaca ulang dari URL.
   useEffect(() => {
-    const onPopState = () => setMode(readModeFromPath());
+    const onPopState = () => setMode(readBrosurModeFromPath());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
@@ -1153,10 +1142,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             ))}
           </div>
         </div>
-        {/* Brochure skeleton */}
-        <div className="flex justify-center px-4 pt-5">
-          <BrochureSkeleton />
-        </div>
+        {/* Skeleton mengikuti bentuk mode yang sedang aktif — di mode Paket
+            brosur tunggal salah bentuk, yang datang nanti adalah grid. */}
+        {effectiveMode === 'paket' ? (
+          <BrochurePaketGridSkeleton />
+        ) : (
+          <div className="flex justify-center px-4 pt-5">
+            <BrochureSkeleton />
+          </div>
+        )}
       </div>
     );
   }

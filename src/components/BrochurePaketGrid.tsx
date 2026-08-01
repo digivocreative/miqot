@@ -32,6 +32,56 @@ function formatRupiah(n: number): string {
   return `Rp ${Math.round(n).toLocaleString('id-ID')}`;
 }
 
+/** Buang ".0" supaya 25.000.000 jadi "25 Juta", bukan "25.0 Juta". */
+function trimDesimalNol(s: string): string {
+  return s.replace(/\.0$/, '');
+}
+
+/**
+ * Harga ringkas untuk kartu grid: 31.900.000 → "31.9 Juta".
+ *
+ * Kartu hanya seukuran setengah layar ponsel, jadi angka penuh memaksa nama
+ * paket terpotong. Nilai PENUH tetap dipakai di caption (buildCaptionFallback)
+ * dan di brosur resminya sendiri — ringkasan ini murni label sekilas.
+ */
+function formatHargaRingkas(n: number): string {
+  const juta = Math.round(n) / 1_000_000;
+  if (juta >= 1000) return `Rp ${trimDesimalNol((juta / 1000).toFixed(1))} Miliar`;
+  if (juta >= 1) return `Rp ${trimDesimalNol(juta.toFixed(1))} Juta`;
+  return formatRupiah(n);
+}
+
+/**
+ * Placeholder kartu brosur selama gambar belum turun. Sengaja BUKAN kotak abu
+ * polos: bentuknya meniru brosur (header, judul, tabel jadwal) supaya di
+ * jaringan lambat layar tetap terbaca sebagai grid brosur, bukan halaman rusak.
+ */
+function BrosurImageSkeleton() {
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-emerald-50 to-white dark:from-slate-800 dark:to-slate-900">
+      <div className="flex h-full flex-col gap-1.5 p-3">
+        <div className="h-3.5 w-1/2 rounded bg-emerald-100/80 dark:bg-slate-700" />
+        <div className="h-2 w-3/4 rounded bg-emerald-100/60 dark:bg-slate-700/70" />
+        {/* Kotak jadwal: baris dibagi rata setinggi kotak supaya tidak
+            menyisakan ruang kosong besar seperti kartu yang gagal render. */}
+        <div className="mt-1 flex flex-1 flex-col justify-between rounded-lg border border-emerald-100/70 bg-white/70 p-2 dark:border-slate-700/60 dark:bg-slate-800/70">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <div className="h-1.5 w-2.5 shrink-0 rounded-sm bg-emerald-200/70 dark:bg-slate-600/60" />
+              <div
+                className="h-1.5 rounded bg-emerald-100/80 dark:bg-slate-700/60"
+                style={{ width: `${58 + ((i * 37) % 34)}%` }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Sapuan kilau — idiom yang sama dengan JamaahEditPage/UmrahRegisterPage. */}
+      <div className="pointer-events-none absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-emerald-400/10" />
+    </div>
+  );
+}
+
 function hotelByCity(pkg: BrochurePackage, re: RegExp) {
   return pkg.hotel?.find(h => re.test(h.city || ''));
 }
@@ -102,6 +152,7 @@ function buildCaptionFallback(pkg: BrochurePackage, agent: BrochureAgent): strin
 
 function PaketBrosurCard({ pkg, onOpen }: { pkg: BrochurePackage; onOpen: () => void }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const showSisa = pkg.seatSisa !== null && pkg.seatSisa !== undefined && pkg.seatSisa > 0 && pkg.seatSisa <= 5;
   const tgl = formatTglShortID(pkg.berangkat_tgl);
 
@@ -117,18 +168,27 @@ function PaketBrosurCard({ pkg, onOpen }: { pkg: BrochurePackage; onOpen: () => 
             <FileImage size={22} className="text-gray-300 dark:text-slate-600" />
           </div>
         ) : (
-          <img
-            // Thumb 400px kalau sudah ada; brosur penuh (bisa >8 MB) hanya
-            // sebagai cadangan saat sync belum sempat membuat turunannya.
-            src={pkg.brosurThumb || pkg.brosur || ''}
-            alt={`Brosur ${pkg.nama}`}
-            loading="lazy"
-            decoding="async"
-            width={400}
-            height={533}
-            className="w-full h-full object-cover object-top"
-            onError={() => setImageFailed(true)}
-          />
+          <>
+            {!imageLoaded && <BrosurImageSkeleton />}
+            <img
+              // Thumb 400px kalau sudah ada; brosur penuh (bisa >8 MB) hanya
+              // sebagai cadangan saat sync belum sempat membuat turunannya.
+              src={pkg.brosurThumb || pkg.brosur || ''}
+              alt={`Brosur ${pkg.nama}`}
+              loading="lazy"
+              decoding="async"
+              width={400}
+              height={533}
+              // Gambar dari cache bisa selesai SEBELUM React memasang onLoad —
+              // tanpa cek .complete di ref, kartunya tinggal skeleton selamanya.
+              ref={el => { if (el?.complete && el.naturalWidth > 0) setImageLoaded(true); }}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageFailed(true)}
+              className={`relative h-full w-full object-cover object-top transition-opacity duration-300 ${
+                imageLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+          </>
         )}
 
         {pkg.isPromo && (
@@ -160,11 +220,42 @@ function PaketBrosurCard({ pkg, onOpen }: { pkg: BrochurePackage; onOpen: () => 
         {typeof pkg.harga === 'number' && pkg.harga > 0 && (
           <p className="mt-0.5 text-xs font-black text-emerald-600 dark:text-emerald-400">
             <span className="mr-0.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">mulai</span>
-            {formatRupiah(pkg.harga)}
+            {formatHargaRingkas(pkg.harga)}
           </p>
         )}
       </div>
     </button>
+  );
+}
+
+/**
+ * Skeleton grid saat data jadwal MASIH diambil (belum ada paket sama sekali).
+ * Berbeda dari BrosurImageSkeleton yang menutup satu kartu saat gambarnya saja
+ * yang belum turun. Jumlah kartu = 6 (kira-kira satu layar ponsel penuh).
+ */
+export function BrochurePaketGridSkeleton() {
+  return (
+    <div className="px-4 pt-4">
+      <div className="mb-2 h-3 w-28 rounded bg-gray-100 dark:bg-slate-800" />
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
+          >
+            <div className="relative aspect-[3/4]">
+              <BrosurImageSkeleton />
+            </div>
+            <div className="p-2.5">
+              <div className="h-2.5 w-11/12 rounded bg-gray-100 dark:bg-slate-700" />
+              <div className="mt-1.5 h-2.5 w-2/3 rounded bg-gray-100 dark:bg-slate-700" />
+              <div className="mt-2 h-2 w-1/2 rounded bg-gray-100/80 dark:bg-slate-700/70" />
+              <div className="mt-2 h-3 w-3/5 rounded bg-emerald-100/70 dark:bg-emerald-900/30" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
