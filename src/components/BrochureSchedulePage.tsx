@@ -23,6 +23,8 @@ import {
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
 import { BrochurePromptModal } from './BrochurePromptModal';
+import BrochurePaketGrid from './BrochurePaketGrid';
+import SegmentedControl from './common/SegmentedControl';
 import { formatBrochurePrice, type BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
@@ -149,7 +151,16 @@ function catalogFilename(agent: BrochureAgent): string {
 }
 
 type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
+type BrochureMode = 'jadwal' | 'paket';
 type CatalogMode = 'active-filter' | 'all-ready';
+
+const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
+  { value: 'jadwal', label: 'Brosur Jadwal' },
+  { value: 'paket', label: 'Brosur Paket' },
+];
+
+// TODO: Remove gate — rollout bertahap, "Brosur Paket" baru dibuka utk nikita.
+const PAKET_MODE_AGENT_SLUGS = new Set(['nikita']);
 type CatalogStage =
   | { kind: 'cover' }
   | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' };
@@ -299,9 +310,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState<BrochureMonth[]>([]);
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
+  const [mode, setMode] = useState<BrochureMode>('jadwal');
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [availableOnly, setAvailableOnly] = useState(true);
+  // TODO: Remove gate — sampai rollout dibuka, agent lain tidak melihat
+  // SegmentedControl sama sekali dan halaman ini identik dengan produksi.
+  const paketModeAllowed = PAKET_MODE_AGENT_SLUGS.has((agent.slug || '').trim().toLowerCase());
+  const effectiveMode: BrochureMode = paketModeAllowed ? mode : 'jadwal';
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -467,7 +483,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     recompute();
     window.addEventListener('resize', recompute);
     return () => window.removeEventListener('resize', recompute);
-  }, [loading]);
+    // `mode` ikut: container preview di-unmount di mode paket, jadi skala harus
+    // diukur ulang saat kembali ke mode jadwal.
+  }, [loading, effectiveMode]);
 
   useEffect(() => {
     let alive = true;
@@ -969,7 +987,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     // menumpuk belasan capture (di WebKit satu capture bisa berdetik-detik).
     const abortController = new AbortController();
 
-    if (loading || !previewReady || activeImagePages.length === 0) {
+    // Mode paket tidak me-mount DOM preview, jadi tidak ada yang bisa (atau
+    // perlu) di-capture — jangan bakar CPU/log error untuk target yang absen.
+    if (loading || effectiveMode !== 'jadwal' || !previewReady || activeImagePages.length === 0) {
       setCanonicalPreviews([]);
       setPreviewErrors([]);
       return () => { cancelled = true; };
@@ -1013,6 +1033,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     };
   }, [
     loading,
+    effectiveMode,
     previewReady,
     activeImagePages,
     canonicalRenderKey,
@@ -1137,6 +1158,17 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         className="sticky z-10 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50"
         style={{ top: headerOffset }}
       >
+        {/* TODO: Remove gate — switch mode hanya tampil utk slug yang di-rollout. */}
+        {paketModeAllowed && (
+          <div className="px-4 pt-3">
+            <SegmentedControl
+              options={BROCHURE_MODE_OPTIONS}
+              value={mode}
+              onChange={setMode}
+              accent="emerald"
+            />
+          </div>
+        )}
         <div className="flex gap-2 px-4 py-3">
           <FilterDropdown
             variant="compact"
@@ -1186,276 +1218,284 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       </div>
 
-      {/* Katalog PDF: compact mode switch + one download action. */}
-      <div className="px-4 pt-3">
-        <div className="flex items-center gap-2">
-          <div className="flex flex-1 min-w-0 h-10 rounded-xl bg-gray-100 dark:bg-slate-800 p-1">
-            {([
-              ['active-filter', 'Filter Ini'],
-              ['all-ready', 'Semua'],
-            ] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setCatalogMode(mode)}
-                aria-pressed={catalogMode === mode}
-                disabled={catalogBusy || busy !== null}
-                className={`flex-1 min-w-0 inline-flex items-center justify-center rounded-lg px-2 text-[11px] font-bold transition-all duration-200 disabled:opacity-60 ${
-                  catalogMode === mode
-                    ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                    : 'text-gray-500 dark:text-slate-400'
-                }`}
-              >
-                <span className="truncate">{label}</span>
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => openCatalogPicker(catalogMode)}
-            disabled={!catalogAllowed || !canDownloadSelectedCatalog || catalogBusy || busy !== null}
-            className="h-10 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
-          >
-            {activeFilterCatalogBusy || allReadyCatalogBusy
-              ? <Loader2 size={16} className="animate-spin" />
-              : <FileDown size={16} />}
-            <span>Unduh PDF</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Picker desain brosur — Klasik default + 3 desain alternatif (opsi).
-          Pilihan tersimpan di localStorage dan berlaku utk preview + export
-          gambar; katalog PDF tetap klasik. */}
-      <div className="px-4 pt-3">
-        <div className="flex items-center gap-2">
-          <span className="shrink-0 text-[11px] font-black uppercase tracking-wide text-gray-400 dark:text-slate-500">Desain</span>
-          <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            {BROCHURE_DESIGNS.map(d => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => selectDesign(d.id)}
-                aria-pressed={designId === d.id}
-                disabled={catalogBusy || busy !== null}
-                className={`shrink-0 inline-flex items-center gap-1.5 h-8 rounded-full border pl-1.5 pr-3 text-[11px] font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-60 ${
-                  designId === d.id
-                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                    : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
-                }`}
-              >
-                <span aria-hidden="true" className="h-5 w-5 rounded-full border border-black/10 dark:border-white/15" style={{ background: d.swatch }} />
-                <span className="whitespace-nowrap">{d.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <CatalogLoadingModal
-        open={catalogBusy || catalogResult !== null}
-        status={catalogResult ? catalogResult.status : 'loading'}
-        stageLabel={
-          catalogStage?.kind === 'cover'
-            ? 'Menyusun sampul…'
-            : catalogStage?.kind === 'page'
-              ? `Menyiapkan ${catalogStage.page.label}…`
-              : 'Menyiapkan halaman…'
-        }
-        done={catalogProgress?.done ?? 0}
-        total={catalogProgress?.total ?? 0}
-        message={catalogResult?.message}
-        onClose={() => setCatalogResult(null)}
-      />
-      <CatalogCoverPicker
-        open={coverPickerOpen}
-        selectedId={coverId}
-        onSelect={selectCover}
-        onClose={() => setCoverPickerOpen(false)}
-        description={
-          catalogMode === 'active-filter'
-            ? `Filter: ${catalogFilterLabel}`
-            : 'Semua paket ready'
-        }
-        downloadLabel="Unduh PDF"
-        onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(catalogMode); }}
-      />
-
-      {/* Brochure previews + per-image actions */}
-      <div className="flex justify-center px-4 pt-5">
-        <div
-          ref={previewContainerRef}
-          style={{
-            width: '100%',
-            maxWidth: 480,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 18,
-          }}
-        >
-          {!hasResults ? (
-            <div className="text-center py-10">
-              <p className="text-sm font-bold text-gray-800 dark:text-white">
-                {availableOnly ? 'Tidak ada paket tersedia untuk filter ini' : 'Tidak ada paket untuk filter ini'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                Coba pilih nilai lain atau ganti dimensi filter.
-              </p>
-            </div>
-          ) : (
-            activeImagePages.map((page, index) => {
-              const previewCandidate = canonicalPreviews[index];
-              const errorCandidate = previewErrors[index];
-              const canonicalPreview = previewCandidate?.renderKey === canonicalRenderKey ? previewCandidate : null;
-              const previewError = errorCandidate?.renderKey === canonicalRenderKey ? errorCandidate.message : null;
-              const previewAvailable = !!canonicalPreview;
-              const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
-              const saveMenuOpen = saveMenuPageIndex === index;
-
-              return (
-                <div
-                  key={page.key}
-                  style={{
-                    width: '100%',
-                    overflow: 'hidden',
-                    borderRadius: 18,
-                    boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
-                    background: '#fff',
-                  }}
+      {effectiveMode === 'paket' ? (
+        /* Mode Brosur Paket: grid brosur resmi per paket. Filter row di atas
+           tetap dipakai apa adanya — grid hanya menerima hasilnya. */
+        <BrochurePaketGrid packages={filteredPackages} filterLabel={filterLabel} agent={agent} />
+      ) : (
+        <>
+        {/* Katalog PDF: compact mode switch + one download action. */}
+        <div className="px-4 pt-3">
+          <div className="flex items-center gap-2">
+            <div className="flex flex-1 min-w-0 h-10 rounded-xl bg-gray-100 dark:bg-slate-800 p-1">
+              {([
+                ['active-filter', 'Filter Ini'],
+                ['all-ready', 'Semua'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setCatalogMode(mode)}
+                  aria-pressed={catalogMode === mode}
+                  disabled={catalogBusy || busy !== null}
+                  className={`flex-1 min-w-0 inline-flex items-center justify-center rounded-lg px-2 text-[11px] font-bold transition-all duration-200 disabled:opacity-60 ${
+                    catalogMode === mode
+                      ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                      : 'text-gray-500 dark:text-slate-400'
+                  }`}
                 >
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => openCatalogPicker(catalogMode)}
+              disabled={!catalogAllowed || !canDownloadSelectedCatalog || catalogBusy || busy !== null}
+              className="h-10 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
+            >
+              {activeFilterCatalogBusy || allReadyCatalogBusy
+                ? <Loader2 size={16} className="animate-spin" />
+                : <FileDown size={16} />}
+              <span>Unduh PDF</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Picker desain brosur — Klasik default + 3 desain alternatif (opsi).
+            Pilihan tersimpan di localStorage dan berlaku utk preview + export
+            gambar; katalog PDF tetap klasik. */}
+        <div className="px-4 pt-3">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] font-black uppercase tracking-wide text-gray-400 dark:text-slate-500">Desain</span>
+            <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+              {BROCHURE_DESIGNS.map(d => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => selectDesign(d.id)}
+                  aria-pressed={designId === d.id}
+                  disabled={catalogBusy || busy !== null}
+                  className={`shrink-0 inline-flex items-center gap-1.5 h-8 rounded-full border pl-1.5 pr-3 text-[11px] font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-60 ${
+                    designId === d.id
+                      ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+                  }`}
+                >
+                  <span aria-hidden="true" className="h-5 w-5 rounded-full border border-black/10 dark:border-white/15" style={{ background: d.swatch }} />
+                  <span className="whitespace-nowrap">{d.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <CatalogLoadingModal
+          open={catalogBusy || catalogResult !== null}
+          status={catalogResult ? catalogResult.status : 'loading'}
+          stageLabel={
+            catalogStage?.kind === 'cover'
+              ? 'Menyusun sampul…'
+              : catalogStage?.kind === 'page'
+                ? `Menyiapkan ${catalogStage.page.label}…`
+                : 'Menyiapkan halaman…'
+          }
+          done={catalogProgress?.done ?? 0}
+          total={catalogProgress?.total ?? 0}
+          message={catalogResult?.message}
+          onClose={() => setCatalogResult(null)}
+        />
+        <CatalogCoverPicker
+          open={coverPickerOpen}
+          selectedId={coverId}
+          onSelect={selectCover}
+          onClose={() => setCoverPickerOpen(false)}
+          description={
+            catalogMode === 'active-filter'
+              ? `Filter: ${catalogFilterLabel}`
+              : 'Semua paket ready'
+          }
+          downloadLabel="Unduh PDF"
+          onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(catalogMode); }}
+        />
+
+        {/* Brochure previews + per-image actions */}
+        <div className="flex justify-center px-4 pt-5">
+          <div
+            ref={previewContainerRef}
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 18,
+            }}
+          >
+            {!hasResults ? (
+              <div className="text-center py-10">
+                <p className="text-sm font-bold text-gray-800 dark:text-white">
+                  {availableOnly ? 'Tidak ada paket tersedia untuk filter ini' : 'Tidak ada paket untuk filter ini'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  Coba pilih nilai lain atau ganti dimensi filter.
+                </p>
+              </div>
+            ) : (
+              activeImagePages.map((page, index) => {
+                const previewCandidate = canonicalPreviews[index];
+                const errorCandidate = previewErrors[index];
+                const canonicalPreview = previewCandidate?.renderKey === canonicalRenderKey ? previewCandidate : null;
+                const previewError = errorCandidate?.renderKey === canonicalRenderKey ? errorCandidate.message : null;
+                const previewAvailable = !!canonicalPreview;
+                const shareBusy = busy?.kind === 'share' && busy.pageIndex === index;
+                const saveMenuOpen = saveMenuPageIndex === index;
+
+                return (
                   <div
+                    key={page.key}
                     style={{
                       width: '100%',
-                      aspectRatio: `${BROCHURE_W} / ${BROCHURE_H}`,
-                      position: 'relative',
                       overflow: 'hidden',
+                      borderRadius: 18,
+                      boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
                       background: '#fff',
                     }}
                   >
                     <div
                       style={{
-                        width: BROCHURE_W,
-                        height: BROCHURE_H,
-                        transform: `scale(${previewScale})`,
-                        transformOrigin: 'top left',
+                        width: '100%',
+                        aspectRatio: `${BROCHURE_W} / ${BROCHURE_H}`,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        background: '#fff',
                       }}
                     >
                       <div
-                        ref={(node) => { exportPageRefs.current[index] = node; }}
-                        data-brochure-preview-page={index}
-                        data-brochure-design={designId}
-                        style={{ width: BROCHURE_W, height: BROCHURE_H }}
+                        style={{
+                          width: BROCHURE_W,
+                          height: BROCHURE_H,
+                          transform: `scale(${previewScale})`,
+                          transformOrigin: 'top left',
+                        }}
                       >
-                        <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+                        <div
+                          ref={(node) => { exportPageRefs.current[index] = node; }}
+                          data-brochure-preview-page={index}
+                          data-brochure-design={designId}
+                          style={{ width: BROCHURE_W, height: BROCHURE_H }}
+                        >
+                          <DesignTemplate month={page} agent={agent} showFullDate={showFullDate} variant={brochureVariant} displayMode={displayMode} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {previewError && (
+                      <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                        <span>File ekspor belum siap.</span>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewRetryNonce(value => value + 1)}
+                          className="shrink-0 font-bold underline underline-offset-2"
+                        >
+                          Coba lagi
+                        </button>
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderTop: '1px solid rgba(15, 23, 42, 0.08)',
+                        background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                      }}
+                    >
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Tidak menunggu blob ekspor: modal punya UI pending
+                            sendiri dan file referensi ditunggu di sana
+                            (waitForCanonicalImage), tetap identik dgn Simpan. */}
+                        <button
+                          type="button"
+                          onClick={() => setPromptPageIndex(index)}
+                          disabled={busy !== null || catalogBusy}
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                        >
+                          <Wand2 size={16} />
+                          <span className="whitespace-nowrap">Buat Ulang AI</span>
+                        </button>
+                        {showShareButton ? (
+                          <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
+                            <div
+                              role="menu"
+                              className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
+                                saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setSaveMenuPageIndex(null);
+                                  handleShare(index);
+                                }}
+                                disabled={!previewAvailable || busy !== null || catalogBusy}
+                                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                              >
+                                {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                                <span>Share</span>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setSaveMenuPageIndex(null);
+                                  handleDownload(index);
+                                }}
+                                disabled={!previewAvailable || busy !== null || catalogBusy}
+                                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                              >
+                                {!previewAvailable && !previewError
+                                  ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                                  : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                                <span>Download</span>
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
+                              disabled={!previewAvailable || busy !== null || catalogBusy}
+                              aria-haspopup="menu"
+                              aria-expanded={saveMenuOpen}
+                              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                            >
+                              {(shareBusy || (!previewAvailable && !previewError))
+                                ? <Loader2 size={17} className="animate-spin" />
+                                : <Download size={17} />}
+                              <span>Simpan</span>
+                              <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleDownload(index)}
+                            disabled={!previewAvailable || busy !== null || catalogBusy}
+                            className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                          >
+                            {!previewAvailable && !previewError
+                              ? <Loader2 size={17} className="animate-spin" />
+                              : <Download size={17} />}
+                            <span>Download</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
-
-                  {previewError && (
-                    <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                      <span>File ekspor belum siap.</span>
-                      <button
-                        type="button"
-                        onClick={() => setPreviewRetryNonce(value => value + 1)}
-                        className="shrink-0 font-bold underline underline-offset-2"
-                      >
-                        Coba lagi
-                      </button>
-                    </div>
-                  )}
-
-                  <div
-                    style={{
-                      padding: 10,
-                      borderTop: '1px solid rgba(15, 23, 42, 0.08)',
-                      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                    }}
-                  >
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* Tidak menunggu blob ekspor: modal punya UI pending
-                          sendiri dan file referensi ditunggu di sana
-                          (waitForCanonicalImage), tetap identik dgn Simpan. */}
-                      <button
-                        type="button"
-                        onClick={() => setPromptPageIndex(index)}
-                        disabled={busy !== null || catalogBusy}
-                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                      >
-                        <Wand2 size={16} />
-                        <span className="whitespace-nowrap">Buat Ulang AI</span>
-                      </button>
-                      {showShareButton ? (
-                        <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
-                          <div
-                            role="menu"
-                            className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
-                              saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setSaveMenuPageIndex(null);
-                                handleShare(index);
-                              }}
-                              disabled={!previewAvailable || busy !== null || catalogBusy}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
-                            >
-                              {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
-                              <span>Share</span>
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setSaveMenuPageIndex(null);
-                                handleDownload(index);
-                              }}
-                              disabled={!previewAvailable || busy !== null || catalogBusy}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
-                            >
-                              {!previewAvailable && !previewError
-                                ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-                                : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
-                              <span>Download</span>
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
-                            disabled={!previewAvailable || busy !== null || catalogBusy}
-                            aria-haspopup="menu"
-                            aria-expanded={saveMenuOpen}
-                            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                          >
-                            {(shareBusy || (!previewAvailable && !previewError))
-                              ? <Loader2 size={17} className="animate-spin" />
-                              : <Download size={17} />}
-                            <span>Simpan</span>
-                            <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleDownload(index)}
-                          disabled={!previewAvailable || busy !== null || catalogBusy}
-                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                        >
-                          {!previewAvailable && !previewError
-                            ? <Loader2 size={17} className="animate-spin" />
-                            : <Download size={17} />}
-                          <span>Download</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
-      </div>
+        </>
+      )}
 
       {toast && (
         <div
@@ -1466,48 +1506,52 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       )}
 
-      <BrochurePromptModal
-        isOpen={promptPageIndex !== null && !!promptPage}
-        onClose={() => setPromptPageIndex(null)}
-        agent={{ name: agent.name || '', phone: agent.phone || '', website: agent.website || '' }}
-        pkg={null}
-        schedule={promptPage && promptPageIndex !== null ? buildSchedulePromptData(promptPage, promptPageIndex) : null}
-        getReferenceImageFile={promptPageIndex !== null ? () => buildPromptReferenceFile(promptPageIndex) : null}
-        context="schedule"
-        title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
-      />
+      {effectiveMode === 'jadwal' && (
+        <>
+        <BrochurePromptModal
+          isOpen={promptPageIndex !== null && !!promptPage}
+          onClose={() => setPromptPageIndex(null)}
+          agent={{ name: agent.name || '', phone: agent.phone || '', website: agent.website || '' }}
+          pkg={null}
+          schedule={promptPage && promptPageIndex !== null ? buildSchedulePromptData(promptPage, promptPageIndex) : null}
+          getReferenceImageFile={promptPageIndex !== null ? () => buildPromptReferenceFile(promptPageIndex) : null}
+          context="schedule"
+          title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
+        />
 
-      {/* Off-screen catalog stage — exactly one page (cover or month) is mounted
-          here at a time during PDF export, keeping peak memory to a single canvas. */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          left: -(BROCHURE_W + 80),
-          top: BROCHURE_H + 80,
-          width: BROCHURE_W,
-          pointerEvents: 'none',
-        }}
-      >
-        <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
-          {catalogStage?.kind === 'cover' && (
-            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
-          )}
-          {catalogStage?.kind === 'page' && (
-            /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
-               menjamin hasil identik antar engine; desain alternatif memakai
-               efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
-            <BrochureScheduleTemplate
-              month={catalogStage.page}
-              agent={agent}
-              showFullDate={catalogStage.showFullDate}
-              variant={catalogStage.variant}
-              rasterSafe
-              displayMode={displayMode}
-            />
-          )}
+        {/* Off-screen catalog stage — exactly one page (cover or month) is mounted
+            here at a time during PDF export, keeping peak memory to a single canvas. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            left: -(BROCHURE_W + 80),
+            top: BROCHURE_H + 80,
+            width: BROCHURE_W,
+            pointerEvents: 'none',
+          }}
+        >
+          <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
+            {catalogStage?.kind === 'cover' && (
+              <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
+            )}
+            {catalogStage?.kind === 'page' && (
+              /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
+                 menjamin hasil identik antar engine; desain alternatif memakai
+                 efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
+              <BrochureScheduleTemplate
+                month={catalogStage.page}
+                agent={agent}
+                showFullDate={catalogStage.showFullDate}
+                variant={catalogStage.variant}
+                rasterSafe
+                displayMode={displayMode}
+              />
+            )}
+          </div>
         </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

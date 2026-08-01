@@ -19,6 +19,10 @@ export interface BrochurePackage {
   umrohDulu?: boolean;
   /** Kota landing (arrival terakhir penerbangan berangkat), mis. "Jeddah" / "Madinah" */
   landing?: string;
+  /** URL brosur resmi paket (Bunny CDN, versioned). null bila belum tersedia. */
+  brosur?: string | null;
+  /** Nama tier harga termurah dari backend (utk payload Caption AI). */
+  tierName?: string | null;
 }
 
 export interface BrochureHotel {
