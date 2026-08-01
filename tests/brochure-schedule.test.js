@@ -7,6 +7,7 @@ import {
   parseSeatSisa,
   pickBrochurePackageDetails,
   pickBrochurePrice,
+  pickBrochurePriceRoom,
 } from '../lib/brochure-schedule.js';
 
 test('pickBrochurePrice: single hotel tier with Quard', () => {
@@ -60,6 +61,7 @@ test('pickBrochurePackageDetails: returns matching hotel tier for selected price
   assert.deepEqual(pickBrochurePackageDetails(harga, hotel), {
     harga: 33900000,
     tier: 'UHUD',
+    room: 'Quard',
     hotel: [
       { city: 'Mekkah', name: 'ELAF AL MASHAER / SETARAF', stars: 4 },
       { city: 'Madinah', name: 'GRAND PLAZA', stars: 4 },
@@ -211,4 +213,19 @@ test('groupPackagesByMonth: month-end overflow does not extend window', () => {
   assert.equal(out[0].key, '2026-02');
   assert.equal(out[0].packages.length, 1);
   assert.equal(out[0].packages[0].jadwal_id, 'feb');
+});
+
+test('pickBrochurePackageDetails: room = tipe kamar yang harganya dipakai', () => {
+  // Quard kosong → ROOM_PRIORITY jatuh ke Triple; `room` HARUS ikut turun,
+  // bukan tetap 'Quard'. Payload Caption AI melabeli harga dengan nilai ini.
+  const harga = { UHUD: { Quard: 0, Triple: 41000000, Double: 45000000 } };
+  const picked = pickBrochurePackageDetails(harga, null);
+  assert.equal(picked.harga, 41000000);
+  assert.equal(picked.room, 'Triple');
+  assert.equal(picked.tier, 'UHUD');
+});
+
+test('pickBrochurePriceRoom: null saat tidak ada harga valid', () => {
+  assert.equal(pickBrochurePriceRoom({ UHUD: { Quard: 'tba' } }), null);
+  assert.equal(pickBrochurePriceRoom({ UHUD: { Double: 45000000 } }), 'Double');
 });

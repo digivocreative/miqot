@@ -18468,6 +18468,10 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         brosurThumb: r.brosur_thumb_cdn || null,
         // Nama tier harga termurah (dari details) supaya FE tak mengarang tier
         tierName: details?.tier ?? null,
+        // Tipe kamar (Quard/Triple/Double) yang harganya dipakai sebagai
+        // `harga`. Tanpa ini FE tak bisa melabeli harga di payload Caption AI:
+        // tierName berisi HEMAT/UHUD/RAHMAH, bukan tipe kamar.
+        roomName: details?.room ?? null,
       });
     }
     if (droppedNoPrice > 0) {

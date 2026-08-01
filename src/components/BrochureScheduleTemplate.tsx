@@ -23,8 +23,11 @@ export interface BrochurePackage {
   brosur?: string | null;
   /** Turunan kecil (lebar 400px) untuk grid. null → pakai `brosur` penuh. */
   brosurThumb?: string | null;
-  /** Nama tier harga termurah dari backend (utk payload Caption AI). */
+  /** Nama tier harga termurah dari backend (HEMAT/UHUD/RAHMAH). */
   tierName?: string | null;
+  /** Tipe kamar (Quard/Triple/Double) yang harganya dipakai sebagai `harga`.
+   *  Dipakai untuk melabeli harga di payload Caption AI. */
+  roomName?: string | null;
 }
 
 export interface BrochureHotel {

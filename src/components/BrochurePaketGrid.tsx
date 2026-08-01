@@ -1,9 +1,18 @@
 // src/components/BrochurePaketGrid.tsx
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { FileImage } from 'lucide-react';
 import { BrochureModal } from './BrochureModal';
 import { CaptionAIModal } from './CaptionAIModal';
+import { BrochurePromptModal } from './BrochurePromptModal';
+import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
 import type { BrochureAgent, BrochurePackage } from './BrochureScheduleTemplate';
+
+// BrochurePromptModal sudah statis di BrochureSchedulePage (dipakai mode
+// Jadwal), jadi gratis di chunk ini. PackageValueModal belum — di-lazy supaya
+// tidak menambah berat muat awal halaman Brosur yang baru saja dioptimalkan.
+const PackageValueModal = lazy(() =>
+  import('./PackageValueModal').then(m => ({ default: m.PackageValueModal })),
+);
 
 const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
 const MONTH_FULL_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -86,24 +95,28 @@ function hotelByCity(pkg: BrochurePackage, re: RegExp) {
   return pkg.hotel?.find(h => re.test(h.city || ''));
 }
 
-// Tier harga backend (`tierName`) → key kamar yang dipahami /api/ai-copy.
-// Sengaja TIDAK menebak: kalau nama tier tidak cocok pola mana pun, harga
-// dibuang dari payload. Caption tanpa harga lebih baik daripada harga yang
-// dilabeli tipe kamar karangan.
-const TIER_ROOM_PATTERNS: Array<[RegExp, 'Quard' | 'Triple' | 'Double']> = [
-  [/qua/i, 'Quard'],
-  [/trip/i, 'Triple'],
-  [/dou/i, 'Double'],
-];
+// Key kamar yang dipahami /api/ai-copy.
+const ROOM_KEYS = ['Quard', 'Triple', 'Double'] as const;
 
+/**
+ * Harga untuk payload Caption AI, dilabeli tipe kamar yang BENAR.
+ *
+ * Backend mengirim `roomName` — tipe kamar yang harganya benar-benar dipakai
+ * sebagai "harga mulai" (lihat ROOM_PRIORITY di lib/brochure-schedule.js).
+ * Sebelumnya field ini tidak ada dan kode di sini menebaknya dari `tierName`,
+ * yang isinya HEMAT/UHUD/RAHMAH — tidak pernah cocok pola tipe kamar, jadi
+ * harga SELALU dibuang dan caption AI tak pernah menyebut harga.
+ *
+ * Tetap tidak menebak: kalau `roomName` kosong atau di luar daftar yang
+ * dipahami backend AI, harga dibuang. Caption tanpa harga lebih baik daripada
+ * harga dengan label tipe kamar karangan.
+ */
 export function buildHargaFromTier(pkg: BrochurePackage): Record<string, string> | null {
   const harga = pkg.harga;
   if (typeof harga !== 'number' || !Number.isFinite(harga) || harga <= 0) return null;
-  const tier = pkg.tierName;
-  if (!tier) return null;
-  const match = TIER_ROOM_PATTERNS.find(([re]) => re.test(tier));
-  if (!match) return null;
-  return { [match[1]]: String(harga) };
+  const room = ROOM_KEYS.find(k => k === pkg.roomName);
+  if (!room) return null;
+  return { [room]: String(harga) };
 }
 
 function buildCaptionPayload(pkg: BrochurePackage, agent: BrochureAgent): Record<string, unknown> {
@@ -126,6 +139,27 @@ function buildCaptionPayload(pkg: BrochurePackage, agent: BrochureAgent): Record
     },
     agentName: agent.name || '',
     agentWebsite: agent.website || '',
+  };
+}
+
+/** Bintang ditulis simbol, mengikuti buildBrochurePromptData di PackageCard. */
+function hotelLabel(h?: { name: string; stars: number | null } | null): string | undefined {
+  if (!h?.name) return undefined;
+  return h.stars && h.stars > 0 ? `${h.name} (${'★'.repeat(h.stars)})` : h.name;
+}
+
+function buildPromptPkg(pkg: BrochurePackage): BrochurePromptPkg {
+  return {
+    nama: pkg.nama,
+    tgl: formatTglLongID(pkg.berangkat_tgl) || undefined,
+    // Diberi awalan "mulai" supaya formatBrochurePrice mempertahankannya —
+    // angka ini harga termurah paket, bukan harga tunggal.
+    harga: typeof pkg.harga === 'number' && pkg.harga > 0
+      ? formatBrochurePrice(`mulai Rp ${pkg.harga}`)
+      : undefined,
+    mekkah: hotelLabel(hotelByCity(pkg, /mek/i)),
+    madinah: hotelLabel(hotelByCity(pkg, /mad/i)),
+    maskapai: pkg.maskapai || undefined,
   };
 }
 
@@ -276,7 +310,13 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
   const [selected, setSelected] = useState<BrochurePackage | null>(null);
   // `selected` sengaja tidak di-null-kan saat modal ditutup supaya animasi exit
   // BrochureModal tetap punya data untuk dirender sampai selesai.
-  const [view, setView] = useState<'brosur' | 'caption' | null>(null);
+  const [view, setView] = useState<'brosur' | 'caption' | 'value' | null>(null);
+  // "Buat Ulang Brosur" TIDAK menutup modal brosur — menumpuk di atasnya,
+  // persis perilaku PackageCard di halaman Paket.
+  const [promptOpen, setPromptOpen] = useState(false);
+  // Chunk PackageValueModal baru diunduh saat alatnya pertama kali dibuka, lalu
+  // tetap ter-mount supaya animasi exit-nya tidak terpotong.
+  const [valueMounted, setValueMounted] = useState(false);
 
   const withBrosur = packages.filter(p => p.brosur);
 
@@ -318,6 +358,11 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
             title={selected.nama}
             tone="emerald"
             onCaption={() => setView('caption')}
+            // Butuh nama tier untuk mengunci fakta paket di backend; 1 dari 66
+            // paket tidak punya harga sehingga tier-nya kosong — di situ alat
+            // ini tidak ditawarkan daripada mengirim tier tebakan.
+            onPackageValue={selected.tierName ? () => { setValueMounted(true); setView('value'); } : undefined}
+            onPrompt={() => setPromptOpen(true)}
           />
           {/* Di-mount SETELAH BrochureModal supaya portal-nya menumpuk di atas. */}
           <CaptionAIModal
@@ -326,6 +371,28 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
             subject={selected.nama}
             buildPayload={() => buildCaptionPayload(selected, agent)}
             buildFallbackText={() => buildCaptionFallback(selected, agent)}
+          />
+          {valueMounted && (
+            <Suspense fallback={null}>
+              <PackageValueModal
+                isOpen={view === 'value'}
+                onClose={() => setView(null)}
+                subject={selected.nama}
+                jadwalId={selected.id}
+                tier={selected.tierName || ''}
+                agent={{ name: agent.name, phone: agent.phone, photo: agent.photo }}
+              />
+            </Suspense>
+          )}
+          <BrochurePromptModal
+            isOpen={promptOpen}
+            onClose={() => setPromptOpen(false)}
+            agent={{ name: agent.name || '', phone: agent.phone || '', website: agent.website || '' }}
+            // Brosur RESMI paket dipakai sebagai referensi — tidak perlu render
+            // ulang di browser seperti mode Jadwal, URL-nya sudah publik.
+            referenceImageUrl={selected.brosur || null}
+            pkg={promptOpen ? buildPromptPkg(selected) : null}
+            title={selected.nama}
           />
         </>
       )}
