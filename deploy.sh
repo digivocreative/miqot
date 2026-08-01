@@ -7,6 +7,13 @@ cd "$(dirname "$0")"
 TG_TOKEN="${TELEGRAM_DEPLOY_BOT_TOKEN:?TELEGRAM_DEPLOY_BOT_TOKEN not set}"
 TG_CHAT_ID="${TELEGRAM_DEPLOY_CHAT_ID:?TELEGRAM_DEPLOY_CHAT_ID not set}"
 
+# Notifikasi TIDAK boleh menggagalkan deploy (karena itu selalu `return 0`),
+# tapi kegagalannya WAJIB terlihat di journal. Versi lama memakai
+# `> /dev/null 2>&1 || true` yang menelan segalanya: token deploy basi
+# (systemd membaca EnvironmentFile sekali saat service start, jadi proses
+# webhook lama masih memegang token pra-rotasi) membuat Telegram membalas 401
+# dari 18 Jul s/d 1 Agt 2026 tanpa satu pun jejak di log. Token disamarkan dari
+# output supaya rahasia tidak bocor ke journal.
 send_telegram() {
   if [[ -z "${TG_TOKEN}" || -z "${TG_CHAT_ID}" ]]; then
     echo "==> Telegram notification skipped: TG_TOKEN/TELEGRAM_BOT_TOKEN or TG_CHAT_ID/TELEGRAM_CHAT_ID is not configured"
@@ -14,10 +21,28 @@ send_telegram() {
   fi
 
   local message="$1"
-  curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+  local response http_code body
+  # `local` dipisah dari assignment supaya exit code curl tidak tertelan `local`.
+  response=$(curl -sS -m 15 -w $'\n%{http_code}' -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
     -d chat_id="${TG_CHAT_ID}" \
     -d parse_mode="Markdown" \
-    -d text="${message}" > /dev/null 2>&1 || true
+    -d text="${message}" 2>&1) || {
+      echo "==> WARNING: notifikasi Telegram GAGAL (curl error): ${response//${TG_TOKEN}/***}"
+      return 0
+    }
+
+  http_code=$(tail -n1 <<< "${response}")
+  body=$(sed '$d' <<< "${response}")
+  if [[ "${http_code}" == "200" && "${body}" == *'"ok":true'* ]]; then
+    return 0
+  fi
+
+  echo "==> WARNING: notifikasi Telegram GAGAL (HTTP ${http_code}): ${body//${TG_TOKEN}/***}"
+  if [[ "${http_code}" == "401" ]]; then
+    echo "==> Petunjuk: token kemungkinan sudah dirotasi di .env tapi deploy-webhook.service"
+    echo "    masih memegang nilai lama. Jalankan: sudo systemctl restart deploy-webhook.service"
+  fi
+  return 0
 }
 
 COMMIT_INFO="${DEPLOY_COMMIT_MSG:-unknown}"
