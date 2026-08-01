@@ -20333,11 +20333,22 @@ const BROSUR_THUMB_QUALITY = 78;
 // URL thumb otomatis berubah saat brosurnya diganti — tidak perlu kolom sha
 // terpisah dan edge cache lama tidak mungkin terpakai ulang.
 async function ensureBrosurThumb(pkg, file) {
-  if (!file.contentType?.startsWith('image/')) return 'skip';
-
   const path = buildContentAddressedCdnPath(BROSUR_THUMB_FOLDER, pkg.jadwal_id, file.sha256, '.webp');
   const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
   if (pkg.brosur_thumb_cdn === cdnUrl) return 'skip';
+
+  // JANGAN percaya Content-Type: sumber AWAPI menyajikan brosur sebagai
+  // application/octet-stream (83 dari 84 file per 1 Agt 2026), sehingga guard
+  // berbasis MIME menolak hampir semua brosur yang sah. Biarkan sharp membaca
+  // header file — kalau gagal berarti memang bukan raster (mis. PDF) dan itu
+  // dilewati diam-diam, bukan dihitung sebagai error.
+  let meta;
+  try {
+    meta = await sharp(file.buffer).metadata();
+  } catch {
+    return 'skip';
+  }
+  if (!meta?.width) return 'skip';
 
   const thumb = await sharp(file.buffer)
     .rotate()                                                   // hormati EXIF orientation
