@@ -68,6 +68,22 @@ function signaturesEqual(left: Uint8ClampedArray | null, right: Uint8ClampedArra
 const NEEDS_REDRAW_SETTLE =
   typeof navigator !== 'undefined' && !navigator.userAgent.includes('Chrome');
 
+// Font yang di-embed ke SVG capture dulu SELALU ditarik sebagai .ttf, karena
+// WebKit rawan balapan decode WOFF2 di dalam foreignObject dan diam-diam
+// memakai font fallback. Tapi .woff2 milik font yang sama SUDAH ada di HTTP
+// cache — preview di layar memuatnya lebih dulu — jadi di Blink .ttf berarti
+// mengunduh huruf yang sama untuk KEDUA kalinya.
+//
+// Terukur 1 Agt 2026 (Fast 3G, halaman Brosur Jadwal, cache kosong):
+//   .woff2 preview  1,6 → 7,4 dtk   (~1,38 MB)
+//   .ttf   capture  7,4 → 12,4 dtk  (~1,29 MB)  ← redundan di Blink
+//   render capture  12,4 → 16,2 dtk
+//
+// Blink merasterisasi WOFF2 di dalam foreignObject dengan andal, jadi di sana
+// pakai sumber yang sudah ter-cache. WebKit/Gecko TETAP .ttf — perbaikan
+// fallback-font itu sengaja dipertahankan.
+const EMBED_PREFERS_TTF = NEEDS_REDRAW_SETTLE;
+
 // Satu rasterisasi DOM → kanvas. Sengaja TIDAK memakai domToCanvas() lib:
 // loop fixSvgXmlDecode-nya menggambar ulang kanvas sekali per elemen
 // ber-gambar/gradien (drawImageCount) — brosur penuh gradien → puluhan redraw
@@ -148,7 +164,9 @@ function embeddedFontCss(fonts: LocalFont[]): Promise<string> {
   const pending = Promise.all(fonts.map(async font => {
     // TTF is slower to download but much less prone to the WebKit SVG/WOFF2
     // decode race. Fall back to the declared source when no TTF is bundled.
-    const sources = font.src.endsWith('.woff2')
+    // Di Blink race itu tidak ada dan .woff2-nya sudah ter-cache oleh preview,
+    // jadi .ttf dilewati sama sekali (lihat EMBED_PREFERS_TTF).
+    const sources = font.src.endsWith('.woff2') && EMBED_PREFERS_TTF
       ? [font.src.replace(/\.woff2$/i, '.ttf'), font.src]
       : [font.src];
     let response: Response | null = null;
