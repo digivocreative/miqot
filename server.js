@@ -18422,7 +18422,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Schedules — pull all years (table is small, <300 rows globally)
     const { data: rows, error: schedErr } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, pulang_rute, seat_sisa, promo, paket_harga, paket_hotel');
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, pulang_rute, seat_sisa, promo, paket_harga, paket_hotel, brosur, brosur_cdn, brosur_source_sha256');
 
     if (schedErr) {
       console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
@@ -18459,6 +18459,12 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         isPromo: String(r.promo || '') === '1',
         umrohDulu: isUmrohFirstRoute(r.berangkat_rute, r.pulang_rute),
         landing: landingCityFromRoute(r.berangkat_rute),
+        // Brosur resmi AWAPI (webp) — CDN versioned, fallback ke URL sumber
+        brosur: r.brosur_cdn
+          ? appendUrlVersion(r.brosur_cdn, r.brosur_source_sha256)
+          : (r.brosur || null),
+        // Nama tier harga termurah (dari details) supaya FE tak mengarang tier
+        tierName: details?.tier ?? null,
       });
     }
     if (droppedNoPrice > 0) {
