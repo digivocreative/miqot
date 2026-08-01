@@ -21,6 +21,8 @@ export interface BrochurePackage {
   landing?: string;
   /** URL brosur resmi paket (Bunny CDN, versioned). null bila belum tersedia. */
   brosur?: string | null;
+  /** Turunan kecil (lebar 400px) untuk grid. null → pakai `brosur` penuh. */
+  brosurThumb?: string | null;
   /** Nama tier harga termurah dari backend (utk payload Caption AI). */
   tierName?: string | null;
 }

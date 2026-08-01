@@ -15,6 +15,7 @@ import 'dotenv/config'; // ⚠️ Harus sebelum import file lokal agar env var t
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import sharp from 'sharp';
 import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, fetchUmrahJamaahEditForm, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, submitUmrahJamaahEditWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
@@ -18422,7 +18423,7 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Schedules — pull all years (table is small, <300 rows globally)
     const { data: rows, error: schedErr } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, pulang_rute, seat_sisa, promo, paket_harga, paket_hotel, brosur, brosur_cdn, brosur_source_sha256');
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, berangkat_rute, pulang_rute, seat_sisa, promo, paket_harga, paket_hotel, brosur, brosur_cdn, brosur_source_sha256, brosur_thumb_cdn');
 
     if (schedErr) {
       console.error('[brosur-jadwal] schedule fetch:', schedErr.message);
@@ -18463,6 +18464,8 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         brosur: r.brosur_cdn
           ? appendUrlVersion(r.brosur_cdn, r.brosur_source_sha256)
           : (r.brosur || null),
+        // Turunan kecil (lebar 400px) untuk grid; null → frontend pakai `brosur`
+        brosurThumb: r.brosur_thumb_cdn || null,
         // Nama tier harga termurah (dari details) supaya FE tak mengarang tier
         tierName: details?.tier ?? null,
       });
@@ -20223,13 +20226,14 @@ async function syncUmrohSchedules() {
         // First, fetch stale rows to clean up Bunny files
         const { data: staleRows } = await supabase
           .from('umroh_schedules')
-          .select('jadwal_id, brosur_cdn, itinerary_cdn')
+          .select('jadwal_id, brosur_cdn, brosur_thumb_cdn, itinerary_cdn')
           .eq('year_code', year)
           .not('jadwal_id', 'in', `(${currentIds.join(',')})`);
         if (staleRows?.length && getBunnyEnabled()) {
           for (const stale of staleRows) {
             try {
               if (stale.brosur_cdn) await bunnyDelete(stale.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+              if (stale.brosur_thumb_cdn) await bunnyDelete(stale.brosur_thumb_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
               if (stale.itinerary_cdn) await bunnyDelete(stale.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
             } catch (e) { console.error(`[ScheduleSync] Bunny cleanup ${stale.jadwal_id}: ${e.message}`); }
           }
@@ -20264,13 +20268,14 @@ async function syncUmrohSchedules() {
     const activeList = `(${SCHEDULE_YEAR_CODES.join(',')})`;
     const { data: orphanRows } = await supabase
       .from('umroh_schedules')
-      .select('jadwal_id, year_code, brosur_cdn, itinerary_cdn')
+      .select('jadwal_id, year_code, brosur_cdn, brosur_thumb_cdn, itinerary_cdn')
       .not('year_code', 'in', activeList);
     if (orphanRows?.length) {
       if (getBunnyEnabled()) {
         for (const stale of orphanRows) {
           try {
             if (stale.brosur_cdn) await bunnyDelete(stale.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
+            if (stale.brosur_thumb_cdn) await bunnyDelete(stale.brosur_thumb_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
             if (stale.itinerary_cdn) await bunnyDelete(stale.itinerary_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, ''));
           } catch (e) { console.error(`[ScheduleSync] Bunny cleanup orphan ${stale.jadwal_id}: ${e.message}`); }
         }
@@ -20312,6 +20317,44 @@ async function bunnyFileExists(path) {
   } catch {
     return false;
   }
+}
+
+// ── Thumbnail brosur ──────────────────────────────────────────────
+// Brosur resmi AWAPI adalah file resolusi CETAK (terukur 1 Agt 2026: 64 brosur
+// = 71,8 MB, rata-rata 1,1 MB, terbesar 4500x6000 px / 8,1 MB). Grid "Brosur
+// Paket" menampilkannya sebagai thumbnail ~180px, jadi >99% byte-nya terbuang:
+// di Fast 3G, 4 thumbnail pertama butuh ~10 detik. Bunny Optimizer tidak aktif
+// (?width= diabaikan), jadi turunannya kita buat sendiri saat sync.
+const BROSUR_THUMB_FOLDER = 'brosur-thumb';
+const BROSUR_THUMB_WIDTH = 400;
+const BROSUR_THUMB_QUALITY = 78;
+
+// Nama objek di-fingerprint dengan sha256 SUMBER, sama seperti file utama, jadi
+// URL thumb otomatis berubah saat brosurnya diganti — tidak perlu kolom sha
+// terpisah dan edge cache lama tidak mungkin terpakai ulang.
+async function ensureBrosurThumb(pkg, file) {
+  if (!file.contentType?.startsWith('image/')) return 'skip';
+
+  const path = buildContentAddressedCdnPath(BROSUR_THUMB_FOLDER, pkg.jadwal_id, file.sha256, '.webp');
+  const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
+  if (pkg.brosur_thumb_cdn === cdnUrl) return 'skip';
+
+  const thumb = await sharp(file.buffer)
+    .rotate()                                                   // hormati EXIF orientation
+    .resize({ width: BROSUR_THUMB_WIDTH, withoutEnlargement: true })
+    .webp({ quality: BROSUR_THUMB_QUALITY })
+    .toBuffer();
+
+  await bunnyUpload(path, thumb, 'image/webp');
+  const { error } = await supabase
+    .from('umroh_schedules')
+    .update({ brosur_thumb_cdn: cdnUrl })
+    .eq('jadwal_id', pkg.jadwal_id)
+    .eq('year_code', pkg.year_code);
+  if (error) throw new Error(`thumb metadata update failed: ${error.message}`);
+
+  console.log(`[BunnySync] Thumb ${pkg.jadwal_id}: ${(file.bytes / 1048576).toFixed(2)} MB → ${(thumb.length / 1024).toFixed(0)} KB`);
+  return 'uploaded';
 }
 
 async function bunnyUpload(path, buffer, contentType) {
@@ -20556,6 +20599,7 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
   console.log(`[BunnySync] Starting (${[...requestedKinds].join(', ') || 'no file kinds'})...`);
   const startTime = Date.now();
   let uploaded = 0, metadataUpdated = 0, skipped = 0, errors = 0;
+  let thumbsUploaded = 0, thumbErrors = 0;
   let uploadsSincePause = 0;
 
   const { data: packages, error } = await supabase
@@ -20566,6 +20610,7 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
       'brosur',
       'itinerary',
       'brosur_cdn',
+      'brosur_thumb_cdn',
       'itinerary_cdn',
       'brosur_source_sha256',
       'brosur_source_bytes',
@@ -20602,6 +20647,20 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
           bytes: file.bytes,
           contentType: file.contentType,
         };
+        // Thumb dipastikan ada SEBELUM percabangan skip/verify: kalau brosurnya
+        // tidak berubah (action 'skip') kita tetap perlu membuat thumb yang
+        // belum pernah ada — inilah jalur backfill-nya.
+        if (config.kind === 'brosur') {
+          try {
+            if (await ensureBrosurThumb(pkg, file) === 'uploaded') thumbsUploaded++;
+          } catch (thumbErr) {
+            // Thumb gagal TIDAK boleh menggagalkan sync brosur aslinya; frontend
+            // otomatis jatuh ke URL brosur penuh saat thumb tidak ada.
+            console.error(`[BunnySync] Thumb ${pkg.jadwal_id}: ${thumbErr.message}`);
+            thumbErrors++;
+          }
+        }
+
         const decision = getCdnFileDecision(pkg, config.kind, fileMeta);
         if (decision.action === 'skip') {
           skipped++;
@@ -20656,7 +20715,7 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors in ${elapsed}s`);
+  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${thumbsUploaded} thumbs, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors, ${thumbErrors} thumb errors in ${elapsed}s`);
 }
 
 // Schedule and daily timers may land on the same minute. Serialize file scans so
@@ -20681,7 +20740,7 @@ async function cleanupExpiredPackages() {
 
   const { data: expired, error } = await supabase
     .from('umroh_schedules')
-    .select('jadwal_id, year_code, brosur_cdn, itinerary_cdn')
+    .select('jadwal_id, year_code, brosur_cdn, brosur_thumb_cdn, itinerary_cdn')
     .lt('berangkat_tgl', cutoffDate);
 
   if (error || !expired?.length) {
@@ -20695,6 +20754,10 @@ async function cleanupExpiredPackages() {
       // Delete files from Bunny
       if (pkg.brosur_cdn) {
         const path = pkg.brosur_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '');
+        await bunnyDelete(path);
+      }
+      if (pkg.brosur_thumb_cdn) {
+        const path = pkg.brosur_thumb_cdn.replace(`https://${BUNNY_CDN_HOSTNAME}/`, '');
         await bunnyDelete(path);
       }
       if (pkg.itinerary_cdn) {

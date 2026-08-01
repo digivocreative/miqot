@@ -118,9 +118,14 @@ function PaketBrosurCard({ pkg, onOpen }: { pkg: BrochurePackage; onOpen: () => 
           </div>
         ) : (
           <img
-            src={pkg.brosur || ''}
+            // Thumb 400px kalau sudah ada; brosur penuh (bisa >8 MB) hanya
+            // sebagai cadangan saat sync belum sempat membuat turunannya.
+            src={pkg.brosurThumb || pkg.brosur || ''}
             alt={`Brosur ${pkg.nama}`}
             loading="lazy"
+            decoding="async"
+            width={400}
+            height={533}
             className="w-full h-full object-cover object-top"
             onError={() => setImageFailed(true)}
           />
