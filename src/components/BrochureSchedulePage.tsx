@@ -161,6 +161,28 @@ const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
 
 // TODO: Remove gate — rollout bertahap, "Brosur Paket" baru dibuka utk nikita.
 const PAKET_MODE_AGENT_SLUGS = new Set(['nikita']);
+
+// Mode "Brosur Paket" punya slug sendiri (…/paket) supaya reload, bookmark, dan
+// link yang dibagikan mendarat di mode yang sama — bukan lompat balik ke Brosur
+// Jadwal. Base path dibaca dari URL, bukan dihardcode, karena halaman ini
+// dipasang di dua rute: /dashboard/brosur dan /dashboard/ai-tools/brosur-jadwal.
+const PAKET_PATH_SEGMENT = 'paket';
+
+function currentBrochureBasePath(): string {
+  const path = window.location.pathname.replace(/\/+$/, '');
+  return path.replace(new RegExp(`/${PAKET_PATH_SEGMENT}$`), '') || '/dashboard/brosur';
+}
+
+function readModeFromPath(): BrochureMode {
+  const segments = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  return segments[segments.length - 1] === PAKET_PATH_SEGMENT ? 'paket' : 'jadwal';
+}
+
+function brochureModePath(mode: BrochureMode): string {
+  const base = currentBrochureBasePath();
+  return mode === 'paket' ? `${base}/${PAKET_PATH_SEGMENT}` : base;
+}
+
 type CatalogStage =
   | { kind: 'cover' }
   | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' };
@@ -310,7 +332,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState<BrochureMonth[]>([]);
   const [agent, setAgent] = useState<BrochureAgent>(agentProp);
-  const [mode, setMode] = useState<BrochureMode>('jadwal');
+  const [mode, setMode] = useState<BrochureMode>(readModeFromPath);
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [availableOnly, setAvailableOnly] = useState(true);
@@ -318,6 +340,26 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   // SegmentedControl sama sekali dan halaman ini identik dengan produksi.
   const paketModeAllowed = PAKET_MODE_AGENT_SLUGS.has((agent.slug || '').trim().toLowerCase());
   const effectiveMode: BrochureMode = paketModeAllowed ? mode : 'jadwal';
+
+  // URL ⇄ mode. replaceState (bukan push) mengikuti pola tab StatistikPage:
+  // ganti mode itu berganti tampilan, bukan berpindah halaman — tombol back
+  // tetap berarti "keluar dari Brosur" dan tidak menumpuk satu entri per klik.
+  // Memakai effectiveMode, bukan mode, supaya agent di luar gate yang membuka
+  // …/paket langsung dikembalikan ke URL jadwal alih-alih menyimpan slug yang
+  // isinya tidak pernah ia lihat.
+  useEffect(() => {
+    if (readModeFromPath() === effectiveMode) return;
+    window.history.replaceState(window.history.state, '', brochureModePath(effectiveMode));
+  }, [effectiveMode]);
+
+  // Back/forward browser (mis. dari halaman lain kembali ke …/paket) tidak
+  // me-remount komponen ini kalau tab dashboard-nya sama, jadi mode harus
+  // dibaca ulang dari URL.
+  useEffect(() => {
+    const onPopState = () => setMode(readModeFromPath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(0);
   const exportPageRefs = useRef<Array<HTMLDivElement | null>>([]);
