@@ -133,6 +133,11 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Tinggi visual viewport SAAT sheet dibuka — acuan untuk menebak keyboard
+  // sedang terbuka. Wajib nilai beku, bukan window.innerHeight live: index.html
+  // memakai `interactive-widget=resizes-content`, jadi innerHeight ikut menyusut
+  // dan selisihnya jadi ~0 (heuristiknya terbalik).
+  const baseViewportRef = useRef(0);
 
   const closeSheet = useCallback(() => {
     // Respons yang datang setelah sheet ditutup diabaikan (lihat guard di ask()).
@@ -178,25 +183,45 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     html.style.overflow = 'hidden';
 
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
-    const update = () => {
-      if (vv) {
-        setViewportHeight(vv.height);
-        setViewportTop(vv.offsetTop);
-      } else {
-        setViewportHeight(window.innerHeight);
-        setViewportTop(0);
-      }
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    baseViewportRef.current = Math.round(vv ? vv.height : window.innerHeight);
+
+    // Selama keyboard iOS beranimasi, resize+scroll bisa datang beberapa kali
+    // per frame. Tanpa koalesensi tiap event jadi commit React sendiri (batching
+    // React 18 tidak melintasi event), dan pembulatan + bail-out mencegah commit
+    // untuk perubahan sub-pixel yang tak terlihat.
+    let raf = 0;
+    let lastHeight = -1;
+    let lastTop = -1;
+    const read = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        // Kedua nilai dibaca pada titik waktu yang SAMA, bukan saat dispatch
+        // event — kalau tidak, top dan height bisa berasal dari frame berbeda.
+        const h = Math.round(vv ? vv.height : window.innerHeight);
+        const t = Math.round(vv ? vv.offsetTop : 0);
+        if (h !== lastHeight) { lastHeight = h; setViewportHeight(h); }
+        if (t !== lastTop) { lastTop = t; setViewportTop(t); }
+      });
     };
-    update();
-    vv?.addEventListener('resize', update);
-    vv?.addEventListener('scroll', update);
-    window.addEventListener('resize', update);
+    // Koreksi auto-scroll iOS sengaja TIDAK dipasang di listener 'scroll':
+    // memanggil scrollTo dari sana memutasi angka yang jadi sumber bacaan kita
+    // sendiri. Cukup saat resize & saat input mendapat fokus.
+    const unscroll = () => { if (window.scrollY !== 0) window.scrollTo(0, 0); };
+    const onResize = () => { unscroll(); read(); };
+
+    read();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', read);
+    window.addEventListener('resize', onResize);
+    document.addEventListener('focusin', unscroll);
 
     return () => {
-      vv?.removeEventListener('resize', update);
-      vv?.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
+      if (raf) cancelAnimationFrame(raf);
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', read);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('focusin', unscroll);
       body.style.position = prevBody.position;
       body.style.top = prevBody.top;
       body.style.width = prevBody.width;
@@ -298,6 +323,18 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   }, [goToJamaah, closeSheet, onNavigate, slug]);
 
   const sheetHeight = viewportHeight != null ? `${viewportHeight}px` : '100dvh';
+  // SATU otoritas tinggi untuk sheet. Sebelumnya sheet punya `h-[min(92dvh,780px)]`
+  // (CSS, sinkron) DI SAMPING `max-h-full` yang mewarisi tinggi wrapper dari state
+  // React (telat ≥1 frame). Saat keyboard iOS beranimasi, pemenang min() berpindah
+  // dari suku CSS ke suku state di tengah jalan — itulah sumber kedipnya.
+  // `dvh` kini hanya dipakai bila visualViewport tidak tersedia sama sekali.
+  const sheetMaxHeight = viewportHeight != null
+    ? `${Math.min(Math.round(viewportHeight * 0.92), 780)}px`
+    : 'min(92dvh, 780px)';
+  // Keyboard terbuka bila viewport menyusut jauh dari tinggi saat sheet dibuka.
+  const keyboardOpen = viewportHeight != null
+    && baseViewportRef.current > 0
+    && viewportHeight < baseViewportRef.current - 100;
 
   return (
     <>
@@ -347,7 +384,11 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
               exit={{ opacity: 0 }}
               transition={{ duration: 0.24 }}
               onClick={closeSheet}
-              className="fixed inset-0 z-[9980] bg-slate-950/60 backdrop-blur-[2px]"
+              // Di-pin ke rect visual viewport yang SAMA dengan sheet. Dulu
+              // `inset-0` + backdrop-blur: lapisan blur seukuran layar yang
+              // tidak ikut bergerak saat keyboard naik memicu flash di WebKit.
+              className="fixed left-0 right-0 z-[9980] bg-slate-950/60"
+              style={{ top: viewportTop, height: sheetHeight }}
             />
             <div
               className="pointer-events-none fixed left-0 right-0 z-[9990] flex items-end justify-center"
@@ -362,11 +403,17 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
                 transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
-                className="pointer-events-auto flex h-[min(92dvh,780px)] max-h-full w-full max-w-lg flex-col rounded-t-3xl border border-b-0 border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                // h-auto: sheet setinggi isinya (idle tidak lagi menyisakan
+                // ~260px kosong), dibatasi satu maxHeight dari sumber yang sama
+                // dengan wrapper. JANGAN tambahkan prop `layout` framer-motion
+                // untuk meredam pertumbuhan tinggi idle→jawaban: itu mengukur &
+                // menganimasikan tiap perubahan tinggi dan kedipnya kembali.
+                className="pointer-events-auto flex h-auto w-full max-w-lg flex-col rounded-t-3xl border border-b-0 border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+                style={{ maxHeight: sheetMaxHeight }}
               >
                 {/* Header */}
-                <div className="shrink-0 rounded-t-3xl px-4 pb-3 pt-2">
-                  <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-200 dark:bg-slate-700" />
+                <div className="shrink-0 rounded-t-3xl px-4 pb-2 pt-2">
+                  <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-gray-200 dark:bg-slate-700" />
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
                       <BaniAvatar className="h-10 w-10" state={phase === 'loading' ? 'thinking' : 'idle'} />
@@ -375,7 +422,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-bold text-gray-800 dark:text-white">Bani</div>
                       <div className="truncate text-[10.5px] text-gray-500 dark:text-slate-500">
-                        Asisten Miqot · tahu paket &amp; data jamaah Anda
+                        Asisten Alhijaz.co · tahu paket &amp; data jamaah Anda
                       </div>
                     </div>
                     <button
@@ -390,20 +437,23 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                 </div>
 
                 {/* Konten */}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-4">
+                {/* min-h-0 WAJIB berpasangan dengan h-auto di atas: tanpa itu
+                    anak flex menolak menyusut, overflow-y-auto mati, dan sheet
+                    menembus maxHeight sampai menutupi input bar. */}
+                <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3">
                   {phase === 'idle' && (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <BaniBubble>
                         <span
                           dangerouslySetInnerHTML={{
                             __html: renderBaniMarkdown(
-                              "Assalamu'alaikum! Saya **Bani**, asisten Anda di Miqot. Tanyakan apa saja soal **paket** atau **jamaah Anda** — saya carikan datanya.",
+                              "Assalamu'alaikum! Saya **Bani**, asisten Anda di Alhijaz.co. Tanyakan apa saja soal **paket** atau **jamaah Anda** — saya carikan datanya.",
                             ),
                           }}
                         />
                       </BaniBubble>
                       <div>
-                        <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
                           Coba tanyakan
                         </div>
                         <div className="flex flex-col gap-2">
@@ -412,7 +462,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                               key={text}
                               type="button"
                               onClick={() => ask(text)}
-                              className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-3 py-2.5 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700/60"
+                              className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-3 py-2 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700/60"
                             >
                               <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${bg}`}>
                                 <Icon size={15} strokeWidth={2.2} className={tone} />
@@ -449,7 +499,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                             </span>
                           </div>
                           {[0, 1].map((i) => (
-                            <div key={i} className="h-20 animate-pulse rounded-2xl bg-gray-100 motion-reduce:animate-none dark:bg-slate-800" />
+                            <div key={i} className="h-16 animate-pulse rounded-2xl bg-gray-100 motion-reduce:animate-none dark:bg-slate-800" />
                           ))}
                         </div>
                       )}
@@ -473,7 +523,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                                       key={`pkg-${card.jadwal_id}-${idx}`}
                                       type="button"
                                       onClick={() => openPackage(card.jadwal_id)}
-                                      className="w-full rounded-2xl border border-gray-100 bg-white p-3 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700/60"
+                                      className="w-full rounded-2xl border border-gray-100 bg-white px-3 py-2.5 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700/60"
                                     >
                                       <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                                         {tgl && (
@@ -493,7 +543,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                                       {card.maskapai && (
                                         <div className="mt-0.5 text-[10.5px] text-gray-500 dark:text-slate-400">{card.maskapai}</div>
                                       )}
-                                      <div className="mt-2 flex items-center gap-2 border-t border-gray-100 pt-2 dark:border-slate-700">
+                                      <div className="mt-1.5 flex items-center gap-2 border-t border-gray-100 pt-1.5 dark:border-slate-700">
                                         {harga && <span className="text-[12px] font-bold text-emerald-600 dark:text-emerald-400">mulai {harga}</span>}
                                         <span className="ml-auto text-[9.5px] font-medium text-gray-400 dark:text-slate-500">{card.jadwal_id}</span>
                                         <ChevronRight size={14} className="text-gray-300 dark:text-slate-600" />
@@ -509,7 +559,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                                   return (
                                     <div
                                       key={`jm-${card.jm_id}-${idx}`}
-                                      className="flex items-center gap-2.5 rounded-2xl border border-gray-100 bg-white p-3 dark:border-slate-700 dark:bg-slate-800"
+                                      className="flex items-center gap-2.5 rounded-2xl border border-gray-100 bg-white p-2.5 dark:border-slate-700 dark:bg-slate-800"
                                     >
                                       <button
                                         type="button"
@@ -560,7 +610,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                                     key={`link-${card.target}-${idx}`}
                                     type="button"
                                     onClick={() => openLinkTarget(card.target)}
-                                    className="flex w-full items-center gap-2.5 rounded-2xl border border-dashed border-gray-300 bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-600 dark:hover:bg-slate-800/60"
+                                    className="flex min-h-[44px] w-full items-center gap-2.5 rounded-2xl border border-dashed border-gray-300 bg-transparent px-3 py-2 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-600 dark:hover:bg-slate-800/60"
                                   >
                                     <LinkIcon size={15} className="shrink-0 text-gray-400 dark:text-slate-500" />
                                     <span className="flex-1 text-[11.5px] font-semibold text-gray-600 dark:text-slate-300">{linkMeta.label}</span>
@@ -571,21 +621,27 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                             </div>
                           )}
 
-                          {sourceNote && !errorText && (
-                            <div className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500">
-                              <Clock size={10} />
-                              <span>{sourceNote}</span>
-                            </div>
-                          )}
+                          {/* Catatan sumber + tombol reset berbagi satu baris:
+                              keduanya metadata/aksi sekunder yang muat
+                              berdampingan. flex-wrap menjaga perilaku turun
+                              baris di layar sangat sempit. */}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            {sourceNote && !errorText ? (
+                              <div className="flex min-w-0 items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500">
+                                <Clock size={10} className="shrink-0" />
+                                <span className="truncate">{sourceNote}</span>
+                              </div>
+                            ) : <span />}
 
-                          <button
-                            type="button"
-                            onClick={resetToIdle}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-200 px-3 py-1.5 text-[11px] font-semibold text-purple-600 transition-colors hover:bg-purple-50 active:scale-95 dark:border-purple-800/60 dark:text-purple-400 dark:hover:bg-purple-900/20"
-                          >
-                            <RefreshCw size={12} strokeWidth={2.4} />
-                            Tanya yang lain
-                          </button>
+                            <button
+                              type="button"
+                              onClick={resetToIdle}
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-purple-200 px-3 py-2 text-[11px] font-semibold text-purple-600 transition-colors hover:bg-purple-50 active:scale-95 dark:border-purple-800/60 dark:text-purple-400 dark:hover:bg-purple-900/20"
+                            >
+                              <RefreshCw size={12} strokeWidth={2.4} />
+                              Tanya yang lain
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -594,11 +650,14 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
 
                 {/* Input bar */}
                 <div
-                  className="shrink-0 border-t border-gray-100 bg-white px-4 pt-3 dark:border-slate-700 dark:bg-slate-900"
-                  style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+                  className="shrink-0 border-t border-gray-100 bg-white px-4 pt-2.5 dark:border-slate-700 dark:bg-slate-900"
+                  // Saat keyboard terbuka, home-indicator tidak ada di bawah bar
+                  // ini — env(safe-area-inset-bottom) yang ikut berubah justru
+                  // jadi sumber reflow ketiga. Dibekukan, bukan dibuang.
+                  style={{ paddingBottom: keyboardOpen ? '0.625rem' : 'max(0.625rem, env(safe-area-inset-bottom))' }}
                 >
                   <form
-                    onSubmit={(e) => { e.preventDefault(); ask(input); }}
+                    onSubmit={(e) => { e.preventDefault(); if (phase === 'loading') return; ask(input); }}
                     className="flex items-center gap-2"
                   >
                     <input
@@ -606,10 +665,15 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       maxLength={QUESTION_MAX_LEN}
-                      disabled={phase === 'loading'}
+                      // readOnly, BUKAN disabled: men-disable input yang sedang
+                      // fokus membuat iOS membongkar lalu memasang ulang keyboard
+                      // tiap kali kirim — viewport melompat sekali per submit.
+                      // Guard aslinya pindah ke onSubmit + tombol kirim.
+                      readOnly={phase === 'loading'}
+                      aria-disabled={phase === 'loading'}
                       placeholder="Tanyakan paket atau jamaah Anda…"
                       aria-label="Pertanyaan untuk Bani"
-                      className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-[12.5px] text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+                      className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-[12.5px] text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 read-only:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                     />
                     <button
                       type="submit"
