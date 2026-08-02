@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  runMinaConversation,
-  hydrateMinaCards,
-  extractMinaJson,
-  buildMinaToolSpecs,
-  buildMinaSystemPrompt,
-  MINA_MAX_ROUNDS,
-  MINA_MAX_TOOL_CALLS,
-  MINA_TOOL_ROW_LIMIT,
-  MINA_MAX_CARDS_PER_TYPE,
-} from '../lib/mina-orchestrator.js';
-import { isMinaEnabledForAgent, requireMinaAccess } from '../lib/mina-access.js';
+  runBaniConversation,
+  hydrateBaniCards,
+  extractBaniJson,
+  buildBaniToolSpecs,
+  buildBaniSystemPrompt,
+  BANI_MAX_ROUNDS,
+  BANI_MAX_TOOL_CALLS,
+  BANI_TOOL_ROW_LIMIT,
+  BANI_MAX_CARDS_PER_TYPE,
+} from '../lib/bani-orchestrator.js';
+import { isBaniEnabledForAgent, requireBaniAccess } from '../lib/bani-access.js';
 
 const root = new URL('..', import.meta.url);
 const rootPath = root.pathname;
@@ -77,21 +77,21 @@ const toolMessages = (body) => (body?.messages || []).filter((m) => m.role === '
 
 // ── loop function calling ────────────────────────────────────────────────────
 
-test('loop berhenti di MINA_MAX_ROUNDS walau model terus minta tool', async () => {
+test('loop berhenti di BANI_MAX_ROUNDS walau model terus minta tool', async () => {
   const callOpenAI = scriptedOpenAI([toolCallsResponse(toolCall('list_jadwal_paket', { month: '2026-12' }))]);
   const supabase = okSupabase();
 
-  const out = await runMinaConversation({ question: 'paket Desember?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'paket Desember?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   // 3 putaran tool + 1 permintaan perbaikan format = 4 panggilan model, lalu berhenti.
-  assert.equal(callOpenAI.calls.length, MINA_MAX_ROUNDS + 1);
+  assert.equal(callOpenAI.calls.length, BANI_MAX_ROUNDS + 1);
   const executed = supabase.calls.filter(([m]) => m === 'from').length;
-  assert.equal(executed, MINA_MAX_ROUNDS, 'satu eksekusi tool per putaran');
+  assert.equal(executed, BANI_MAX_ROUNDS, 'satu eksekusi tool per putaran');
   assert.equal(out.degraded, true);
   assert.deepEqual(out.cards, []);
 });
 
-test('eksekusi tool dibatasi MINA_MAX_TOOL_CALLS walau model minta paralel', async () => {
+test('eksekusi tool dibatasi BANI_MAX_TOOL_CALLS walau model minta paralel', async () => {
   const callOpenAI = scriptedOpenAI([toolCallsResponse(
     toolCall('list_jadwal_paket', {}, 'c1'),
     toolCall('list_jadwal_paket', {}, 'c2'),
@@ -100,10 +100,10 @@ test('eksekusi tool dibatasi MINA_MAX_TOOL_CALLS walau model minta paralel', asy
   )]);
   const supabase = okSupabase();
 
-  await runMinaConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   const executed = supabase.calls.filter(([m]) => m === 'from').length;
-  assert.equal(executed, MINA_MAX_TOOL_CALLS, 'plafon eksekusi tool ditegakkan');
+  assert.equal(executed, BANI_MAX_TOOL_CALLS, 'plafon eksekusi tool ditegakkan');
   // Setiap tool_call tetap dibalas (syarat protokol), yang lewat plafon dijawab error.
   const lastRound = toolMessages(callOpenAI.calls.at(-1));
   assert.equal(lastRound.length, 12, '3 putaran x 4 tool_call harus punya balasan semua');
@@ -118,7 +118,7 @@ test('tool yang error diteruskan sebagai hasil tool, loop lanjut tanpa throw', a
     jsonResponse({ answer: 'Datanya belum bisa diambil.', jamaah_ids: [], link: null }),
   ]);
 
-  const out = await runMinaConversation({ question: 'siapa belum lunas?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'siapa belum lunas?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   assert.equal(out.success, true);
   assert.equal(out.degraded, undefined);
@@ -141,7 +141,7 @@ test('tool tak dikenal dan argumen non-JSON dibalas error, tidak menghentikan lo
     jsonResponse({ answer: 'Tidak ada data.' }),
   ]);
 
-  const out = await runMinaConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   assert.equal(out.success, true);
   assert.deepEqual(out.tools_used, [], 'panggilan invalid tidak dihitung terpakai');
@@ -159,14 +159,14 @@ test('agent diambil dari deps, bukan dari argumen model (anti-spoof)', async () 
     jsonResponse({ answer: 'ok' }),
   ]);
 
-  await runMinaConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   const scoped = supabase.calls.filter(([m, col, val]) => m === 'eq' && col === 'agent_id' && val === AGENT.id);
   assert.equal(scoped.length, 1, 'query tetap ter-scope agent dari JWT');
   assert.equal(supabase.calls.some(([m, , val]) => m === 'eq' && val === 'agent-lain'), false);
   // limit dipangkas demi hemat token.
   const range = supabase.calls.find(([m]) => m === 'range');
-  assert.deepEqual(range.slice(1), [0, MINA_TOOL_ROW_LIMIT - 1]);
+  assert.deepEqual(range.slice(1), [0, BANI_TOOL_ROW_LIMIT - 1]);
 });
 
 // ── parsing jawaban akhir ────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ test('jawaban akhir dengan ```json fence tetap terparse', async () => {
     textResponse(fenced),
   ]);
 
-  const out = await runMinaConversation({ question: 'paket Desember?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'paket Desember?', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   assert.equal(out.degraded, undefined);
   assert.equal(out.answer, 'Ada **1** paket.');
@@ -188,15 +188,15 @@ test('jawaban akhir dengan ```json fence tetap terparse', async () => {
   assert.deepEqual(out.cards.at(-1), { type: 'link', target: 'jadwal' });
 });
 
-test('extractMinaJson toleran terhadap pembungkus, menolak yang bukan jawaban', () => {
-  assert.equal(extractMinaJson('{"answer":"halo"}').answer, 'halo');
-  assert.equal(extractMinaJson('```\n{"answer":"halo"}\n```').answer, 'halo');
-  assert.equal(extractMinaJson('Berikut jawabannya: {"answer":"halo"} semoga membantu').answer, 'halo');
-  assert.equal(extractMinaJson('bukan json'), null);
-  assert.equal(extractMinaJson('{"answer":""}'), null);
-  assert.equal(extractMinaJson('{"answer":123}'), null);
-  assert.equal(extractMinaJson(''), null);
-  assert.equal(extractMinaJson(null), null);
+test('extractBaniJson toleran terhadap pembungkus, menolak yang bukan jawaban', () => {
+  assert.equal(extractBaniJson('{"answer":"halo"}').answer, 'halo');
+  assert.equal(extractBaniJson('```\n{"answer":"halo"}\n```').answer, 'halo');
+  assert.equal(extractBaniJson('Berikut jawabannya: {"answer":"halo"} semoga membantu').answer, 'halo');
+  assert.equal(extractBaniJson('bukan json'), null);
+  assert.equal(extractBaniJson('{"answer":""}'), null);
+  assert.equal(extractBaniJson('{"answer":123}'), null);
+  assert.equal(extractBaniJson(''), null);
+  assert.equal(extractBaniJson(null), null);
 });
 
 test('format gagal → satu retry; berhasil di retry tidak dianggap degradasi', async () => {
@@ -206,7 +206,7 @@ test('format gagal → satu retry; berhasil di retry tidak dianggap degradasi', 
     jsonResponse({ answer: 'Sudah rapi.' }),
   ]);
 
-  const out = await runMinaConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   assert.equal(callOpenAI.calls.length, 2);
   const repair = callOpenAI.calls[1].messages.at(-1);
@@ -224,7 +224,7 @@ test('format tetap gagal setelah retry → degradasi memakai teks mentah, tanpa 
     textResponse('tetap bukan JSON'),
   ]);
 
-  const out = await runMinaConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+  const out = await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
   assert.equal(out.success, true);
   assert.equal(out.degraded, true);
@@ -253,8 +253,8 @@ const TOOL_RESULTS = [
   },
 ];
 
-test('hydrateMinaCards membuang id yang tidak ada di hasil tool', () => {
-  const cards = hydrateMinaCards(TOOL_RESULTS, {
+test('hydrateBaniCards membuang id yang tidak ada di hasil tool', () => {
+  const cards = hydrateBaniCards(TOOL_RESULTS, {
     answer: 'x',
     package_ids: ['JBU1484', 'JBU9999', 'TIDAK-ADA'],
     jamaah_ids: ['JM001', 'JM404'],
@@ -264,8 +264,8 @@ test('hydrateMinaCards membuang id yang tidak ada di hasil tool', () => {
   assert.equal(cards[1].jm_id, 'JM001');
 });
 
-test('hydrateMinaCards mengisi kartu lengkap dari row hasil tool', () => {
-  const cards = hydrateMinaCards(TOOL_RESULTS, { answer: 'x', package_ids: ['JBU1500'], jamaah_ids: ['JM001'] });
+test('hydrateBaniCards mengisi kartu lengkap dari row hasil tool', () => {
+  const cards = hydrateBaniCards(TOOL_RESULTS, { answer: 'x', package_ids: ['JBU1500'], jamaah_ids: ['JM001'] });
   assert.deepEqual(cards[0], {
     type: 'package',
     jadwal_id: 'JBU1500',
@@ -292,22 +292,22 @@ test('hydrateMinaCards mengisi kartu lengkap dari row hasil tool', () => {
   });
 });
 
-test('hydrateMinaCards membatasi 4 kartu per tipe dan membuang duplikat', () => {
+test('hydrateBaniCards membatasi 4 kartu per tipe dan membuang duplikat', () => {
   const rows = Array.from({ length: 8 }, (_, i) => ({ jm_id: `JM10${i}`, nama: `X${i}` }));
-  const cards = hydrateMinaCards(
+  const cards = hydrateBaniCards(
     [{ name: 'list_jamaah', ok: true, data: { rows } }],
     { answer: 'x', jamaah_ids: [...rows.map((r) => r.jm_id), 'JM100'] },
   );
-  assert.equal(cards.length, MINA_MAX_CARDS_PER_TYPE);
+  assert.equal(cards.length, BANI_MAX_CARDS_PER_TYPE);
   assert.deepEqual(cards.map((c) => c.jm_id), ['JM100', 'JM101', 'JM102', 'JM103']);
 });
 
-test('hydrateMinaCards mengambil hasil get_jamaah/get_jadwal_paket dan hanya link valid', () => {
+test('hydrateBaniCards mengambil hasil get_jamaah/get_jadwal_paket dan hanya link valid', () => {
   const results = [
     { name: 'get_jadwal_paket', ok: true, data: { paket: { jadwal_id: 'JBU777', nama: 'PAKET SATU' } } },
     { name: 'get_jamaah', ok: true, data: { jamaah: { jm_id: 'JM777', nama: 'BUDI' }, booking_members: [{ jm_id: 'JM778', nama: 'SITI' }] } },
   ];
-  const cards = hydrateMinaCards(results, {
+  const cards = hydrateBaniCards(results, {
     answer: 'x',
     package_ids: ['jbu777'], // huruf kecil dari model tetap cocok
     jamaah_ids: ['JM778'],
@@ -317,19 +317,19 @@ test('hydrateMinaCards mengambil hasil get_jamaah/get_jadwal_paket dan hanya lin
   assert.equal(cards[1].nama, 'SITI');
   assert.deepEqual(cards[2], { type: 'link', target: 'jamaah' });
 
-  assert.deepEqual(hydrateMinaCards(results, { answer: 'x', link: 'pengaturan' }), []);
-  assert.deepEqual(hydrateMinaCards(results, { answer: 'x', link: null }), []);
+  assert.deepEqual(hydrateBaniCards(results, { answer: 'x', link: 'pengaturan' }), []);
+  assert.deepEqual(hydrateBaniCards(results, { answer: 'x', link: null }), []);
 });
 
 test('hasil tool yang gagal tidak pernah jadi sumber kartu', () => {
   const results = [{ name: 'list_jadwal_paket', ok: false, data: { rows: [{ jadwal_id: 'JBU1484' }] } }];
-  assert.deepEqual(hydrateMinaCards(results, { answer: 'x', package_ids: ['JBU1484'] }), []);
+  assert.deepEqual(hydrateBaniCards(results, { answer: 'x', package_ids: ['JBU1484'] }), []);
 });
 
 // ── kontrak prompt & tool spec ───────────────────────────────────────────────
 
 test('tool spec OpenAI dibangun dari registry bersama (8 tool)', () => {
-  const specs = buildMinaToolSpecs();
+  const specs = buildBaniToolSpecs();
   assert.equal(specs.length, 8);
   for (const spec of specs) {
     assert.equal(spec.type, 'function');
@@ -340,9 +340,9 @@ test('tool spec OpenAI dibangun dari registry bersama (8 tool)', () => {
   assert.ok(specs.some((s) => s.function.name === 'list_jamaah'));
 });
 
-test('system prompt memuat aturan wajib Mina', () => {
-  const prompt = buildMinaSystemPrompt(AGENT);
-  assert.match(prompt, /Kamu Mina/);
+test('system prompt memuat aturan wajib Bani', () => {
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.match(prompt, /Kamu Bani/);
   assert.match(prompt, /Nikita/);
   assert.match(prompt, /HANYA dari hasil tool/);
   assert.match(prompt, /snapshot/i);
@@ -358,32 +358,32 @@ test('system prompt memuat aturan wajib Mina', () => {
 
 // ── gate rollout ─────────────────────────────────────────────────────────────
 
-test('gate Mina hanya membuka slug pilot', () => {
-  assert.equal(isMinaEnabledForAgent('nikita'), true);
-  assert.equal(isMinaEnabledForAgent({ slug: 'NIKITA' }), true);
-  assert.equal(isMinaEnabledForAgent({ slug: 'bagas' }), false);
-  assert.equal(isMinaEnabledForAgent(''), false);
-  assert.equal(isMinaEnabledForAgent(null), false);
-  assert.equal(isMinaEnabledForAgent({}), false);
+test('gate Bani hanya membuka slug pilot', () => {
+  assert.equal(isBaniEnabledForAgent('nikita'), true);
+  assert.equal(isBaniEnabledForAgent({ slug: 'NIKITA' }), true);
+  assert.equal(isBaniEnabledForAgent({ slug: 'bagas' }), false);
+  assert.equal(isBaniEnabledForAgent(''), false);
+  assert.equal(isBaniEnabledForAgent(null), false);
+  assert.equal(isBaniEnabledForAgent({}), false);
 });
 
-test('requireMinaAccess menolak agent non-pilot dengan 403', () => {
+test('requireBaniAccess menolak agent non-pilot dengan 403', () => {
   let status = null; let body = null;
   const res = { status(code) { status = code; return this; }, json(payload) { body = payload; return this; } };
 
-  assert.equal(requireMinaAccess({ slug: 'nikita' }, res), true);
+  assert.equal(requireBaniAccess({ slug: 'nikita' }, res), true);
   assert.equal(status, null, 'agent pilot tidak boleh menyentuh res');
 
-  assert.equal(requireMinaAccess({ slug: 'agent-lain' }, res), false);
+  assert.equal(requireBaniAccess({ slug: 'agent-lain' }, res), false);
   assert.equal(status, 403);
-  assert.deepEqual(body, { error: 'Fitur Mina belum tersedia untuk agent ini' });
+  assert.deepEqual(body, { error: 'Fitur Bani belum tersedia untuk agent ini' });
 });
 
 // ── source contracts ─────────────────────────────────────────────────────────
 
-// Cermin guard tests/mina-tools.test.js: jalur Mina dipakai asisten AI, tidak
+// Cermin guard tests/bani-tools.test.js: jalur Bani dipakai asisten AI, tidak
 // boleh ada jalur tulis ke database sama sekali.
-for (const file of ['lib/mina-orchestrator.js', 'lib/mina-access.js']) {
+for (const file of ['lib/bani-orchestrator.js', 'lib/bani-access.js']) {
   test(`${file} is strictly read-only against the database`, () => {
     const src = read(file);
     assert.doesNotMatch(src, /\.insert\(/);
@@ -395,23 +395,23 @@ for (const file of ['lib/mina-orchestrator.js', 'lib/mina-access.js']) {
 }
 
 test('orchestrator tidak memanggil jaringan sendiri — callOpenAI wajib diinjeksi', async () => {
-  const src = read('lib/mina-orchestrator.js');
+  const src = read('lib/bani-orchestrator.js');
   assert.doesNotMatch(src, /fetch\(/);
   assert.doesNotMatch(src, /api\.openai\.com/);
   assert.doesNotMatch(src, /OPENAI_API_KEY/);
   await assert.rejects(
-    () => runMinaConversation({ question: 'x', agent: AGENT, supabase: okSupabase() }),
+    () => runBaniConversation({ question: 'x', agent: AGENT, supabase: okSupabase() }),
     /callOpenAI wajib diinjeksi/,
   );
 });
 
-test('logging Mina mencatat nama parameter saja, tidak pernah nilainya', () => {
-  const orchestrator = read('lib/mina-orchestrator.js');
+test('logging Bani mencatat nama parameter saja, tidak pernah nilainya', () => {
+  const orchestrator = read('lib/bani-orchestrator.js');
   assert.match(orchestrator, /Object\.keys\(args\)\.join/);
   assert.doesNotMatch(orchestrator, /JSON\.stringify\(args\)/);
 
   const server = read('server.js');
-  assert.doesNotMatch(server, /\[Mina\][^\n]*\$\{question\}/);
+  assert.doesNotMatch(server, /\[Bani\][^\n]*\$\{question\}/);
   // question_preview dipotong 100 karakter, sama seperti ask_ai_query.
   assert.match(server, /question_preview: question\.substring\(0, 100\)/);
 });
@@ -419,30 +419,30 @@ test('logging Mina mencatat nama parameter saja, tidak pernah nilainya', () => {
 test('kegagalan OpenAI dilempar keluar orchestrator supaya endpoint yang memutuskan pesannya', async () => {
   const boom = async () => { throw new Error('OpenAI 500: upstream meledak'); };
   await assert.rejects(
-    () => runMinaConversation({ question: 'x', agent: AGENT, supabase: okSupabase(), callOpenAI: boom, model: 'stub' }),
+    () => runBaniConversation({ question: 'x', agent: AGENT, supabase: okSupabase(), callOpenAI: boom, model: 'stub' }),
     /upstream meledak/,
   );
   // Timeout fetch (AbortSignal.timeout) juga sampai keluar sebagai throw.
   const timeout = async () => { const e = new Error('The operation was aborted'); e.name = 'TimeoutError'; throw e; };
   await assert.rejects(
-    () => runMinaConversation({ question: 'x', agent: AGENT, supabase: okSupabase(), callOpenAI: timeout, model: 'stub' }),
+    () => runBaniConversation({ question: 'x', agent: AGENT, supabase: okSupabase(), callOpenAI: timeout, model: 'stub' }),
     /aborted/,
   );
 });
 
-test('endpoint Mina ter-gate, ter-rate-limit, dan tidak membocorkan error internal', () => {
+test('endpoint Bani ter-gate, ter-rate-limit, dan tidak membocorkan error internal', () => {
   const server = read('server.js');
-  assert.match(server, /app\.post\('\/api\/mina\/ask', authMiddleware,/);
-  assert.match(server, /requireMinaAccess\(agent, res\)/);
-  assert.match(server, /MINA_RATE_LIMIT_MAX = 20/);
+  assert.match(server, /app\.post\('\/api\/bani\/ask', authMiddleware,/);
+  assert.match(server, /requireBaniAccess\(agent, res\)/);
+  assert.match(server, /BANI_RATE_LIMIT_MAX = 20/);
   assert.match(server, /retryAfterSeconds/);
   // Gagal model/timeout dijawab 200 { success:false } — bukan 5xx, dan tanpa
   // pesan internal (body error OpenAI hanya masuk log server).
-  assert.match(server, /return res\.json\(\{ success: false, error: 'Mina lagi tidak bisa menjawab\. Coba lagi sebentar lagi\.' \}\)/);
-  assert.doesNotMatch(server, /\[Mina\][\s\S]{0,400}res\.status\(500\)\.json\(\{ error: error\.message/);
+  assert.match(server, /return res\.json\(\{ success: false, error: 'Bani lagi tidak bisa menjawab\. Coba lagi sebentar lagi\.' \}\)/);
+  assert.doesNotMatch(server, /\[Bani\][\s\S]{0,400}res\.status\(500\)\.json\(\{ error: error\.message/);
   // Param wajib gpt-5.x: max_completion_tokens, tanpa temperature.
   assert.match(server, /max_completion_tokens/);
-  assert.doesNotMatch(server, /MINA_MODEL_PARAMS[\s\S]{0,120}temperature/);
+  assert.doesNotMatch(server, /BANI_MODEL_PARAMS[\s\S]{0,120}temperature/);
   // Tidak ada cache jawaban — data jamaah berubah-ubah.
-  assert.doesNotMatch(server, /mina_cache|minaCache/);
+  assert.doesNotMatch(server, /bani_cache|baniCache/);
 });

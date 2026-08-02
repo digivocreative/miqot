@@ -21,9 +21,9 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 // Isi ke-8 tool (deskripsi + body handler + helper murninya) tinggal di
-// lib/mina-tools.js supaya dipakai bersama asisten Mina in-app. Di sini yang
+// lib/bani-tools.js supaya dipakai bersama asisten Bani in-app. Di sini yang
 // tersisa hanya lapisan MCP: auth, rate limit, skema zod, dan envelope content.
-import { MINA_TOOL_BY_NAME, MAX_LIMIT } from './lib/mina-tools.js';
+import { BANI_TOOL_BY_NAME, MAX_LIMIT } from './lib/bani-tools.js';
 
 // Re-export helper murni yang dulu didefinisikan di file ini — importer lama
 // (tests/mcp-server.test.js, scripts) tidak boleh putus karena kodenya pindah.
@@ -39,7 +39,7 @@ export {
   isRealISODate,
   isRealMonth,
   maskPassport,
-} from './lib/mina-tools.js';
+} from './lib/bani-tools.js';
 
 const KEY_PREFIX = 'alhijaz_mcp_';
 const KEY_HEX_LEN = 48; // 24 random bytes
@@ -99,7 +99,7 @@ function toolError(message) {
   return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
 }
 
-const TOOL = MINA_TOOL_BY_NAME;
+const TOOL = BANI_TOOL_BY_NAME;
 
 function buildAgentMcpServer({ agent, supabase, log }) {
   const server = new McpServer({ name: 'alhijaz', version: '1.0.0' });
@@ -111,7 +111,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
       // carry jamaah names/phones (PII) into journald.
       log(`[MCP] ${agent.slug}: ${name} (${Object.keys(args || {}).join(',') || 'no args'})`);
       try {
-        // Handler lib/mina-tools.js mengembalikan bentuk netral
+        // Handler lib/bani-tools.js mengembalikan bentuk netral
         // { ok, data|error }; pembungkusan ke content MCP terjadi di sini saja.
         const out = await handler(args);
         return out?.ok ? toolResult(out.data) : toolError(out?.error || 'Permintaan tidak dapat diproses');
@@ -126,7 +126,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
 
   // Skema zod TIDAK berubah: validasi yang dilihat klien MCP tetap identik.
   // Title/description diambil dari registry supaya prosa tool tidak kembar
-  // (dan tidak drift) antara permukaan MCP dan Mina.
+  // (dan tidak drift) antara permukaan MCP dan Bani.
   register('list_jamaah', {
     title: TOOL.list_jamaah.title,
     description: TOOL.list_jamaah.description,

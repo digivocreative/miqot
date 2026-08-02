@@ -1,21 +1,22 @@
-// Mina — asisten AI in-app untuk agent: FAB + bottom sheet tanya-jawab.
+// Bani — asisten AI in-app untuk agent: FAB + bottom sheet tanya-jawab.
 //
 // Single-shot: SATU tanya, SATU jawab. Pertanyaan baru MENGGANTI layar, bukan
 // menumpuk jadi thread, dan tidak ada riwayat yang disimpan di mana pun.
 //
-// Isi kartu TIDAK PERNAH ditulis model — server (lib/mina-orchestrator.js)
+// Isi kartu TIDAK PERNAH ditulis model — server (lib/bani-orchestrator.js)
 // meng-hydrate `cards` dari hasil tool, komponen ini hanya merendernya.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Tent, Send, X, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
+  Send, X, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
   Users, CalendarRange, MessageCircle, RefreshCw,
 } from 'lucide-react';
+import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
 import { normalizeWaNumber } from '../../utils/phone';
 
-type MinaCard =
+type BaniCard =
   | {
       type: 'package';
       jadwal_id: string | null;
@@ -69,7 +70,7 @@ function applyBold(value: string): string {
   return value.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-white">$1</strong>');
 }
 
-export function renderMinaMarkdown(text: string): string {
+export function renderBaniMarkdown(text: string): string {
   const lines = escapeHtml(String(text || '')).split('\n');
   const blocks: string[] = [];
   let paragraph: string[] = [];
@@ -116,13 +117,13 @@ const initials = (nama: string | null | undefined) => (
   String(nama || '').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?'
 );
 
-export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNavigate: (path: string) => void }) {
+export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNavigate: (path: string) => void }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [input, setInput] = useState('');
   const [asked, setAsked] = useState('');
   const [answer, setAnswer] = useState('');
-  const [cards, setCards] = useState<MinaCard[]>([]);
+  const [cards, setCards] = useState<BaniCard[]>([]);
   const [sourceNote, setSourceNote] = useState('');
   const [errorText, setErrorText] = useState('');
   const [thinkingStep, setThinkingStep] = useState(0);
@@ -244,7 +245,7 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
     setPhase('loading');
 
     try {
-      const res = await fetch('/api/mina/ask', {
+      const res = await fetch('/api/bani/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ question: trimmed }),
@@ -255,11 +256,11 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
 
       if (res.status === 429) {
         const minutes = Math.max(1, Math.ceil(Number(data?.retryAfterSeconds || 0) / 60));
-        setErrorText(`Batas tanya Mina tercapai. Coba lagi dalam ±${minutes} menit ya.`);
+        setErrorText(`Batas tanya Bani tercapai. Coba lagi dalam ±${minutes} menit ya.`);
       } else if (!res.ok || !data) {
-        setErrorText(data?.error || 'Mina lagi tidak bisa menjawab. Coba lagi sebentar lagi.');
+        setErrorText(data?.error || 'Bani lagi tidak bisa menjawab. Coba lagi sebentar lagi.');
       } else if (data.success === false) {
-        setErrorText(data.error || 'Mina lagi tidak bisa menjawab. Coba lagi sebentar lagi.');
+        setErrorText(data.error || 'Bani lagi tidak bisa menjawab. Coba lagi sebentar lagi.');
       } else {
         setAnswer(String(data.answer || ''));
         setCards(Array.isArray(data.cards) ? data.cards : []);
@@ -275,7 +276,7 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
     }
   }, []);
 
-  const answerHtml = useMemo(() => (answer ? renderMinaMarkdown(answer) : ''), [answer]);
+  const answerHtml = useMemo(() => (answer ? renderBaniMarkdown(answer) : ''), [answer]);
 
   const openPackage = useCallback((jadwalId: string | null) => {
     if (!jadwalId) return;
@@ -313,23 +314,23 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
         style={{ right: 'max(1rem, calc(50% - 16rem + 1rem))' }}
       >
         <span className="rounded-full border border-gray-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-          Tanya Mina
+          Tanya Bani
         </span>
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="Buka Mina, asisten AI"
+          aria-label="Buka Bani, asisten AI"
           tabIndex={open ? -1 : undefined}
           className="relative flex h-[60px] w-[60px] items-center justify-center active:scale-95 transition-transform"
         >
           {/* Cincin conic berputar (animasi mati saat prefers-reduced-motion). */}
           <span
             aria-hidden="true"
-            className="mina-fab-ring absolute inset-[-2.5px] rounded-full"
+            className="bani-fab-ring absolute inset-[-2.5px] rounded-full"
             style={{ background: 'conic-gradient(#d946ef, #a855f7, #34d399, #d946ef)' }}
           />
-          <span className="relative flex h-[60px] w-[60px] items-center justify-center rounded-full border-[2.5px] border-gray-100 bg-gradient-to-br from-fuchsia-600 to-purple-800 shadow-lg shadow-purple-500/30 dark:border-slate-950">
-            <Tent size={26} strokeWidth={2.1} className="text-white" />
+          <span className="relative flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border-[2.5px] border-gray-100 shadow-lg shadow-purple-500/30 dark:border-slate-950">
+            <BaniAvatar className="h-full w-full" />
           </span>
           <span className="absolute right-0.5 top-0.5 z-10 h-3 w-3 rounded-full border-2 border-gray-100 bg-emerald-400 animate-pulse motion-reduce:animate-none dark:border-slate-950" />
         </button>
@@ -340,7 +341,7 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
         {open && (
           <>
             <motion.div
-              key="mina-scrim"
+              key="bani-scrim"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -353,10 +354,10 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
               style={{ top: viewportTop, height: sheetHeight }}
             >
               <motion.div
-                key="mina-sheet"
+                key="bani-sheet"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Mina, asisten agent"
+                aria-label="Bani, asisten agent"
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
@@ -368,13 +369,11 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
                   <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-200 dark:bg-slate-700" />
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-800">
-                        <Tent size={19} strokeWidth={2.1} className="text-white" />
-                      </div>
+                      <BaniAvatar className="h-10 w-10" state={phase === 'loading' ? 'thinking' : 'idle'} />
                       <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-400 dark:border-slate-900" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-bold text-gray-800 dark:text-white">Mina</div>
+                      <div className="text-sm font-bold text-gray-800 dark:text-white">Bani</div>
                       <div className="truncate text-[10.5px] text-gray-500 dark:text-slate-500">
                         Asisten Miqot · tahu paket &amp; data jamaah Anda
                       </div>
@@ -382,7 +381,7 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
                     <button
                       type="button"
                       onClick={closeSheet}
-                      aria-label="Tutup Mina"
+                      aria-label="Tutup Bani"
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100/80 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
                     >
                       <X size={16} strokeWidth={2.5} />
@@ -394,15 +393,15 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
                 <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-4">
                   {phase === 'idle' && (
                     <div className="space-y-4">
-                      <MinaBubble>
+                      <BaniBubble>
                         <span
                           dangerouslySetInnerHTML={{
-                            __html: renderMinaMarkdown(
-                              "Assalamu'alaikum! Saya **Mina**, asisten Anda di Miqot. Tanyakan apa saja soal **paket** atau **jamaah Anda** — saya carikan datanya.",
+                            __html: renderBaniMarkdown(
+                              "Assalamu'alaikum! Saya **Bani**, asisten Anda di Miqot. Tanyakan apa saja soal **paket** atau **jamaah Anda** — saya carikan datanya.",
                             ),
                           }}
                         />
-                      </MinaBubble>
+                      </BaniBubble>
                       <div>
                         <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
                           Coba tanyakan
@@ -457,11 +456,11 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
 
                       {phase === 'answer' && (
                         <div className="space-y-3">
-                          <MinaBubble>
+                          <BaniBubble>
                             {errorText
                               ? <span className="text-gray-700 dark:text-slate-200">{errorText}</span>
                               : <span dangerouslySetInnerHTML={{ __html: answerHtml }} />}
-                          </MinaBubble>
+                          </BaniBubble>
 
                           {cards.length > 0 && (
                             <div className="flex flex-col gap-2">
@@ -609,7 +608,7 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
                       maxLength={QUESTION_MAX_LEN}
                       disabled={phase === 'loading'}
                       placeholder="Tanyakan paket atau jamaah Anda…"
-                      aria-label="Pertanyaan untuk Mina"
+                      aria-label="Pertanyaan untuk Bani"
                       className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-[12.5px] text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                     />
                     <button
@@ -631,12 +630,10 @@ export default function MinaAssistant({ slug, onNavigate }: { slug: string; onNa
   );
 }
 
-function MinaBubble({ children }: { children: ReactNode }) {
+function BaniBubble({ children }: { children: ReactNode }) {
   return (
     <div className="flex gap-2">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-800">
-        <Tent size={14} strokeWidth={2.1} className="text-white" />
-      </div>
+      <BaniAvatar className="mt-0.5 h-7 w-7 shrink-0" />
       <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-gray-100 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-gray-700 dark:bg-slate-800 dark:text-slate-200">
         {children}
       </div>

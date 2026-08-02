@@ -26,14 +26,14 @@ function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
 }
 
-// Body ke-8 handler tool pindah ke lib/mina-tools.js (dipakai bersama asisten
-// Mina in-app); mcp-server.js menyisakan auth, rate limit, skema zod, dan
+// Body ke-8 handler tool pindah ke lib/bani-tools.js (dipakai bersama asisten
+// Bani in-app); mcp-server.js menyisakan auth, rate limit, skema zod, dan
 // envelope content MCP. Guard source di bawah menjaga kontrak yang SAMA pada
 // permukaan MCP gabungan — pola assertion-nya tidak berubah, hanya sumbernya
 // yang kini dua file. Guard read-only per-file tetap dipisah (mcp-server.js di
-// bawah, lib/mina-tools.js di tests/mina-tools.test.js).
+// bawah, lib/bani-tools.js di tests/bani-tools.test.js).
 function readMcpSurface() {
-  return `${read('mcp-server.js')}\n${read('lib/mina-tools.js')}`;
+  return `${read('mcp-server.js')}\n${read('lib/bani-tools.js')}`;
 }
 
 // ── key format & bearer parsing ──────────────────────────────────────────────

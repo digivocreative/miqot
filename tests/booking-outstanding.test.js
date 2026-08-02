@@ -253,12 +253,12 @@ test('stats dashboard memakai collapseBookingOutstanding, bukan dedupe buta', ()
 });
 
 test('MCP summarizePayments memakai fold bersama yang sama (tidak drift)', () => {
-  // summarizePayments kini tinggal di lib/mina-tools.js (registry tool bersama
-  // MCP + asisten Mina), mcp-server.js me-re-export-nya. Guard membaca kedua
+  // summarizePayments kini tinggal di lib/bani-tools.js (registry tool bersama
+  // MCP + asisten Bani), mcp-server.js me-re-export-nya. Guard membaca kedua
   // file: yang dijaga tetap sama — fold-nya DI-IMPORT dari lib bersama, bukan
   // di-implement ulang lokal. Path relatifnya beda per file, makanya toleran
   // './lib/...' (dari root) maupun './...' (dari dalam lib/).
-  const mcp = `${read('mcp-server.js')}\n${read('lib/mina-tools.js')}`;
+  const mcp = `${read('mcp-server.js')}\n${read('lib/bani-tools.js')}`;
   assert.match(mcp, /import \{ collapseBookingOutstanding \} from '\.{1,2}\/(?:lib\/)?booking-outstanding\.js'/);
   assert.doesNotMatch(mcp, /function rowHasAggregateBayarShape/);
 });

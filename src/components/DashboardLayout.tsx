@@ -13,7 +13,7 @@ import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
-import { isMinaEnabledForSlug } from '../lib/minaAccess';
+import { isBaniEnabledForSlug } from '../lib/baniAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
 import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
@@ -109,7 +109,7 @@ const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
 const TerasPage = lazy(() => import('./TerasPage'));
-const MinaAssistant = lazy(() => import('./mina/MinaAssistant'));
+const BaniAssistant = lazy(() => import('./bani/BaniAssistant'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const TerasCard = lazy(() => import('./TerasCard'));
@@ -621,13 +621,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }
   }, [activeTab, terasEnabled, terasProfileRouteSlug, navigatePath]);
 
-  // Mina (asisten AI in-app) — FAB + sheet, sama di semua halaman dashboard.
+  // Bani (asisten AI in-app) — FAB + sheet, sama di semua halaman dashboard.
   // Ber-gate slug pilot dan lazy, jadi agent di luar pilot tidak mengunduh
   // chunk-nya sama sekali. Dirender di dua cabang return di bawah (sub-page &
   // home) karena keduanya adalah root layout yang terpisah.
-  const minaAssistant = isMinaEnabledForSlug(agentData.slug) ? (
+  const baniAssistant = isBaniEnabledForSlug(agentData.slug) ? (
     <Suspense fallback={null}>
-      <MinaAssistant slug={agentData.slug} onNavigate={navigatePath} />
+      <BaniAssistant slug={agentData.slug} onNavigate={navigatePath} />
     </Suspense>
   ) : null;
 
@@ -1065,7 +1065,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })()}
           </Suspense>
         </main>
-        {minaAssistant}
+        {baniAssistant}
       </div>
     );
   }
@@ -1400,7 +1400,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           }
         `}</style>
       </main>
-      {minaAssistant}
+      {baniAssistant}
     </div>
   );
 }

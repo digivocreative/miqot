@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MINA_TOOLS, MINA_TOOL_BY_NAME, MAX_LIMIT } from '../lib/mina-tools.js';
+import { BANI_TOOLS, BANI_TOOL_BY_NAME, MAX_LIMIT } from '../lib/bani-tools.js';
 
 const root = new URL('..', import.meta.url);
 const rootPath = root.pathname;
@@ -11,7 +11,7 @@ function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
 }
 
-// Kontrak registry: dua permukaan (MCP eksternal per-agent + asisten Mina
+// Kontrak registry: dua permukaan (MCP eksternal per-agent + asisten Bani
 // in-app) memakai daftar tool yang SAMA. Menambah/menghapus tool di sini harus
 // disengaja, bukan efek samping refactor.
 const EXPECTED_TOOLS = [
@@ -27,18 +27,18 @@ const EXPECTED_TOOLS = [
 
 // ── bentuk registry ──────────────────────────────────────────────────────────
 
-test('MINA_TOOLS berisi tepat 8 tool dengan nama unik sesuai daftar', () => {
-  assert.equal(MINA_TOOLS.length, 8);
-  const names = MINA_TOOLS.map((t) => t.name);
+test('BANI_TOOLS berisi tepat 8 tool dengan nama unik sesuai daftar', () => {
+  assert.equal(BANI_TOOLS.length, 8);
+  const names = BANI_TOOLS.map((t) => t.name);
   assert.deepEqual(names, EXPECTED_TOOLS);
   assert.equal(new Set(names).size, names.length, 'nama tool harus unik');
   // Lookup by-name mencakup semuanya (dipakai mcp-server.js per request).
-  assert.deepEqual(Object.keys(MINA_TOOL_BY_NAME).sort(), [...names].sort());
-  for (const name of names) assert.equal(MINA_TOOL_BY_NAME[name].name, name);
+  assert.deepEqual(Object.keys(BANI_TOOL_BY_NAME).sort(), [...names].sort());
+  for (const name of names) assert.equal(BANI_TOOL_BY_NAME[name].name, name);
 });
 
 test('setiap tool punya description, JSON Schema object, dan run() async', () => {
-  for (const tool of MINA_TOOLS) {
+  for (const tool of BANI_TOOLS) {
     assert.ok(typeof tool.description === 'string' && tool.description.trim().length > 0, `${tool.name}: description kosong`);
     assert.ok(typeof tool.title === 'string' && tool.title.trim().length > 0, `${tool.name}: title kosong`);
     assert.equal(typeof tool.parameters, 'object', `${tool.name}: parameters bukan objek`);
@@ -50,7 +50,7 @@ test('setiap tool punya description, JSON Schema object, dan run() async', () =>
 });
 
 test('parameters JSON Schema konsisten — required merujuk properti yang dideklarasikan', () => {
-  for (const tool of MINA_TOOLS) {
+  for (const tool of BANI_TOOLS) {
     const props = Object.keys(tool.parameters.properties);
     assert.ok(props.length > 0, `${tool.name}: properties kosong`);
     for (const req of tool.parameters.required) {
@@ -67,16 +67,16 @@ test('parameters JSON Schema konsisten — required merujuk properti yang didekl
 });
 
 test('lookup by-id butuh identitasnya — jm_id/jadwal_id wajib', () => {
-  assert.deepEqual(MINA_TOOL_BY_NAME.get_jamaah.parameters.required, ['jm_id']);
-  assert.deepEqual(MINA_TOOL_BY_NAME.get_jadwal_paket.parameters.required, ['jadwal_id']);
-  assert.deepEqual(MINA_TOOL_BY_NAME.kalkulasi_harga.parameters.required, ['jadwal_id']);
+  assert.deepEqual(BANI_TOOL_BY_NAME.get_jamaah.parameters.required, ['jm_id']);
+  assert.deepEqual(BANI_TOOL_BY_NAME.get_jadwal_paket.parameters.required, ['jadwal_id']);
+  assert.deepEqual(BANI_TOOL_BY_NAME.kalkulasi_harga.parameters.required, ['jadwal_id']);
   // Tool daftar tidak boleh mewajibkan apa-apa (dipanggil tanpa argumen).
   for (const name of ['list_jamaah', 'jamaah_birthdays', 'payment_summary', 'list_jadwal_paket', 'calendar_events']) {
-    assert.deepEqual(MINA_TOOL_BY_NAME[name].parameters.required, [], `${name} tidak boleh punya required`);
+    assert.deepEqual(BANI_TOOL_BY_NAME[name].parameters.required, [], `${name} tidak boleh punya required`);
   }
   // Plafon paginasi diiklankan ke model, bukan cuma dipaksa diam-diam.
-  assert.equal(MINA_TOOL_BY_NAME.list_jamaah.parameters.properties.limit.maximum, MAX_LIMIT);
-  assert.equal(MINA_TOOL_BY_NAME.list_jadwal_paket.parameters.properties.limit.maximum, MAX_LIMIT);
+  assert.equal(BANI_TOOL_BY_NAME.list_jamaah.parameters.properties.limit.maximum, MAX_LIMIT);
+  assert.equal(BANI_TOOL_BY_NAME.list_jadwal_paket.parameters.properties.limit.maximum, MAX_LIMIT);
 });
 
 // ── handler: bentuk hasil netral { ok, data|error } ──────────────────────────
@@ -113,7 +113,7 @@ test('list_jadwal_paket mengembalikan { ok:true, data:{ rows, total, ... } }', a
     error: null,
   });
 
-  const out = await MINA_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {});
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {});
   assert.equal(out.ok, true);
   assert.equal(out.error, undefined);
   assert.equal(out.data.total, 2);
@@ -135,14 +135,14 @@ test('list_jadwal_paket available_only membuang paket sold out', async () => {
     ],
     error: null,
   });
-  const out = await MINA_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { available_only: true });
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { available_only: true });
   assert.equal(out.ok, true);
   assert.deepEqual(out.data.rows.map((r) => r.jadwal_id), ['A']);
 });
 
 test('bulan mustahil ditolak sebagai { ok:false, error } sebelum menyentuh Postgres', async () => {
   const supabase = stubSupabase({ data: [], error: null });
-  const out = await MINA_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { month: '2026-13' });
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { month: '2026-13' });
   assert.equal(out.ok, false);
   assert.match(out.error, /Bulan tidak valid/);
   assert.equal(supabase.calls.length, 0, 'query tidak boleh dijalankan untuk bulan mustahil');
@@ -150,7 +150,7 @@ test('bulan mustahil ditolak sebagai { ok:false, error } sebelum menyentuh Postg
 
 test('tanggal mustahil di list_jamaah ditolak sebelum query', async () => {
   const supabase = stubSupabase({ data: [], error: null, count: 0 });
-  const out = await MINA_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), { departure_from: '2026-02-29' });
+  const out = await BANI_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), { departure_from: '2026-02-29' });
   assert.equal(out.ok, false);
   assert.match(out.error, /departure_from tidak valid/);
   assert.equal(supabase.calls.length, 0);
@@ -166,7 +166,7 @@ test('list_jamaah ter-scope ke agent dan melabeli payment_status tiap baris', as
     error: null,
     count: 3,
   });
-  const out = await MINA_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), {});
+  const out = await BANI_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), {});
   assert.equal(out.ok, true);
   assert.equal(out.data.total, 3);
   assert.deepEqual(out.data.rows.map((r) => r.payment_status), ['belum_dp', 'belum_lunas', 'lunas']);
@@ -184,12 +184,12 @@ test('get_jamaah memasking nomor paspor dan melaporkan tidak ditemukan sebagai o
     data: [{ jm_id: 'JM1', id_umroh: null, nama: 'A', no_paspor: 'X9417633', bayar: 1, sisa: 0 }],
     error: null,
   });
-  const out = await MINA_TOOL_BY_NAME.get_jamaah.run(DEPS(found), { jm_id: 'JM1' });
+  const out = await BANI_TOOL_BY_NAME.get_jamaah.run(DEPS(found), { jm_id: 'JM1' });
   assert.equal(out.ok, true);
   assert.equal(out.data.jamaah.no_paspor, '••••7633');
 
   const missing = stubSupabase({ data: [], error: null });
-  const none = await MINA_TOOL_BY_NAME.get_jamaah.run(DEPS(missing), { jm_id: 'JM404' });
+  const none = await BANI_TOOL_BY_NAME.get_jamaah.run(DEPS(missing), { jm_id: 'JM404' });
   assert.equal(none.ok, false);
   assert.match(none.error, /tidak ditemukan/);
 });
@@ -197,7 +197,7 @@ test('get_jamaah memasking nomor paspor dan melaporkan tidak ditemukan sebagai o
 test('error DB dilempar (bukan { ok:false }) supaya pemanggil memakai pesan generiknya', async () => {
   const supabase = stubSupabase({ data: null, error: { message: 'relation "jamaah" does not exist' } });
   await assert.rejects(
-    () => MINA_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), {}),
+    () => BANI_TOOL_BY_NAME.list_jamaah.run(DEPS(supabase), {}),
     /relation "jamaah" does not exist/,
   );
 });
@@ -206,8 +206,8 @@ test('error DB dilempar (bukan { ok:false }) supaya pemanggil memakai pesan gene
 
 // Cerminan guard "mcp-server.js is strictly read-only against the database":
 // registry ini dipakai asisten AI, jadi tidak boleh ada jalur tulis sama sekali.
-test('lib/mina-tools.js is strictly read-only against the database', () => {
-  const src = read('lib/mina-tools.js');
+test('lib/bani-tools.js is strictly read-only against the database', () => {
+  const src = read('lib/bani-tools.js');
   assert.doesNotMatch(src, /\.insert\(/);
   assert.doesNotMatch(src, /\.update\(\{/);
   assert.doesNotMatch(src, /\.upsert\(/);
@@ -216,7 +216,7 @@ test('lib/mina-tools.js is strictly read-only against the database', () => {
 });
 
 test('registry tidak menembak API upstream — hanya tabel cache lokal', () => {
-  const src = read('lib/mina-tools.js');
+  const src = read('lib/bani-tools.js');
   assert.match(src, /\.from\('jamaah'\)/);
   assert.match(src, /\.from\('umroh_schedules'\)/);
   assert.match(src, /\.from\('calendar_events'\)/);
@@ -226,7 +226,7 @@ test('registry tidak menembak API upstream — hanya tabel cache lokal', () => {
 
 test('mcp-server.js memakai registry, tidak menyalin ulang handler-nya', () => {
   const mcp = read('mcp-server.js');
-  assert.match(mcp, /import \{ MINA_TOOL_BY_NAME, MAX_LIMIT \} from '\.\/lib\/mina-tools\.js'/);
+  assert.match(mcp, /import \{ BANI_TOOL_BY_NAME, MAX_LIMIT \} from '\.\/lib\/bani-tools\.js'/);
   for (const name of EXPECTED_TOOLS) {
     assert.match(mcp, new RegExp(`TOOL\\.${name}\\.run\\(deps, args\\)`), `${name} harus dipanggil dari registry`);
   }

@@ -249,19 +249,48 @@ body {
   }
 }
 
-/* Mina FAB — cincin conic berputar di belakang tombol. Elemen lingkarannya
+/* Bani FAB — cincin conic berputar di belakang tombol. Elemen lingkarannya
    yang diputar (bukan sudut gradien via @property) supaya tidak bergantung
    pada dukungan @property; lingkaran berputar pada porosnya sendiri sehingga
    posisinya tetap. Gradiennya di-inline di komponen. */
-@keyframes mina-ring-spin {
+@keyframes bani-ring-spin {
   to { transform: rotate(360deg); }
 }
-.mina-fab-ring {
-  animation: mina-ring-spin 3.2s linear infinite;
+.bani-fab-ring {
+  animation: bani-ring-spin 3.2s linear infinite;
 }
+
+/* Avatar Bani "hidup" (src/components/bani/BaniAvatar.tsx). transform-box:
+   fill-box wajib — tanpanya transform-origin SVG mengacu ke viewport, bukan ke
+   kotak elemennya, sehingga kedipan mata melompat keluar wajah. */
+@keyframes bani-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-0.7px); }
+}
+@keyframes bani-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  95.5% { transform: scaleY(0.08); }
+  98% { transform: scaleY(1); }
+}
+@keyframes bani-look {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(0.9px); }
+  65% { transform: translateX(-0.9px); }
+}
+.bani-float, .bani-blink, .bani-look {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.bani-float { animation: bani-float 3.4s ease-in-out infinite; }
+.bani-blink { animation: bani-blink 4.6s ease-in-out infinite; }
+.bani-look  { animation: bani-look 1.9s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  /* Cincin tetap tampil, hanya rotasinya yang dimatikan. */
-  .mina-fab-ring {
+  /* Cincin & karakter tetap tampil utuh — hanya geraknya yang dimatikan. */
+  .bani-fab-ring,
+  .bani-float,
+  .bani-blink,
+  .bani-look {
     animation: none;
   }
 }
