@@ -21,7 +21,10 @@ export const MentionHighlightLayer = forwardRef<
     <div
       ref={ref}
       aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 select-none overflow-hidden whitespace-pre-wrap break-words text-transparent ${className}`}
+      // `mention-mirror` menautkan lapisan ini ke aturan anti-zoom iOS di
+      // src/index.css: di perangkat sentuh textarea dipaksa 16px, dan cermin
+      // yang tetap di ukuran aslinya akan meleset glif demi glif.
+      className={`mention-mirror pointer-events-none absolute inset-0 select-none overflow-hidden whitespace-pre-wrap break-words text-transparent ${className}`}
     >
       {segments.map((segment, index) =>
         segment.isMention ? (

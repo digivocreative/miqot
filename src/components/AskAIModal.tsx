@@ -1010,10 +1010,7 @@ export default function AskAIModal({
                 placeholder="Tanya soal paket ini…"
                 disabled={isTyping}
                 maxLength={500}
-                // input-no-ios-zoom (src/index.css) wajib: di bawah 16px Safari
-                // iOS men-zoom seluruh halaman saat input difokuskan, dan zoom
-                // itu tidak dikembalikan setelah blur.
-                className="input-no-ios-zoom flex-1 min-w-0 px-3.5 py-2.5 bg-gray-100 dark:bg-slate-800 border-0 rounded-full text-[13px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
+                className="flex-1 min-w-0 px-3.5 py-2.5 bg-gray-100 dark:bg-slate-800 border-0 rounded-full text-[13px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
               />
               {isTyping ? (
                 <button
