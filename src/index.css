@@ -299,11 +299,15 @@ body {
    sendiri setelah blur. Satu-satunya pencegahan yang tidak merusak
    aksesibilitas adalah menaikkan font input; menambah `maximum-scale=1` /
    `user-scalable=no` di meta viewport akan mematikan pinch-zoom SE-SITUS.
-   Dinaikkan hanya pada perangkat sentuh supaya di desktop ukurannya tetap
-   sepadan dengan teks lain di dalam sheet. */
-.bani-input { font-size: 12.5px; }
+   Dinaikkan hanya pada perangkat sentuh supaya ukuran di desktop tetap
+   sepadan dengan teks lain di sekitarnya.
+
+   Dipakai BERSAMA utilitas ukuran Tailwind di elemennya (mis. `text-[13px]
+   input-no-ios-zoom`): aturan ini menang karena berada setelah
+   `@tailwind utilities` dengan spesifisitas yang sama. Pasang di SETIAP
+   input/textarea baru yang fontnya di bawah 16px. */
 @media (pointer: coarse) {
-  .bani-input { font-size: 16px; }
+  .input-no-ios-zoom { font-size: 16px; }
 }
 
 /* ============================================ */
