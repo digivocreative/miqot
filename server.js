@@ -64,6 +64,8 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
+import { requireMinaAccess } from './lib/mina-access.js';
+import { runMinaConversation, MINA_SOURCE_NOTE } from './lib/mina-orchestrator.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -1795,6 +1797,148 @@ app.options('/api/package-value', (req, res) => {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   }).sendStatus(204);
+});
+
+// ──────────────────────────────────────────────
+// API: Mina — asisten AI in-app untuk agent (function calling)
+// ──────────────────────────────────────────────
+// Tool dieksekusi SERVER-SIDE dengan agent hasil JWT; model hanya memilih tool
+// dan id yang mau ditampilkan sebagai kartu (lib/mina-orchestrator.js).
+// Sengaja TANPA cache jawaban ala ask_ai_cache: data jamaah/pembayaran berubah
+// terus, jawaban basi lebih berbahaya daripada mahal.
+const MINA_MODEL = process.env.MINA_OPENAI_MODEL || 'gpt-5.6-luna';
+const MINA_RATE_LIMIT_MAX = 20;
+const MINA_RATE_LIMIT_WINDOW_MS = 2 * 60 * 60 * 1000;
+const MINA_QUESTION_MAX_LEN = 500;
+const MINA_OPENAI_TIMEOUT_MS = 15000;
+const minaRateLimits = new Map(); // agent id → { count, resetAt }
+
+// Param gpt-5.6-luna (diverifikasi langsung ke API 2026-08-02):
+// - `max_tokens` DITOLAK → wajib `max_completion_tokens`.
+// - `temperature` non-default DITOLAK → jangan dikirim sama sekali.
+// - function tools di /v1/chat/completions DITOLAK kecuali reasoning_effort
+//   'none' ("Function tools with reasoning_effort are not supported for
+//   gpt-5.6-luna ... set reasoning_effort to 'none'"). Menghapus param ini
+//   TIDAK menolong — nilainya yang harus 'none'.
+const MINA_MODEL_PARAMS = { reasoning_effort: 'none', max_completion_tokens: 900 };
+// Param yang tidak boleh dibuang otomatis: tanpanya request kehilangan makna.
+const MINA_ESSENTIAL_PARAMS = new Set(['model', 'messages', 'tools']);
+
+function minaRateLimit(agentId) {
+  const now = Date.now();
+  const current = minaRateLimits.get(agentId);
+  if (!current || now >= current.resetAt) {
+    const fresh = { count: 0, resetAt: now + MINA_RATE_LIMIT_WINDOW_MS };
+    minaRateLimits.set(agentId, fresh);
+    return fresh;
+  }
+  return current;
+}
+
+// Nama param yang ditolak model, bila error-nya memang soal param dan param itu
+// aman dibuang. Dipakai untuk satu kali retry — bukan loop.
+function minaUnsupportedParam(payload, detail) {
+  let param = null;
+  try {
+    const parsed = JSON.parse(detail);
+    const code = String(parsed?.error?.code || '');
+    if (code !== 'unsupported_parameter' && code !== 'unsupported_value') return null;
+    param = parsed?.error?.param || null;
+  } catch {
+    return null;
+  }
+  if (!param || MINA_ESSENTIAL_PARAMS.has(param) || !(param in payload)) return null;
+  return param;
+}
+
+async function callMinaOpenAI(body) {
+  const OPENAI_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not configured');
+
+  let payload = { ...MINA_MODEL_PARAMS, ...body };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_KEY}`,
+      },
+      signal: AbortSignal.timeout(MINA_OPENAI_TIMEOUT_MS),
+      body: JSON.stringify(payload),
+    });
+    if (openaiRes.ok) return openaiRes.json();
+
+    const detail = await openaiRes.text();
+    const dropped = attempt === 0 ? minaUnsupportedParam(payload, detail) : null;
+    if (!dropped) throw new Error(`OpenAI ${openaiRes.status}: ${detail.substring(0, 300)}`);
+    console.warn(`[Mina] Param '${dropped}' ditolak ${MINA_MODEL} — retry sekali tanpa param itu`);
+    payload = { ...payload };
+    delete payload[dropped];
+  }
+  throw new Error('OpenAI: retry parameter habis');
+}
+
+app.post('/api/mina/ask', authMiddleware, async (req, res) => {
+  const startedAt = Date.now();
+  let agent = null;
+  try {
+    agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent tidak ditemukan' });
+    if (!requireMinaAccess(agent, res)) return;
+
+    const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+    if (!question) return res.status(400).json({ error: 'Pertanyaan wajib diisi' });
+    if (question.length > MINA_QUESTION_MAX_LEN) {
+      return res.status(400).json({ error: `Pertanyaan terlalu panjang, maksimal ${MINA_QUESTION_MAX_LEN} karakter` });
+    }
+
+    const rate = minaRateLimit(agent.id);
+    if (rate.count >= MINA_RATE_LIMIT_MAX) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000));
+      res.set('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'Batas pertanyaan Mina tercapai. Coba lagi nanti.',
+        retryAfterSeconds,
+      });
+    }
+    if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'Layanan AI belum dikonfigurasi' });
+
+    // Hitung SEBELUM memanggil model: percobaan yang gagal tetap membakar biaya
+    // dan harus kena limiter (pola sama dengan /api/package-value).
+    rate.count += 1;
+
+    const result = await runMinaConversation({
+      question,
+      agent,
+      supabase,
+      log: console.log,
+      callOpenAI: callMinaOpenAI,
+      model: MINA_MODEL,
+    });
+
+    const durationMs = Date.now() - startedAt;
+    console.log(`[Mina] ${agent.slug}: selesai ${durationMs}ms tools=${result.tools_used.join(',') || '-'} cards=${result.cards.length}${result.degraded ? ' (degraded)' : ''}`);
+    logAnalyticsEvent(agent.id, 'dashboard', 'mina_ask', {
+      tools_used: result.tools_used,
+      degraded: Boolean(result.degraded),
+      duration_ms: durationMs,
+      question_preview: question.substring(0, 100),
+    }, getClientIpUa(req));
+
+    return res.json({
+      success: true,
+      answer: result.answer,
+      cards: result.cards,
+      tools_used: result.tools_used,
+      source_note: MINA_SOURCE_NOTE,
+    });
+  } catch (error) {
+    // Pesan internal (termasuk body error OpenAI) tinggal di log — klien cuma
+    // dapat kalimat generik.
+    console.error(`[Mina] ${agent?.slug || req.user?.slug || '?'}: gagal menjawab (${Date.now() - startedAt}ms):`, error?.message || error);
+    try { Sentry.captureException(error); } catch { /* noop */ }
+    return res.json({ success: false, error: 'Mina lagi tidak bisa menjawab. Coba lagi sebentar lagi.' });
+  }
 });
 
 // ──────────────────────────────────────────────
