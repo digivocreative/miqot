@@ -5130,7 +5130,7 @@ export default function TerasPage({
                 value={shareUrl}
                 aria-label="Link kiriman"
                 onFocus={event => event.currentTarget.select()}
-                className="w-full select-all rounded-2xl bg-gray-100 px-4 py-3 text-[12.5px] font-medium text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:bg-slate-800 dark:text-slate-300 dark:focus-visible:ring-slate-600"
+                className="w-full select-all rounded-2xl bg-gray-100 px-4 py-3 coarse:py-2.5 text-[12.5px] font-medium text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:bg-slate-800 dark:text-slate-300 dark:focus-visible:ring-slate-600"
               />
               <p className="px-1 pt-2 text-[11px] leading-snug text-gray-400 dark:text-slate-500">
                 Hanya agent yang sudah masuk yang bisa membuka link ini.

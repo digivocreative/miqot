@@ -502,7 +502,7 @@ function JamaahGroupMemberRow({
                   value={phone}
                   onChange={(event) => onPhoneChange(member.no, event.target.value)}
                   placeholder="Nomor WA"
-                  className="min-w-0 flex-1 rounded-lg border border-emerald-100 bg-white px-3 py-2 text-xs font-bold text-gray-800 outline-none transition-all focus:ring-2 focus:ring-emerald-500/50 dark:border-emerald-800/40 dark:bg-slate-900 dark:text-white"
+                  className="min-w-0 flex-1 rounded-lg border border-emerald-100 bg-white px-3 py-2 coarse:py-1.5 text-xs font-bold text-gray-800 outline-none transition-all focus:ring-2 focus:ring-emerald-500/50 dark:border-emerald-800/40 dark:bg-slate-900 dark:text-white"
                 />
                 <button
                   type="button"

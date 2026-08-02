@@ -7,6 +7,12 @@ export default {
   ],
   theme: {
     extend: {
+      // Varian `coarse:` = perangkat sentuh. Dipakai untuk merapatkan padding
+      // input padat: di sana aturan anti-zoom (src/index.css) memaksa font 16px,
+      // jadi tanpa kompensasi tinggi barisnya tumbuh ~4px. Desktop tak tersentuh.
+      screens: {
+        coarse: { raw: '(pointer: coarse)' },
+      },
       colors: {
         primary: {
           50: '#f0fdf4',
