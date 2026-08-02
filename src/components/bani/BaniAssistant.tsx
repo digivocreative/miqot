@@ -844,9 +844,14 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                       // Guard aslinya pindah ke onSubmit + tombol kirim.
                       readOnly={phase === 'loading'}
                       aria-disabled={phase === 'loading'}
-                      placeholder="Tanyakan paket atau jamaah Anda…"
+                      // Diperpendek karena input di perangkat sentuh kini 16px
+                      // (lihat .bani-input): placeholder yang panjang terpotong
+                      // di tengah kata. Kalimat penuhnya ada di aria-label.
+                      placeholder="Tanya paket & jamaah…"
                       aria-label="Pertanyaan untuk Bani"
-                      className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-[12.5px] text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 read-only:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+                      // bani-input (src/index.css), BUKAN text-[12.5px]: di bawah
+                      // 16px Safari iOS men-zoom halaman saat input difokuskan.
+                      className="bani-input min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 read-only:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                     />
                     <button
                       type="submit"

@@ -294,6 +294,18 @@ body {
   }
 }
 
+/* Safari iOS memperbesar SELURUH halaman saat fokus masuk ke input yang
+   computed font-size-nya di bawah 16px — dan zoom itu tidak pernah dikembalikan
+   sendiri setelah blur. Satu-satunya pencegahan yang tidak merusak
+   aksesibilitas adalah menaikkan font input; menambah `maximum-scale=1` /
+   `user-scalable=no` di meta viewport akan mematikan pinch-zoom SE-SITUS.
+   Dinaikkan hanya pada perangkat sentuh supaya di desktop ukurannya tetap
+   sepadan dengan teks lain di dalam sheet. */
+.bani-input { font-size: 12.5px; }
+@media (pointer: coarse) {
+  .bani-input { font-size: 16px; }
+}
+
 /* ============================================ */
 /* Page Transition — Overlay Curtain            */
 /* ============================================ */
