@@ -14,6 +14,8 @@ import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { isBaniEnabledForSlug } from '../lib/baniAccess';
+import BaniMenuCard from './bani/BaniMenuCard';
+import BaniAvatar from './bani/BaniAvatar';
 import { parseTerasPath } from '../lib/terasRoutes';
 import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
@@ -109,7 +111,7 @@ const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
 const TerasPage = lazy(() => import('./TerasPage'));
-const BaniAssistant = lazy(() => import('./bani/BaniAssistant'));
+const BaniPage = lazy(() => import('./bani/BaniPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const TerasCard = lazy(() => import('./TerasCard'));
@@ -122,7 +124,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'bani';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -134,6 +136,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
   teras: 'teras',
+  bani: 'bani',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -145,6 +148,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
   teras: 'teras',
+  bani: 'bani',
 };
 
 function getTabFromPath(): TabId {
@@ -230,6 +234,7 @@ const TAB_TITLES: Record<TabId, string> = {
   analytics: 'Analytics',
   'ai-tools': 'Tools',
   teras: 'Teras',
+  bani: 'Bani',
 };
 
 function getCurrentDocumentTitle(): string {
@@ -621,15 +626,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }
   }, [activeTab, terasEnabled, terasProfileRouteSlug, navigatePath]);
 
-  // Bani (asisten AI in-app) — FAB + sheet, sama di semua halaman dashboard.
-  // Ber-gate slug pilot dan lazy, jadi agent di luar pilot tidak mengunduh
-  // chunk-nya sama sekali. Dirender di dua cabang return di bawah (sub-page &
-  // home) karena keduanya adalah root layout yang terpisah.
-  const baniAssistant = isBaniEnabledForSlug(agentData.slug) ? (
-    <Suspense fallback={null}>
-      <BaniAssistant slug={agentData.slug} onNavigate={navigatePath} />
-    </Suspense>
-  ) : null;
+  // Bani (asisten AI in-app) — kartu menu di baris Teras pada home, halamannya
+  // di /dashboard/bani. Ber-gate slug pilot; halamannya lazy, jadi agent di
+  // luar pilot tidak mengunduh chunk-nya sama sekali.
+  const baniEnabled = isBaniEnabledForSlug(agentData.slug);
+
+  // Link /dashboard/bani bisa saja dibuka agent di luar pilot — perlakuannya
+  // sama dengan /dashboard/teras tanpa akses: redirect senyap ke home.
+  useEffect(() => {
+    if (activeTab === 'bani' && !baniEnabled) {
+      navigatePath('/dashboard', { replace: true });
+    }
+  }, [activeTab, baniEnabled, navigatePath]);
 
   if (activeTab === 'teras' && !terasEnabled) {
     if (terasProfileRouteSlug) {
@@ -666,9 +674,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     // Teras: header dipadatkan agar feed dapat ruang layar lebih banyak
     const compactHeader = activeTab === 'teras';
     return (
-      <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
+      <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${(activeTab === 'teras' || activeTab === 'bani') ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header */}
-        <header className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${activeTab === 'teras' ? 'shrink-0' : ''}`}>
+        <header className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${(activeTab === 'teras' || activeTab === 'bani') ? 'shrink-0' : ''}`}>
           <div className={`${compactHeader ? 'max-w-2xl gap-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]' : 'max-w-lg gap-3 py-3'} mx-auto flex items-center px-4`}>
             <button
               type="button"
@@ -772,6 +780,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <p className="text-[9px] font-medium leading-tight text-gray-400 dark:text-slate-500 truncate">Teras</p>
                         <h1 className="text-[13px] font-bold leading-tight text-gray-800 dark:text-white truncate">{terasPostId ? 'Kiriman' : 'Profil'}</h1>
                       </div>
+                    </>
+                  );
+                }
+                if (activeTab === 'bani') {
+                  return (
+                    <>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-blue-100 bg-blue-50 dark:border-blue-800/40 dark:bg-blue-900/20">
+                        <BaniAvatar className="h-6 w-6" />
+                      </span>
+                      <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">Bani</h1>
                     </>
                   );
                 }
@@ -929,6 +947,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* Sub-page content */}
         <main className={`${activeTab === 'teras'
           ? 'mx-auto w-full max-w-2xl flex-1 bg-white sm:border-x sm:border-gray-100 dark:bg-slate-900 dark:sm:border-slate-800'
+          : activeTab === 'bani'
+          // flex + flex-1: halaman Bani mengisi sisa tinggi viewport supaya
+          // input bar-nya duduk di dasar layar meski kontennya pendek.
+          ? 'mx-auto flex w-full max-w-lg flex-1 flex-col'
           : 'max-w-lg mx-auto'
         }`}>
           <Suspense fallback={
@@ -949,6 +971,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               photo: agentData.photo || '',
               website: agentData.website || '',
             }} displayMode={brosurDisplayMode} onModeChange={handleBrosurModeChange} />
+          )}
+          {activeTab === 'bani' && baniEnabled && (
+            <BaniPage slug={agentData.slug} onNavigate={navigatePath} />
           )}
           {activeTab === 'teras' && terasEnabled && (
             <TerasPage
@@ -1065,7 +1090,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })()}
           </Suspense>
         </main>
-        {baniAssistant}
       </div>
     );
   }
@@ -1214,11 +1238,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
-          {terasEnabled && (
-            <div className="col-span-3">
-              <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
-                <TerasCard onOpen={() => navigateTab('teras')} />
-              </Suspense>
+          {/* Baris Teras: Teras + Bani berdampingan (dua menu satu baris);
+              bila salah satunya tidak aktif, yang tersisa mengambil lebar penuh. */}
+          {(terasEnabled || baniEnabled) && (
+            <div className={`col-span-3 grid gap-3 ${terasEnabled && baniEnabled ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {terasEnabled && (
+                <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
+                  <TerasCard onOpen={() => navigateTab('teras')} compact={baniEnabled} />
+                </Suspense>
+              )}
+              {baniEnabled && <BaniMenuCard onOpen={() => navigateTab('bani')} />}
             </div>
           )}
           {visibleCards.map(renderMenuCard)}
@@ -1400,7 +1429,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           }
         `}</style>
       </main>
-      {baniAssistant}
     </div>
   );
 }

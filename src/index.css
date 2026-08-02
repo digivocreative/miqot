@@ -249,16 +249,6 @@ body {
   }
 }
 
-/* Bani FAB — cincin conic berputar di belakang tombol. Elemen lingkarannya
-   yang diputar (bukan sudut gradien via @property) supaya tidak bergantung
-   pada dukungan @property; lingkaran berputar pada porosnya sendiri sehingga
-   posisinya tetap. Gradiennya di-inline di komponen. */
-@keyframes bani-ring-spin {
-  to { transform: rotate(360deg); }
-}
-.bani-fab-ring {
-  animation: bani-ring-spin 3.2s linear infinite;
-}
 
 /* Avatar Bani "hidup" (src/components/bani/BaniAvatar.tsx). transform-box:
    fill-box wajib — tanpanya transform-origin SVG mengacu ke viewport, bukan ke
@@ -286,7 +276,6 @@ body {
 .bani-look  { animation: bani-look 1.9s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   /* Cincin & karakter tetap tampil utuh — hanya geraknya yang dimatikan. */
-  .bani-fab-ring,
   .bani-float,
   .bani-blink,
   .bani-look {

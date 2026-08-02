@@ -480,7 +480,7 @@ test('daftar saran "Coba tanyakan" tidak memuat tahun/bulan hardcoded', () => {
   // Saran bertahun ("Desember 2026", "keberangkatan Agustus") basi sendiri dan
   // berubah jadi pertanyaan yang dijawab "data tidak ditemukan". Pakai kata
   // relatif — tanggal hari ini sudah ada di system prompt.
-  const source = read('src/components/bani/BaniAssistant.tsx');
+  const source = read('src/components/bani/BaniPage.tsx');
   const pool = source.slice(source.indexOf('const SUGGESTION_POOL'), source.indexOf('] as const;', source.indexOf('const SUGGESTION_POOL')));
   const texts = [...pool.matchAll(/text: '([^']+)'/g)].map((m) => m[1]);
   assert.ok(texts.length >= 8, `daftar saran terlalu pendek: ${texts.length}`);
