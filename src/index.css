@@ -249,6 +249,23 @@ body {
   }
 }
 
+/* Mina FAB — cincin conic berputar di belakang tombol. Elemen lingkarannya
+   yang diputar (bukan sudut gradien via @property) supaya tidak bergantung
+   pada dukungan @property; lingkaran berputar pada porosnya sendiri sehingga
+   posisinya tetap. Gradiennya di-inline di komponen. */
+@keyframes mina-ring-spin {
+  to { transform: rotate(360deg); }
+}
+.mina-fab-ring {
+  animation: mina-ring-spin 3.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Cincin tetap tampil, hanya rotasinya yang dimatikan. */
+  .mina-fab-ring {
+    animation: none;
+  }
+}
+
 /* ============================================ */
 /* Page Transition — Overlay Curtain            */
 /* ============================================ */
