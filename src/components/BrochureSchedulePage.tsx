@@ -165,9 +165,6 @@ const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
   { value: 'paket', label: 'Brosur Paket' },
 ];
 
-// TODO: Remove gate — rollout bertahap, "Brosur Paket" baru dibuka utk nikita.
-const PAKET_MODE_AGENT_SLUGS = new Set(['nikita']);
-
 type CatalogStage =
   | { kind: 'cover' }
   | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' };
@@ -321,25 +318,17 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const [filterDim, setFilterDim] = useState<FilterDim>('bulan');
   const [filterValue, setFilterValue] = useState<string | null>(null);
   const [availableOnly, setAvailableOnly] = useState(true);
-  // TODO: Remove gate — sampai rollout dibuka, agent lain tidak melihat
-  // SegmentedControl sama sekali dan halaman ini identik dengan produksi.
-  const paketModeAllowed = PAKET_MODE_AGENT_SLUGS.has((agent.slug || '').trim().toLowerCase());
-  const effectiveMode: BrochureMode = paketModeAllowed ? mode : 'jadwal';
-
   // URL ⇄ mode. replaceState (bukan push) mengikuti pola tab StatistikPage:
   // ganti mode itu berganti tampilan, bukan berpindah halaman — tombol back
   // tetap berarti "keluar dari Brosur" dan tidak menumpuk satu entri per klik.
-  // Memakai effectiveMode, bukan mode, supaya agent di luar gate yang membuka
-  // …/paket langsung dikembalikan ke URL jadwal alih-alih menyimpan slug yang
-  // isinya tidak pernah ia lihat.
   useEffect(() => {
-    if (readBrosurModeFromPath() !== effectiveMode) {
-      window.history.replaceState(window.history.state, '', brosurModePath(effectiveMode));
+    if (readBrosurModeFromPath() !== mode) {
+      window.history.replaceState(window.history.state, '', brosurModePath(mode));
     }
     // Setelah URL benar, baru beri tahu header — DashboardLayout membaca mode
     // dari path, jadi urutannya tidak boleh terbalik.
-    onModeChange?.(effectiveMode);
-  }, [effectiveMode, onModeChange]);
+    onModeChange?.(mode);
+  }, [mode, onModeChange]);
 
   // Back/forward browser (mis. dari halaman lain kembali ke …/paket) tidak
   // me-remount komponen ini kalau tab dashboard-nya sama, jadi mode harus
@@ -516,7 +505,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return () => window.removeEventListener('resize', recompute);
     // `mode` ikut: container preview di-unmount di mode paket, jadi skala harus
     // diukur ulang saat kembali ke mode jadwal.
-  }, [loading, effectiveMode]);
+  }, [loading, mode]);
 
   useEffect(() => {
     let alive = true;
@@ -1020,7 +1009,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
     // Mode paket tidak me-mount DOM preview, jadi tidak ada yang bisa (atau
     // perlu) di-capture — jangan bakar CPU/log error untuk target yang absen.
-    if (loading || effectiveMode !== 'jadwal' || !previewReady || activeImagePages.length === 0) {
+    if (loading || mode !== 'jadwal' || !previewReady || activeImagePages.length === 0) {
       setCanonicalPreviews([]);
       setPreviewErrors([]);
       return () => { cancelled = true; };
@@ -1064,7 +1053,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     };
   }, [
     loading,
-    effectiveMode,
+    mode,
     previewReady,
     activeImagePages,
     canonicalRenderKey,
@@ -1144,7 +1133,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
         {/* Skeleton mengikuti bentuk mode yang sedang aktif — di mode Paket
             brosur tunggal salah bentuk, yang datang nanti adalah grid. */}
-        {effectiveMode === 'paket' ? (
+        {mode === 'paket' ? (
           <BrochurePaketGridSkeleton />
         ) : (
           <div className="flex justify-center px-4 pt-5">
@@ -1194,17 +1183,14 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         className="sticky z-10 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50"
         style={{ top: headerOffset }}
       >
-        {/* TODO: Remove gate — switch mode hanya tampil utk slug yang di-rollout. */}
-        {paketModeAllowed && (
-          <div className="px-4 pt-3">
-            <SegmentedControl
-              options={BROCHURE_MODE_OPTIONS}
-              value={mode}
-              onChange={setMode}
-              accent="emerald"
-            />
-          </div>
-        )}
+        <div className="px-4 pt-3">
+          <SegmentedControl
+            options={BROCHURE_MODE_OPTIONS}
+            value={mode}
+            onChange={setMode}
+            accent="emerald"
+          />
+        </div>
         <div className="flex gap-2 px-4 py-3">
           <FilterDropdown
             variant="compact"
@@ -1254,7 +1240,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       </div>
 
-      {effectiveMode === 'paket' ? (
+      {mode === 'paket' ? (
         /* Mode Brosur Paket: grid brosur resmi per paket. Filter row di atas
            tetap dipakai apa adanya — grid hanya menerima hasilnya. */
         <BrochurePaketGrid packages={filteredPackages} filterLabel={filterLabel} agent={agent} />
@@ -1542,7 +1528,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       )}
 
-      {effectiveMode === 'jadwal' && (
+      {mode === 'jadwal' && (
         <>
         <BrochurePromptModal
           isOpen={promptPageIndex !== null && !!promptPage}
