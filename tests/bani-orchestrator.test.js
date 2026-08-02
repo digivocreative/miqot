@@ -446,3 +446,53 @@ test('endpoint Bani ter-gate, ter-rate-limit, dan tidak membocorkan error intern
   // Tidak ada cache jawaban — data jamaah berubah-ubah.
   assert.doesNotMatch(server, /bani_cache|baniCache/);
 });
+
+test('system prompt menyuntikkan tanggal hari ini dalam WIB', () => {
+  // 1 Jan 2027 00:30 UTC = 07:30 WIB tanggal 1 — dan 31 Des 2026 22:00 UTC
+  // masih 31 Des di UTC tapi sudah 1 Jan di Jakarta. Keduanya harus mengikuti
+  // WIB, bukan zona server.
+  const siang = buildBaniSystemPrompt(AGENT, { now: () => Date.parse('2027-01-01T00:30:00Z') });
+  assert.match(siang, /Hari ini 2027-01-01 \(WIB\)/);
+  const lewatTengahMalam = buildBaniSystemPrompt(AGENT, { now: () => Date.parse('2026-12-31T22:00:00Z') });
+  assert.match(lewatTengahMalam, /Hari ini 2027-01-01 \(WIB\)/);
+  // Tanpa tanggal, "akhir tahun ini" diterjemahkan model dari tebakan tahun.
+  assert.match(siang, /waktu relatif/);
+});
+
+test('tanggal system prompt memakai jam yang sama dengan runBaniConversation', async () => {
+  let seen = '';
+  const callOpenAI = async ({ messages }) => {
+    seen = messages[0].content;
+    return { choices: [{ message: { content: '{"answer":"ok","package_ids":[],"jamaah_ids":[],"link":null}' } }] };
+  };
+  await runBaniConversation({
+    question: 'halo',
+    agent: AGENT,
+    supabase: okSupabase(),
+    callOpenAI,
+    model: 'stub',
+    now: () => Date.parse('2026-08-02T03:00:00Z'),
+  });
+  assert.match(seen, /Hari ini 2026-08-02 \(WIB\)/);
+});
+
+test('daftar saran "Coba tanyakan" tidak memuat tahun/bulan hardcoded', () => {
+  // Saran bertahun ("Desember 2026", "keberangkatan Agustus") basi sendiri dan
+  // berubah jadi pertanyaan yang dijawab "data tidak ditemukan". Pakai kata
+  // relatif — tanggal hari ini sudah ada di system prompt.
+  const source = read('src/components/bani/BaniAssistant.tsx');
+  const pool = source.slice(source.indexOf('const SUGGESTION_POOL'), source.indexOf('] as const;', source.indexOf('const SUGGESTION_POOL')));
+  const texts = [...pool.matchAll(/text: '([^']+)'/g)].map((m) => m[1]);
+  assert.ok(texts.length >= 8, `daftar saran terlalu pendek: ${texts.length}`);
+  for (const text of texts) {
+    assert.doesNotMatch(text, /\b20\d\d\b/, `saran memuat tahun hardcoded: "${text}"`);
+    assert.doesNotMatch(
+      text,
+      /\b(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\b/,
+      `saran memuat nama bulan hardcoded: "${text}"`,
+    );
+  }
+  // Tidak ada saran kembar (rotasi memilih kandidat dari luar baris tampil —
+  // duplikat membuat baris "berganti" tanpa berubah).
+  assert.equal(new Set(texts).size, texts.length, 'ada saran duplikat');
+});

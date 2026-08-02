@@ -11,6 +11,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, X, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
   Users, CalendarRange, MessageCircle, RefreshCw, Search, Database, Sparkles,
+  Building2, Calculator,
 } from 'lucide-react';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
@@ -71,23 +72,38 @@ const FAB_PROMPTS = [
   'Bani siap membantu',
 ] as const;
 
+// Setiap baris DIUJI end-to-end lewat orchestrator + data nyata sebelum masuk
+// daftar: yang dijawab "data tidak ditemukan" atau dijawab ambigu dibuang, sebab
+// saran yang gagal lebih merugikan daripada tidak ada saran.
+//
+// Dua aturan yang menjaga daftar ini tetap sehat:
+//  1. TANPA tahun/bulan hardcoded ("Desember 2026", "keberangkatan Agustus") —
+//     pertanyaan begitu basi sendiri. Pakai kata relatif; tanggal hari ini sudah
+//     disuntikkan ke system prompt (lib/bani-orchestrator.js).
+//  2. Selalu dari sudut pandang agent ("jamaah saya"). "Berapa pax di
+//     keberangkatan terdekat?" dibuang karena dijawab dari kalender = KUOTA
+//     NASIONAL, bukan jamaah agent ybs.
 const SUGGESTION_POOL = [
-  { icon: CalendarRange, text: 'Paket yang tahun baru 2027 di Mekkah?', tone: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/25' },
-  { icon: Plane, text: 'Paket akhir Desember 2026 yang masih ada seat?', tone: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/25' },
-  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?', tone: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/25' },
+  // paket & harga
   { icon: Plane, text: 'Paket terdekat dengan seat tersisa apa saja?', tone: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-900/25' },
   { icon: Wallet, text: 'Paket promo di bawah Rp30 juta masih ada?', tone: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/25' },
+  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?', tone: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/25' },
+  { icon: CalendarRange, text: 'Paket akhir tahun ini yang masih ada seat?', tone: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/25' },
+  { icon: Building2, text: 'Hotel Mekkah dan Madinah di paket terdekat apa?', tone: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/25' },
+  { icon: Calculator, text: 'Hitung biaya 2 jamaah kamar quad di paket terdekat', tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/25' },
+  // pembayaran
   { icon: Wallet, text: 'Siapa yang belum lunas dan berangkat bulan ini?', tone: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/25' },
   { icon: Wallet, text: 'Total outstanding keberangkatan bulan depan berapa?', tone: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/25' },
   { icon: Wallet, text: 'Siapa yang belum bayar DP tapi berangkat 30 hari lagi?', tone: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-900/25' },
-  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan Agustus?', tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/25' },
-  { icon: Cake, text: 'Ada jamaah yang ulang tahun saat di Tanah Suci?', tone: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/25' },
-  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?', tone: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-900/25' },
+  { icon: Wallet, text: 'Berapa total tagihan jamaah saya yang belum lunas?', tone: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-900/25' },
+  // jamaah
+  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan bulan depan?', tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/25' },
+  { icon: Users, text: 'Berapa jamaah saya di keberangkatan terdekat?', tone: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/25' },
   { icon: Plane, text: 'Berapa jamaah yang berangkat 7 hari ke depan?', tone: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-900/25' },
-  { icon: Users, text: 'Berapa pax di keberangkatan terdekat?', tone: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/25' },
-  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?', tone: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/25' },
-  { icon: Calendar, text: 'Paket tahun baru 2027 yang masih tersedia?', tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/25' },
   { icon: Users, text: 'Siapa jamaah dengan jadwal berangkat terdekat?', tone: 'text-fuchsia-600 dark:text-fuchsia-400', bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/25' },
+  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?', tone: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/25' },
+  // agenda
+  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?', tone: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/25' },
 ] as const;
 
 type BaniSuggestion = (typeof SUGGESTION_POOL)[number];
@@ -101,13 +117,16 @@ function pickRandomSuggestions(count: number): BaniSuggestion[] {
   return shuffled.slice(0, count);
 }
 
-function replaceOneRandomSuggestion(current: BaniSuggestion[]): BaniSuggestion[] {
+// Rotasi bergilir (slot 0→1→2→3), bukan slot acak: dengan slot acak satu baris
+// bisa berganti dua kali beruntun sementara baris lain diam, dan mata membaca
+// itu sebagai kedipan, bukan pergantian.
+function replaceSuggestionAt(current: BaniSuggestion[], slot: number): BaniSuggestion[] {
   const visibleTexts = new Set(current.map(({ text }) => text));
   const candidates = SUGGESTION_POOL.filter(({ text }) => !visibleTexts.has(text));
   if (!candidates.length || !current.length) return current;
 
   const replacement = candidates[Math.floor(Math.random() * candidates.length)];
-  const replaceAt = Math.floor(Math.random() * current.length);
+  const replaceAt = ((slot % current.length) + current.length) % current.length;
   return current.map((suggestion, index) => (index === replaceAt ? replacement : suggestion));
 }
 
@@ -189,9 +208,11 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   const [suggestions, setSuggestions] = useState<BaniSuggestion[]>(() => (
     pickRandomSuggestions(VISIBLE_SUGGESTION_COUNT)
   ));
+  const [suggestionsPaused, setSuggestionsPaused] = useState(false);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [viewportTop, setViewportTop] = useState(0);
 
+  const suggestionSlotRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -205,6 +226,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     // Respons yang datang setelah sheet ditutup diabaikan (lihat guard di ask()).
     abortRef.current?.abort();
     abortRef.current = null;
+    setSuggestionsPaused(false);
     setOpen(false);
   }, []);
 
@@ -318,13 +340,18 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   // Selama layar saran terbuka, ganti SATU baris setiap interval. Kandidat
   // selalu diambil dari luar empat baris yang sedang tampil agar tidak ada
   // duplikat atau perubahan semu.
+  //
+  // Rotasi BERHENTI selama jari/kursor menyentuh daftar: tanpa jeda ini, baris
+  // bisa berganti persis saat pengguna mengarah ke sana dan yang tereksekusi
+  // adalah pertanyaan yang tidak diniatkan.
   useEffect(() => {
-    if (!open || phase !== 'idle') return;
+    if (!open || phase !== 'idle' || suggestionsPaused) return;
     const interval = window.setInterval(() => {
-      setSuggestions(replaceOneRandomSuggestion);
+      suggestionSlotRef.current += 1;
+      setSuggestions((current) => replaceSuggestionAt(current, suggestionSlotRef.current));
     }, SUGGESTION_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [open, phase]);
+  }, [open, phase, suggestionsPaused]);
 
   // Ketik → tahan → hapus → lanjut ke ajakan berikutnya. Pill mengikuti lebar
   // teks; avatar tetap stabil karena seluruh FAB ditambatkan dari sisi kanan.
@@ -576,56 +603,63 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                         <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
                           Coba tanyakan
                         </div>
-                        <div className="relative divide-y divide-gray-100 overflow-hidden dark:divide-slate-800">
-                          <AnimatePresence initial={false} mode="popLayout">
-                            {suggestions.map((suggestion) => {
-                              const Icon = suggestion.icon;
-                              return (
+                        {/* Satu SLOT tetap per baris, tinggi dikunci, dan baris
+                            lama/baru sama-sama absolute di dalamnya. Ini yang
+                            menghilangkan lompatan: versi sebelumnya memakai
+                            AnimatePresence mode="popLayout" + `layout` di level
+                            daftar, sehingga baris yang keluar langsung lepas dari
+                            alur dan TIGA baris lain ikut bergeser naik-turun
+                            setiap 5 detik. Sekarang hanya slot yang bersangkutan
+                            yang berganti; tetangganya diam total. */}
+                        <div
+                          className="overflow-hidden rounded-xl border border-gray-100 dark:border-slate-800"
+                          onPointerEnter={() => setSuggestionsPaused(true)}
+                          onPointerDown={() => setSuggestionsPaused(true)}
+                          onPointerLeave={() => setSuggestionsPaused(false)}
+                          onPointerUp={() => setSuggestionsPaused(false)}
+                          onPointerCancel={() => setSuggestionsPaused(false)}
+                          onFocusCapture={() => setSuggestionsPaused(true)}
+                          onBlurCapture={() => setSuggestionsPaused(false)}
+                        >
+                          {suggestions.map((suggestion, slot) => (
+                            <div
+                              key={slot}
+                              className="relative h-14 border-b border-gray-100 last:border-b-0 dark:border-slate-800"
+                            >
+                              {/* initial={false}: empat baris pertama muncul
+                                  bersama sheet, tidak perlu dianimasikan lagi. */}
+                              <AnimatePresence initial={false}>
                                 <motion.button
-                                  layout
                                   key={suggestion.text}
                                   type="button"
                                   onClick={() => ask(suggestion.text)}
-                                  initial={reduceMotion ? false : { opacity: 0, x: 28, scale: 0.96, filter: 'blur(6px)' }}
-                                  animate={{ opacity: 1, x: 0, scale: 1, filter: 'blur(0px)' }}
-                                  exit={reduceMotion ? undefined : { opacity: 0, x: -28, scale: 0.96, filter: 'blur(6px)' }}
+                                  initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={reduceMotion ? undefined : { opacity: 0, y: -12 }}
                                   transition={reduceMotion
                                     ? { duration: 0 }
-                                    : {
-                                        x: { type: 'spring', stiffness: 380, damping: 30, mass: 0.7 },
-                                        opacity: { duration: 0.24 },
-                                        scale: { duration: 0.32, ease: [0.22, 1, 0.36, 1] },
-                                        filter: { duration: 0.22 },
-                                        layout: { duration: 0.34, ease: [0.22, 1, 0.36, 1] },
-                                      }}
-                                  className="relative isolate flex min-h-14 w-full items-center gap-3 overflow-hidden rounded-xl px-2.5 py-3 text-left transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-slate-800/70 dark:active:bg-slate-800"
+                                    : { duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+                                  className="absolute inset-0 flex w-full items-center gap-3 rounded-xl px-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-slate-800/70 dark:active:bg-slate-800"
                                 >
-                                  {!reduceMotion && (
-                                    <motion.span
-                                      aria-hidden="true"
-                                      className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-emerald-400/15 to-transparent"
-                                      initial={{ x: '0%', opacity: 0 }}
-                                      animate={{ x: '300%', opacity: [0, 0.9, 0] }}
-                                      transition={{ duration: 0.8, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-                                    />
-                                  )}
                                   <motion.span
-                                    initial={reduceMotion ? false : { scale: 0.65, rotate: -14 }}
-                                    animate={{ scale: 1, rotate: 0 }}
+                                    initial={reduceMotion ? false : { scale: 0.72 }}
+                                    animate={{ scale: 1 }}
                                     transition={reduceMotion
                                       ? { duration: 0 }
-                                      : { type: 'spring', stiffness: 460, damping: 24, delay: 0.06 }}
-                                    className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${suggestion.bg}`}
+                                      : { type: 'spring', stiffness: 440, damping: 26, delay: 0.05 }}
+                                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${suggestion.bg}`}
                                   >
-                                    <Icon size={15} strokeWidth={2.2} className={suggestion.tone} />
+                                    {/* member-expression JSX: ikon dibaca langsung
+                                        dari entri pool, tanpa alias per-baris. */}
+                                    <suggestion.icon size={15} strokeWidth={2.2} className={suggestion.tone} />
                                   </motion.span>
-                                  <span className="relative z-10 flex-1 text-[12px] font-medium leading-snug text-gray-700 dark:text-slate-200">
+                                  <span className="flex-1 text-[12px] font-medium leading-snug text-gray-700 dark:text-slate-200">
                                     {suggestion.text}
                                   </span>
                                 </motion.button>
-                              );
-                            })}
-                          </AnimatePresence>
+                              </AnimatePresence>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
