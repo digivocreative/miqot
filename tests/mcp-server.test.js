@@ -26,6 +26,16 @@ function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
 }
 
+// Body ke-8 handler tool pindah ke lib/mina-tools.js (dipakai bersama asisten
+// Mina in-app); mcp-server.js menyisakan auth, rate limit, skema zod, dan
+// envelope content MCP. Guard source di bawah menjaga kontrak yang SAMA pada
+// permukaan MCP gabungan — pola assertion-nya tidak berubah, hanya sumbernya
+// yang kini dua file. Guard read-only per-file tetap dipisah (mcp-server.js di
+// bawah, lib/mina-tools.js di tests/mina-tools.test.js).
+function readMcpSurface() {
+  return `${read('mcp-server.js')}\n${read('lib/mina-tools.js')}`;
+}
+
 // ── key format & bearer parsing ──────────────────────────────────────────────
 
 test('generateMcpApiKey produces parseable alhijaz_mcp_ keys', () => {
@@ -382,13 +392,13 @@ test('/mcp body is capped tight, separate from the global 10mb parser', () => {
 });
 
 test('impossible dates are rejected before hitting Postgres', () => {
-  const mcp = read('mcp-server.js');
+  const mcp = readMcpSurface();
   assert.match(mcp, /if \(from && !isRealISODate\(from\)\) return toolError/);
   assert.match(mcp, /if \(month && !isRealMonth\(month\)\) return toolError/);
 });
 
 test('passport number is masked in get_jamaah output', () => {
-  const mcp = read('mcp-server.js');
+  const mcp = readMcpSurface();
   assert.match(mcp, /no_paspor: maskPassport\(row\.no_paspor\)/);
 });
 
@@ -399,7 +409,7 @@ test('tool-call logging records param keys only, never values (no PII in logs)',
 });
 
 test('jadwal/kalkulasi/calendar tools are registered against the cache tables', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   for (const tool of ['list_jadwal_paket', 'get_jadwal_paket', 'kalkulasi_harga', 'calendar_events']) {
     assert.match(src, new RegExp(`register\\('${tool}'`), `${tool} must be registered`);
   }
@@ -413,7 +423,7 @@ test('jadwal/kalkulasi/calendar tools are registered against the cache tables', 
 });
 
 test('list_jamaah exposes exact departure-date filtering (akar kasus "OpenClaw bilang 0")', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   // departure_from/departure_to harus terdaftar di inputSchema dan tervalidasi
   // sebagai tanggal kalender nyata sebelum menyentuh Postgres.
   assert.match(src, /departure_from: z\.string\(\)\.regex/);
@@ -426,7 +436,7 @@ test('list_jamaah exposes exact departure-date filtering (akar kasus "OpenClaw b
 });
 
 test('paginated jamaah/jadwal queries have a deterministic tiebreaker order', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   // Banyak baris berbagi tanggal yang sama — tanpa secondary sort, paginasi
   // bisa duplikat/skip baris pada batas halaman antar-request.
   assert.match(src, /\.order\('tgl_berangkat'[\s\S]{0,120}\.order\('jm_id'/);
@@ -434,7 +444,7 @@ test('paginated jamaah/jadwal queries have a deterministic tiebreaker order', ()
 });
 
 test('jamaah_birthdays reports the true pre-cap total and a truncation flag', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   // total dihitung SEBELUM slice(0, MAX_LIMIT); >50 match harus bersinyal
   // truncated, bukan terpotong diam-diam.
   assert.match(src, /total: matched\.length/);
@@ -443,7 +453,7 @@ test('jamaah_birthdays reports the true pre-cap total and a truncation flag', ()
 });
 
 test('payment_summary supports per-date breakdown and notifier outstanding semantics', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   assert.match(src, /z\.enum\(\['month', 'date'\]\)/);
   // Deteksi shape aggregate + price-proof butuh sub-field raw saja, bukan
   // seluruh raw_data (JSONB besar, DB sensitif IO).
@@ -468,7 +478,7 @@ test('auth and rate-limit rejections are logged for diagnosability (no raw token
 });
 
 test('every MCP jamaah query is scoped to the authenticated agent', () => {
-  const src = read('mcp-server.js');
+  const src = readMcpSurface();
   const fromCalls = src.match(/\.from\('jamaah'\)/g) || [];
   const scopedCalls = src.match(/\.eq\('agent_id', agent\.id\)/g) || [];
   assert.ok(fromCalls.length >= 4, 'expected the four read tools to query jamaah');
