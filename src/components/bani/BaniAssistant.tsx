@@ -10,8 +10,7 @@ import type { ReactNode } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, X, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
-  Users, CalendarRange, MessageCircle, RefreshCw, Search, Database, Sparkles,
-  Building2, Calculator,
+  Users, CalendarRange, MessageCircle, RefreshCw, Building2, Calculator,
 } from 'lucide-react';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
@@ -48,29 +47,9 @@ type Phase = 'idle' | 'loading' | 'answer';
 
 const QUESTION_MAX_LEN = 500;
 const THINKING_STEPS = ['Membaca pertanyaan…', 'Membuka data…', 'Menyusun jawaban…'];
-const THINKING_DETAILS = [
-  'Memahami maksud pertanyaan Anda',
-  'Mencocokkan paket dan data jamaah',
-  'Merangkum temuan paling relevan',
-] as const;
-const THINKING_ICONS = [Search, Database, Sparkles] as const;
 const THINKING_INTERVAL_MS = 1_250;
-const SUGGESTION_INTERVAL_MS = 5_000;
 const VISIBLE_SUGGESTION_COUNT = 4;
-const FAB_TYPING_MS = 52;
-const FAB_DELETING_MS = 28;
-const FAB_HOLD_MS = 1_800;
-const FAB_NEXT_MS = 280;
-const FAB_REDUCED_MOTION_INTERVAL_MS = 4_800;
-
-const FAB_PROMPTS = [
-  'Ada yang ingin dicek?',
-  'Cek paket bareng Bani',
-  'Tanya soal jamaah',
-  'Jadwal terdekat?',
-  'Butuh info cepat?',
-  'Bani siap membantu',
-] as const;
+const FAB_LABEL = 'Bani siap membantu';
 
 // Setiap baris DIUJI end-to-end lewat orchestrator + data nyata sebelum masuk
 // daftar: yang dijawab "data tidak ditemukan" atau dijawab ambigu dibuang, sebab
@@ -85,25 +64,25 @@ const FAB_PROMPTS = [
 //     NASIONAL, bukan jamaah agent ybs.
 const SUGGESTION_POOL = [
   // paket & harga
-  { icon: Plane, text: 'Paket terdekat dengan seat tersisa apa saja?', tone: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-900/25' },
-  { icon: Wallet, text: 'Paket promo di bawah Rp30 juta masih ada?', tone: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/25' },
-  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?', tone: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/25' },
-  { icon: CalendarRange, text: 'Paket akhir tahun ini yang masih ada seat?', tone: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/25' },
-  { icon: Building2, text: 'Hotel Mekkah dan Madinah di paket terdekat apa?', tone: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/25' },
-  { icon: Calculator, text: 'Hitung biaya 2 jamaah kamar quad di paket terdekat', tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/25' },
+  { icon: Plane, text: 'Paket terdekat dengan seat tersisa apa saja?' },
+  { icon: Wallet, text: 'Paket promo di bawah Rp30 juta masih ada?' },
+  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?' },
+  { icon: CalendarRange, text: 'Paket akhir tahun ini yang masih ada seat?' },
+  { icon: Building2, text: 'Hotel Mekkah dan Madinah di paket terdekat apa?' },
+  { icon: Calculator, text: 'Hitung biaya 2 jamaah kamar quad di paket terdekat' },
   // pembayaran
-  { icon: Wallet, text: 'Siapa yang belum lunas dan berangkat bulan ini?', tone: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/25' },
-  { icon: Wallet, text: 'Total outstanding keberangkatan bulan depan berapa?', tone: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/25' },
-  { icon: Wallet, text: 'Siapa yang belum bayar DP tapi berangkat 30 hari lagi?', tone: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-900/25' },
-  { icon: Wallet, text: 'Berapa total tagihan jamaah saya yang belum lunas?', tone: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-900/25' },
+  { icon: Wallet, text: 'Siapa yang belum lunas dan berangkat bulan ini?' },
+  { icon: Wallet, text: 'Total outstanding keberangkatan bulan depan berapa?' },
+  { icon: Wallet, text: 'Siapa yang belum bayar DP tapi berangkat 30 hari lagi?' },
+  { icon: Wallet, text: 'Berapa total tagihan jamaah saya yang belum lunas?' },
   // jamaah
-  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan bulan depan?', tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/25' },
-  { icon: Users, text: 'Berapa jamaah saya di keberangkatan terdekat?', tone: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/25' },
-  { icon: Plane, text: 'Berapa jamaah yang berangkat 7 hari ke depan?', tone: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-900/25' },
-  { icon: Users, text: 'Siapa jamaah dengan jadwal berangkat terdekat?', tone: 'text-fuchsia-600 dark:text-fuchsia-400', bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/25' },
-  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?', tone: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/25' },
+  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan bulan depan?' },
+  { icon: Users, text: 'Berapa jamaah saya di keberangkatan terdekat?' },
+  { icon: Plane, text: 'Berapa jamaah yang berangkat 7 hari ke depan?' },
+  { icon: Users, text: 'Siapa jamaah dengan jadwal berangkat terdekat?' },
+  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?' },
   // agenda
-  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?', tone: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/25' },
+  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?' },
 ] as const;
 
 type BaniSuggestion = (typeof SUGGESTION_POOL)[number];
@@ -115,19 +94,6 @@ function pickRandomSuggestions(count: number): BaniSuggestion[] {
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled.slice(0, count);
-}
-
-// Rotasi bergilir (slot 0→1→2→3), bukan slot acak: dengan slot acak satu baris
-// bisa berganti dua kali beruntun sementara baris lain diam, dan mata membaca
-// itu sebagai kedipan, bukan pergantian.
-function replaceSuggestionAt(current: BaniSuggestion[], slot: number): BaniSuggestion[] {
-  const visibleTexts = new Set(current.map(({ text }) => text));
-  const candidates = SUGGESTION_POOL.filter(({ text }) => !visibleTexts.has(text));
-  if (!candidates.length || !current.length) return current;
-
-  const replacement = candidates[Math.floor(Math.random() * candidates.length)];
-  const replaceAt = ((slot % current.length) + current.length) % current.length;
-  return current.map((suggestion, index) => (index === replaceAt ? replacement : suggestion));
 }
 
 // ── markdown-mini ────────────────────────────────────────────────────────────
@@ -202,17 +168,12 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   const [sourceNote, setSourceNote] = useState('');
   const [errorText, setErrorText] = useState('');
   const [thinkingStep, setThinkingStep] = useState(0);
-  const [fabPromptIndex, setFabPromptIndex] = useState(0);
-  const [fabPromptText, setFabPromptText] = useState('');
-  const [fabPromptDeleting, setFabPromptDeleting] = useState(false);
   const [suggestions, setSuggestions] = useState<BaniSuggestion[]>(() => (
     pickRandomSuggestions(VISIBLE_SUGGESTION_COUNT)
   ));
-  const [suggestionsPaused, setSuggestionsPaused] = useState(false);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [viewportTop, setViewportTop] = useState(0);
 
-  const suggestionSlotRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -226,7 +187,6 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     // Respons yang datang setelah sheet ditutup diabaikan (lihat guard di ask()).
     abortRef.current?.abort();
     abortRef.current = null;
-    setSuggestionsPaused(false);
     setOpen(false);
   }, []);
 
@@ -241,6 +201,9 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   }, []);
 
   const openSheet = useCallback(() => {
+    // Kocok ulang saran tiap kali sheet dibuka — pola yang sama dengan chip
+    // "Pertanyaan populer" di AskAIModal (Diskusi AI di Jadwal).
+    setSuggestions(pickRandomSuggestions(VISIBLE_SUGGESTION_COUNT));
     setOpen(true);
   }, []);
 
@@ -336,61 +299,6 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     const t = setInterval(() => setThinkingStep((s) => (s + 1) % THINKING_STEPS.length), THINKING_INTERVAL_MS);
     return () => clearInterval(t);
   }, [phase]);
-
-  // Selama layar saran terbuka, ganti SATU baris setiap interval. Kandidat
-  // selalu diambil dari luar empat baris yang sedang tampil agar tidak ada
-  // duplikat atau perubahan semu.
-  //
-  // Rotasi BERHENTI selama jari/kursor menyentuh daftar: tanpa jeda ini, baris
-  // bisa berganti persis saat pengguna mengarah ke sana dan yang tereksekusi
-  // adalah pertanyaan yang tidak diniatkan.
-  useEffect(() => {
-    if (!open || phase !== 'idle' || suggestionsPaused) return;
-    const interval = window.setInterval(() => {
-      suggestionSlotRef.current += 1;
-      setSuggestions((current) => replaceSuggestionAt(current, suggestionSlotRef.current));
-    }, SUGGESTION_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, [open, phase, suggestionsPaused]);
-
-  // Ketik → tahan → hapus → lanjut ke ajakan berikutnya. Pill mengikuti lebar
-  // teks; avatar tetap stabil karena seluruh FAB ditambatkan dari sisi kanan.
-  useEffect(() => {
-    if (open) return;
-
-    const fullPrompt = FAB_PROMPTS[fabPromptIndex];
-    if (reduceMotion) {
-      setFabPromptText(fullPrompt);
-      const timeout = window.setTimeout(() => {
-        setFabPromptIndex((index) => (index + 1) % FAB_PROMPTS.length);
-      }, FAB_REDUCED_MOTION_INTERVAL_MS);
-      return () => window.clearTimeout(timeout);
-    }
-
-    const complete = fabPromptText === fullPrompt;
-    const empty = fabPromptText.length === 0;
-    const delay = !fabPromptDeleting && complete
-      ? FAB_HOLD_MS
-      : fabPromptDeleting && empty
-        ? FAB_NEXT_MS
-        : fabPromptDeleting
-          ? FAB_DELETING_MS
-          : FAB_TYPING_MS;
-
-    const timeout = window.setTimeout(() => {
-      if (!fabPromptDeleting && complete) {
-        setFabPromptDeleting(true);
-      } else if (fabPromptDeleting && empty) {
-        setFabPromptDeleting(false);
-        setFabPromptIndex((index) => (index + 1) % FAB_PROMPTS.length);
-      } else {
-        const nextLength = fabPromptText.length + (fabPromptDeleting ? -1 : 1);
-        setFabPromptText(fullPrompt.slice(0, nextLength));
-      }
-    }, delay);
-
-    return () => window.clearTimeout(timeout);
-  }, [fabPromptDeleting, fabPromptIndex, fabPromptText, open, reduceMotion]);
 
   useEffect(() => {
     if (phase === 'answer') scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -497,8 +405,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
           aria-hidden="true"
           className="inline-flex min-h-[26px] max-w-[calc(100vw-7rem)] items-center overflow-hidden rounded-full border border-slate-950 bg-slate-950 px-2.5 py-1 text-[11px] font-bold text-white shadow-md shadow-slate-950/15 dark:border-white dark:bg-white dark:text-slate-950 dark:shadow-black/30"
         >
-          <span className="min-w-0 truncate whitespace-nowrap">{fabPromptText}</span>
-          <span className="ml-0.5 inline-block h-3 w-px shrink-0 animate-pulse bg-current align-middle motion-reduce:hidden" />
+          <span className="min-w-0 truncate whitespace-nowrap">{FAB_LABEL}</span>
         </span>
         <button
           type="button"
@@ -599,67 +506,32 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                           }}
                         />
                       </BaniBubble>
+                      {/* Gaya disamakan dengan chip "Pertanyaan populer" di
+                          AskAIModal (Diskusi AI di Jadwal): list statis, kartu
+                          emerald, tanpa rotasi/animasi. */}
                       <div>
-                        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
                           Coba tanyakan
                         </div>
-                        {/* Satu SLOT tetap per baris, tinggi dikunci, dan baris
-                            lama/baru sama-sama absolute di dalamnya. Ini yang
-                            menghilangkan lompatan: versi sebelumnya memakai
-                            AnimatePresence mode="popLayout" + `layout` di level
-                            daftar, sehingga baris yang keluar langsung lepas dari
-                            alur dan TIGA baris lain ikut bergeser naik-turun
-                            setiap 5 detik. Sekarang hanya slot yang bersangkutan
-                            yang berganti; tetangganya diam total. */}
-                        <div
-                          className="overflow-hidden rounded-xl border border-gray-100 dark:border-slate-800"
-                          onPointerEnter={() => setSuggestionsPaused(true)}
-                          onPointerDown={() => setSuggestionsPaused(true)}
-                          onPointerLeave={() => setSuggestionsPaused(false)}
-                          onPointerUp={() => setSuggestionsPaused(false)}
-                          onPointerCancel={() => setSuggestionsPaused(false)}
-                          onFocusCapture={() => setSuggestionsPaused(true)}
-                          onBlurCapture={() => setSuggestionsPaused(false)}
-                        >
-                          {suggestions.map((suggestion, slot) => (
-                            <div
-                              key={slot}
-                              className="relative h-14 border-b border-gray-100 last:border-b-0 dark:border-slate-800"
-                            >
-                              {/* initial={false}: empat baris pertama muncul
-                                  bersama sheet, tidak perlu dianimasikan lagi. */}
-                              <AnimatePresence initial={false}>
-                                <motion.button
-                                  key={suggestion.text}
-                                  type="button"
-                                  onClick={() => ask(suggestion.text)}
-                                  initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={reduceMotion ? undefined : { opacity: 0, y: -12 }}
-                                  transition={reduceMotion
-                                    ? { duration: 0 }
-                                    : { duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
-                                  className="absolute inset-0 flex w-full items-center gap-3 rounded-xl px-2.5 text-left transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-slate-800/70 dark:active:bg-slate-800"
-                                >
-                                  <motion.span
-                                    initial={reduceMotion ? false : { scale: 0.72 }}
-                                    animate={{ scale: 1 }}
-                                    transition={reduceMotion
-                                      ? { duration: 0 }
-                                      : { type: 'spring', stiffness: 440, damping: 26, delay: 0.05 }}
-                                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${suggestion.bg}`}
-                                  >
-                                    {/* member-expression JSX: ikon dibaca langsung
-                                        dari entri pool, tanpa alias per-baris. */}
-                                    <suggestion.icon size={15} strokeWidth={2.2} className={suggestion.tone} />
-                                  </motion.span>
-                                  <span className="flex-1 text-[12px] font-medium leading-snug text-gray-700 dark:text-slate-200">
+                        <div className="flex flex-col gap-1.5">
+                          {suggestions.map((suggestion) => {
+                            const Icon = suggestion.icon;
+                            return (
+                              <button
+                                key={suggestion.text}
+                                type="button"
+                                onClick={() => ask(suggestion.text)}
+                                className="text-left p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-900/15 active:scale-[0.96] transition-all"
+                              >
+                                <div className="flex items-start gap-1.5">
+                                  <Icon size={13} className="text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
+                                  <span className="text-[11px] font-medium text-gray-700 dark:text-slate-200 leading-snug">
                                     {suggestion.text}
                                   </span>
-                                </motion.button>
-                              </AnimatePresence>
-                            </div>
-                          ))}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -872,74 +744,33 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
 
 function BaniThinkingState({ step, reduceMotion }: { step: number; reduceMotion: boolean }) {
   const safeStep = Math.max(0, Math.min(step, THINKING_STEPS.length - 1));
-  const StepIcon = THINKING_ICONS[safeStep];
 
   return (
-    <div className="flex items-start gap-2" aria-live="polite">
-      <div className="relative mt-1 shrink-0">
-        {!reduceMotion && (
-          <motion.span
-            aria-hidden="true"
-            className="absolute -inset-1 rounded-full border border-fuchsia-400/50"
-            animate={{ scale: [0.92, 1.2], opacity: [0.65, 0] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
-          />
-        )}
-        <BaniAvatar className="relative h-8 w-8" state="thinking" />
-      </div>
-
-      <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl rounded-tl-md border border-fuchsia-100 bg-gradient-to-br from-white via-fuchsia-50/60 to-emerald-50/70 px-3.5 py-3 shadow-sm dark:border-fuchsia-900/40 dark:from-slate-800 dark:via-fuchsia-950/20 dark:to-emerald-950/20">
-        {!reduceMotion && (
-          <motion.span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/5"
-            animate={{ x: ['0%', '400%'] }}
-            transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          />
-        )}
-
-        <AnimatePresence initial={false} mode="wait">
-          <motion.div
-            key={safeStep}
-            initial={reduceMotion ? false : { opacity: 0, y: 7, filter: 'blur(4px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            exit={reduceMotion ? undefined : { opacity: 0, y: -7, filter: 'blur(4px)' }}
-            transition={reduceMotion ? { duration: 0 } : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 flex items-center gap-2.5"
-          >
+    <div className="flex gap-2" aria-live="polite">
+      <BaniAvatar className="mt-0.5 h-7 w-7 shrink-0" state="thinking" />
+      <div className="flex items-center gap-2 rounded-2xl rounded-tl-md bg-gray-100 px-3.5 py-2.5 dark:bg-slate-800">
+        <span className="flex gap-1" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
             <motion.span
-              initial={reduceMotion ? false : { scale: 0.65, rotate: -16 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={reduceMotion
-                ? { duration: 0 }
-                : { type: 'spring', stiffness: 480, damping: 24 }}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-purple-700 text-white shadow-sm shadow-fuchsia-500/25"
-            >
-              <StepIcon size={15} strokeWidth={2.3} />
-            </motion.span>
-            <div className="min-w-0">
-              <div className="text-[12px] font-bold text-gray-800 dark:text-white">
-                {THINKING_STEPS[safeStep]}
-              </div>
-              <div className="mt-0.5 truncate text-[10.5px] text-gray-500 dark:text-slate-400">
-                {THINKING_DETAILS[safeStep]}
-              </div>
-            </div>
-          </motion.div>
-        </AnimatePresence>
-
-        <div className="relative z-10 mt-3 flex gap-1.5" aria-hidden="true">
-          {THINKING_STEPS.map((_, index) => (
-            <span key={index} className="h-1 flex-1 overflow-hidden rounded-full bg-gray-200/80 dark:bg-slate-700">
-              <motion.span
-                className="block h-full origin-left rounded-full bg-gradient-to-r from-fuchsia-500 to-emerald-400"
-                initial={false}
-                animate={{ scaleX: index <= safeStep ? 1 : 0 }}
-                transition={reduceMotion ? { duration: 0 } : { duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-              />
-            </span>
+              key={i}
+              className="h-1.5 w-1.5 rounded-full bg-gray-400 dark:bg-slate-500"
+              animate={reduceMotion ? undefined : { opacity: [0.35, 1, 0.35] }}
+              transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' }}
+            />
           ))}
-        </div>
+        </span>
+        <AnimatePresence initial={false} mode="wait">
+          <motion.span
+            key={safeStep}
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.2 }}
+            className="text-[12px] text-gray-500 dark:text-slate-400"
+          >
+            {THINKING_STEPS[safeStep]}
+          </motion.span>
+        </AnimatePresence>
       </div>
     </div>
   );
