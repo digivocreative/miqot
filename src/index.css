@@ -284,7 +284,6 @@ body {
 .bani-float { animation: bani-float 3.4s ease-in-out infinite; }
 .bani-blink { animation: bani-blink 4.6s ease-in-out infinite; }
 .bani-look  { animation: bani-look 1.9s ease-in-out infinite; }
-
 @media (prefers-reduced-motion: reduce) {
   /* Cincin & karakter tetap tampil utuh — hanya geraknya yang dimatikan. */
   .bani-fab-ring,

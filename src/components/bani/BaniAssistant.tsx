@@ -7,10 +7,10 @@
 // meng-hydrate `cards` dari hasil tool, komponen ini hanya merendernya.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, X, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
-  Users, CalendarRange, MessageCircle, RefreshCw,
+  Users, CalendarRange, MessageCircle, RefreshCw, Search, Database, Sparkles,
 } from 'lucide-react';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
@@ -47,14 +47,69 @@ type Phase = 'idle' | 'loading' | 'answer';
 
 const QUESTION_MAX_LEN = 500;
 const THINKING_STEPS = ['Membaca pertanyaan…', 'Membuka data…', 'Menyusun jawaban…'];
-const THINKING_INTERVAL_MS = 850;
+const THINKING_DETAILS = [
+  'Memahami maksud pertanyaan Anda',
+  'Mencocokkan paket dan data jamaah',
+  'Merangkum temuan paling relevan',
+] as const;
+const THINKING_ICONS = [Search, Database, Sparkles] as const;
+const THINKING_INTERVAL_MS = 1_250;
+const SUGGESTION_INTERVAL_MS = 5_000;
+const VISIBLE_SUGGESTION_COUNT = 4;
+const FAB_TYPING_MS = 52;
+const FAB_DELETING_MS = 28;
+const FAB_HOLD_MS = 1_800;
+const FAB_NEXT_MS = 280;
+const FAB_REDUCED_MOTION_INTERVAL_MS = 4_800;
 
-const SUGGESTIONS = [
-  { icon: Calendar, text: 'Paket apa saja yang tahun baru 2027-nya di Mekkah?', tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-  { icon: Wallet, text: 'Siapa saja yang belum lunas?', tone: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-  { icon: Cake, text: 'Ada jamaah ulang tahun minggu ini?', tone: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/20' },
-  { icon: Plane, text: 'Berapa jamaah saya berangkat bulan ini?', tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-];
+const FAB_PROMPTS = [
+  'Ada yang ingin dicek?',
+  'Cek paket bareng Bani',
+  'Tanya soal jamaah',
+  'Jadwal terdekat?',
+  'Butuh info cepat?',
+  'Bani siap membantu',
+] as const;
+
+const SUGGESTION_POOL = [
+  { icon: CalendarRange, text: 'Paket yang tahun baru 2027 di Mekkah?', tone: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/25' },
+  { icon: Plane, text: 'Paket akhir Desember 2026 yang masih ada seat?', tone: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/25' },
+  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?', tone: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/25' },
+  { icon: Plane, text: 'Paket terdekat dengan seat tersisa apa saja?', tone: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-900/25' },
+  { icon: Wallet, text: 'Paket promo di bawah Rp30 juta masih ada?', tone: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/25' },
+  { icon: Wallet, text: 'Siapa yang belum lunas dan berangkat bulan ini?', tone: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/25' },
+  { icon: Wallet, text: 'Total outstanding keberangkatan bulan depan berapa?', tone: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/25' },
+  { icon: Wallet, text: 'Siapa yang belum bayar DP tapi berangkat 30 hari lagi?', tone: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-900/25' },
+  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan Agustus?', tone: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/25' },
+  { icon: Cake, text: 'Ada jamaah yang ulang tahun saat di Tanah Suci?', tone: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-900/25' },
+  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?', tone: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-900/25' },
+  { icon: Plane, text: 'Berapa jamaah yang berangkat 7 hari ke depan?', tone: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-900/25' },
+  { icon: Users, text: 'Berapa pax di keberangkatan terdekat?', tone: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/25' },
+  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?', tone: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/25' },
+  { icon: Calendar, text: 'Paket tahun baru 2027 yang masih tersedia?', tone: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/25' },
+  { icon: Users, text: 'Siapa jamaah dengan jadwal berangkat terdekat?', tone: 'text-fuchsia-600 dark:text-fuchsia-400', bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/25' },
+] as const;
+
+type BaniSuggestion = (typeof SUGGESTION_POOL)[number];
+
+function pickRandomSuggestions(count: number): BaniSuggestion[] {
+  const shuffled = [...SUGGESTION_POOL];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
+
+function replaceOneRandomSuggestion(current: BaniSuggestion[]): BaniSuggestion[] {
+  const visibleTexts = new Set(current.map(({ text }) => text));
+  const candidates = SUGGESTION_POOL.filter(({ text }) => !visibleTexts.has(text));
+  if (!candidates.length || !current.length) return current;
+
+  const replacement = candidates[Math.floor(Math.random() * candidates.length)];
+  const replaceAt = Math.floor(Math.random() * current.length);
+  return current.map((suggestion, index) => (index === replaceAt ? replacement : suggestion));
+}
 
 // ── markdown-mini ────────────────────────────────────────────────────────────
 // Jawaban model adalah teks tak tepercaya. Escape SEMUA HTML dulu, baru terapkan
@@ -118,6 +173,7 @@ const initials = (nama: string | null | undefined) => (
 );
 
 export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNavigate: (path: string) => void }) {
+  const reduceMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [input, setInput] = useState('');
@@ -127,6 +183,12 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
   const [sourceNote, setSourceNote] = useState('');
   const [errorText, setErrorText] = useState('');
   const [thinkingStep, setThinkingStep] = useState(0);
+  const [fabPromptIndex, setFabPromptIndex] = useState(0);
+  const [fabPromptText, setFabPromptText] = useState('');
+  const [fabPromptDeleting, setFabPromptDeleting] = useState(false);
+  const [suggestions, setSuggestions] = useState<BaniSuggestion[]>(() => (
+    pickRandomSuggestions(VISIBLE_SUGGESTION_COUNT)
+  ));
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [viewportTop, setViewportTop] = useState(0);
 
@@ -154,6 +216,10 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     setSourceNote('');
     setErrorText('');
     setInput('');
+  }, []);
+
+  const openSheet = useCallback(() => {
+    setOpen(true);
   }, []);
 
   // Bersihkan state setelah animasi tutup selesai — menutup sheet saat loading
@@ -248,6 +314,56 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
     const t = setInterval(() => setThinkingStep((s) => (s + 1) % THINKING_STEPS.length), THINKING_INTERVAL_MS);
     return () => clearInterval(t);
   }, [phase]);
+
+  // Selama layar saran terbuka, ganti SATU baris setiap interval. Kandidat
+  // selalu diambil dari luar empat baris yang sedang tampil agar tidak ada
+  // duplikat atau perubahan semu.
+  useEffect(() => {
+    if (!open || phase !== 'idle') return;
+    const interval = window.setInterval(() => {
+      setSuggestions(replaceOneRandomSuggestion);
+    }, SUGGESTION_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [open, phase]);
+
+  // Ketik → tahan → hapus → lanjut ke ajakan berikutnya. Pill mengikuti lebar
+  // teks; avatar tetap stabil karena seluruh FAB ditambatkan dari sisi kanan.
+  useEffect(() => {
+    if (open) return;
+
+    const fullPrompt = FAB_PROMPTS[fabPromptIndex];
+    if (reduceMotion) {
+      setFabPromptText(fullPrompt);
+      const timeout = window.setTimeout(() => {
+        setFabPromptIndex((index) => (index + 1) % FAB_PROMPTS.length);
+      }, FAB_REDUCED_MOTION_INTERVAL_MS);
+      return () => window.clearTimeout(timeout);
+    }
+
+    const complete = fabPromptText === fullPrompt;
+    const empty = fabPromptText.length === 0;
+    const delay = !fabPromptDeleting && complete
+      ? FAB_HOLD_MS
+      : fabPromptDeleting && empty
+        ? FAB_NEXT_MS
+        : fabPromptDeleting
+          ? FAB_DELETING_MS
+          : FAB_TYPING_MS;
+
+    const timeout = window.setTimeout(() => {
+      if (!fabPromptDeleting && complete) {
+        setFabPromptDeleting(true);
+      } else if (fabPromptDeleting && empty) {
+        setFabPromptDeleting(false);
+        setFabPromptIndex((index) => (index + 1) % FAB_PROMPTS.length);
+      } else {
+        const nextLength = fabPromptText.length + (fabPromptDeleting ? -1 : 1);
+        setFabPromptText(fullPrompt.slice(0, nextLength));
+      }
+    }, delay);
+
+    return () => window.clearTimeout(timeout);
+  }, [fabPromptDeleting, fabPromptIndex, fabPromptText, open, reduceMotion]);
 
   useEffect(() => {
     if (phase === 'answer') scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -350,12 +466,16 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
         }`}
         style={{ right: 'max(1rem, calc(50% - 16rem + 1rem))' }}
       >
-        <span className="rounded-full border border-gray-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-          Tanya Bani
+        <span
+          aria-hidden="true"
+          className="inline-flex min-h-[26px] max-w-[calc(100vw-7rem)] items-center overflow-hidden rounded-full border border-slate-950 bg-slate-950 px-2.5 py-1 text-[11px] font-bold text-white shadow-md shadow-slate-950/15 dark:border-white dark:bg-white dark:text-slate-950 dark:shadow-black/30"
+        >
+          <span className="min-w-0 truncate whitespace-nowrap">{fabPromptText}</span>
+          <span className="ml-0.5 inline-block h-3 w-px shrink-0 animate-pulse bg-current align-middle motion-reduce:hidden" />
         </span>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openSheet}
           aria-label="Buka Bani, asisten AI"
           tabIndex={open ? -1 : undefined}
           className="relative flex h-[60px] w-[60px] items-center justify-center active:scale-95 transition-transform"
@@ -364,9 +484,9 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
           <span
             aria-hidden="true"
             className="bani-fab-ring absolute inset-[-2.5px] rounded-full"
-            style={{ background: 'conic-gradient(#d946ef, #a855f7, #34d399, #d946ef)' }}
+            style={{ background: 'conic-gradient(#2563eb, #60a5fa, #f59e0b, #2563eb)' }}
           />
-          <span className="relative flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border-[2.5px] border-gray-100 shadow-lg shadow-purple-500/30 dark:border-slate-950">
+          <span className="relative flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border-[2.5px] border-gray-100 shadow-lg shadow-blue-500/25 dark:border-slate-950">
             <BaniAvatar className="h-full w-full" />
           </span>
           <span className="absolute right-0.5 top-0.5 z-10 h-3 w-3 rounded-full border-2 border-gray-100 bg-emerald-400 animate-pulse motion-reduce:animate-none dark:border-slate-950" />
@@ -422,7 +542,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-bold text-gray-800 dark:text-white">Bani</div>
                       <div className="truncate text-[10.5px] text-gray-500 dark:text-slate-500">
-                        Asisten Alhijaz.co · tahu paket &amp; data jamaah Anda
+                        Siap bantu segala kebutuhan Anda
                       </div>
                     </div>
                     <button
@@ -456,21 +576,56 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                         <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-500">
                           Coba tanyakan
                         </div>
-                        <div className="flex flex-col gap-2">
-                          {SUGGESTIONS.map(({ icon: Icon, text, tone, bg }) => (
-                            <button
-                              key={text}
-                              type="button"
-                              onClick={() => ask(text)}
-                              className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white px-3 py-2 text-left transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700/60"
-                            >
-                              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${bg}`}>
-                                <Icon size={15} strokeWidth={2.2} className={tone} />
-                              </span>
-                              <span className="flex-1 text-[12px] font-medium text-gray-700 dark:text-slate-200">{text}</span>
-                              <ChevronRight size={15} className="shrink-0 text-gray-300 dark:text-slate-600" />
-                            </button>
-                          ))}
+                        <div className="relative divide-y divide-gray-100 overflow-hidden dark:divide-slate-800">
+                          <AnimatePresence initial={false} mode="popLayout">
+                            {suggestions.map((suggestion) => {
+                              const Icon = suggestion.icon;
+                              return (
+                                <motion.button
+                                  layout
+                                  key={suggestion.text}
+                                  type="button"
+                                  onClick={() => ask(suggestion.text)}
+                                  initial={reduceMotion ? false : { opacity: 0, x: 28, scale: 0.96, filter: 'blur(6px)' }}
+                                  animate={{ opacity: 1, x: 0, scale: 1, filter: 'blur(0px)' }}
+                                  exit={reduceMotion ? undefined : { opacity: 0, x: -28, scale: 0.96, filter: 'blur(6px)' }}
+                                  transition={reduceMotion
+                                    ? { duration: 0 }
+                                    : {
+                                        x: { type: 'spring', stiffness: 380, damping: 30, mass: 0.7 },
+                                        opacity: { duration: 0.24 },
+                                        scale: { duration: 0.32, ease: [0.22, 1, 0.36, 1] },
+                                        filter: { duration: 0.22 },
+                                        layout: { duration: 0.34, ease: [0.22, 1, 0.36, 1] },
+                                      }}
+                                  className="relative isolate flex min-h-14 w-full items-center gap-3 overflow-hidden rounded-xl px-2.5 py-3 text-left transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-slate-800/70 dark:active:bg-slate-800"
+                                >
+                                  {!reduceMotion && (
+                                    <motion.span
+                                      aria-hidden="true"
+                                      className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 bg-gradient-to-r from-transparent via-emerald-400/15 to-transparent"
+                                      initial={{ x: '0%', opacity: 0 }}
+                                      animate={{ x: '300%', opacity: [0, 0.9, 0] }}
+                                      transition={{ duration: 0.8, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+                                    />
+                                  )}
+                                  <motion.span
+                                    initial={reduceMotion ? false : { scale: 0.65, rotate: -14 }}
+                                    animate={{ scale: 1, rotate: 0 }}
+                                    transition={reduceMotion
+                                      ? { duration: 0 }
+                                      : { type: 'spring', stiffness: 460, damping: 24, delay: 0.06 }}
+                                    className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${suggestion.bg}`}
+                                  >
+                                    <Icon size={15} strokeWidth={2.2} className={suggestion.tone} />
+                                  </motion.span>
+                                  <span className="relative z-10 flex-1 text-[12px] font-medium leading-snug text-gray-700 dark:text-slate-200">
+                                    {suggestion.text}
+                                  </span>
+                                </motion.button>
+                              );
+                            })}
+                          </AnimatePresence>
                         </div>
                       </div>
                     </div>
@@ -485,23 +640,7 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
                       </div>
 
                       {phase === 'loading' && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-[12px] text-gray-500 dark:text-slate-400">
-                            <span>{THINKING_STEPS[thinkingStep]}</span>
-                            <span className="flex gap-1">
-                              {[0, 1, 2].map((i) => (
-                                <span
-                                  key={i}
-                                  className="h-1.5 w-1.5 rounded-full bg-fuchsia-400 animate-bounce motion-reduce:animate-none"
-                                  style={{ animationDelay: `${i * 140}ms` }}
-                                />
-                              ))}
-                            </span>
-                          </div>
-                          {[0, 1].map((i) => (
-                            <div key={i} className="h-16 animate-pulse rounded-2xl bg-gray-100 motion-reduce:animate-none dark:bg-slate-800" />
-                          ))}
-                        </div>
+                        <BaniThinkingState step={thinkingStep} reduceMotion={Boolean(reduceMotion)} />
                       )}
 
                       {phase === 'answer' && (
@@ -691,6 +830,81 @@ export default function BaniAssistant({ slug, onNavigate }: { slug: string; onNa
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function BaniThinkingState({ step, reduceMotion }: { step: number; reduceMotion: boolean }) {
+  const safeStep = Math.max(0, Math.min(step, THINKING_STEPS.length - 1));
+  const StepIcon = THINKING_ICONS[safeStep];
+
+  return (
+    <div className="flex items-start gap-2" aria-live="polite">
+      <div className="relative mt-1 shrink-0">
+        {!reduceMotion && (
+          <motion.span
+            aria-hidden="true"
+            className="absolute -inset-1 rounded-full border border-fuchsia-400/50"
+            animate={{ scale: [0.92, 1.2], opacity: [0.65, 0] }}
+            transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+          />
+        )}
+        <BaniAvatar className="relative h-8 w-8" state="thinking" />
+      </div>
+
+      <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl rounded-tl-md border border-fuchsia-100 bg-gradient-to-br from-white via-fuchsia-50/60 to-emerald-50/70 px-3.5 py-3 shadow-sm dark:border-fuchsia-900/40 dark:from-slate-800 dark:via-fuchsia-950/20 dark:to-emerald-950/20">
+        {!reduceMotion && (
+          <motion.span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/5"
+            animate={{ x: ['0%', '400%'] }}
+            transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          />
+        )}
+
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={safeStep}
+            initial={reduceMotion ? false : { opacity: 0, y: 7, filter: 'blur(4px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -7, filter: 'blur(4px)' }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="relative z-10 flex items-center gap-2.5"
+          >
+            <motion.span
+              initial={reduceMotion ? false : { scale: 0.65, rotate: -16 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={reduceMotion
+                ? { duration: 0 }
+                : { type: 'spring', stiffness: 480, damping: 24 }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-purple-700 text-white shadow-sm shadow-fuchsia-500/25"
+            >
+              <StepIcon size={15} strokeWidth={2.3} />
+            </motion.span>
+            <div className="min-w-0">
+              <div className="text-[12px] font-bold text-gray-800 dark:text-white">
+                {THINKING_STEPS[safeStep]}
+              </div>
+              <div className="mt-0.5 truncate text-[10.5px] text-gray-500 dark:text-slate-400">
+                {THINKING_DETAILS[safeStep]}
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="relative z-10 mt-3 flex gap-1.5" aria-hidden="true">
+          {THINKING_STEPS.map((_, index) => (
+            <span key={index} className="h-1 flex-1 overflow-hidden rounded-full bg-gray-200/80 dark:bg-slate-700">
+              <motion.span
+                className="block h-full origin-left rounded-full bg-gradient-to-r from-fuchsia-500 to-emerald-400"
+                initial={false}
+                animate={{ scaleX: index <= safeStep ? 1 : 0 }}
+                transition={reduceMotion ? { duration: 0 } : { duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+              />
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

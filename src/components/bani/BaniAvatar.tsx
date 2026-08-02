@@ -1,15 +1,13 @@
 // Avatar Bani — karakter pria berpeci, SVG inline (tanpa dependency baru, tanpa
 // aset gambar yang perlu diunduh terpisah).
 //
-// Urutan lapisan menentukan hasilnya: baju koko (massa bahu berwarna kontras,
-// memberi garis pundak) → leher → telinga → kepala → rambut pelipis & poni →
-// peci. Peci digambar TERAKHIR di atas kepala supaya ujung poni tersembunyi
-// rapi di bawah tepinya; kalau urutannya dibalik, poni menimpa peci dan
-// kepalanya tampak seperti memakai bando.
+// Urutan lapisan menentukan hasilnya: baju koko → leher → telinga → kepala →
+// rambut pelipis & poni → peci. Peci digambar TERAKHIR di atas kepala supaya
+// ujung poni tersembunyi rapi di bawah tepinya.
 //
 // Bagian bawah koko sengaja digambar sampai y=52 (melewati viewBox): animasi
 // .bani-float menggeser badan ~0.7px ke atas, kalau berhenti di y=48 akan muncul
-// celah ungu tipis di dasar lingkaran.
+// celah latar tipis di dasar lingkaran.
 //
 // Dibuat "hidup" oleh tiga animasi halus yang seluruhnya mati saat
 // prefers-reduced-motion (keyframes di src/index.css):
@@ -17,7 +15,7 @@
 //   .bani-blink — mata berkedip berkala
 //   .bani-look  — mata melirik, hanya saat state="thinking"
 //
-// SVG ini SUDAH memuat lingkaran gradien ungunya sendiri, jadi pemanggil cukup
+// SVG ini SUDAH memuat lingkaran gradien birunya sendiri, jadi pemanggil cukup
 // menentukan ukuran lewat className (mis. "h-10 w-10").
 import { useId } from 'react';
 
@@ -43,8 +41,8 @@ export default function BaniAvatar({
     >
       <defs>
         <linearGradient id={`bani-bg-${uid}`} x1="0" y1="0" x2="48" y2="48">
-          <stop offset="0" stopColor="#c026d3" />
-          <stop offset="1" stopColor="#6b21a8" />
+          <stop offset="0" stopColor="#f8fafc" />
+          <stop offset="1" stopColor="#93c5fd" />
         </linearGradient>
         <clipPath id={`bani-clip-${uid}`}>
           <circle cx="24" cy="24" r="24" />
