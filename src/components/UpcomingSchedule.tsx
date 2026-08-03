@@ -4,9 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
 import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/calendarPeople';
-import { buildBerangkatGroups } from '../../lib/berangkat-groups.js';
+import { buildBerangkatGroups, fmtTglLong } from '../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
-import { BerangkatGroupSummaryRow } from './berangkat/BerangkatGroupViews';
+import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -147,7 +147,13 @@ export default function UpcomingSchedule() {
         if (!res.ok) throw new Error(String(res.status));
         const json = await res.json();
         if (cancelled) return;
-        setBerangkatItems(json?.data?.berangkatBulanIni || []);
+        // Array.isArray, bukan sekadar `|| []`: payload 2xx yang cacat (mis. objek
+        // atau string) tetap harus luruh jadi "section tak dirender", bukan lolos
+        // ke buildBerangkatGroups (useMemo, di luar try/catch ini) yang bisa
+        // melempar pada for...of atas nilai non-iterable dan merusak seluruh kartu
+        // kalender, bukan cuma section ini.
+        const rawBerangkatBulanIni = json?.data?.berangkatBulanIni;
+        setBerangkatItems(Array.isArray(rawBerangkatBulanIni) ? rawBerangkatBulanIni : []);
         setBerangkatLabel(json?.data?.berangkatBulan || '');
       } catch {
         // Section ini pelengkap; kalau gagal, kartu kalender tetap utuh dan
@@ -195,14 +201,19 @@ export default function UpcomingSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth.year, currentMonth.month]);
 
+  // Pakai selectedGroup (hasil pencarian), bukan selectedGroupKey mentah: kunci
+  // yang tak cocok dengan grup mana pun tidak boleh mengunci halaman tanpa ada
+  // sheet yang muncul. Syarat di sini harus sama persis dengan syarat render.
+  const anySheetOpen = selectedDay !== null || showAllGroups || !!selectedGroup;
+
   useEffect(() => {
-    if (selectedDay !== null) {
+    if (anySheetOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [selectedDay]);
+  }, [anySheetOpen]);
 
   function prevMonth() {
     setSelectedDay(null);
@@ -647,6 +658,60 @@ export default function UpcomingSchedule() {
                   </div>
                 </>
               )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Bottom Sheet Berangkat Mendatang (daftar lengkap & detail grup) ── */}
+      <AnimatePresence>
+        {(showAllGroups || selectedGroup) && (
+          <>
+            <motion.div
+              key="berangkat-overlay"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+              onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
+            />
+            <motion.div
+              key="berangkat-sheet"
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="fixed inset-x-0 bottom-0 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl max-h-[70vh] flex flex-col"
+            >
+              <div className="py-2 flex justify-center">
+                <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-slate-600" />
+              </div>
+              <div className="px-4 pb-2 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-base font-bold text-gray-800 dark:text-white">
+                    {selectedGroup ? 'Detail Keberangkatan' : 'Berangkat Mendatang'}
+                  </p>
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
+                    {selectedGroup
+                      ? `${selectedGroup.count} jamaah · ${fmtTglLong(selectedGroup.tgl_berangkat)}`
+                      : `${berangkatGroups.length} paket${berangkatLabel ? ` · ${berangkatLabel}` : ''}`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
+                  className="w-8 h-8 shrink-0 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {selectedGroup ? (
+                  <BerangkatGroupDetail group={selectedGroup} />
+                ) : (
+                  <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                    {berangkatGroups.map(group => (
+                      <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedGroupKey} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </motion.div>
           </>
         )}
