@@ -136,6 +136,9 @@ export default function UpcomingSchedule() {
   const [berangkatLoading, setBerangkatLoading] = useState(true);
   const [showAllGroups, setShowAllGroups] = useState(false);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const dayCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const berangkatCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Sekali saat mount — jendelanya tetap 60 hari ke depan dan TIDAK ikut
   // navigasi bulan kalender, jadi tak ada dependensi ke currentMonth.
@@ -205,6 +208,8 @@ export default function UpcomingSchedule() {
   // yang tak cocok dengan grup mana pun tidak boleh mengunci halaman tanpa ada
   // sheet yang muncul. Syarat di sini harus sama persis dengan syarat render.
   const anySheetOpen = selectedDay !== null || showAllGroups || !!selectedGroup;
+  const daySheetOpen = selectedDay !== null;
+  const berangkatSheetOpen = showAllGroups || !!selectedGroup;
 
   useEffect(() => {
     if (anySheetOpen) {
@@ -214,6 +219,77 @@ export default function UpcomingSchedule() {
     }
     return () => { document.body.style.overflow = ''; };
   }, [anySheetOpen]);
+
+  // Matikan kartu di belakang selama ada sheet terbuka. Overlay `fixed inset-0`
+  // hanya memblokir klik, bukan urutan Tab: tanpa ini pengguna keyboard masih
+  // bisa Tab dari sheet ke pemicu sheet keluarga lain yang ada di kartu ini
+  // ("Lihat lainnya", baris berangkat, sel tanggal) lalu membukanya, sehingga
+  // dua sheet berposisi identik saling menimbun. Spec melarang satu sheet
+  // menutup sheet keluarga lain, jadi jalurnya yang ditutup, bukan sheet-nya.
+  // `inert` disetel lewat DOM, bukan prop JSX: React 18 tidak meneruskan
+  // atribut boolean tak dikenal dan @types/react 18 belum mengenal `inert`.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    if (anySheetOpen) {
+      card.setAttribute('inert', '');
+      card.setAttribute('aria-hidden', 'true');
+    } else {
+      card.removeAttribute('inert');
+      card.removeAttribute('aria-hidden');
+    }
+    return () => {
+      card.removeAttribute('inert');
+      card.removeAttribute('aria-hidden');
+    };
+  }, [anySheetOpen]);
+
+  // Escape menutup sheet paling atas SAJA. Sheet berangkat dirender setelah
+  // sheet tanggal pada z-index yang sama, jadi dialah yang teratas bila entah
+  // bagaimana keduanya terbuka — cabangnya eksklusif supaya satu Escape tak
+  // pernah menutup dua keluarga sekaligus. ItineraryModal terbuka di ATAS sheet
+  // tanggal dan tidak punya penangan Escape sendiri; tanpa penjagaan ini
+  // Escape akan menutup sheet di bawahnya dan meninggalkan modal menggantung.
+  useEffect(() => {
+    if (!anySheetOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || activeItinerary) return;
+      if (berangkatSheetOpen) {
+        setSelectedGroupKey(null);
+        setShowAllGroups(false);
+      } else if (daySheetOpen) {
+        setSelectedDay(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [anySheetOpen, berangkatSheetOpen, daySheetOpen, activeItinerary]);
+
+  // Fokus awal ke tombol tutup, lalu kembalikan ke pemicunya saat sheet ditutup
+  // (pola yang sama dipakai PackageValueModal).
+  useEffect(() => {
+    if (!daySheetOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dayCloseButtonRef.current?.focus();
+    return () => { previouslyFocused?.focus?.(); };
+  }, [daySheetOpen]);
+
+  // Dipisah dari efek pemindah fokus di bawah supaya `previouslyFocused`
+  // terekam sebelum fokus dipindahkan, dan supaya pemicu yang diingat tetap
+  // yang asli ("Lihat lainnya") saat isi sheet berganti daftar → detail.
+  useEffect(() => {
+    if (!berangkatSheetOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    return () => { previouslyFocused?.focus?.(); };
+  }, [berangkatSheetOpen]);
+
+  // Fokuskan tombol tutup saat dibuka DAN setiap kali isinya berganti
+  // daftar ↔ detail: baris yang sedang fokus ikut ter-unmount waktu berpindah
+  // ke detail, dan tanpa dipindahkan fokusnya jatuh ke <body>.
+  useEffect(() => {
+    if (!berangkatSheetOpen) return;
+    berangkatCloseButtonRef.current?.focus();
+  }, [berangkatSheetOpen, selectedGroupKey]);
 
   function prevMonth() {
     setSelectedDay(null);
@@ -316,7 +392,7 @@ export default function UpcomingSchedule() {
   return (
     <>
       {/* ── Calendar Card (fixed size) ── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+      <div ref={cardRef} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -443,11 +519,15 @@ export default function UpcomingSchedule() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+              aria-hidden="true"
               onClick={() => setSelectedDay(null)}
             />
 
             <motion.div
               key="sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="calendar-day-sheet-title"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
@@ -461,11 +541,13 @@ export default function UpcomingSchedule() {
 
               {/* Header */}
               <div className="px-4 pb-2 flex items-center justify-between">
-                <span className="text-base font-bold text-gray-800 dark:text-white">
+                <span id="calendar-day-sheet-title" className="text-base font-bold text-gray-800 dark:text-white">
                   {selectedDay} {MONTH_NAMES[currentMonth.month - 1]} {currentMonth.year}
                 </span>
                 <button
+                  ref={dayCloseButtonRef}
                   onClick={() => setSelectedDay(null)}
+                  aria-label="Tutup"
                   className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
                   <X size={16} />
@@ -672,10 +754,14 @@ export default function UpcomingSchedule() {
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+              aria-hidden="true"
               onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
             />
             <motion.div
               key="berangkat-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="berangkat-sheet-title"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
               className="fixed inset-x-0 bottom-0 z-50 max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 shadow-2xl max-h-[70vh] flex flex-col"
@@ -685,7 +771,7 @@ export default function UpcomingSchedule() {
               </div>
               <div className="px-4 pb-2 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-base font-bold text-gray-800 dark:text-white">
+                  <p id="berangkat-sheet-title" className="text-base font-bold text-gray-800 dark:text-white">
                     {selectedGroup ? 'Detail Keberangkatan' : 'Berangkat Mendatang'}
                   </p>
                   <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
@@ -695,7 +781,9 @@ export default function UpcomingSchedule() {
                   </p>
                 </div>
                 <button
+                  ref={berangkatCloseButtonRef}
                   onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
+                  aria-label="Tutup"
                   className="w-8 h-8 shrink-0 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
                   <X size={16} />
