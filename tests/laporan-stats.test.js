@@ -5,6 +5,7 @@ import { buildBerangkatMendatang, computeUmrohKomisi } from '../lib/laporan-stat
 
 const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const statistikSource = readFileSync(new URL('../src/components/StatistikPage.tsx', import.meta.url), 'utf8');
+const berangkatGroupsSource = readFileSync(new URL('../lib/berangkat-groups.js', import.meta.url), 'utf8');
 
 test('buildBerangkatMendatang includes upcoming departures across Hijriah years within 60 days', () => {
   const rows = [
@@ -151,19 +152,19 @@ test('stats endpoint enriches upcoming departures with jadwal_nama', () => {
 });
 
 test('Statistik page shows compact upcoming package rows with click-through detail modal', () => {
-  assert.match(statistikSource, /function buildBerangkatGroups/);
+  assert.match(berangkatGroupsSource, /function buildBerangkatGroups/);
   assert.match(statistikSource, /function BerangkatGroupSummaryRow/);
-  assert.match(statistikSource, /function getDestinationFlags/);
+  assert.match(berangkatGroupsSource, /function getDestinationFlags/);
   assert.match(statistikSource, /function DestinationFlags/);
-  assert.match(statistikSource, /Arab Saudi/);
-  assert.match(statistikSource, /Uni Emirat Arab/);
-  assert.match(statistikSource, /Turki/);
-  assert.match(statistikSource, /DUBAI/);
-  assert.match(statistikSource, /UAE/);
-  assert.match(statistikSource, /ABU DHABI/);
-  assert.match(statistikSource, /DESERT SAFARI/);
-  assert.match(statistikSource, /const matchedDestinationFlags = EXTRA_DESTINATION_FLAGS/);
-  assert.match(statistikSource, /matchedDestinationFlags\.length > 0 \? matchedDestinationFlags : \[SAUDI_DESTINATION_FLAG\]/);
+  assert.match(berangkatGroupsSource, /Arab Saudi/);
+  assert.match(berangkatGroupsSource, /Uni Emirat Arab/);
+  assert.match(berangkatGroupsSource, /Turki/);
+  assert.match(berangkatGroupsSource, /DUBAI/);
+  assert.match(berangkatGroupsSource, /UAE/);
+  assert.match(berangkatGroupsSource, /ABU DHABI/);
+  assert.match(berangkatGroupsSource, /DESERT SAFARI/);
+  assert.match(berangkatGroupsSource, /const matchedDestinationFlags = EXTRA_DESTINATION_FLAGS/);
+  assert.match(berangkatGroupsSource, /matchedDestinationFlags\.length > 0 \? matchedDestinationFlags : \[SAUDI_DESTINATION_FLAG\]/);
   assert.match(statistikSource, /selectedBerangkatGroup/);
   assert.match(statistikSource, /Detail Keberangkatan/);
   assert.match(statistikSource, /tour_leader/);
