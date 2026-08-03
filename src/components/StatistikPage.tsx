@@ -12,39 +12,16 @@ import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
   XAxis, YAxis, Tooltip,
 } from 'recharts';
+import {
+  getDestinationFlags, buildBerangkatGroups,
+  fmtTgl, fmtTglLong, fmtHariLagi,
+} from '../../lib/berangkat-groups.js';
+import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
 
 // ── Types ──
-interface BerangkatItem {
-  nama: string;
-  paket: string | null;
-  jadwal_id?: string | null;
-  tour_leader?: string | null;
-  manasik_tgl?: string | null;
-  manasik_jam?: string | null;
-  berangkat_kode_penerbangan?: string | null;
-  jk: string | null;
-  tgl_berangkat: string;
-  hari_lagi: number;
-  lunas: boolean;
-  sisa: number;
-  wa: string | null;
-}
-
-interface BerangkatGroup {
-  key: string;
-  paket: string;
-  count: number;
-  tour_leader: string | null;
-  manasik_tgl: string | null;
-  manasik_jam: string | null;
-  tgl_berangkat: string;
-  berangkat_kode_penerbangan: string | null;
-  items: BerangkatItem[];
-}
-
 interface OutstandingItem {
   nama: string;
   paket: string | null;
@@ -98,13 +75,6 @@ interface StatsData {
   lastSync: string | null;
 }
 
-interface DestinationFlag {
-  code: string;
-  label: string;
-  src: string;
-  fallback: string;
-}
-
 // ── Helpers ──
 const BULAN_LABEL: Record<string, string> = {
   '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr',
@@ -131,19 +101,6 @@ function fmtRpShort(n: number): string {
 function fmtRp(n: number): string {
   if (!n) return 'Rp0';
   return `Rp${n.toLocaleString('id-ID')}`;
-}
-
-function fmtTgl(d: string): string {
-  try {
-    return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch { return d; }
-}
-
-function fmtTglLong(d: string | null | undefined): string {
-  if (!d) return '-';
-  try {
-    return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-  } catch { return d; }
 }
 
 function toWaTitleCase(value: string | null | undefined): string {
@@ -178,102 +135,8 @@ function fmtSync(d: string | null): string {
   } catch { return d; }
 }
 
-function fmtHariLagi(n: number | null): string {
-  if (n === null || n === undefined) return '-';
-  if (n <= 30) return `${n} hari lagi`;
-  return `${Math.floor(n / 30)} bulan lagi`;
-}
-
 function getInitials(name: string): string {
   return (name || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
-}
-
-function cleanTourLeader(value: string | null | undefined): string | null {
-  const cleaned = String(value || '')
-    .replace(/•/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return cleaned || null;
-}
-
-const SAUDI_DESTINATION_FLAG: DestinationFlag = {
-  code: 'sa',
-  label: 'Arab Saudi',
-  src: '/flags/saudi.png',
-  fallback: 'SA',
-};
-
-const EXTRA_DESTINATION_FLAGS: Array<DestinationFlag & { pattern: RegExp }> = [
-  {
-    code: 'ae',
-    label: 'Uni Emirat Arab',
-    src: '/flags/uae.png',
-    fallback: 'AE',
-    pattern: /\b(DUBAI|UAE|UNI EMIRAT|ABU DHABI|DESERT SAFARI|DXB)\b/i,
-  },
-  {
-    code: 'tr',
-    label: 'Turki',
-    src: '/flags/turki.png',
-    fallback: 'TR',
-    pattern: /\b(TURKI|TURKEY|ISTANBUL|BURSA|ANKARA|CAPPADOCIA)\b/i,
-  },
-  {
-    code: 'eg',
-    label: 'Mesir',
-    src: '/flags/mesir.png',
-    fallback: 'EG',
-    pattern: /\b(MESIR|EGYPT|CAIRO|KAIRO|ALEXANDRIA|ISKANDARIYAH)\b/i,
-  },
-  {
-    code: 'cn',
-    label: 'China',
-    src: '/flags/china.png',
-    fallback: 'CN',
-    pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i,
-  },
-  {
-    code: 'ps',
-    label: 'Palestine',
-    src: '/flags/palestine.svg',
-    fallback: 'PS',
-    pattern: /\b(AQSA|AQSHA|AL AQSA|AL AQSHA|PALESTIN|PALESTINE|JORDAN|AMMAN|PETRA|JERUSALEM|BAITUL MAQDIS)\b/i,
-  },
-];
-
-function getDestinationFlags(paket: string | null | undefined): DestinationFlag[] {
-  const packageName = String(paket || '').toUpperCase();
-  const matchedDestinationFlags = EXTRA_DESTINATION_FLAGS
-    .filter(flag => flag.pattern.test(packageName))
-    .map(({ pattern: _pattern, ...flag }) => flag);
-  return matchedDestinationFlags.length > 0 ? matchedDestinationFlags : [SAUDI_DESTINATION_FLAG];
-}
-
-function buildBerangkatGroups(items: BerangkatItem[]): BerangkatGroup[] {
-  const map = new Map<string, BerangkatGroup>();
-  for (const item of items || []) {
-    const key = item.jadwal_id || `${item.paket || '-'}|${item.tgl_berangkat}|${item.berangkat_kode_penerbangan || ''}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        paket: item.paket || 'Paket Umroh',
-        count: 0,
-        tour_leader: cleanTourLeader(item.tour_leader),
-        manasik_tgl: item.manasik_tgl || null,
-        manasik_jam: item.manasik_jam || null,
-        tgl_berangkat: item.tgl_berangkat,
-        berangkat_kode_penerbangan: item.berangkat_kode_penerbangan || null,
-        items: [],
-      });
-    }
-    const group = map.get(key)!;
-    group.items.push(item);
-    group.count++;
-  }
-  return Array.from(map.values()).sort((a, b) =>
-    String(a.tgl_berangkat || '').localeCompare(String(b.tgl_berangkat || ''))
-    || a.paket.localeCompare(b.paket)
-  );
 }
 
 function bulanLabel(ym: string): string {

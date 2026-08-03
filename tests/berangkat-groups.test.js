@@ -1,0 +1,63 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  buildBerangkatGroups, getDestinationFlags, cleanTourLeader,
+} from '../lib/berangkat-groups.js';
+
+test('buildBerangkatGroups mengelompokkan item dengan jadwal_id yang sama', () => {
+  const items = [
+    { nama: 'A', paket: 'UMROH REGULER', jadwal_id: 'J1', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+    { nama: 'B', paket: 'UMROH REGULER', jadwal_id: 'J1', tgl_berangkat: '2026-08-05', jk: 'P', hari_lagi: 2, lunas: false, sisa: 5000000, wa: null },
+  ];
+
+  const result = buildBerangkatGroups(items);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].count, 2);
+});
+
+test('buildBerangkatGroups memakai kunci gabungan paket|tgl|kode saat jadwal_id null, paket berbeda tidak menyatu', () => {
+  const items = [
+    { nama: 'A', paket: 'PAKET X', jadwal_id: null, berangkat_kode_penerbangan: 'SV821', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+    { nama: 'B', paket: 'PAKET Y', jadwal_id: null, berangkat_kode_penerbangan: 'SV821', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+  ];
+
+  const result = buildBerangkatGroups(items);
+
+  assert.equal(result.length, 2);
+});
+
+test('buildBerangkatGroups mengurutkan hasil berdasarkan tgl_berangkat menaik', () => {
+  const items = [
+    { nama: 'A', paket: 'PAKET LATE', jadwal_id: 'J-LATE', tgl_berangkat: '2026-09-01', jk: 'L', hari_lagi: 30, lunas: true, sisa: 0, wa: null },
+    { nama: 'B', paket: 'PAKET EARLY', jadwal_id: 'J-EARLY', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+  ];
+
+  const result = buildBerangkatGroups(items);
+
+  assert.equal(result[0].tgl_berangkat, '2026-08-05');
+});
+
+test('getDestinationFlags jatuh ke Arab Saudi saat tidak ada kecocokan', () => {
+  const flags = getDestinationFlags('UMROH REGULER 9HR');
+
+  assert.deepEqual(flags, [{ code: 'sa', label: 'Arab Saudi', src: '/flags/saudi.png', fallback: 'SA' }]);
+});
+
+test('getDestinationFlags mengenali satu negara tambahan', () => {
+  const flags = getDestinationFlags('PROMO PLUS DUBAI 11HR');
+
+  assert.equal(flags.length, 1);
+  assert.equal(flags[0].code, 'ae');
+});
+
+test('getDestinationFlags mengenali banyak negara, urut sesuai EXTRA_DESTINATION_FLAGS', () => {
+  const flags = getDestinationFlags('PLUS DUBAI DAN TURKI');
+
+  assert.deepEqual(flags.map(flag => flag.code), ['ae', 'tr']);
+});
+
+test('cleanTourLeader membuang bullet dan merapatkan spasi, string kosong jadi null', () => {
+  assert.equal(cleanTourLeader('•  H. Ahmad'), 'H. Ahmad');
+  assert.equal(cleanTourLeader(''), null);
+});
