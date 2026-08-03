@@ -13045,6 +13045,84 @@ app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
   }
 });
 
+// ── API: Berangkat Mendatang (kartu kalender dashboard) ──
+// Versi ringan dari bagian berangkatBulanIni milik /api/laporan/stats: hanya
+// jamaah agen ini dalam 60 hari ke depan, tanpa metrik lain. Dipakai kartu
+// UpcomingSchedule supaya dashboard tak perlu memanggil endpoint stats yang
+// berat (±12 query paralel + di belakang dbLoadShedGuard).
+app.get('/api/calendar/berangkat-mendatang', authMiddleware, async (req, res) => {
+  const agentId = req.user.id;
+  try {
+    // Key diberi trailing ":" supaya cocok dengan konvensi invalidateStatsCache
+    // (mencocokkan substring `:${agentId}:`) — sama seperti umroh:/haji: di
+    // /api/laporan/stats dan /api/haji/stats, jadi cache ini ikut ter-invalidasi
+    // saat sync/pembayaran mengubah data jamaah, bukan menunggu TTL 60 detik.
+    const cacheKey = `berangkat:${agentId}:`;
+    const cached = statsCacheGet(cacheKey);
+    if (cached) return res.json(cached);
+
+    const todayStr = getWIBDateStr();
+    const windowEnd = new Date(Date.parse(`${todayStr}T00:00:00Z`) + 60 * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+
+    // Sama seperti /api/laporan/stats: prospek yang belum bayar sepeser pun
+    // tak ikut dihitung. TANPA filter hijriah_year — daftar ini operasional
+    // dan melintasi batas tahun Hijriah (13 Jun 2026 = 1447H, 18 Jun = 1448H).
+    const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
+    const bebQ = supabase.from('jamaah')
+      .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa, id_jadwal:raw_data->>id_jadwal')
+      .eq('agent_id', agentId)
+      .gte('tgl_berangkat', todayStr)
+      .lte('tgl_berangkat', windowEnd)
+      .order('tgl_berangkat', { ascending: true })
+      .order('nama', { ascending: true });
+
+    const [bebRows, scheduleDetailMap] = await Promise.all([
+      fetchAllRows(excludeBelumDP(bebQ)),
+      getScheduleDetailMap(),
+    ]);
+
+    const jadwalIds = [...new Set((bebRows || []).map(r => r.id_jadwal).filter(Boolean))];
+    const calendarByJadwalId = new Map();
+    if (jadwalIds.length > 0) {
+      const { data: calRows, error: calErr } = await supabase
+        .from('calendar_events')
+        .select('jadwal_id, event_date, tour_leader')
+        .eq('event_type', 'keberangkatan')
+        .in('jadwal_id', jadwalIds);
+      if (calErr) {
+        console.warn('[BerangkatMendatang] calendar metadata fetch failed:', calErr.message);
+      } else {
+        for (const row of (calRows || [])) {
+          if (!row.jadwal_id) continue;
+          const current = calendarByJadwalId.get(row.jadwal_id);
+          if (!current || String(row.event_date || '').localeCompare(String(current.event_date || '')) < 0) {
+            calendarByJadwalId.set(row.jadwal_id, row);
+          }
+        }
+      }
+    }
+
+    const enriched = (bebRows || []).map(r => ({
+      ...r,
+      jadwal_id: r.id_jadwal || null,
+      jadwal_nama: scheduleDetailMap.get(r.id_jadwal)?.jadwal_nama || null,
+      manasik_tgl: scheduleDetailMap.get(r.id_jadwal)?.manasik_tgl || null,
+      manasik_jam: scheduleDetailMap.get(r.id_jadwal)?.manasik_jam || null,
+      berangkat_kode_penerbangan: scheduleDetailMap.get(r.id_jadwal)?.berangkat_kode_penerbangan || null,
+      tour_leader: calendarByJadwalId.get(r.id_jadwal)?.tour_leader || null,
+    }));
+
+    const { berangkatBulanIni, berangkatBulan } = buildBerangkatMendatang(enriched, todayStr);
+    const payload = { success: true, data: { berangkatBulanIni, berangkatBulan } };
+    statsCacheSet(cacheKey, payload);
+    res.json(payload);
+  } catch (err) {
+    console.error('[BerangkatMendatang] Error:', err.message);
+    res.status(500).json({ success: false, error: 'Gagal memuat berangkat mendatang' });
+  }
+});
+
 // ──────────────────────────────────────────────
 // API: Flight Status (AirLabs Integration)
 // ──────────────────────────────────────────────
