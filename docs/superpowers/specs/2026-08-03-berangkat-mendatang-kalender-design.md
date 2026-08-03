@@ -38,8 +38,18 @@ Karena itu section diberi judul dan sub-baris ringkasannya sendiri
 
 ### 1. Endpoint baru — `GET /api/calendar/berangkat-mendatang`
 
-Di `server.js`, `authMiddleware` saja (tanpa `dbLoadShedGuard` — payloadnya kecil
-dan query-nya sedikit).
+Di `server.js`, di belakang `dbLoadShedGuard` **dan** `authMiddleware` — sama
+seperti `/api/calendar/events` dan `/api/laporan/stats`.
+
+Keputusan awal di sini adalah `authMiddleware` saja (tanpa `dbLoadShedGuard`,
+dengan alasan "payload kecil, query sedikit"). Itu keliru dan sudah dikoreksi
+oleh review akhir: `dbLoadShedGuard` bukan pembatas throughput, melainkan
+circuit breaker keterjangkauan DB — ukuran payload tidak relevan untuk itu.
+Selama breaker OPEN (DB dinyatakan tak terjangkau), endpoint tanpa guard tetap
+memanggil `fetchAllRows` ke `jamaah` plus query `calendar_events` ke DB yang
+sama; karena `fetchAllRows` melempar galat saat itu, cache 60 detiknya tak
+pernah terisi selama outage, sehingga setiap request dashboard tetap menembus
+DB alih-alih berhenti di cache miss pertama.
 
 ```
 todayStr  = getWIBDateStr()

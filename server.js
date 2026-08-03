@@ -22,7 +22,7 @@ import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive,
 import { isSameInternalAccount, escapeInternalAccountLike, internalAccountTakenMessage } from './lib/internal-account-guard.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { buildBerangkatMendatang, computeUmrohKomisi } from './lib/laporan-stats.js';
+import { buildBerangkatMendatang, computeUmrohKomisi, BERANGKAT_MENDATANG_WINDOW_DAYS } from './lib/laporan-stats.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
@@ -13050,7 +13050,7 @@ app.get('/api/calendar/insight-jamaah', authMiddleware, async (req, res) => {
 // jamaah agen ini dalam 60 hari ke depan, tanpa metrik lain. Dipakai kartu
 // UpcomingSchedule supaya dashboard tak perlu memanggil endpoint stats yang
 // berat (±12 query paralel + di belakang dbLoadShedGuard).
-app.get('/api/calendar/berangkat-mendatang', authMiddleware, async (req, res) => {
+app.get('/api/calendar/berangkat-mendatang', dbLoadShedGuard, authMiddleware, async (req, res) => {
   const agentId = req.user.id;
   try {
     // Key diberi trailing ":" supaya cocok dengan konvensi invalidateStatsCache
@@ -13062,7 +13062,7 @@ app.get('/api/calendar/berangkat-mendatang', authMiddleware, async (req, res) =>
     if (cached) return res.json(cached);
 
     const todayStr = getWIBDateStr();
-    const windowEnd = new Date(Date.parse(`${todayStr}T00:00:00Z`) + 60 * 24 * 60 * 60 * 1000)
+    const windowEnd = new Date(Date.parse(`${todayStr}T00:00:00Z`) + BERANGKAT_MENDATANG_WINDOW_DAYS * 24 * 60 * 60 * 1000)
       .toISOString().slice(0, 10);
 
     // Sama seperti /api/laporan/stats: prospek yang belum bayar sepeser pun

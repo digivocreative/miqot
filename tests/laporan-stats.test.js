@@ -145,10 +145,14 @@ test('buildBerangkatMendatang preserves schedule metadata for package grouping',
 });
 
 test('stats endpoint enriches upcoming departures with jadwal_nama', () => {
-  assert.match(serverSource, /id_jadwal:raw_data->>id_jadwal/);
-  assert.match(serverSource, /getScheduleDetailMap/);
-  assert.match(serverSource, /calendar_events[\s\S]*tour_leader/);
-  assert.match(serverSource, /scheduleDetailMap\.get\(r\.id_jadwal\)\?\.jadwal_nama/);
+  // Anchor ke deklarasi rute /api/laporan/stats sendiri, bukan ke seluruh
+  // serverSource — endpoint /api/calendar/berangkat-mendatang punya string
+  // enrichment yang nyaris identik, jadi tanpa anchor ini keempat assert di
+  // bawah tetap lolos meski blok enrichment /stats dihapus total.
+  assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,3600}id_jadwal:raw_data->>id_jadwal/);
+  assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,6200}getScheduleDetailMap/);
+  assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,7500}calendar_events[\s\S]{0,300}tour_leader/);
+  assert.match(serverSource, /const enrichedBebRows = \(bebRows \|\| \[\]\)[\s\S]{0,600}scheduleDetailMap\.get\(r\.id_jadwal\)\?\.jadwal_nama/);
   assert.match(serverSource, /buildBerangkatMendatang\(enrichedBebRows, todayStr\)/);
 });
 

@@ -213,7 +213,7 @@ Letakkan tepat setelah blok `app.get('/api/calendar/insight-jamaah', ...)` berak
 // jamaah agen ini dalam 60 hari ke depan, tanpa metrik lain. Dipakai kartu
 // UpcomingSchedule supaya dashboard tak perlu memanggil endpoint stats yang
 // berat (±12 query paralel + di belakang dbLoadShedGuard).
-app.get('/api/calendar/berangkat-mendatang', authMiddleware, async (req, res) => {
+app.get('/api/calendar/berangkat-mendatang', dbLoadShedGuard, authMiddleware, async (req, res) => {
   const agentId = req.user.id;
   try {
     const cacheKey = `berangkat:${agentId}`;

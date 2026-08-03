@@ -16,7 +16,7 @@ import {
   buildBerangkatGroups, fmtTglLong, fmtHariLagi,
 } from '../../lib/berangkat-groups.js';
 import type { BerangkatItem } from '../../lib/berangkat-groups.js';
-import { DestinationFlags, BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
+import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
