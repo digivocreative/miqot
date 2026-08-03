@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Loader2, Users, Plane, UserPlus, Wallet,
-  Check, ChevronDown, ChevronRight, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft, CalendarDays,
+  ChevronDown, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
@@ -13,10 +13,10 @@ import {
   XAxis, YAxis, Tooltip,
 } from 'recharts';
 import {
-  getDestinationFlags, buildBerangkatGroups,
-  fmtTgl, fmtTglLong, fmtHariLagi,
+  buildBerangkatGroups, fmtTglLong, fmtHariLagi,
 } from '../../lib/berangkat-groups.js';
-import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
+import type { BerangkatItem } from '../../lib/berangkat-groups.js';
+import { DestinationFlags, BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
@@ -101,15 +101,6 @@ function fmtRpShort(n: number): string {
 function fmtRp(n: number): string {
   if (!n) return 'Rp0';
   return `Rp${n.toLocaleString('id-ID')}`;
-}
-
-function toWaTitleCase(value: string | null | undefined): string {
-  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!normalized) return '-';
-  return normalized
-    .toLocaleLowerCase('id-ID')
-    .replace(/(^|[\s([/+.-])([a-z])/g, (_match, prefix, char) => `${prefix}${char.toLocaleUpperCase('id-ID')}`)
-    .replace(/\b(\d+)\s*hr\b/gi, '$1HR');
 }
 
 export function pickNearestMasehiYear(years: string[], currentYear = new Date().getFullYear()): string {
@@ -230,178 +221,6 @@ function HeadlineValueRow({ icon, iconWrapClassName, valueClassName, children }:
       <p className={`text-[22px] font-bold leading-none ${valueClassName}`}>{children}</p>
       <div className={`w-7 h-7 rounded-lg flex items-center justify-center border ${iconWrapClassName}`}>
         {icon}
-      </div>
-    </div>
-  );
-}
-
-// ── Row renderers ──
-function buildBerangkatWaText(item: BerangkatItem): string {
-  const honorific = item.jk === 'P' ? 'Ibu' : 'Bapak';
-  const jamaahName = toWaTitleCase(item.nama);
-  const packageName = toWaTitleCase(item.paket || 'Umroh');
-  const departureDate = fmtTglLong(item.tgl_berangkat);
-  const lines = [
-    `Assalamualaikum ${honorific} *${jamaahName}*, mau mengingatkan bahwa keberangkatan Umroh ${packageName} dijadwalkan pada ${departureDate}.`,
-    '',
-    `Dimohon ${honorific} untuk mempersiapkan diri sebelum hari keberangkatan.`,
-  ];
-  return lines.join('\n');
-}
-
-function BerangkatRow({ item, showPackage = true }: { item: BerangkatItem; showPackage?: boolean }) {
-  const initials = getInitials(item.nama);
-  const isFemale = item.jk === 'P';
-  const waNumber = normalizeWaNumber(item.wa);
-  const waUrl = waNumber
-    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(buildBerangkatWaText(item))}`
-    : null;
-  return (
-    <div className="px-4 py-3 flex items-center gap-3">
-      <div className="relative shrink-0">
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-bold ${
-          isFemale ? 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 ring-2 ring-pink-300'
-                   : 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 ring-2 ring-blue-300'
-        }`}>{initials}</div>
-        {item.lunas && (
-          <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-800 flex items-center justify-center">
-            <Check size={9} className="text-white" strokeWidth={3} />
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{item.nama}</p>
-        {showPackage && (
-          <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}</p>
-        )}
-      </div>
-      {showPackage ? (
-        <div className="flex flex-col items-end gap-0.5 shrink-0">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
-            item.hari_lagi <= 15 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-                                 : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
-          }`}>✈ {item.hari_lagi} hari</span>
-          <span className="text-[10px] text-gray-400 dark:text-slate-500">{fmtTgl(item.tgl_berangkat)}</span>
-        </div>
-      ) : (
-        waUrl ? (
-          <a
-            href={waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Chat WhatsApp ${item.nama}`}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[10px] font-bold text-emerald-600 transition-colors hover:bg-emerald-500/15 active:scale-95 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300"
-          >
-            <WaIcon size={13} />
-            <span>Chat</span>
-          </a>
-        ) : (
-          <span className="shrink-0 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-500">
-            WA kosong
-          </span>
-        )
-      )}
-    </div>
-  );
-}
-
-function GroupMeta({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="min-w-0">
-      <p className="truncate text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{label}</p>
-      <p className="mt-0.5 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100">{value || '-'}</p>
-    </div>
-  );
-}
-
-function DestinationFlags({ paket }: { paket: string }) {
-  const flags = getDestinationFlags(paket);
-  const visibleFlags = flags.slice(0, 3);
-  const overflowCount = flags.length - visibleFlags.length;
-  const title = flags.map(flag => flag.label).join(' + ');
-  const flagSizeClass = visibleFlags.length > 1 ? 'h-4 w-6' : 'h-5 w-7';
-
-  return (
-    <div
-      className="w-9 h-9 flex items-center justify-center shrink-0"
-      title={title}
-      aria-label={title}
-    >
-      <div className="flex items-center justify-center gap-0.5">
-        {visibleFlags.map(flag => (
-          <span
-            key={flag.code}
-            className={`relative flex ${flagSizeClass} items-center justify-center overflow-hidden bg-gray-100 text-[7px] font-bold text-gray-500 shadow-sm dark:bg-slate-700 dark:text-slate-300`}
-          >
-            <span>{flag.fallback}</span>
-            <img
-              src={flag.src}
-              alt={flag.label}
-              className="absolute inset-0 h-full w-full object-cover shadow-sm"
-              onError={(event) => { event.currentTarget.style.display = 'none'; }}
-            />
-          </span>
-        ))}
-        {overflowCount > 0 && (
-          <span className="ml-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-300">+{overflowCount}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BerangkatGroupSummaryRow({ group, onSelect }: { group: BerangkatGroup; onSelect: (key: string) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(group.key)}
-      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-gray-50/80 dark:hover:bg-slate-700/30 active:scale-[0.99] transition-all"
-    >
-      <DestinationFlags paket={group.paket} />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
-          {group.paket}
-        </p>
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] font-medium">
-          <span className="inline-flex min-w-0 items-center gap-1 text-blue-600 dark:text-blue-400">
-            <CalendarDays size={11} strokeWidth={2.2} className="shrink-0" />
-            <span className="truncate">{fmtTglLong(group.tgl_berangkat)}</span>
-          </span>
-          <span className="text-gray-300 dark:text-slate-600">·</span>
-          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-            <Users size={11} strokeWidth={2.2} className="shrink-0" />
-            <span>{group.count} Jamaah</span>
-          </span>
-        </div>
-      </div>
-      <ChevronRight size={15} className="shrink-0 text-gray-300 dark:text-slate-600" />
-    </button>
-  );
-}
-
-function BerangkatGroupDetail({ group }: { group: BerangkatGroup }) {
-  const manasikLabel = group.manasik_tgl
-    ? fmtTglLong(group.manasik_tgl)
-    : null;
-
-  return (
-    <div>
-      <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700/50 bg-white/40 dark:bg-slate-800/40">
-        <div className="flex items-center gap-2">
-          <DestinationFlags paket={group.paket} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-gray-800 dark:text-white">{group.paket}</p>
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
-          <GroupMeta label="Berangkat" value={fmtTglLong(group.tgl_berangkat)} />
-          <GroupMeta label="Penerbangan" value={group.berangkat_kode_penerbangan} />
-          <GroupMeta label="Tour Leader" value={group.tour_leader} />
-          <GroupMeta label="Manasik" value={manasikLabel} />
-        </div>
-      </div>
-      <div className="divide-y divide-gray-50 dark:divide-slate-700/40">
-        {group.items.map((item, i) => <BerangkatRow key={`${group.key}-${item.nama}-${i}`} item={item} showPackage={false} />)}
       </div>
     </div>
   );

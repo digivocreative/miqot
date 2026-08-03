@@ -6,6 +6,7 @@ import { buildBerangkatMendatang, computeUmrohKomisi } from '../lib/laporan-stat
 const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const statistikSource = readFileSync(new URL('../src/components/StatistikPage.tsx', import.meta.url), 'utf8');
 const berangkatGroupsSource = readFileSync(new URL('../lib/berangkat-groups.js', import.meta.url), 'utf8');
+const berangkatGroupViewsSource = readFileSync(new URL('../src/components/berangkat/BerangkatGroupViews.tsx', import.meta.url), 'utf8');
 
 test('buildBerangkatMendatang includes upcoming departures across Hijriah years within 60 days', () => {
   const rows = [
@@ -153,9 +154,9 @@ test('stats endpoint enriches upcoming departures with jadwal_nama', () => {
 
 test('Statistik page shows compact upcoming package rows with click-through detail modal', () => {
   assert.match(berangkatGroupsSource, /function buildBerangkatGroups/);
-  assert.match(statistikSource, /function BerangkatGroupSummaryRow/);
+  assert.match(berangkatGroupViewsSource, /function BerangkatGroupSummaryRow/);
   assert.match(berangkatGroupsSource, /function getDestinationFlags/);
-  assert.match(statistikSource, /function DestinationFlags/);
+  assert.match(berangkatGroupViewsSource, /function DestinationFlags/);
   assert.match(berangkatGroupsSource, /Arab Saudi/);
   assert.match(berangkatGroupsSource, /Uni Emirat Arab/);
   assert.match(berangkatGroupsSource, /Turki/);
@@ -167,38 +168,38 @@ test('Statistik page shows compact upcoming package rows with click-through deta
   assert.match(berangkatGroupsSource, /matchedDestinationFlags\.length > 0 \? matchedDestinationFlags : \[SAUDI_DESTINATION_FLAG\]/);
   assert.match(statistikSource, /selectedBerangkatGroup/);
   assert.match(statistikSource, /Detail Keberangkatan/);
-  assert.match(statistikSource, /tour_leader/);
-  assert.match(statistikSource, /manasik_tgl/);
-  assert.match(statistikSource, /berangkat_kode_penerbangan/);
+  assert.match(berangkatGroupViewsSource, /tour_leader/);
+  assert.match(berangkatGroupViewsSource, /manasik_tgl/);
+  assert.match(berangkatGroupViewsSource, /berangkat_kode_penerbangan/);
   assert.match(statistikSource, /max-h-\[calc\(100dvh-4rem\)\]/);
   assert.match(statistikSource, /className="min-h-0 overflow-y-auto"/);
-  assert.match(statistikSource, /function GroupMeta/);
-  assert.match(statistikSource, /className="flex items-center gap-2"/);
-  assert.match(statistikSource, /<DestinationFlags paket=\{group\.paket\} \/>[\s\S]*className="truncate[^"]*">\{group\.paket\}/);
-  assert.match(statistikSource, /const manasikLabel = group\.manasik_tgl\s*\?\s*fmtTglLong\(group\.manasik_tgl\)\s*:\s*null/);
-  assert.match(statistikSource, /className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2"/);
-  assert.match(statistikSource, /GroupMeta label="Berangkat"/);
-  assert.match(statistikSource, /GroupMeta label="Penerbangan"/);
-  assert.match(statistikSource, /GroupMeta label="Tour Leader"/);
-  assert.match(statistikSource, /GroupMeta label="Manasik"/);
-  assert.match(statistikSource, /function toWaTitleCase\(value: string \| null \| undefined\)/);
-  assert.match(statistikSource, /function buildBerangkatWaText\(item: BerangkatItem\)/);
-  assert.match(statistikSource, /const honorific = item\.jk === 'P' \? 'Ibu' : 'Bapak'/);
-  assert.match(statistikSource, /const jamaahName = toWaTitleCase\(item\.nama\)/);
-  assert.match(statistikSource, /const packageName = toWaTitleCase\(item\.paket \|\| 'Umroh'\)/);
-  assert.match(statistikSource, /Assalamualaikum \$\{honorific\} \*\$\{jamaahName\}\*, mau mengingatkan bahwa keberangkatan Umroh \$\{packageName\} dijadwalkan pada \$\{departureDate\}\./);
-  assert.match(statistikSource, /Dimohon \$\{honorific\} untuk mempersiapkan diri sebelum hari keberangkatan\./);
-  assert.doesNotMatch(statistikSource, /Berikut informasi keberangkatan umroh/);
-  assert.match(statistikSource, /const waNumber = normalizeWaNumber\(item\.wa\)/);
-  assert.match(statistikSource, /const waUrl = waNumber[\s\S]{0,120}wa\.me\/\$\{waNumber\}[\s\S]{0,120}buildBerangkatWaText\(item\)/);
-  assert.match(statistikSource, /aria-label=\{`Chat WhatsApp \$\{item\.nama\}`\}/);
-  assert.match(statistikSource, /\{showPackage \? \([\s\S]*item\.hari_lagi[\s\S]*\) : \(\s*waUrl \? \(/);
-  assert.match(statistikSource, /onSelect\(group\.key\)/);
-  assert.match(statistikSource, /<DestinationFlags paket=\{group\.paket\} \/>/);
-  assert.match(statistikSource, /truncate[\s\S]{0,100}\{group\.paket\}/);
-  assert.match(statistikSource, /CalendarDays/);
-  assert.match(statistikSource, /Users size=\{11\}[\s\S]{0,120}\{group\.count\} Jamaah/);
-  assert.match(statistikSource, /className="absolute inset-0 h-full w-full object-cover shadow-sm"/);
+  assert.match(berangkatGroupViewsSource, /function GroupMeta/);
+  assert.match(berangkatGroupViewsSource, /className="flex items-center gap-2"/);
+  assert.match(berangkatGroupViewsSource, /<DestinationFlags paket=\{group\.paket\} \/>[\s\S]*className="truncate[^"]*">\{group\.paket\}/);
+  assert.match(berangkatGroupViewsSource, /const manasikLabel = group\.manasik_tgl\s*\?\s*fmtTglLong\(group\.manasik_tgl\)\s*:\s*null/);
+  assert.match(berangkatGroupViewsSource, /className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2"/);
+  assert.match(berangkatGroupViewsSource, /GroupMeta label="Berangkat"/);
+  assert.match(berangkatGroupViewsSource, /GroupMeta label="Penerbangan"/);
+  assert.match(berangkatGroupViewsSource, /GroupMeta label="Tour Leader"/);
+  assert.match(berangkatGroupViewsSource, /GroupMeta label="Manasik"/);
+  assert.match(berangkatGroupViewsSource, /function toWaTitleCase\(value: string \| null \| undefined\)/);
+  assert.match(berangkatGroupViewsSource, /function buildBerangkatWaText\(item: BerangkatItem\)/);
+  assert.match(berangkatGroupViewsSource, /const honorific = item\.jk === 'P' \? 'Ibu' : 'Bapak'/);
+  assert.match(berangkatGroupViewsSource, /const jamaahName = toWaTitleCase\(item\.nama\)/);
+  assert.match(berangkatGroupViewsSource, /const packageName = toWaTitleCase\(item\.paket \|\| 'Umroh'\)/);
+  assert.match(berangkatGroupViewsSource, /Assalamualaikum \$\{honorific\} \*\$\{jamaahName\}\*, mau mengingatkan bahwa keberangkatan Umroh \$\{packageName\} dijadwalkan pada \$\{departureDate\}\./);
+  assert.match(berangkatGroupViewsSource, /Dimohon \$\{honorific\} untuk mempersiapkan diri sebelum hari keberangkatan\./);
+  assert.doesNotMatch(berangkatGroupViewsSource, /Berikut informasi keberangkatan umroh/);
+  assert.match(berangkatGroupViewsSource, /const waNumber = normalizeWaNumber\(item\.wa\)/);
+  assert.match(berangkatGroupViewsSource, /const waUrl = waNumber[\s\S]{0,120}wa\.me\/\$\{waNumber\}[\s\S]{0,120}buildBerangkatWaText\(item\)/);
+  assert.match(berangkatGroupViewsSource, /aria-label=\{`Chat WhatsApp \$\{item\.nama\}`\}/);
+  assert.match(berangkatGroupViewsSource, /\{showPackage \? \([\s\S]*item\.hari_lagi[\s\S]*\) : \(\s*waUrl \? \(/);
+  assert.match(berangkatGroupViewsSource, /onSelect\(group\.key\)/);
+  assert.match(berangkatGroupViewsSource, /<DestinationFlags paket=\{group\.paket\} \/>/);
+  assert.match(berangkatGroupViewsSource, /truncate[\s\S]{0,100}\{group\.paket\}/);
+  assert.match(berangkatGroupViewsSource, /CalendarDays/);
+  assert.match(berangkatGroupViewsSource, /Users size=\{11\}[\s\S]{0,120}\{group\.count\} Jamaah/);
+  assert.match(berangkatGroupViewsSource, /className="absolute inset-0 h-full w-full object-cover shadow-sm"/);
   assert.match(statistikSource, /const berangkatRangeLabel = data\?\.berangkatBulan \|\| '60 hari ke depan'/);
   assert.match(statistikSource, /const berangkatGroupPreview = berangkatGroups\.slice\(0, 4\)/);
   assert.match(statistikSource, /const \[showBerangkatGroupsModal, setShowBerangkatGroupsModal\] = useState\(false\)/);
@@ -209,18 +210,18 @@ test('Statistik page shows compact upcoming package rows with click-through deta
   assert.match(statistikSource, /title="Berangkat Mendatang"/);
   assert.match(statistikSource, /subtitle=\{`\$\{berangkatGroups\.length\} paket · \$\{berangkatRangeLabel\}`\}/);
   assert.match(statistikSource, /Berangkat Mendatang[\s\S]*Tren Jamaah Baru/);
-  assert.doesNotMatch(statistikSource, /line-clamp-2[\s\S]{0,100}\{group\.paket\}/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /line-clamp-2[\s\S]{0,100}\{group\.paket\}/);
   assert.doesNotMatch(statistikSource, /<Plane size=\{16\} className="text-blue-600 dark:text-blue-400" strokeWidth=\{2\.4\} \/>/);
   assert.doesNotMatch(statistikSource, /rounded-full bg-white text-\[8px\][\s\S]{0,80}ring-2/);
-  assert.doesNotMatch(statistikSource, /bg-emerald-50[\s\S]{0,160}\{group\.count\} jamaah/);
-  assert.doesNotMatch(statistikSource, /\{group\.count\} jamaah/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /bg-emerald-50[\s\S]{0,160}\{group\.count\} jamaah/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /\{group\.count\} jamaah/);
   assert.doesNotMatch(statistikSource, /BerangkatGroupBlock key=\{group\.key\} group=\{group\} limit=\{2\}/);
   assert.doesNotMatch(statistikSource, /top-8 bottom-8/);
   assert.doesNotMatch(statistikSource, /className="flex-1 overflow-y-auto"/);
-  assert.doesNotMatch(statistikSource, /bg-gray-50\/60 dark:bg-slate-900\/25/);
-  assert.doesNotMatch(statistikSource, /GroupMeta label="TL"/);
-  assert.doesNotMatch(statistikSource, /grid grid-cols-2 gap-1\.5/);
-  assert.doesNotMatch(statistikSource, /rounded-lg border border-gray-100[\s\S]{0,120}bg-white\/70/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /bg-gray-50\/60 dark:bg-slate-900\/25/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /GroupMeta label="TL"/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /grid grid-cols-2 gap-1\.5/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /rounded-lg border border-gray-100[\s\S]{0,120}bg-white\/70/);
 });
 
 test('Statistik page makes Estimasi Komisi collapsible without removing details', () => {
