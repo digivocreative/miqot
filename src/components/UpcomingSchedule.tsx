@@ -1,9 +1,12 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
 import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/calendarPeople';
+import { buildBerangkatGroups } from '../../lib/berangkat-groups.js';
+import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
+import { BerangkatGroupSummaryRow } from './berangkat/BerangkatGroupViews';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -127,6 +130,42 @@ export default function UpcomingSchedule() {
   const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string; jadwalId: string | null } | null>(null);
   const calendarDataRef = useRef(calendarData);
   calendarDataRef.current = calendarData;
+
+  const [berangkatItems, setBerangkatItems] = useState<BerangkatItem[]>([]);
+  const [berangkatLabel, setBerangkatLabel] = useState<string>('');
+  const [berangkatLoading, setBerangkatLoading] = useState(true);
+  const [showAllGroups, setShowAllGroups] = useState(false);
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
+
+  // Sekali saat mount — jendelanya tetap 60 hari ke depan dan TIDAK ikut
+  // navigasi bulan kalender, jadi tak ada dependensi ke currentMonth.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/calendar/berangkat-mendatang', { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(String(res.status));
+        const json = await res.json();
+        if (cancelled) return;
+        setBerangkatItems(json?.data?.berangkatBulanIni || []);
+        setBerangkatLabel(json?.data?.berangkatBulan || '');
+      } catch {
+        // Section ini pelengkap; kalau gagal, kartu kalender tetap utuh dan
+        // section-nya tidak dirender sama sekali.
+        if (!cancelled) { setBerangkatItems([]); setBerangkatLabel(''); }
+      } finally {
+        if (!cancelled) setBerangkatLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const berangkatGroups = useMemo(() => buildBerangkatGroups(berangkatItems), [berangkatItems]);
+  const berangkatPreview = berangkatGroups.slice(0, 3);
+  const selectedGroup = useMemo(
+    () => berangkatGroups.find(g => g.key === selectedGroupKey) || null,
+    [berangkatGroups, selectedGroupKey],
+  );
 
   const fetchMonth = useCallback(async (year: number, month: number) => {
     const key = cacheKey(year, month);
@@ -338,6 +377,48 @@ export default function UpcomingSchedule() {
             </div>
           ))}
         </div>
+
+        {/* ── Berangkat Mendatang (jendela tetap 60 hari; bukan turunan bulan aktif) ── */}
+        {berangkatLoading ? (
+          <div className="border-t border-gray-100 dark:border-slate-700 px-4 py-3 space-y-3">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-2.5 w-3/4 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+                  <div className="h-2 w-1/2 rounded bg-gray-50 dark:bg-slate-700/60 animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : berangkatGroups.length > 0 ? (
+          <>
+            <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">
+                  Berangkat Mendatang
+                </p>
+                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
+                  {berangkatItems.length} jamaah · {berangkatGroups.length} paket{berangkatLabel ? ` · ${berangkatLabel}` : ''}
+                </p>
+              </div>
+              <Plane size={15} className="shrink-0 text-blue-500 dark:text-blue-400" />
+            </div>
+            <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
+              {berangkatPreview.map(group => (
+                <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedGroupKey} />
+              ))}
+            </div>
+            {berangkatGroups.length > berangkatPreview.length && (
+              <button
+                onClick={() => setShowAllGroups(true)}
+                className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1"
+              >
+                Lihat lainnya <ChevronDown size={12} />
+              </button>
+            )}
+          </>
+        ) : null}
       </div>
 
       {/* ── Bottom Sheet ── */}
