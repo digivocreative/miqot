@@ -66,7 +66,8 @@ import {
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
 import { requireBaniAccess } from './lib/bani-access.js';
-import { runBaniConversation, BANI_SOURCE_NOTE } from './lib/bani-orchestrator.js';
+import { runBaniConversation } from './lib/bani-orchestrator.js';
+import { formatBaniTelegramMessage } from './lib/bani-telegram.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -1814,6 +1815,13 @@ const BANI_QUESTION_MAX_LEN = 500;
 const BANI_OPENAI_TIMEOUT_MS = 15000;
 const baniRateLimits = new Map(); // agent id → { count, resetAt }
 
+// Kirim-ke-Telegram punya jatah sendiri: mengirim ulang jawaban jauh lebih murah
+// daripada bertanya, dan tidak boleh menghabiskan kuota tanya agent.
+const BANI_TELEGRAM_RATE_LIMIT_MAX = 15;
+const BANI_TELEGRAM_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const BANI_ANSWER_MAX_LEN = 4000;
+const baniTelegramRateLimits = new Map(); // agent id → { count, resetAt }
+
 // Param gpt-5.6-luna (diverifikasi langsung ke API 2026-08-02):
 // - `max_tokens` DITOLAK → wajib `max_completion_tokens`.
 // - `temperature` non-default DITOLAK → jangan dikirim sama sekali.
@@ -1831,6 +1839,17 @@ function baniRateLimit(agentId) {
   if (!current || now >= current.resetAt) {
     const fresh = { count: 0, resetAt: now + BANI_RATE_LIMIT_WINDOW_MS };
     baniRateLimits.set(agentId, fresh);
+    return fresh;
+  }
+  return current;
+}
+
+function baniTelegramRateLimit(agentId) {
+  const now = Date.now();
+  const current = baniTelegramRateLimits.get(agentId);
+  if (!current || now >= current.resetAt) {
+    const fresh = { count: 0, resetAt: now + BANI_TELEGRAM_RATE_LIMIT_WINDOW_MS };
+    baniTelegramRateLimits.set(agentId, fresh);
     return fresh;
   }
   return current;
@@ -1931,7 +1950,6 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
       answer: result.answer,
       cards: result.cards,
       tools_used: result.tools_used,
-      source_note: BANI_SOURCE_NOTE,
     });
   } catch (error) {
     // Pesan internal (termasuk body error OpenAI) tinggal di log — klien cuma
@@ -1939,6 +1957,61 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
     console.error(`[Bani] ${agent?.slug || req.user?.slug || '?'}: gagal menjawab (${Date.now() - startedAt}ms):`, error?.message || error);
     try { Sentry.captureException(error); } catch { /* noop */ }
     return res.json({ success: false, error: 'Bani lagi tidak bisa menjawab. Coba lagi sebentar lagi.' });
+  }
+});
+
+// Kirim satu jawaban Bani ke Telegram agent yang bertanya. Tujuannya SELALU
+// `agent.telegram_chat_id` milik pemegang JWT — chat id tidak pernah datang dari
+// klien, jadi endpoint ini tidak bisa dipakai mengirim pesan ke orang lain.
+// Teks jawaban memang dikirim balik oleh klien (Bani single-shot, server tidak
+// menyimpan riwayat); isinya dibatasi panjang lalu di-escape di formatter.
+app.post('/api/bani/telegram', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent tidak ditemukan' });
+    if (!requireBaniAccess(agent, res)) return;
+
+    if (!agent.telegram_chat_id) {
+      return res.status(409).json({
+        code: 'telegram_not_connected',
+        error: 'Telegram Anda belum terhubung. Hubungkan dulu di Pengaturan.',
+      });
+    }
+
+    const answer = typeof req.body?.answer === 'string' ? req.body.answer.trim() : '';
+    if (!answer) return res.status(400).json({ error: 'Jawaban kosong, tidak ada yang bisa dikirim' });
+
+    const rate = baniTelegramRateLimit(agent.id);
+    if (rate.count >= BANI_TELEGRAM_RATE_LIMIT_MAX) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000));
+      res.set('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({ error: 'Terlalu sering mengirim ke Telegram. Coba lagi nanti.', retryAfterSeconds });
+    }
+    rate.count += 1;
+
+    const message = formatBaniTelegramMessage({
+      question: String(req.body?.question || '').substring(0, BANI_QUESTION_MAX_LEN),
+      answer: answer.substring(0, BANI_ANSWER_MAX_LEN),
+      cards: Array.isArray(req.body?.cards) ? req.body.cards : [],
+    });
+
+    const sent = await sendTelegramMessageDirect(agent.telegram_chat_id, message);
+    if (!sent) {
+      console.error(`[Bani] ${agent.slug}: kirim Telegram gagal (chat ${agent.telegram_chat_id})`);
+      return res.status(502).json({ error: 'Gagal mengirim ke Telegram. Coba lagi sebentar lagi.' });
+    }
+
+    logAnalyticsEvent(agent.id, 'dashboard', 'bani_telegram', {
+      answer_length: answer.length,
+      cards: Array.isArray(req.body?.cards) ? req.body.cards.length : 0,
+      question_preview: String(req.body?.question || '').substring(0, 100),
+    }, getClientIpUa(req));
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(`[Bani] ${req.user?.slug || '?'}: kirim Telegram error:`, error?.message || error);
+    try { Sentry.captureException(error); } catch { /* noop */ }
+    return res.status(500).json({ error: 'Gagal mengirim ke Telegram. Coba lagi sebentar lagi.' });
   }
 });
 
@@ -24239,6 +24312,10 @@ async function runCalendarSyncAttempt(attempt = 0) {
       last_events_total: syncResult?.eventsTotal ?? null,
       last_events_succeeded: syncResult?.eventsSucceeded ?? null,
       last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+      last_mutawif_reader_events: syncResult?.mutawifReaderEvents ?? null,
+      last_mutawif_reader_rows: syncResult?.mutawifReaderRows ?? null,
+      last_mutawif_reader_failures: syncResult?.mutawifReaderFailures ?? null,
+      last_mutawif_regressions_prevented: syncResult?.mutawifRegressionsPrevented ?? null,
       alerted: calendarSyncAlerted,
     };
     if (syncResult?.degraded) {
@@ -24267,6 +24344,10 @@ async function runCalendarSyncAttempt(attempt = 0) {
     last_events_total: syncResult?.eventsTotal ?? null,
     last_events_succeeded: syncResult?.eventsSucceeded ?? null,
     last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+    last_mutawif_reader_events: syncResult?.mutawifReaderEvents ?? null,
+    last_mutawif_reader_rows: syncResult?.mutawifReaderRows ?? null,
+    last_mutawif_reader_failures: syncResult?.mutawifReaderFailures ?? null,
+    last_mutawif_regressions_prevented: syncResult?.mutawifRegressionsPrevented ?? null,
     alerted: calendarSyncAlerted,
   });
 
@@ -24282,12 +24363,17 @@ async function runCalendarSyncAttempt(attempt = 0) {
     const sejak = calendarLastSuccessAt
       ? `\nSukses terakhir: ${new Date(calendarLastSuccessAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`
       : '';
+    const isMutawifIncident = (syncResult?.mutawifReaderFailures || 0) > 0
+      || (syncResult?.mutawifRegressionsPrevented || 0) > 0;
+    const impact = isMutawifIncident
+      ? 'Nama mutawif valid yang sudah tersimpan tetap diamankan; pembaruan mutawif dibekukan sampai sumber terverifikasi pulih.'
+      : 'Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak.';
     try {
       await sendOpsAlert(
         `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
         `${escapeHtml(failReason)}${sejak}\n\n` +
-        `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
-        `Cek: halaman publik kegiatan, endpoint _kmodal.php, layout halaman, atau koneksi ke server publik.`
+        `${impact} ` +
+        `Cek: halaman publik kegiatan, endpoint _kmodal.php, jalur Reader MUTAWIF, layout halaman, atau koneksi ke server publik.`
       );
       calendarSyncAlerted = true;
       await persistCalendarSyncHealth({ alerted: true });

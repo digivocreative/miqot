@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import {
   applyCalendarFallbackOrigin,
   buildPublicModalUrl,
+  buildPublicReaderUrl,
   calendarPublicFallbackOriginLookup,
   calendarPublicOriginLookup,
   fetchPublicCalendarEvents,
   fetchPublicEventDetail,
+  fetchPublicEventDetailFromReader,
   parsePublicCalendarEventsFromHtml,
   parsePublicEventDetailHTML,
+  parsePublicEventDetailMarkdown,
   probePublicCalendarPrimary,
   CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
   CALENDAR_PUBLIC_ORIGIN_IP,
@@ -113,6 +116,12 @@ const MUTAWIF_MODAL_HTML = `
   </tbody>
 </table>`;
 
+const MUTAWIF_READER_MARKDOWN = `
+| GROUP | PESAWAT | WAKTU | PAKET | PAX | STAFF | TL | MUTAWIF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 21 | EMIRATES ~ EK 357 | 17.40 | PROMO JUM'ATAIN PLUS DUBAI+BADAR 11HR | 45 | - | • RUBOWO PRIYANTO SOEMASNO | • HANAFI FAUZAN |
+`;
+
 test('parsePublicCalendarEventsFromHtml extracts public FullCalendar events and skips invalid dates', () => {
   const events = parsePublicCalendarEventsFromHtml(PAGE_HTML);
 
@@ -159,6 +168,62 @@ test('parsePublicEventDetailHTML keeps MUTAWIF separate from STAFF', () => {
       ['13', '• NIKESARI MARZUHENDA MARZUKI', '-', '• HANAFI FAUZAN'],
       ['14', '• YULIA SUSANTI', '-', '• ABDULBAITS JAZULI'],
     ],
+  );
+});
+
+test('calendar reader parses current MUTAWIF table and only accepts the canonical calendar host', async () => {
+  const rows = parsePublicEventDetailMarkdown(MUTAWIF_READER_MARKDOWN);
+  assert.deepEqual(rows, [{
+    group_number: '21',
+    pesawat: 'EMIRATES ~ EK 357',
+    jam: '17.40',
+    paket: "PROMO JUM'ATAIN PLUS DUBAI+BADAR 11HR",
+    pax: 45,
+    staff: '-',
+    mutawif: '• HANAFI FAUZAN',
+    tour_leader: '• RUBOWO PRIYANTO SOEMASNO',
+  }]);
+  assert.equal(rows[0]._mutawifSourceAvailable, true);
+
+  const modalUrl = buildPublicModalUrl({ aid: 'B1562', apalah: 'JBU1562' });
+  assert.equal(
+    buildPublicReaderUrl(modalUrl, 'https://reader.example/'),
+    `https://reader.example/${modalUrl}`,
+  );
+  assert.throws(
+    () => buildPublicReaderUrl('https://example.com/private', 'https://reader.example'),
+    /target host tidak diizinkan/,
+  );
+
+  let request;
+  const fetched = await fetchPublicEventDetailFromReader(
+    { aid: 'B1562', apalah: 'JBU1562', date: '2026-08-05', type: 'keberangkatan' },
+    async (url, options) => {
+      request = { url: String(url), options };
+      return new Response(JSON.stringify({
+        code: 200,
+        status: 200,
+        data: { httpStatus: 200, content: MUTAWIF_READER_MARKDOWN },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+    { readerBaseUrl: 'https://reader.example', minimumIntervalMs: 0 },
+  );
+
+  assert.equal(request.url, `https://reader.example/${modalUrl}`);
+  assert.equal(request.options.headers['X-No-Cache'], 'true');
+  assert.equal(request.options.headers['X-Assert-Status-Code'], '200');
+  assert.equal(fetched[0].mutawif, '• HANAFI FAUZAN');
+  assert.equal(fetched._calendarSource, 'reader');
+});
+
+test('calendar reader rejects a transformed table without MUTAWIF', () => {
+  assert.throws(
+    () => parsePublicEventDetailMarkdown(`
+      | GROUP | PESAWAT | WAKTU | PAKET | PAX | STAFF | TL |
+      | --- | --- | --- | --- | --- | --- | --- |
+      | 21 | EMIRATES ~ EK 357 | 17.40 | PAKET | 45 | - | • RUBOWO |
+    `),
+    /kolom MUTAWIF tidak ditemukan/,
   );
 });
 

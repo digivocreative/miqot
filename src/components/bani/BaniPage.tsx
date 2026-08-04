@@ -12,7 +12,16 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
   Users, CalendarRange, MessageCircle, RefreshCw, Building2, Calculator,
+  Loader2, Check,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  pickBaniSuggestions,
+  rememberBaniSuggestions,
+  type BaniSuggestion,
+  type BaniSuggestionIcon,
+} from '@/lib/baniSuggestions';
+import { isComplexBaniAnswer } from '@/lib/baniAnswer';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
 import { normalizeWaNumber } from '../../utils/phone';
@@ -45,55 +54,56 @@ type BaniCard =
   | { type: 'link'; target: 'jamaah' | 'calendar' | 'jadwal' };
 
 type Phase = 'idle' | 'loading' | 'answer';
+// 'unlinked' = Telegram agent belum terhubung; ditangani terpisah dari 'error'
+// karena solusinya bukan "coba lagi" melainkan membuka Pengaturan.
+type TelegramPhase = 'idle' | 'sending' | 'sent' | 'error' | 'unlinked';
 
 const QUESTION_MAX_LEN = 500;
 const THINKING_STEPS = ['Membaca pertanyaan…', 'Membuka data…', 'Menyusun jawaban…'];
 const THINKING_INTERVAL_MS = 1_250;
 const VISIBLE_SUGGESTION_COUNT = 4;
 
-// Setiap baris DIUJI end-to-end lewat orchestrator + data nyata sebelum masuk
-// daftar: yang dijawab "data tidak ditemukan" atau dijawab ambigu dibuang, sebab
-// saran yang gagal lebih merugikan daripada tidak ada saran.
-//
-// Dua aturan yang menjaga daftar ini tetap sehat:
-//  1. TANPA tahun/bulan hardcoded ("Desember 2026", "keberangkatan Agustus") —
-//     pertanyaan begitu basi sendiri. Pakai kata relatif; tanggal hari ini sudah
-//     disuntikkan ke system prompt (lib/bani-orchestrator.js).
-//  2. Selalu dari sudut pandang agent ("jamaah saya"). "Berapa pax di
-//     keberangkatan terdekat?" dibuang karena dijawab dari kalender = KUOTA
-//     NASIONAL, bukan jamaah agent ybs.
-const SUGGESTION_POOL = [
-  // paket & harga
-  { icon: Plane, text: 'Paket terdekat dengan seat tersisa apa saja?' },
-  { icon: Wallet, text: 'Paket promo di bawah Rp30 juta masih ada?' },
-  { icon: Clock, text: 'Paket 9 hari termurah berangkat kapan?' },
-  { icon: CalendarRange, text: 'Paket akhir tahun ini yang masih ada seat?' },
-  { icon: Building2, text: 'Hotel Mekkah dan Madinah di paket terdekat apa?' },
-  { icon: Calculator, text: 'Hitung biaya 2 jamaah kamar quad di paket terdekat' },
-  // pembayaran
-  { icon: Wallet, text: 'Siapa yang belum lunas dan berangkat bulan ini?' },
-  { icon: Wallet, text: 'Total outstanding keberangkatan bulan depan berapa?' },
-  { icon: Wallet, text: 'Siapa yang belum bayar DP tapi berangkat 30 hari lagi?' },
-  { icon: Wallet, text: 'Berapa total tagihan jamaah saya yang belum lunas?' },
-  // jamaah
-  { icon: Users, text: 'Berapa jamaah lunas untuk keberangkatan bulan depan?' },
-  { icon: Users, text: 'Berapa jamaah saya di keberangkatan terdekat?' },
-  { icon: Plane, text: 'Berapa jamaah yang berangkat 7 hari ke depan?' },
-  { icon: Users, text: 'Siapa jamaah dengan jadwal berangkat terdekat?' },
-  { icon: Cake, text: 'Siapa yang ulang tahun 7 hari ke depan?' },
-  // agenda
-  { icon: Calendar, text: 'Ada agenda manasik dalam 7 hari ke depan?' },
-] as const;
+// Isi daftar saran + pengundinya ada di src/lib/baniSuggestions.js (teruji di
+// tests/bani-suggestions.test.js), termasuk aturan yang menjaga daftar itu tetap
+// sehat. Di sini tinggal pemetaan ikon dan ingatan "baru saja tampil".
+const SUGGESTION_ICONS: Record<BaniSuggestionIcon, LucideIcon> = {
+  plane: Plane,
+  clock: Clock,
+  wallet: Wallet,
+  calculator: Calculator,
+  building: Building2,
+  users: Users,
+  cake: Cake,
+  calendar: Calendar,
+  'calendar-range': CalendarRange,
+};
 
-type BaniSuggestion = (typeof SUGGESTION_POOL)[number];
+const SUGGESTION_MEMORY_KEY = 'baniRecentSuggestions';
 
-function pickRandomSuggestions(count: number): BaniSuggestion[] {
-  const shuffled = [...SUGGESTION_POOL];
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+function readRecentSuggestions(): string[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SUGGESTION_MEMORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : [];
+  } catch {
+    return [];
   }
-  return shuffled.slice(0, count);
+}
+
+// Undi 4 saran lalu catat yang tampil. Tanpa catatan ini undian murni acak
+// mengulang 1–2 saran yang sama tiap kunjungan (4 dari 4 grup), dan Bani terasa
+// menawarkan pertanyaan yang itu-itu saja.
+function drawSuggestions(): BaniSuggestion[] {
+  const recent = readRecentSuggestions();
+  const picked = pickBaniSuggestions(VISIBLE_SUGGESTION_COUNT, recent);
+  try {
+    window.localStorage.setItem(
+      SUGGESTION_MEMORY_KEY,
+      JSON.stringify(rememberBaniSuggestions(recent, picked)),
+    );
+  } catch {
+    // Mode privat / storage penuh: undian tetap jalan, hanya tanpa ingatan.
+  }
+  return picked;
 }
 
 // ── markdown-mini ────────────────────────────────────────────────────────────
@@ -164,14 +174,14 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
   const [asked, setAsked] = useState('');
   const [answer, setAnswer] = useState('');
   const [cards, setCards] = useState<BaniCard[]>([]);
-  const [sourceNote, setSourceNote] = useState('');
   const [errorText, setErrorText] = useState('');
   const [thinkingStep, setThinkingStep] = useState(0);
-  // Diacak sekali per kunjungan halaman — pola yang sama dengan chip
-  // "Pertanyaan populer" di AskAIModal (Diskusi AI di Jadwal).
-  const [suggestions] = useState<BaniSuggestion[]>(() => (
-    pickRandomSuggestions(VISIBLE_SUGGESTION_COUNT)
-  ));
+  const [telegramPhase, setTelegramPhase] = useState<TelegramPhase>('idle');
+  const [telegramError, setTelegramError] = useState('');
+  // Diundi ulang tiap kunjungan halaman DAN tiap "Tanya yang lain" — halaman ini
+  // di-unmount saat pindah tab (DashboardLayout merender per activeTab), jadi
+  // initializer ini memang berjalan lagi setiap Bani dibuka.
+  const [suggestions, setSuggestions] = useState<BaniSuggestion[]>(drawSuggestions);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -183,9 +193,13 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
     setAsked('');
     setAnswer('');
     setCards([]);
-    setSourceNote('');
     setErrorText('');
+    setTelegramPhase('idle');
+    setTelegramError('');
     setInput('');
+    // "Tanya yang lain" secara harfiah minta pertanyaan lain — saran yang barusan
+    // dipakai tidak boleh disodorkan lagi.
+    setSuggestions(drawSuggestions());
   }, []);
 
   // Microcopy "berpikir" murni klien — server v1 tidak streaming.
@@ -212,8 +226,9 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
     setInput('');
     setAnswer('');
     setCards([]);
-    setSourceNote('');
     setErrorText('');
+    setTelegramPhase('idle');
+    setTelegramError('');
     setPhase('loading');
 
     try {
@@ -236,7 +251,6 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
       } else {
         setAnswer(String(data.answer || ''));
         setCards(Array.isArray(data.cards) ? data.cards : []);
-        setSourceNote(String(data.source_note || ''));
       }
       setPhase('answer');
     } catch (err) {
@@ -249,6 +263,42 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
   }, []);
 
   const answerHtml = useMemo(() => (answer ? renderBaniMarkdown(answer) : ''), [answer]);
+
+  // Jawaban Bani hilang begitu pertanyaan diganti (single-shot, tanpa riwayat).
+  // Yang panjang/berdaftar layak ditawarkan untuk disimpan ke Telegram; jawaban
+  // satu kalimat tidak — ambangnya di src/lib/baniAnswer.js.
+  const canSendTelegram = useMemo(
+    () => !errorText && isComplexBaniAnswer(answer, cards),
+    [answer, cards, errorText],
+  );
+
+  const sendToTelegram = useCallback(async () => {
+    setTelegramPhase('sending');
+    setTelegramError('');
+    try {
+      const res = await fetch('/api/bani/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ question: asked, answer, cards }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        setTelegramPhase('sent');
+        return;
+      }
+      if (data?.code === 'telegram_not_connected') {
+        setTelegramPhase('unlinked');
+        setTelegramError(data?.error || 'Telegram Anda belum terhubung.');
+        return;
+      }
+      setTelegramPhase('error');
+      setTelegramError(data?.error || 'Gagal mengirim ke Telegram. Coba lagi sebentar lagi.');
+    } catch {
+      setTelegramPhase('error');
+      setTelegramError('Koneksinya sedang bermasalah. Coba kirim lagi sebentar lagi.');
+    }
+  }, [asked, answer, cards]);
 
   const openPackage = useCallback((jadwalId: string | null) => {
     if (!jadwalId) return;
@@ -284,15 +334,16 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
               />
             </BaniBubble>
             {/* Gaya disamakan dengan chip "Pertanyaan populer" di AskAIModal
-                (Diskusi AI di Jadwal): list statis, kartu emerald, tanpa
-                rotasi/animasi. */}
+                (Diskusi AI di Jadwal): kartu emerald, diam selama tampil —
+                pergantian saran terjadi saat diundi ulang, bukan beranimasi
+                sendiri di depan mata. */}
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500">
                 Coba tanyakan
               </div>
               <div className="flex flex-col gap-1.5">
                 {suggestions.map((suggestion) => {
-                  const Icon = suggestion.icon;
+                  const Icon = SUGGESTION_ICONS[suggestion.icon];
                   return (
                     <button
                       key={suggestion.text}
@@ -443,16 +494,26 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
                   </div>
                 )}
 
-                {/* Catatan sumber + tombol reset berbagi satu baris: keduanya
-                    metadata/aksi sekunder yang muat berdampingan. flex-wrap
-                    menjaga perilaku turun baris di layar sangat sempit. */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {sourceNote && !errorText ? (
-                    <div className="flex min-w-0 items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500">
-                      <Clock size={10} className="shrink-0" />
-                      <span className="truncate">{sourceNote}</span>
-                    </div>
-                  ) : <span />}
+                {/* Dulu baris ini juga memuat catatan "Snapshot hasil sync, bukan
+                    real-time". Dicabut 4 Agt 2026 bersama disclaimer serupa di
+                    dalam teks jawaban: kalimatnya muncul di tiap balasan dan
+                    membuat Bani terdengar seperti mesin pelapor. */}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {canSendTelegram && (
+                    <button
+                      type="button"
+                      onClick={sendToTelegram}
+                      disabled={telegramPhase === 'sending' || telegramPhase === 'sent'}
+                      className="mr-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-sky-200 px-3 py-2 text-[11px] font-semibold text-sky-600 transition-colors hover:bg-sky-50 active:scale-95 disabled:opacity-60 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-900/20"
+                    >
+                      {telegramPhase === 'sending' ? <Loader2 size={12} strokeWidth={2.4} className="animate-spin" />
+                        : telegramPhase === 'sent' ? <Check size={12} strokeWidth={2.6} />
+                          : <Send size={12} strokeWidth={2.4} />}
+                      {telegramPhase === 'sending' ? 'Mengirim…'
+                        : telegramPhase === 'sent' ? 'Terkirim ke Telegram'
+                          : 'Kirim ke Telegram'}
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -463,6 +524,21 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
                     Tanya yang lain
                   </button>
                 </div>
+
+                {telegramError && (
+                  <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-gray-500 dark:text-slate-400">
+                    <span>{telegramError}</span>
+                    {telegramPhase === 'unlinked' && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('/dashboard/settings/telegram')}
+                        className="font-semibold text-sky-600 underline underline-offset-2 dark:text-sky-400"
+                      >
+                        Hubungkan Telegram
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

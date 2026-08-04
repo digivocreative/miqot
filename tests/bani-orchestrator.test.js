@@ -345,7 +345,6 @@ test('system prompt memuat aturan wajib Bani', () => {
   assert.match(prompt, /Kamu Bani/);
   assert.match(prompt, /Nikita/);
   assert.match(prompt, /HANYA dari hasil tool/);
-  assert.match(prompt, /snapshot/i);
   assert.match(prompt, /"answer"/);
   assert.match(prompt, /package_ids/);
   assert.match(prompt, /jamaah_ids/);
@@ -353,7 +352,47 @@ test('system prompt memuat aturan wajib Bani', () => {
   assert.match(prompt, /selamat pagi/i);
   assert.match(prompt, /Bapak/);
   assert.match(prompt, /"Anda"/);
-  assert.match(prompt, /120 kata/);
+  assert.match(prompt, /70 kata/);
+});
+
+test('system prompt melarang disclaimer sumber data dan jawaban bergaya laporan', () => {
+  // Tiap balasan dulu ditutup "Data merupakan snapshot hasil sync, bukan
+  // real-time" — kalimat yang membuat Bani terdengar seperti mesin. Larangannya
+  // harus tetap eksplisit di prompt, bukan hanya mengandalkan note tool dibuang.
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.match(prompt, /JANGAN menyebut cara Anda memperoleh data/);
+  for (const kata of ['sinkronisasi', 'snapshot', 'real-time']) {
+    assert.ok(prompt.includes(kata), `kata terlarang "${kata}" harus disebut di daftar larangan`);
+  }
+  assert.match(prompt, /jangan membuka dengan mengulang pertanyaan/i);
+  assert.match(prompt, /Jangan menutup dengan basa-basi/i);
+  assert.match(prompt, /Dilarang heading, tabel, blok kode, dan tautan/);
+});
+
+test('note provenance hasil tool tidak ikut dikirim ke model', async () => {
+  // lib/bani-tools.js menempelkan `note` ("snapshot hasil sync…") di tiap hasil
+  // dan itu dipakai klien MCP — di jalur Bani note-nya dibuang supaya model tidak
+  // menyalinnya ke jawaban. `truncated_note` justru harus lolos: model perlu tahu
+  // daftarnya terpotong.
+  const callOpenAI = scriptedOpenAI([
+    toolCallsResponse(toolCall('list_jamaah', {})),
+    jsonResponse({ answer: 'Ada 1 jamaah.', package_ids: [], jamaah_ids: [], link: null }),
+  ]);
+
+  await runBaniConversation({ question: 'jamaah saya?', agent: AGENT, supabase: okSupabase(), callOpenAI, model: 'stub' });
+
+  const payloads = toolMessages(callOpenAI.calls.at(-1)).map((m) => JSON.parse(m.content));
+  assert.ok(payloads.length, 'harus ada hasil tool yang dikirim');
+  for (const payload of payloads) {
+    assert.equal(payload.note, undefined, 'note provenance masih terkirim ke model');
+    assert.ok(payload.rows, 'isi hasil tool selain note harus utuh');
+  }
+});
+
+test('respons endpoint & UI tidak lagi menempelkan catatan sumber', () => {
+  assert.ok(!/BANI_SOURCE_NOTE/.test(read('lib/bani-orchestrator.js')), 'konstanta catatan sumber harus dicabut');
+  assert.ok(!/source_note/.test(read('server.js')), 'endpoint tidak boleh mengirim source_note');
+  assert.ok(!/sourceNote/.test(read('src/components/bani/BaniPage.tsx')), 'UI tidak boleh merender catatan sumber');
 });
 
 // ── gate rollout ─────────────────────────────────────────────────────────────
@@ -476,23 +515,6 @@ test('tanggal system prompt memakai jam yang sama dengan runBaniConversation', a
   assert.match(seen, /Hari ini 2026-08-02 \(WIB\)/);
 });
 
-test('daftar saran "Coba tanyakan" tidak memuat tahun/bulan hardcoded', () => {
-  // Saran bertahun ("Desember 2026", "keberangkatan Agustus") basi sendiri dan
-  // berubah jadi pertanyaan yang dijawab "data tidak ditemukan". Pakai kata
-  // relatif — tanggal hari ini sudah ada di system prompt.
-  const source = read('src/components/bani/BaniPage.tsx');
-  const pool = source.slice(source.indexOf('const SUGGESTION_POOL'), source.indexOf('] as const;', source.indexOf('const SUGGESTION_POOL')));
-  const texts = [...pool.matchAll(/text: '([^']+)'/g)].map((m) => m[1]);
-  assert.ok(texts.length >= 8, `daftar saran terlalu pendek: ${texts.length}`);
-  for (const text of texts) {
-    assert.doesNotMatch(text, /\b20\d\d\b/, `saran memuat tahun hardcoded: "${text}"`);
-    assert.doesNotMatch(
-      text,
-      /\b(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\b/,
-      `saran memuat nama bulan hardcoded: "${text}"`,
-    );
-  }
-  // Tidak ada saran kembar (rotasi memilih kandidat dari luar baris tampil —
-  // duplikat membuat baris "berganti" tanpa berubah).
-  assert.equal(new Set(texts).size, texts.length, 'ada saran duplikat');
-});
+// Daftar saran "Coba tanyakan" pindah dari BaniPage.tsx ke src/lib/baniSuggestions.js
+// (4 Agt 2026) — aturan tanpa tahun/bulan hardcoded, tanpa duplikat, plus
+// pengundinya diuji di tests/bani-suggestions.test.js.

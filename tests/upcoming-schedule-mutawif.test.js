@@ -30,9 +30,11 @@ test('calendar person formatter cleans bullet-separated mutawif names and placeh
   );
   assert.equal(formatCalendarPeople('-'), '');
   assert.equal(formatCalendarPeople(null), '');
+  assert.equal(formatCalendarPeople('. . . . .'), '');
   assert.equal(formatCalendarPrimaryPerson('• NIKESARI MARZUHENDA MARZUKI'), 'NIKESARI MARZUHENDA');
   assert.equal(formatCalendarPrimaryPerson('• HANAFI FAUZAN'), 'HANAFI FAUZAN');
   assert.equal(formatCalendarPrimaryPerson('• AIMAN ALJAIDI • AMANI ZULHARBI SALIM'), 'AIMAN ALJAIDI');
+  assert.equal(formatCalendarPrimaryPerson('. . . . .'), '');
   assert.equal(
     formatCalendarMeetingPoint('Lounge Palmeera Gate, Terminal 2'),
     'Lounge Palmeera, Terminal 2',
