@@ -12,6 +12,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, Clock, ChevronRight, Calendar, Wallet, Cake, Plane,
   Users, CalendarRange, MessageCircle, RefreshCw, Building2, Calculator,
+  Loader2, Check,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -20,6 +21,7 @@ import {
   type BaniSuggestion,
   type BaniSuggestionIcon,
 } from '@/lib/baniSuggestions';
+import { isComplexBaniAnswer } from '@/lib/baniAnswer';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
 import { normalizeWaNumber } from '../../utils/phone';
@@ -52,6 +54,9 @@ type BaniCard =
   | { type: 'link'; target: 'jamaah' | 'calendar' | 'jadwal' };
 
 type Phase = 'idle' | 'loading' | 'answer';
+// 'unlinked' = Telegram agent belum terhubung; ditangani terpisah dari 'error'
+// karena solusinya bukan "coba lagi" melainkan membuka Pengaturan.
+type TelegramPhase = 'idle' | 'sending' | 'sent' | 'error' | 'unlinked';
 
 const QUESTION_MAX_LEN = 500;
 const THINKING_STEPS = ['Membaca pertanyaan…', 'Membuka data…', 'Menyusun jawaban…'];
@@ -171,6 +176,8 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
   const [cards, setCards] = useState<BaniCard[]>([]);
   const [errorText, setErrorText] = useState('');
   const [thinkingStep, setThinkingStep] = useState(0);
+  const [telegramPhase, setTelegramPhase] = useState<TelegramPhase>('idle');
+  const [telegramError, setTelegramError] = useState('');
   // Diundi ulang tiap kunjungan halaman DAN tiap "Tanya yang lain" — halaman ini
   // di-unmount saat pindah tab (DashboardLayout merender per activeTab), jadi
   // initializer ini memang berjalan lagi setiap Bani dibuka.
@@ -187,6 +194,8 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
     setAnswer('');
     setCards([]);
     setErrorText('');
+    setTelegramPhase('idle');
+    setTelegramError('');
     setInput('');
     // "Tanya yang lain" secara harfiah minta pertanyaan lain — saran yang barusan
     // dipakai tidak boleh disodorkan lagi.
@@ -218,6 +227,8 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
     setAnswer('');
     setCards([]);
     setErrorText('');
+    setTelegramPhase('idle');
+    setTelegramError('');
     setPhase('loading');
 
     try {
@@ -252,6 +263,42 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
   }, []);
 
   const answerHtml = useMemo(() => (answer ? renderBaniMarkdown(answer) : ''), [answer]);
+
+  // Jawaban Bani hilang begitu pertanyaan diganti (single-shot, tanpa riwayat).
+  // Yang panjang/berdaftar layak ditawarkan untuk disimpan ke Telegram; jawaban
+  // satu kalimat tidak — ambangnya di src/lib/baniAnswer.js.
+  const canSendTelegram = useMemo(
+    () => !errorText && isComplexBaniAnswer(answer, cards),
+    [answer, cards, errorText],
+  );
+
+  const sendToTelegram = useCallback(async () => {
+    setTelegramPhase('sending');
+    setTelegramError('');
+    try {
+      const res = await fetch('/api/bani/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ question: asked, answer, cards }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        setTelegramPhase('sent');
+        return;
+      }
+      if (data?.code === 'telegram_not_connected') {
+        setTelegramPhase('unlinked');
+        setTelegramError(data?.error || 'Telegram Anda belum terhubung.');
+        return;
+      }
+      setTelegramPhase('error');
+      setTelegramError(data?.error || 'Gagal mengirim ke Telegram. Coba lagi sebentar lagi.');
+    } catch {
+      setTelegramPhase('error');
+      setTelegramError('Koneksinya sedang bermasalah. Coba kirim lagi sebentar lagi.');
+    }
+  }, [asked, answer, cards]);
 
   const openPackage = useCallback((jadwalId: string | null) => {
     if (!jadwalId) return;
@@ -451,7 +498,23 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
                     real-time". Dicabut 4 Agt 2026 bersama disclaimer serupa di
                     dalam teks jawaban: kalimatnya muncul di tiap balasan dan
                     membuat Bani terdengar seperti mesin pelapor. */}
-                <div className="flex justify-end">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {canSendTelegram && (
+                    <button
+                      type="button"
+                      onClick={sendToTelegram}
+                      disabled={telegramPhase === 'sending' || telegramPhase === 'sent'}
+                      className="mr-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-sky-200 px-3 py-2 text-[11px] font-semibold text-sky-600 transition-colors hover:bg-sky-50 active:scale-95 disabled:opacity-60 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-900/20"
+                    >
+                      {telegramPhase === 'sending' ? <Loader2 size={12} strokeWidth={2.4} className="animate-spin" />
+                        : telegramPhase === 'sent' ? <Check size={12} strokeWidth={2.6} />
+                          : <Send size={12} strokeWidth={2.4} />}
+                      {telegramPhase === 'sending' ? 'Mengirim…'
+                        : telegramPhase === 'sent' ? 'Terkirim ke Telegram'
+                          : 'Kirim ke Telegram'}
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={resetToIdle}
@@ -461,6 +524,21 @@ export default function BaniPage({ slug, onNavigate }: { slug: string; onNavigat
                     Tanya yang lain
                   </button>
                 </div>
+
+                {telegramError && (
+                  <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-gray-500 dark:text-slate-400">
+                    <span>{telegramError}</span>
+                    {telegramPhase === 'unlinked' && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('/dashboard/settings/telegram')}
+                        className="font-semibold text-sky-600 underline underline-offset-2 dark:text-sky-400"
+                      >
+                        Hubungkan Telegram
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
