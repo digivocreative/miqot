@@ -68,3 +68,35 @@ test('legacy data without an authoritative marker keeps the safe package-name fa
 
   assert.deepEqual(steps.map(step => step.label), ['Tur Dubai', 'Madinah', 'Umroh']);
 });
+
+test('getLandingStepIndex: rantai biasa mendarat di simpul pertama', async () => {
+  const { getPackageJourneySteps, getLandingStepIndex } = await importJourneyModule();
+
+  const steps = getPackageJourneySteps(makePackage({
+    journeyOrder: ['Madinah', 'Umroh'],
+    journeyOrderSource: 'itinerary',
+    nama: 'UMRAH REGULER 9 HARI',
+    keberangkatan: { rute: 'CGK-MED' },
+    kepulangan: { rute: 'JED-CGK' },
+  }));
+
+  assert.equal(getLandingStepIndex(steps), 0);
+});
+
+test('getLandingStepIndex: tur pra-Saudi dilewati, bukan titik landing', async () => {
+  const { getPackageJourneySteps, getLandingStepIndex } = await importJourneyModule();
+
+  const steps = getPackageJourneySteps(makePackage({
+    nama: 'UMRAH PLUS DUBAI 11 HARI',
+    journeyOrder: ['Madinah', 'Umroh'],
+  }));
+
+  assert.deepEqual(steps.map(step => step.label), ['Tur Dubai', 'Madinah', 'Umroh']);
+  assert.equal(getLandingStepIndex(steps), 1);
+});
+
+test('getLandingStepIndex: rantai kosong tidak punya simpul landing', async () => {
+  const { getLandingStepIndex } = await importJourneyModule();
+
+  assert.equal(getLandingStepIndex([]), -1);
+});

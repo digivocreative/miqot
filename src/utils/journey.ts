@@ -136,6 +136,17 @@ const getAuthoritativeItinerarySteps = (pkg: UmrohPackage): JourneyStep[] | null
   return pkg.journeyOrder.map(makeJourneyStep);
 };
 
+/**
+ * Simpul tempat jamaah mendarat di Saudi — indeks pertama yang bukan tur.
+ *
+ * `getLandingAirportCode` membaca leg TERAKHIR keberangkatan, jadi tur pra-Saudi
+ * (mis. Dubai) mendahului rantai tanpa menjadi titik landing yang ditampilkan.
+ * Mengembalikan -1 bila rantai kosong atau seluruhnya tur.
+ */
+export function getLandingStepIndex(steps: JourneyStep[]): number {
+  return steps.findIndex(step => step.tone !== 'tour');
+}
+
 export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string[] = []): JourneyStep[] {
   const itinerarySteps = getAuthoritativeItinerarySteps(pkg);
   if (itinerarySteps) return itinerarySteps;

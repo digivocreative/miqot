@@ -18,8 +18,9 @@ import { getDistance } from '@/data/hotelService';
 import { lookupHotelMetadata } from '@/data/hotelMetadata';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
+import { cheapestTierOf, minPriceInTier } from '@/lib/packagePricing';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
-import { getLandingCityName, getPackageJourneySteps } from '@/utils/journey';
+import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
 import { CaptionAIModal } from './CaptionAIModal';
 import { PackageValueModal } from './PackageValueModal';
@@ -238,35 +239,9 @@ function PackageCardImpl({
   // ============================================
 
   /**
-   * Helper to find the cheapest tier and its minimum price
+   * Tier termurah paket — dipakai sebagai tier aktif default.
    */
-  const { cheapestTier, absoluteMinPrice } = useMemo(() => {
-    let minPrice = Infinity;
-    let minTier = Object.keys(pkg.harga)[0];
-
-    for (const [tier, tierPricing] of Object.entries(pkg.harga)) {
-      const prices = [
-        tierPricing.Quard, 
-        tierPricing.Triple, 
-        tierPricing.Double
-      ];
-      
-      for (const priceStr of prices) {
-        if (priceStr) {
-          const val = parseInt(priceStr, 10);
-          if (val > 0 && val < minPrice) {
-            minPrice = val;
-            minTier = tier;
-          }
-        }
-      }
-    }
-
-    return { 
-      cheapestTier: minTier, 
-      absoluteMinPrice: minPrice === Infinity ? null : minPrice 
-    };
-  }, [pkg.harga]);
+  const cheapestTier = useMemo(() => cheapestTierOf(pkg.harga) ?? '', [pkg.harga]);
 
   // Available pricing tiers (e.g. HEMAT, UHUD, RAHMAH).
   // "Hemat" selalu di-hoist ke tab paling kiri; tier lain mempertahankan urutan aslinya (sort stabil).
@@ -432,6 +407,20 @@ function PackageCardImpl({
   }, [extraHotels, pkg]);
   const isCompactJourney = journeySteps.length > 3;
 
+  /** Simpul yang memakai lencana pesawat; -1 kalau rantainya kosong. */
+  const landingStepIndex = useMemo(() => getLandingStepIndex(journeySteps), [journeySteps]);
+
+  /**
+   * Nama bandara di bawah simpul landing — hanya bila berbeda dari labelnya.
+   * Rute berakhir MED mendarat di simpul "Madinah" (menulisnya lagi = mubazir);
+   * rute berakhir JED mendarat di simpul "Umroh", di situ "Jeddah" perlu ditulis.
+   */
+  const landingCaption = useMemo(() => {
+    if (landingStepIndex < 0) return null;
+    const city = getLandingCityName(pkg);
+    return city === journeySteps[landingStepIndex].label ? null : city;
+  }, [journeySteps, landingStepIndex, pkg]);
+
 
 
   /**
@@ -443,8 +432,14 @@ function PackageCardImpl({
     return parseFloat(millions.toFixed(1)).toString();
   };
 
-  const headerPriceLabel = absoluteMinPrice
-    ? `Rp ${formatHeaderPrice(absoluteMinPrice)} Jt`
+  // Harga header mengikuti tier AKTIF, bukan minimum lintas semua tier: kalau
+  // tidak, kartu yang tab-nya di RAHMAH tetap memasang angka UHUD di header,
+  // dan gambar hasil "Simpan" membuang tab tier-nya sehingga angka itu jadi
+  // satu-satunya harga yang terbaca. Tanpa pilihan user, tier aktif = tier
+  // termurah, jadi tampilan default kartu tidak berubah.
+  const headerPrice = minPriceInTier(pkg.harga[activeTier]);
+  const headerPriceLabel = headerPrice
+    ? `Rp ${formatHeaderPrice(headerPrice)} Jt`
     : 'Hubungi kami';
 
   // Format price for display in table
@@ -1847,53 +1842,37 @@ _________________________
       >
         <div className="px-4 pb-4">
 
-          {/* ---- New Info Section: Landing & Manasik ---- */}
-          <div className="flex items-center gap-3 mb-2 bg-gray-50 dark:bg-slate-950/50 p-3 rounded-lg">
-            <div className="grid grid-cols-2 gap-3 flex-1 min-w-0">
-            {/* Landing Info */}
-            <div className="flex items-start gap-2">
-              <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
-                <PlaneLanding size={16} />
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wide">Landing di</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {getLandingCityName(pkg)}
-                </p>
-              </div>
-            </div>
-
-            {/* Manasik Info */}
-            <div className="flex items-start gap-2">
-              <div className="w-5 h-5 flex items-center justify-center text-emerald-600 mt-0.5">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                  <path d="M11.25 4.533A9.707 9.707 0 0 0 6 3a9.735 9.735 0 0 0-3.25.555.75.75 0 0 0-.5.707v14.25a.75.75 0 0 0 1 .707A8.237 8.237 0 0 1 6 18.75c1.995 0 3.823.707 5.25 1.886V4.533ZM12.75 20.636A8.214 8.214 0 0 1 18 18.75c.966 0 1.89.166 2.75.47a.75.75 0 0 0 1-.708V4.262a.75.75 0 0 0-.5-.707A9.735 9.735 0 0 0 18 3a9.707 9.707 0 0 0-5.25 1.533v16.103Z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wide">Manasik</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {pkg.manasikTanggal ? (
-                    <>
-                      {formatDate(pkg.manasikTanggal)}
-                    </>
-                  ) : (
-                    'TBA'
-                  )}
-                </p>
-              </div>
-            </div>
-            </div>
-          </div>
-
-          {journeySteps.length > 0 && (
-            <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
-              <div className="mb-3 flex min-w-0 items-center gap-2">
+          {/* ---- Perjalanan: manasik di baris judul, landing menempel di simpulnya ----
+               Satu kartu, bukan dua: "Landing di <kota>" dulu mengulang simpul
+               pertama rantai setiap kali rute berakhir di MED. Kartu ini SELALU
+               dirender walau rantainya kosong — kalau tidak, landing dan manasik
+               ikut hilang untuk paket yang urutannya tak bisa disimpulkan. */}
+          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="mb-5 flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-900 dark:text-emerald-400 dark:ring-slate-700">
                   <Route size={15} strokeWidth={2} />
                 </span>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Urutan perjalanan</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-700 dark:text-slate-300">Perjalanan</p>
               </div>
+              <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400">
+                  <path d="M11.25 4.533A9.707 9.707 0 0 0 6 3a9.735 9.735 0 0 0-3.25.555.75.75 0 0 0-.5.707v14.25a.75.75 0 0 0 1 .707A8.237 8.237 0 0 1 6 18.75c1.995 0 3.823.707 5.25 1.886V4.533ZM12.75 20.636A8.214 8.214 0 0 1 18 18.75c.966 0 1.89.166 2.75.47a.75.75 0 0 0 1-.708V4.262a.75.75 0 0 0-.5-.707A9.735 9.735 0 0 0 18 3a9.707 9.707 0 0 0-5.25 1.533v16.103Z" />
+                </svg>
+                <span className="text-[11px] text-gray-500 dark:text-slate-400">Manasik</span>
+                <span className={`text-[11px] font-semibold ${pkg.manasikTanggal ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-slate-500'}`}>
+                  {pkg.manasikTanggal ? formatDate(pkg.manasikTanggal) : 'TBA'}
+                </span>
+              </span>
+            </div>
+
+            {journeySteps.length === 0 ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <PlaneLanding size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-[11px] text-gray-500 dark:text-slate-400">Landing di</span>
+                <span className="truncate text-[11px] font-semibold text-gray-900 dark:text-white">{getLandingCityName(pkg)}</span>
+              </div>
+            ) : (
               <div
                 data-journey-layout={isCompactJourney ? 'compact' : 'standard'}
                 className="grid min-w-0 items-start pb-0.5"
@@ -1912,21 +1891,36 @@ _________________________
               >
                 {journeySteps.map((step, idx) => (
                   <Fragment key={`${step.label}-${idx}`}>
-                    <div className="flex min-w-0 flex-col items-center text-center">
-                      <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
-                        step.tone === 'tour'
-                          ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700'
-                          : step.tone === 'madinah'
-                            ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
-                            : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-900 dark:ring-emerald-800/60'
-                      }`}>
-                        <span
-                          role="img"
-                          aria-label={step.imageAlt}
-                          className="text-[21px] leading-none"
-                        >
-                          {step.symbol}
+                    <div
+                      className="flex min-w-0 flex-col items-center text-center"
+                      data-landing-step={idx === landingStepIndex ? 'true' : undefined}
+                    >
+                      {/* Pembungkus relative wajib: lingkarannya overflow-hidden,
+                          jadi lencana tidak bisa ditaruh di dalamnya. */}
+                      <span className="relative inline-flex">
+                        <span className={`flex h-8 w-8 items-center justify-center overflow-hidden rounded-full shadow-sm ${
+                          step.tone === 'tour'
+                            ? 'bg-white/95 ring-1 ring-gray-200 dark:bg-slate-900 dark:ring-slate-700'
+                            : step.tone === 'madinah'
+                              ? 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-emerald-900/30 dark:ring-emerald-800/50'
+                              : 'bg-emerald-50/95 p-1 ring-1 ring-emerald-100 dark:bg-slate-900 dark:ring-emerald-800/60'
+                        }`}>
+                          <span
+                            role="img"
+                            aria-label={step.imageAlt}
+                            className="text-[21px] leading-none"
+                          >
+                            {step.symbol}
+                          </span>
                         </span>
+                        {idx === landingStepIndex && (
+                          <span
+                            className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 ring-2 ring-gray-50 dark:bg-emerald-500 dark:ring-slate-900"
+                            title={`Mendarat di ${getLandingCityName(pkg)}`}
+                          >
+                            <PlaneLanding size={9} strokeWidth={2.6} className="text-white" />
+                          </span>
+                        )}
                       </span>
                       <span className={`mt-1.5 block text-center font-semibold leading-tight text-gray-800 dark:text-slate-100 ${
                         isCompactJourney
@@ -1935,6 +1929,11 @@ _________________________
                       }`}>
                         {step.label}
                       </span>
+                      {idx === landingStepIndex && landingCaption && (
+                        <span className="mt-0.5 block w-full whitespace-normal px-0.5 text-center text-[9px] font-semibold leading-tight text-emerald-600 dark:text-emerald-400">
+                          {landingCaption}
+                        </span>
+                      )}
                     </div>
                     {idx < journeySteps.length - 1 && (
                       <div className={`mt-4 flex w-full min-w-0 items-center justify-center ${isCompactJourney ? 'px-0' : 'px-1'}`} aria-hidden="true">
@@ -1946,8 +1945,8 @@ _________________________
                   </Fragment>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
 
           {/* ---- Inline Brosur Preview (single view & kartu yang pernah dibuka) ----
