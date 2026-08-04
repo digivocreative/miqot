@@ -23,6 +23,7 @@ import { isSameInternalAccount, escapeInternalAccountLike, internalAccountTakenM
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang, computeUmrohKomisi, BERANGKAT_MENDATANG_WINDOW_DAYS } from './lib/laporan-stats.js';
+import { loadEnrichedBerangkatRows } from './lib/berangkat-enrich.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
 import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
@@ -13082,36 +13083,15 @@ app.get('/api/calendar/berangkat-mendatang', dbLoadShedGuard, authMiddleware, as
       getScheduleDetailMap(),
     ]);
 
-    const jadwalIds = [...new Set((bebRows || []).map(r => r.id_jadwal).filter(Boolean))];
-    const calendarByJadwalId = new Map();
-    if (jadwalIds.length > 0) {
-      const { data: calRows, error: calErr } = await supabase
-        .from('calendar_events')
-        .select('jadwal_id, event_date, tour_leader')
-        .eq('event_type', 'keberangkatan')
-        .in('jadwal_id', jadwalIds);
-      if (calErr) {
-        console.warn('[BerangkatMendatang] calendar metadata fetch failed:', calErr.message);
-      } else {
-        for (const row of (calRows || [])) {
-          if (!row.jadwal_id) continue;
-          const current = calendarByJadwalId.get(row.jadwal_id);
-          if (!current || String(row.event_date || '').localeCompare(String(current.event_date || '')) < 0) {
-            calendarByJadwalId.set(row.jadwal_id, row);
-          }
-        }
-      }
-    }
-
-    const enriched = (bebRows || []).map(r => ({
-      ...r,
-      jadwal_id: r.id_jadwal || null,
-      jadwal_nama: scheduleDetailMap.get(r.id_jadwal)?.jadwal_nama || null,
-      manasik_tgl: scheduleDetailMap.get(r.id_jadwal)?.manasik_tgl || null,
-      manasik_jam: scheduleDetailMap.get(r.id_jadwal)?.manasik_jam || null,
-      berangkat_kode_penerbangan: scheduleDetailMap.get(r.id_jadwal)?.berangkat_kode_penerbangan || null,
-      tour_leader: calendarByJadwalId.get(r.id_jadwal)?.tour_leader || null,
-    }));
+    // Pengayaan dibagi dengan /api/laporan/stats (lib/berangkat-enrich.js)
+    // supaya kartu kalender dashboard dan kartu Statistik tak pernah memakai
+    // himpunan berbeda.
+    const enriched = await loadEnrichedBerangkatRows({
+      rows: bebRows,
+      supabase,
+      scheduleDetailMap,
+      logLabel: '[BerangkatMendatang]',
+    });
 
     const { berangkatBulanIni, berangkatBulan } = buildBerangkatMendatang(enriched, todayStr);
     const payload = { success: true, data: { berangkatBulanIni, berangkatBulan } };
@@ -16774,35 +16754,15 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
 
     // Berangkat Mendatang is an operational upcoming list, so it must cross
     // Hijriah-year boundaries (e.g. 13 Jun 2026 = 1447H, 18 Jun 2026 = 1448H).
-    const bebJadwalIds = [...new Set((bebRows || []).map(r => r.id_jadwal).filter(Boolean))];
-    let calendarByJadwalId = new Map();
-    if (bebJadwalIds.length > 0) {
-      const { data: calRows, error: calErr } = await supabase
-        .from('calendar_events')
-        .select('jadwal_id, event_date, jam, tour_leader, pesawat')
-        .eq('event_type', 'keberangkatan')
-        .in('jadwal_id', bebJadwalIds);
-      if (calErr) {
-        console.warn('[Stats] upcoming calendar metadata fetch failed:', calErr.message);
-      } else {
-        for (const row of (calRows || [])) {
-          if (!row.jadwal_id) continue;
-          const current = calendarByJadwalId.get(row.jadwal_id);
-          if (!current || String(row.event_date || '').localeCompare(String(current.event_date || '')) < 0) {
-            calendarByJadwalId.set(row.jadwal_id, row);
-          }
-        }
-      }
-    }
-    const enrichedBebRows = (bebRows || []).map(r => ({
-      ...r,
-      jadwal_id: r.id_jadwal || null,
-      jadwal_nama: scheduleDetailMap.get(r.id_jadwal)?.jadwal_nama || null,
-      manasik_tgl: scheduleDetailMap.get(r.id_jadwal)?.manasik_tgl || null,
-      manasik_jam: scheduleDetailMap.get(r.id_jadwal)?.manasik_jam || null,
-      berangkat_kode_penerbangan: scheduleDetailMap.get(r.id_jadwal)?.berangkat_kode_penerbangan || null,
-      tour_leader: calendarByJadwalId.get(r.id_jadwal)?.tour_leader || null,
-    }));
+    // Pengayaan dibagi dengan /api/calendar/berangkat-mendatang
+    // (lib/berangkat-enrich.js) supaya kartu Statistik dan kartu kalender
+    // dashboard tak pernah memakai himpunan berbeda.
+    const enrichedBebRows = await loadEnrichedBerangkatRows({
+      rows: bebRows,
+      supabase,
+      scheduleDetailMap,
+      logLabel: '[Stats]',
+    });
     const { berangkatBulanIni, berangkatSegera, berangkatBulan } = buildBerangkatMendatang(enrichedBebRows, todayStr);
     const todayDate = new Date(todayStr);
 
