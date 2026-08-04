@@ -1968,6 +1968,59 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
   }
 });
 
+// Berapa berkas yang boleh ikut satu kiriman. Sama dengan plafon media Bani —
+// jawaban tidak pernah membawa lebih dari ini.
+const BANI_TELEGRAM_MAX_MEDIA = 4;
+const TELEGRAM_CAPTION_MAX_LEN = 1024;
+
+/**
+ * Ubah penunjuk media dari klien menjadi daftar berkas yang tepercaya:
+ * brosur sebagai foto, itinerary sebagai dokumen PDF.
+ *
+ * Klien hanya boleh menyebut type + jadwal_id; URL-nya disusun ulang di sini
+ * dari kolom *_cdn + sha lewat serializeScheduleRows — persis seperti saat
+ * jawabannya dibuat. Meneruskan URL kiriman klien apa adanya akan membuat
+ * endpoint ini bisa disuruh mengirim berkas mana pun dari internet ke chat
+ * agent, dan itu bukan wewenang yang perlu diberikan hanya untuk berbagi brosur.
+ */
+async function resolveBaniMediaFiles(media) {
+  const wanted = [];
+  for (const item of Array.isArray(media) ? media : []) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.type !== 'brosur' && item.type !== 'itinerary') continue;
+    const id = String(item.jadwal_id ?? '').trim().toUpperCase();
+    if (!id || wanted.some((w) => w.id === id && w.type === item.type)) continue;
+    wanted.push({ id, type: item.type });
+    if (wanted.length >= BANI_TELEGRAM_MAX_MEDIA) break;
+  }
+  if (!wanted.length) return [];
+
+  const { data, error } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, jadwal_nama, brosur_cdn, brosur_source_sha256, itinerary_cdn, itinerary_source_sha256')
+    .in('jadwal_id', wanted.map((w) => w.id));
+  if (error) {
+    console.error('[Bani] gagal mengambil media untuk Telegram:', error.message);
+    return [];
+  }
+
+  const rowById = new Map(serializeScheduleRows(data || []).map((row) => [row.jadwal_id, row]));
+  // Urutan mengikuti permintaan klien, bukan urutan baris dari DB.
+  return wanted.flatMap(({ id, type }) => {
+    const row = rowById.get(id);
+    const url = type === 'brosur' ? row?.brosur : row?.itinerary;
+    if (!url) return [];
+    const nama = row?.nama || row?.jadwal_nama || id;
+    return [{
+      kind: type === 'brosur' ? 'photo' : 'document',
+      url,
+      // Nama berkas dari CDN tidak terbaca manusia, jadi dokumen PDF butuh
+      // caption untuk menyebut itinerary paket mana yang barusan masuk.
+      caption: type === 'itinerary' ? `Itinerary ${nama}` : '',
+    }];
+  });
+}
+
 // Kirim satu jawaban Bani ke Telegram agent yang bertanya. Tujuannya SELALU
 // `agent.telegram_chat_id` milik pemegang JWT — chat id tidak pernah datang dari
 // klien, jadi endpoint ini tidak bisa dipakai mengirim pesan ke orang lain.
@@ -1997,13 +2050,29 @@ app.post('/api/bani/telegram', authMiddleware, async (req, res) => {
     }
     rate.count += 1;
 
+    // Brosur (foto) dan itinerary (PDF) ikut terkirim. Klien HANYA menyebut
+    // type + jadwal_id; URL-nya diambil ulang dari DB di sini, pola yang sama
+    // dengan hydrateBaniMedia ("model memilih, server menentukan isinya").
+    const mediaFiles = await resolveBaniMediaFiles(req.body?.media);
+    for (const file of mediaFiles) {
+      // Kegagalan berkas tidak membatalkan kiriman: teksnya jauh lebih penting,
+      // dan sudah dicatat di log kalau Telegram menolak.
+      await sendTelegramFileDirect(agent.telegram_chat_id, file.kind, file.url, file.caption);
+    }
+
     const message = formatBaniTelegramMessage({
       question: String(req.body?.question || '').substring(0, BANI_QUESTION_MAX_LEN),
       answer: answer.substring(0, BANI_ANSWER_MAX_LEN),
       cards: Array.isArray(req.body?.cards) ? req.body.cards : [],
     });
 
-    const sent = await sendTelegramMessageDirect(agent.telegram_chat_id, message);
+    // Tautan sebagai tombol inline, bukan URL telanjang di badan pesan — pola
+    // yang sama dengan notifikasi Teras.
+    const replyMarkup = buildTelegramUrlKeyboard([[
+      { text: '🤖 Buka Bani', url: `${TELEGRAM_APP_BASE_URL}/dashboard/bani` },
+    ]]);
+
+    const sent = await sendTelegramMessageDirect(agent.telegram_chat_id, message, { reply_markup: replyMarkup });
     if (!sent) {
       console.error(`[Bani] ${agent.slug}: kirim Telegram gagal (chat ${agent.telegram_chat_id})`);
       return res.status(502).json({ error: 'Gagal mengirim ke Telegram. Coba lagi sebentar lagi.' });
@@ -14674,6 +14743,45 @@ async function sendTelegramMessageDirect(chatId, text, options = {}) {
     return true;
   } catch (err) {
     console.error(`[Telegram] sendMessage error:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Kirim berkas dari URL ke Telegram. `kind` menentukan bentuknya di chat:
+ * 'photo' tampil sebagai gambar (brosur), 'document' sebagai lampiran yang bisa
+ * diunduh (itinerary PDF — dikirim sebagai foto ia akan ditolak Telegram).
+ *
+ * Caption sengaja TANPA parse_mode: isinya nama paket dari DB, dan teks polos
+ * menghilangkan seluruh urusan escape HTML.
+ */
+async function sendTelegramFileDirect(chatId, kind, fileUrl, caption = '') {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId || !fileUrl) return false;
+  const isDocument = kind === 'document';
+  const method = isDocument ? 'sendDocument' : 'sendPhoto';
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Telegram yang mengunduh URL-nya, jadi tak ada berkas yang lewat server
+      // ini. Timeout lebih longgar dari sendMessage: unduhan di sisi Telegram
+      // ikut masuk hitungan waktu tunggu.
+      body: JSON.stringify({
+        chat_id: chatId,
+        [isDocument ? 'document' : 'photo']: fileUrl,
+        caption: String(caption || '').substring(0, TELEGRAM_CAPTION_MAX_LEN),
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!(response.ok && payload?.ok === true)) {
+      console.error(`[Telegram] ${method} ditolak (HTTP ${response.status}): ${payload?.description || 'tanpa deskripsi'}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[Telegram] ${method} error:`, err.message);
     return false;
   }
 }

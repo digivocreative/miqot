@@ -31,6 +31,8 @@ import {
 } from '../lib/bani-orchestrator.js';
 import { isBaniEnabledForAgent, requireBaniAccess } from '../lib/bani-access.js';
 import { BANI_TELEGRAM_MAX_CARDS } from '../lib/bani-telegram.js';
+// Perakit jangkar sisi-klien — pasangan sanitizeBaniHistory di atas.
+import { buildShownRefs } from '../src/lib/baniShownRefs.js';
 
 const root = new URL('..', import.meta.url);
 const rootPath = root.pathname;
@@ -387,6 +389,82 @@ test('sanitizeBaniHistory memotong teks yang kepanjangan', () => {
   assert.equal(turn.answer.length, 1200);
 });
 
+// ── jangkar "[Kartu di layar: ...]" dari sisi klien ──────────────────────────
+
+// Giliran yang HANYA menampilkan brosur tidak punya kartu — system prompt
+// sendiri yang menyuruh model mengosongkan package_ids di situ. Dulu media
+// tidak ikut jadi rujukan, jadi giliran itu terkirim tanpa jangkar sama sekali
+// dan "itinerary-nya dong" sesudahnya kehilangan jadwal_id: Bani balik bertanya
+// paket mana, padahal brosurnya masih terpampang di layar.
+test('giliran yang cuma menampilkan brosur tetap meninggalkan jangkar paket', () => {
+  const shown = buildShownRefs({
+    cards: [],
+    kalkulasi: [],
+    media: [{ type: 'brosur', jadwal_id: 'JBU1529', nama: 'RAHMAH PLUS REDSEA 9HR', url: 'https://x/y.jpg' }],
+  });
+  assert.deepEqual(shown, [{ type: 'package', id: 'JBU1529', nama: 'RAHMAH PLUS REDSEA 9HR' }]);
+  // Tipe 'package' bukan tipe baru: sanitizeShownRef di server hanya meloloskan
+  // package/jamaah/kalkulasi, jadi rujukan bertipe 'media' akan dibuang diam-diam.
+  const [turn] = sanitizeBaniHistory([{ question: 'brosur paket 19 September', answer: 'Ini brosurnya.', shown }]);
+  assert.deepEqual(turn.shown, [{ type: 'package', id: 'JBU1529', nama: 'RAHMAH PLUS REDSEA 9HR' }]);
+});
+
+test('brosur jadwal tidak jadi jangkar paket — yang dirujuknya bulan', () => {
+  const shown = buildShownRefs({
+    cards: [],
+    kalkulasi: [],
+    media: [{ type: 'brosur_jadwal', bulan: '2026-09', nama: 'September 2026' }],
+  });
+  assert.deepEqual(shown, [], 'brosur jadwal tidak punya jadwal_id untuk dirujuk');
+});
+
+test('paket yang tampil sebagai brosur DAN baris tabel cukup satu rujukan', () => {
+  const shown = buildShownRefs({
+    kalkulasi: [],
+    media: [{ type: 'brosur', jadwal_id: 'JBU1529', nama: 'RAHMAH', url: 'https://x/y.jpg' }],
+    cards: [
+      { type: 'package', jadwal_id: 'JBU1529', nama: 'RAHMAH' },
+      { type: 'package', jadwal_id: 'JBU1600', nama: 'UHUD' },
+    ],
+  });
+  assert.deepEqual(shown.map((s) => s.id), ['JBU1529', 'JBU1600'], 'tanpa kembar, media lebih dulu');
+});
+
+test('jangkar kalkulasi tetap paling depan, media menyusul, kartu terakhir', () => {
+  const shown = buildShownRefs({
+    kalkulasi: [{ jadwal_id: 'JBU1', nama: 'A', tier: 'HEMAT', input: { kamar_quad: 2 }, grand_total: 5 }],
+    media: [{ type: 'itinerary', jadwal_id: 'JBU2', nama: 'B', url: 'https://x/y.pdf' }],
+    cards: [{ type: 'jamaah', jm_id: 'JM9', nama: 'C' }],
+  });
+  assert.deepEqual(shown.map((s) => [s.type, s.id]), [['kalkulasi', 'JBU1'], ['package', 'JBU2'], ['jamaah', 'JM9']]);
+});
+
+// Rantai lengkapnya: perakit klien → sanitizer server → jangkar di pesan yang
+// benar-benar dikirim ke model.
+test('jangkar brosur sampai ke pesan assistant yang dikirim ke model', async () => {
+  const callOpenAI = scriptedOpenAI([jsonResponse({ answer: 'Ini itinerary-nya.' })]);
+  await runBaniConversation({
+    question: 'itinerary nya dong',
+    history: [{
+      question: 'brosur paket 19 September',
+      answer: 'Ini brosur paket 19 September.',
+      shown: buildShownRefs({
+        cards: [],
+        kalkulasi: [],
+        media: [{ type: 'brosur', jadwal_id: 'JBU1529', nama: 'RAHMAH PLUS REDSEA 9HR', url: 'https://x/y.jpg' }],
+      }),
+    }],
+    agent: AGENT,
+    supabase: okSupabase(),
+    callOpenAI,
+    model: 'test',
+  });
+
+  const assistant = callOpenAI.calls[0].messages.find((m) => m.role === 'assistant');
+  assert.ok(assistant, 'giliran lama harus ikut terkirim');
+  assert.match(assistant.content, /\[Kartu di layar: paket JBU1529 "RAHMAH PLUS REDSEA 9HR"\]/);
+});
+
 test('riwayat masuk sebagai giliran user/assistant sebelum pertanyaan sekarang', async () => {
   const callOpenAI = scriptedOpenAI([jsonResponse({ answer: 'Sisanya Rp28,9 juta.' })]);
   await runBaniConversation({
@@ -646,6 +724,128 @@ test('hydrateBaniMedia meloloskan hanya media sah dari hasil tool', () => {
     ['itinerary', 'JBU1529'],
   ]);
   assert.ok(media.every((m) => m.url.startsWith('https://')));
+});
+
+// "Brosur" menunjuk dua artefak: gambar brosur satu paket, dan BROSUR JADWAL
+// (daftar keberangkatan sebulan di /dashboard/brosur). Yang kedua tidak terikat
+// jadwal_id dan tidak punya URL — kartunya membukakan halaman itu.
+const NOW_AGT = () => Date.parse('2026-08-04T00:00:00Z');
+
+test('brosur jadwal lolos tanpa jadwal_id, berbekal bulan yang sah', () => {
+  const media = hydrateBaniMedia([], { media: [{ type: 'brosur_jadwal', bulan: '2026-09' }] }, { now: NOW_AGT });
+  assert.deepEqual(media, [{ type: 'brosur_jadwal', bulan: '2026-09', nama: 'September 2026' }]);
+});
+
+test('brosur jadwal tanpa bulan tetap terbit — halaman punya bulan bawaan', () => {
+  const media = hydrateBaniMedia([], { media: [{ type: 'brosur_jadwal' }] }, { now: NOW_AGT });
+  assert.deepEqual(media, [{ type: 'brosur_jadwal', bulan: null, nama: null }]);
+});
+
+test('bulan brosur jadwal yang cacat atau jauh dibuang, kartunya tetap ada', () => {
+  const buruk = [
+    '2026-13', '2026-00', '26-08', '2026-8', 'Agustus', '2026-08-01', '', null, 42,
+    '2024-01',            // lebih dari 12 bulan ke belakang
+    '2029-01',            // lebih dari 24 bulan ke depan
+  ];
+  for (const bulan of buruk) {
+    const [item] = hydrateBaniMedia([], { media: [{ type: 'brosur_jadwal', bulan }] }, { now: NOW_AGT });
+    assert.equal(item.bulan, null, `bulan ${JSON.stringify(bulan)} harus ditolak`);
+    assert.equal(item.type, 'brosur_jadwal', 'kartunya sendiri tidak ikut gugur');
+  }
+  // Tepi jendela yang masih diterima.
+  for (const bulan of ['2025-08', '2028-08']) {
+    const [item] = hydrateBaniMedia([], { media: [{ type: 'brosur_jadwal', bulan }] }, { now: NOW_AGT });
+    assert.equal(item.bulan, bulan, `bulan tepi ${bulan} harus lolos`);
+  }
+});
+
+test('brosur jadwal bulan sama tidak digandakan', () => {
+  const media = hydrateBaniMedia([], {
+    media: [
+      { type: 'brosur_jadwal', bulan: '2026-09' },
+      { type: 'brosur_jadwal', bulan: '2026-09' },
+      { type: 'brosur_jadwal' },
+      { type: 'brosur_jadwal', bulan: '2026-10' },
+    ],
+  }, { now: NOW_AGT });
+  assert.deepEqual(media.map((m) => m.bulan), ['2026-09', null, '2026-10']);
+});
+
+test('prompt membedakan brosur paket dari brosur jadwal', () => {
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.match(prompt, /"Brosur" menunjuk DUA hal berbeda/);
+  assert.match(prompt, /BROSUR JADWAL/);
+  assert.match(prompt, /"type": "brosur_jadwal", "bulan": "YYYY-MM"/);
+  assert.match(prompt, /TIDAK memakai jadwal_id/);
+  // Kontrak JSON menyebutkan bentuknya juga.
+  assert.match(prompt, /\{"type": "brosur_jadwal", "bulan": "2026-08"\}/);
+});
+
+// Brosur jadwal DIRENDER di dalam percakapan, bukan ditautkan ke halaman lain
+// (permintaan agent 4 Agt 2026: "Jangan link, tapi munculkan langsung di Bani").
+test('brosur jadwal dirender di dalam Bani, bukan tautan ke halaman brosur', () => {
+  const page = read('src/components/bani/BaniPage.tsx');
+  assert.match(page, /const BaniBrosurJadwal = lazy\(\(\) => import\('\.\/BaniBrosurJadwal'\)\)/);
+  assert.match(page, /<BaniBrosurJadwal\s+bulan=\{m\.bulan\}/);
+  // Yang dilarang navigasinya, bukan penyebutan halaman itu di komentar.
+  assert.doesNotMatch(page, /onNavigate\(['"`]\/dashboard\/brosur/, 'tidak boleh ada lagi tautan ke halaman brosur');
+  assert.doesNotMatch(page, /href=\{?['"`]\/dashboard\/brosur/);
+  // Brosur jadwal bukan berkas: ia tidak boleh masuk jalur popup gambar/PDF.
+  assert.match(page, /m\.type === 'itinerary'/, 'daftar itinerary harus disaring tepat, bukan "bukan brosur"');
+});
+
+// Template desain, pemenggalan halaman, dan preferensi agent dibaca dari sumber
+// yang SAMA dengan /dashboard/brosur — kalau tidak, "brosur Oktober" di Bani
+// dan di halaman Brosur bisa berbeda isi tanpa ada yang menyadarinya.
+test('brosur jadwal Bani memakai template & paginasi milik halaman Brosur', () => {
+  const inline = read('src/components/bani/BaniBrosurJadwal.tsx');
+  assert.match(inline, /from '\.\.\/brochure-designs'/, 'desain diambil dari registry bersama');
+  assert.match(inline, /splitPackagesIntoPages/, 'paginasi dari modul bersama');
+  assert.match(inline, /BROCHURE_W|BROCHURE_H/, 'kanvas brosur dipakai apa adanya');
+  assert.match(inline, /'\/api\/ai-tools\/brosur-jadwal-bulan'/, 'sumber data sama dengan halaman Brosur');
+  assert.match(inline, /brosurDesignId/, 'pilihan desain agent dihormati');
+  assert.match(inline, /brosurDisplayMode/, 'mode HARI\/SEAT agent dihormati');
+  // Brosur promosi tidak menampilkan keberangkatan yang sudah penuh.
+  assert.match(inline, /filter\(\(p\) => !p\.soldOut\)/);
+
+  const halaman = read('src/components/BrochureSchedulePage.tsx');
+  assert.match(halaman, /import \{ PACKAGES_PER_IMAGE, splitPackagesIntoPages \} from '@\/lib\/brosurJadwalPages'/);
+  assert.doesNotMatch(halaman, /function splitPackagesIntoPages/, 'salinan lokal harus benar-benar pindah');
+});
+
+// Sejak diraster jadi gambar, brosur jadwal masuk jalur yang SAMA dengan brosur
+// paket: ketuk → BrochureModal (layar penuh, zoom, bagikan/unduh), dan lebih
+// dari satu → carousel. Permintaan agent 4 Agt 2026.
+test('brosur jadwal jadi gambar dan memakai tampilan brosur paket', () => {
+  const inline = read('src/components/bani/BaniBrosurJadwal.tsx');
+  assert.match(inline, /captureCanvasFromElement/, 'raster memakai pipeline halaman Brosur');
+  assert.match(inline, /canvasToBlob/);
+  assert.match(inline, /URL\.createObjectURL/);
+  // Panggung raster harus ter-layout; display:none menghasilkan gambar kosong.
+  assert.match(inline, /position: 'fixed'/);
+  assert.doesNotMatch(inline, /display: 'none'/);
+
+  const page = read('src/components/bani/BaniPage.tsx');
+  // Satu daftar brosur untuk keduanya — tampilan tunggal & carousel-nya sama.
+  assert.match(page, /const brosurTampil = useMemo/);
+  assert.match(page, /brosurTampil\.length === 1/);
+  assert.match(page, /<BaniBrosurCarousel items=\{brosurTampil\}/);
+  assert.match(page, /type: 'brosur' as const, jadwal_id: null/, 'hasil raster berbentuk kartu brosur biasa');
+  // blob: URL wajib dilepas saat gilirannya hilang dari layar.
+  assert.match(page, /URL\.revokeObjectURL/);
+});
+
+test('pipeline raster brosur dipakai bersama, bukan disalin', () => {
+  const util = read('src/utils/brosurCapture.ts');
+  assert.match(util, /export async function captureCanvasFromElement/);
+  assert.match(util, /export function canvasToBlob/);
+  assert.match(util, /blank-export/, 'deteksi hasil kosong ikut pindah');
+  assert.match(util, /unexpected-canvas-size/);
+
+  const halaman = read('src/components/BrochureSchedulePage.tsx');
+  assert.match(halaman, /from '\.\.\/utils\/brosurCapture'/);
+  assert.doesNotMatch(halaman, /async function captureCanvasFromElement/, 'salinan lokal harus benar-benar pindah');
+  assert.doesNotMatch(halaman, /async function waitForFonts/);
 });
 
 test('hydrateBaniMedia memotong di BANI_MAX_MEDIA', () => {
@@ -1309,6 +1509,23 @@ test('bersihkan percakapan melewati konfirmasi, bukan langsung terhapus', () => 
   }
 });
 
+// Bilah kirim adalah satu-satunya kontrol yang dipakai di SETIAP giliran, dan
+// dua sifatnya mudah hilang tanpa terasa saat kelasnya disunting ulang.
+test('input pertanyaan aman dari zoom iOS dan tanpa cincin fokus', () => {
+  const src = read('src/components/bani/BaniPage.tsx');
+  const input = src.slice(src.indexOf('aria-label="Pertanyaan untuk Bani"'));
+  const sampaiTutup = input.slice(0, input.indexOf('/>'));
+
+  // Safari memperbesar seluruh halaman saat fokus masuk ke input < 16px, dan
+  // zoom itu tidak pernah dikembalikan sendiri.
+  assert.match(sampaiTutup, /coarse:text-\[16px\]/, 'ukuran perangkat sentuh harus 16px');
+  // Cincin emerald muncul di tiap ketukan di ponsel; penanda fokus dipegang
+  // warna border saja.
+  assert.doesNotMatch(sampaiTutup, /focus:ring/, 'cincin fokus tidak dipakai di bilah kirim');
+  assert.match(sampaiTutup, /focus:border-emerald-400/, 'fokus tetap punya penanda');
+  assert.match(sampaiTutup, /enterKeyHint="send"/);
+});
+
 // Istilah rombongan di Alhijaz adalah "Kloter". Model menirukan nama field ke
 // dalam jawabannya, jadi keluaran calendar_events pun harus memakai kunci itu —
 // prompt saja tidak cukup kalau tool-nya masih menyodorkan "grup".
@@ -1393,11 +1610,14 @@ test('kartu kalkulasi Bani memakai modal, teks WA, dan PDF milik fitur Kalkulasi
   assert.match(page, /generateQuotationPdfBlob/, 'PDF memakai generator bersama');
   assert.match(page, /\/kalkulasi\?paket=/, 'link Ubah membuka kalkulator terprasetel');
   assert.match(page, /readKalkulasi\(data\.kalkulasi\)/, 'payload server tersaring readKalkulasi');
+  assert.match(page, /function readKalkulasiInput/, 'gema input tersaring whitelist di klien');
   // Jangkar riwayat: giliran kalkulasi ikut mengirim referensi + parameternya,
   // dan didahulukan dari kartu paket/jamaah (server memangkas shown ke 6).
-  assert.match(page, /type: 'kalkulasi',\s*\n\s*id: k\.jadwal_id/, 'kartu kalkulasi ikut jadi jangkar shown');
-  assert.match(page, /input: k\.input/, 'parameter hitungan ikut terkirim sebagai jangkar');
-  assert.match(page, /function readKalkulasiInput/, 'gema input tersaring whitelist di klien');
+  // Perakitannya tinggal di src/lib/baniShownRefs.js — perilakunya diuji
+  // langsung lewat buildShownRefs di berkas ini.
+  const shownRefs = read('src/lib/baniShownRefs.js');
+  assert.match(shownRefs, /type: 'kalkulasi',\s*\n\s*id: k\?\.jadwal_id/, 'kartu kalkulasi ikut jadi jangkar shown');
+  assert.match(shownRefs, /input: k\?\.input/, 'parameter hitungan ikut terkirim sebagai jangkar');
 });
 
 test('modal hasil kalkulasi diekstrak sekali, KalkulasiPage tinggal memakainya', () => {

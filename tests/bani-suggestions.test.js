@@ -150,7 +150,11 @@ test('BaniPage tidak mengarang saran lanjutan saat model tidak memberi', () => {
   assert.match(chips[0], /lastTurn\?\.followUps/);
 });
 
-test('prompt Bani membolehkan daftar saran lanjutan kosong', () => {
+// Dua sisi yang harus tetap berdiri bersama: sarannya wajib diturunkan dari isi
+// jawaban barusan (bukan pertanyaan umum yang muat di mana saja), tapi model
+// tetap boleh mengirim daftar kosong saat jawabannya memang buntu.
+test('prompt Bani menuntut saran lanjutan yang nyangkut, dan tetap membolehkan kosong', () => {
   const src = readFileSync(join(rootPath, 'lib/bani-orchestrator.js'), 'utf8');
-  assert.match(src, /kirim \[\] — daftar kosong jauh lebih baik/);
+  assert.match(src, /TURUNKAN dari apa yang barusan tampil/);
+  assert.match(src, /Kirim \[\] hanya kalau jawabannya memang buntu/);
 });

@@ -13,7 +13,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   Send, Clock, Calendar, Wallet, Cake, Plane, ArrowUpRight,
   Users, CalendarRange, Trash2, Building2, Calculator,
-  Loader2, Check, ChevronRight, Copy, ExternalLink, FileText, ZoomIn,
+  Loader2, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FileText,
 } from 'lucide-react';
 import { getPackages } from '@/services';
 import type { UmrohPackage } from '@/types';
@@ -25,6 +25,7 @@ import {
   type BaniSuggestionIcon,
 } from '@/lib/baniSuggestions';
 import { isComplexBaniAnswer } from '@/lib/baniAnswer';
+import { buildShownRefs } from '@/lib/baniShownRefs';
 import { useBaniConfirmMotion } from './baniConfirmMotion';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
@@ -44,6 +45,9 @@ import {
 const BrochureModal = lazy(() => import('../BrochureModal').then((m) => ({ default: m.BrochureModal })));
 const ItineraryModal = lazy(() => import('../ItineraryModal').then((m) => ({ default: m.ItineraryModal })));
 const KalkulasiResultModal = lazy(() => import('../KalkulasiResultModal').then((m) => ({ default: m.KalkulasiResultModal })));
+// Brosur jadwal dirakit di klien dari template + font brosur — berat, jadi
+// baru diunduh saat ada jawaban yang benar-benar memuatnya.
+const BaniBrosurJadwal = lazy(() => import('./BaniBrosurJadwal'));
 
 // Identitas agent untuk personalisasi modal itinerary & PDF quotation —
 // strukturnya sengaja sama dengan AgentData (src/data/agents.ts).
@@ -82,22 +86,38 @@ const DEFAULT_COLUMNS: BaniColumns = { paket: ['berangkat', 'harga'], jamaah: ['
 
 // Media hasil validasi server (hydrateBaniMedia): url dijamin https, tapi data
 // ini juga dibaca balik dari localStorage — saring lagi di sini.
-export type BaniMediaItem = {
-  type: 'brosur' | 'itinerary';
-  jadwal_id: string | null;
-  nama: string | null;
-  url: string;
-};
+// Dua bentuk media, dua sifat berbeda:
+// - brosur/itinerary → berkas satu paket, punya URL (https, disaring server)
+// - brosur_jadwal    → daftar keberangkatan sebulan; tidak punya URL karena
+//   brosurnya dirakit di klien. Dirender langsung di percakapan oleh
+//   BaniBrosurJadwal, memakai template & data yang sama dengan halaman Brosur.
+export type BaniMediaFile = { type: 'brosur' | 'itinerary'; jadwal_id: string | null; nama: string | null; url: string };
+export type BaniMediaBrosurJadwal = { type: 'brosur_jadwal'; bulan: string | null; nama: string | null };
+export type BaniMediaItem = BaniMediaFile | BaniMediaBrosurJadwal;
 
 function readMedia(value: unknown): BaniMediaItem[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((m): m is BaniMediaItem => {
-      const x = (m || {}) as Record<string, unknown>;
-      return (x.type === 'brosur' || x.type === 'itinerary')
-        && typeof x.url === 'string' && /^https:\/\//i.test(x.url);
-    })
-    .slice(0, 4);
+  const out: BaniMediaItem[] = [];
+  for (const raw of value.slice(0, 4)) {
+    const x = (raw || {}) as Record<string, unknown>;
+    const nama = typeof x.nama === 'string' && x.nama ? x.nama : null;
+    if (x.type === 'brosur_jadwal') {
+      // Bulan dipakai sebagai query param halaman brosur — bentuknya dikunci
+      // ulang di sini karena media juga dibaca balik dari localStorage.
+      const bulan = typeof x.bulan === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(x.bulan) ? x.bulan : null;
+      out.push({ type: 'brosur_jadwal', bulan, nama });
+      continue;
+    }
+    if ((x.type === 'brosur' || x.type === 'itinerary') && typeof x.url === 'string' && /^https:\/\//i.test(x.url)) {
+      out.push({
+        type: x.type,
+        jadwal_id: typeof x.jadwal_id === 'string' ? x.jadwal_id : null,
+        nama,
+        url: x.url,
+      });
+    }
+  }
+  return out;
 }
 
 // Kartu kalkulasi (hydrateBaniKalkulasi): angka dihitung server dari tool
@@ -229,6 +249,7 @@ export type BaniTurn = {
 
 type StoredConversation = { slug: string; savedAt: number; turns: BaniTurn[] };
 
+
 function readTurn(raw: unknown): BaniTurn | null {
   const t = (raw || {}) as Record<string, unknown>;
   if (typeof t.question !== 'string' || typeof t.answer !== 'string') return null;
@@ -315,8 +336,12 @@ function escapeHtml(value: string): string {
   ));
 }
 
+// font-bold, bukan font-semibold: di 13,5px selisih 600 vs 400 nyaris tak
+// terbaca sebagai penekanan, sementara nama dan tanggal di sini justru yang
+// dicari mata lebih dulu. Garis bawah sengaja dihindari — di dalam gelembung
+// jawaban itu terbaca sebagai tautan, padahal renderer ini melarang tautan.
 function applyBold(value: string): string {
-  return value.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-white">$1</strong>');
+  return value.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white">$1</strong>');
 }
 
 export function renderBaniMarkdown(text: string): string {
@@ -553,21 +578,7 @@ export default function BaniPage({ slug, agent = null, onNavigate }: {
             // Jangkar kalkulasi DIDAHULUKAN dari kartu biasa: server memangkas
             // shown ke 6, dan pada giliran hitung-hitungan justru parameter
             // kalkulasi-lah konteks yang paling dibutuhkan pertanyaan lanjutan.
-            shown: [
-              ...t.kalkulasi.map((k) => ({
-                type: 'kalkulasi',
-                id: k.jadwal_id,
-                nama: k.nama,
-                tier: k.tier,
-                input: k.input,
-                total: k.grand_total,
-              })),
-              ...t.cards.slice(0, 6).map((c) => (
-                c.type === 'package'
-                  ? { type: 'package', id: c.jadwal_id, nama: c.nama }
-                  : { type: 'jamaah', id: c.jm_id, nama: c.nama }
-              )),
-            ],
+            shown: buildShownRefs(t),
           })),
         }),
         signal: controller.signal,
@@ -653,7 +664,19 @@ export default function BaniPage({ slug, agent = null, onNavigate }: {
       const res = await fetch('/api/bani/telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ question: lastTurn.question, answer: lastTurn.answer, cards: lastTurn.cards }),
+        // Media dikirim sebagai PENUNJUK saja (type + jadwal_id) — URL-nya
+        // disusun ulang server dari DB. Mengirimkan url dari sini berarti
+        // endpoint Telegram menerima alamat gambar dari klien.
+        body: JSON.stringify({
+          question: lastTurn.question,
+          answer: lastTurn.answer,
+          cards: lastTurn.cards,
+          // Brosur jadwal tidak ikut: ia bukan berkas melainkan pintasan ke
+          // halaman /dashboard/brosur, dan tidak ada yang bisa dilampirkan.
+          media: lastTurn.media
+            .filter((m): m is BaniMediaFile => m.type === 'brosur' || m.type === 'itinerary')
+            .map((m) => ({ type: m.type, jadwal_id: m.jadwal_id })),
+        }),
       });
       const data = await res.json().catch(() => null);
 
@@ -869,12 +892,38 @@ export default function BaniPage({ slug, agent = null, onNavigate }: {
             // Guard aslinya pindah ke onSubmit + tombol kirim.
             readOnly={phase === 'loading'}
             aria-disabled={phase === 'loading'}
-            // Diperpendek karena input di perangkat sentuh 16px (aturan
-            // anti-zoom global di index.css): placeholder yang panjang
-            // terpotong di tengah kata. Kalimat penuhnya ada di aria-label.
+            // Diperpendek karena input di perangkat sentuh 16px (lihat
+            // coarse:text-[16px] di bawah): placeholder yang panjang terpotong
+            // di tengah kata. Kalimat penuhnya ada di aria-label.
             placeholder="Tanya paket & jamaah…"
             aria-label="Pertanyaan untuk Bani"
-            className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-[12.5px] text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 read-only:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
+            // Tombol Enter keyboard ponsel berbunyi "Kirim", bukan "return" —
+            // ini kotak kirim pesan, bukan baris formulir.
+            enterKeyHint="send"
+            // Daftar isian tersimpan browser akan menutupi bilah kirim yang
+            // menempel di dasar layar, dan tak satu pun nilainya relevan di sini.
+            autoComplete="off"
+            className={
+              // coarse:text-[16px] = anti-zoom iOS. Safari memperbesar SELURUH
+              // halaman saat fokus masuk ke input di bawah 16px dan tidak pernah
+              // mengembalikannya. index.css sudah memaksanya global, tapi
+              // ditulis ulang di sini supaya alasan ukuran 12,5px terbaca di
+              // tempat inputnya dideklarasikan.
+              //
+              // Tanpa cincin fokus: di ponsel cincin emerald muncul di tiap
+              // ketukan dan terbaca seperti galat. Penanda fokus dipegang warna
+              // border — cukup untuk pengguna keyboard, tenang untuk yang tidak.
+              // appearance-none membuang bayangan dalam bawaan input iOS.
+              // Tinggi dipatok 44px (h-11), sama dengan tombol kirim di
+              // sebelahnya: dengan padding saja tingginya ikut ukuran teks —
+              // 41px di desktop, ±46px di ponsel yang teksnya naik ke 16px —
+              // sehingga pil dan tombol tidak pernah sejajar. 44px sekaligus
+              // ukuran sasaran sentuh yang disarankan.
+              'h-11 min-w-0 flex-1 appearance-none rounded-full border border-gray-200 bg-gray-50 px-4 '
+              + 'text-[12.5px] coarse:text-[16px] text-gray-800 outline-none transition-colors '
+              + 'placeholder:text-gray-400 focus:border-emerald-400 read-only:opacity-60 '
+              + 'dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500'
+            }
           />
           <button
             type="submit"
@@ -946,7 +995,60 @@ function BaniTurnView({ turn, slug, agent, onOpenPackage, enterAnswer = false, i
     () => turn.cards.filter((c): c is BaniJamaahCard => c.type === 'jamaah'),
     [turn.cards],
   );
-  const [popupMedia, setPopupMedia] = useState<BaniMediaItem | null>(null);
+  const [popupMedia, setPopupMedia] = useState<BaniMediaFile | null>(null);
+  // Brosur (gambar) dan itinerary (baris tombol) dipisah karena tata letaknya
+  // berbeda: gambar berdampingan dalam kisi, tombol selalu selebar penuh.
+  const brosurMedia = useMemo(
+    () => turn.media.filter((m): m is BaniMediaFile => m.type === 'brosur'),
+    [turn.media],
+  );
+  const itineraryMedia = useMemo(
+    () => turn.media.filter((m): m is BaniMediaFile => m.type === 'itinerary'),
+    [turn.media],
+  );
+  // Brosur jadwal bukan berkas: ia dirakit di klien lalu diraster jadi gambar
+  // (BaniBrosurJadwal), dan sejak jadi gambar ia diperlakukan PERSIS seperti
+  // brosur paket — satu gambar inline / carousel, ketuk untuk layar penuh.
+  const brosurJadwalMedia = useMemo(
+    () => turn.media.filter((m): m is BaniMediaBrosurJadwal => m.type === 'brosur_jadwal'),
+    [turn.media],
+  );
+
+  // Hasil raster per item brosur jadwal (indeks item → gambar-gambarnya).
+  // Dikunci indeks, bukan ditambahkan, supaya raster yang tak sengaja berjalan
+  // dua kali mengganti hasil lamanya — bukan menggandakan gambarnya.
+  const [brosurJadwalImages, setBrosurJadwalImages] = useState<Record<number, BaniMediaFile[]>>({});
+  const handleBrosurJadwalReady = useCallback((idx: number, images: { url: string; label: string }[]) => {
+    setBrosurJadwalImages((prev) => {
+      // Yang tergantikan dilepas di sini; sisanya dilepas saat giliran dibuang.
+      for (const lama of prev[idx] ?? []) URL.revokeObjectURL(lama.url);
+      return {
+        ...prev,
+        [idx]: images.map((img) => ({ type: 'brosur' as const, jadwal_id: null, nama: img.label, url: img.url })),
+      };
+    });
+  }, []);
+
+  // blob: URL hidup sampai dilepas. Giliran yang hilang dari layar (percakapan
+  // dibersihkan / halaman ditinggalkan) harus melepas miliknya.
+  const imagesRef = useRef<Record<number, BaniMediaFile[]>>({});
+  imagesRef.current = brosurJadwalImages;
+  useEffect(() => () => {
+    for (const daftar of Object.values(imagesRef.current)) {
+      for (const img of daftar) URL.revokeObjectURL(img.url);
+    }
+  }, []);
+
+  // Begitu jadi gambar, brosur jadwal bergabung dengan brosur paket dan
+  // memakai tampilan yang sama persis: satu gambar tampil lega, lebih dari
+  // satu jadi carousel, ketuk mana pun membuka BrochureModal.
+  const brosurTampil = useMemo(() => [
+    ...brosurMedia,
+    ...Object.keys(brosurJadwalImages)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .flatMap((k) => brosurJadwalImages[k]),
+  ], [brosurMedia, brosurJadwalImages]);
 
   const Answer: typeof BaniEnter = enterAnswer ? BaniEnter : BaniPlain;
 
@@ -964,46 +1066,77 @@ function BaniTurnView({ turn, slug, agent, onOpenPackage, enterAnswer = false, i
           Lihat Itinerary (ketuk → popup web view /:slug/:jadwalId/itinerary). */}
       {turn.media.length > 0 && (
         <div className="flex flex-col gap-2">
-          {turn.media.map((m, i) => (
-            m.type === 'brosur' ? (
-              <button
-                key={`media-${m.type}-${m.jadwal_id}-${i}`}
-                type="button"
-                onClick={() => setPopupMedia(m)}
-                className="overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-sm transition-transform active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
-              >
-                <img
-                  src={m.url}
-                  alt={`Brosur ${m.nama || 'paket'}`}
-                  loading="lazy"
-                  className="max-h-[360px] w-full bg-gray-50 object-contain dark:bg-slate-900"
-                />
-                <span className="flex items-center gap-1.5 border-t border-gray-100 px-3 py-2 dark:border-slate-700">
-                  <ZoomIn size={13} className="shrink-0 text-emerald-700 dark:text-emerald-400" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-200">
-                    Brosur — {m.nama || m.jadwal_id}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-gray-400 dark:text-slate-500">ketuk untuk memperbesar</span>
-                </span>
-              </button>
-            ) : (
-              <button
-                key={`media-${m.type}-${m.jadwal_id}-${i}`}
-                type="button"
-                onClick={() => setPopupMedia(m)}
-                className="flex min-h-[48px] items-center gap-2.5 rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:bg-slate-700/60"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">
-                  <FileText size={16} strokeWidth={2.2} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-bold text-gray-800 dark:text-white">Lihat Itinerary</span>
-                  <span className="block truncate text-[10px] text-gray-500 dark:text-slate-400">{m.nama || m.jadwal_id}</span>
-                </span>
-                <ChevronRight size={14} className="shrink-0 text-gray-300 dark:text-slate-600" />
-              </button>
-            )
+          {/* Satu brosur tampil lega; dua atau lebih jadi SATU baris yang
+              digeser kiri-kanan. Ditumpuk ke bawah, empat brosur (batas
+              BANI_MAX_MEDIA) jadi pita gambar sepanjang beberapa layar dan
+              tabel di bawahnya terdorong hilang. */}
+          {brosurTampil.length === 1 && (
+            <button
+              type="button"
+              onClick={() => setPopupMedia(brosurTampil[0])}
+              aria-label={`Perbesar brosur ${brosurTampil[0].nama || brosurTampil[0].jadwal_id || 'paket'}`}
+              className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-transform active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
+            >
+              {/* block: <img> itu inline, dan garis dasarnya menyisakan pita
+                  kosong beberapa piksel di dasar tombol. */}
+              <img
+                src={brosurTampil[0].url}
+                alt={`Brosur ${brosurTampil[0].nama || 'paket'}`}
+                loading="lazy"
+                className="block max-h-[360px] w-full bg-gray-50 object-contain dark:bg-slate-900"
+              />
+            </button>
+          )}
+          {brosurTampil.length > 1 && (
+            <BaniBrosurCarousel items={brosurTampil} onOpen={setPopupMedia} />
+          )}
+
+          {itineraryMedia.map((m, i) => (
+            <button
+              key={`media-itinerary-${m.jadwal_id}-${i}`}
+              type="button"
+              onClick={() => setPopupMedia(m)}
+              className="flex min-h-[48px] items-center gap-2.5 rounded-2xl border border-gray-200 bg-white px-3 py-2.5 text-left shadow-sm transition-colors hover:bg-gray-50 active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:bg-slate-700/60"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">
+                <FileText size={16} strokeWidth={2.2} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-bold text-gray-800 dark:text-white">Lihat Itinerary</span>
+                <span className="block truncate text-[10px] text-gray-500 dark:text-slate-400">{m.nama || m.jadwal_id}</span>
+              </span>
+              <ChevronRight size={14} className="shrink-0 text-gray-300 dark:text-slate-600" />
+            </button>
           ))}
+
+          {/* Brosur jadwal DIRENDER di sini, bukan ditautkan: agent memintanya
+              untuk dilihat/dibagikan, dan tombol menuju halaman lain memaksa
+              mereka meninggalkan percakapan dulu. Yang tampil memakai template
+              desain, pemenggalan halaman, dan preferensi desain/mode yang sama
+              dengan /dashboard/brosur — bukan tiruan. */}
+          {/* Perakit brosur jadwal: merender template di luar layar lalu
+              menyerahkan GAMBAR. Begitu gambarnya jadi, komponen ini lepas dan
+              hasilnya tampil lewat jalur brosur di atas — sama persis dengan
+              brosur paket. Selama merakit, yang terlihat rangka penunggu. */}
+          {brosurJadwalMedia.map((m, i) => (brosurJadwalImages[i] ? null : (
+            <Suspense
+              key={`media-brosur-jadwal-${m.bulan || 'default'}-${i}`}
+              fallback={
+                <div
+                  className="flex items-center justify-center rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+                  style={{ aspectRatio: '1080 / 1620' }}
+                >
+                  <Loader2 size={18} className="animate-spin text-gray-400 dark:text-slate-500" />
+                </div>
+              }
+            >
+              <BaniBrosurJadwal
+                bulan={m.bulan}
+                agent={{ slug, name: agent?.name || '', phone: agent?.phone || '', photo: agent?.photo || '', website: agent?.website || '' }}
+                onReady={(images) => handleBrosurJadwalReady(i, images)}
+              />
+            </Suspense>
+          )))}
         </div>
       )}
 
@@ -1066,6 +1199,132 @@ function BaniTurnView({ turn, slug, agent, onOpenPackage, enterAnswer = false, i
         </Suspense>
       )}
       </Answer>
+    </div>
+  );
+}
+
+/**
+ * Brosur lebih dari satu: satu baris yang digeser kiri-kanan.
+ *
+ * Resepnya menyalin galeri multi-foto Teras (TerasPage, blok data-media-layout
+ * ="carousel") supaya gerakannya sama persis di dua tempat: snap-x mandatory,
+ * batang gulir disembunyikan, penghitung "2/4" di pojok, dan tombol panah yang
+ * HANYA muncul dari sm ke atas — di layar sentuh jempol sudah cukup, panah di
+ * atas gambar cuma menutupi brosurnya.
+ *
+ * Tinggi baris dikunci dan lebar tiap brosur mengikuti rasio aslinya
+ * (h-full w-auto): brosur tidak pernah terpotong, dan barisnya tetap rata
+ * karena tingginya seragam. min-w menahan lebar saat gambar belum termuat —
+ * tanpa itu ubinnya sempat 0 px dan barisnya menyentak saat gambar mendarat.
+ */
+function BaniBrosurCarousel({ items, onOpen }: {
+  items: BaniMediaFile[];
+  onOpen: (item: BaniMediaFile) => void;
+}) {
+  const railRef = useRef<HTMLDivElement>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const reduceMotion = useReducedMotion();
+
+  const scrollToIndex = (index: number) => {
+    const batas = Math.max(0, Math.min(items.length - 1, index));
+    const rail = railRef.current;
+    const slide = rail?.querySelectorAll<HTMLElement>('[data-brosur-slide]').item(batas);
+    if (rail && slide) {
+      rail.scrollTo({
+        left: rail.scrollLeft + slide.getBoundingClientRect().left - rail.getBoundingClientRect().left,
+        behavior: reduceMotion ? 'auto' : 'smooth',
+      });
+    }
+    setActiveIndex(batas);
+  };
+
+  // Yang aktif = slide yang tepinya paling dekat tepi kiri baris. Slide
+  // terakhir sering tak bisa benar-benar merapat ke kiri (sisa gulir habis),
+  // tapi ia tetap yang TERDEKAT, jadi penghitungnya tetap sampai "4/4".
+  const updateActiveIndex = () => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const kiri = rail.getBoundingClientRect().left;
+    let terdekat = 0;
+    let jarakTerdekat = Number.POSITIVE_INFINITY;
+    rail.querySelectorAll<HTMLElement>('[data-brosur-slide]').forEach((slide, i) => {
+      const jarak = Math.abs(slide.getBoundingClientRect().left - kiri);
+      if (jarak < jarakTerdekat) {
+        jarakTerdekat = jarak;
+        terdekat = i;
+      }
+    });
+    setActiveIndex(terdekat);
+  };
+
+  return (
+    <div className="relative">
+      <div
+        ref={railRef}
+        role="region"
+        tabIndex={0}
+        aria-roledescription="carousel"
+        aria-label={`${items.length} brosur. Geser ke samping untuk melihat semuanya.`}
+        onScroll={updateActiveIndex}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'ArrowLeft') { e.preventDefault(); scrollToIndex(activeIndex - 1); }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); scrollToIndex(activeIndex + 1); }
+        }}
+        className="flex h-[21rem] snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain scroll-smooth rounded-2xl outline-none motion-reduce:scroll-auto [scrollbar-width:none] focus-visible:ring-2 focus-visible:ring-emerald-500/60 [&::-webkit-scrollbar]:hidden"
+      >
+        {items.map((m, i) => (
+          <button
+            key={`brosur-${m.jadwal_id}-${i}`}
+            data-brosur-slide
+            type="button"
+            onClick={() => onOpen(m)}
+            aria-label={`Perbesar brosur ${m.nama || m.jadwal_id || 'paket'} ${i + 1} dari ${items.length}`}
+            className="h-full min-w-[9rem] max-w-[88%] shrink-0 snap-start overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 shadow-sm transition-transform active:scale-[0.99] dark:border-slate-700 dark:bg-slate-900 dark:shadow-none"
+          >
+            <img
+              src={m.url}
+              alt={`Brosur ${m.nama || 'paket'} ${i + 1} dari ${items.length}`}
+              loading="lazy"
+              // Sama dengan mode 'height' PostImage di Teras. max-w-full itu
+              // penjaga brosur berorientasi lanskap: tanpa itu lebarnya
+              // (dihitung dari tinggi baris) melewati ubinnya dan terpotong.
+              className="block h-full w-auto max-w-full object-contain"
+            />
+          </button>
+        ))}
+        {/* Ruang ekor supaya brosur terakhir bisa ikut merapat ke kiri. */}
+        <div aria-hidden="true" className="w-8 shrink-0" />
+      </div>
+
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={`Brosur ${activeIndex + 1} dari ${items.length}`}
+        className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-bold tabular-nums text-white backdrop-blur-sm"
+      >
+        {activeIndex + 1}/{items.length}
+      </span>
+
+      <button
+        type="button"
+        onClick={() => scrollToIndex(activeIndex - 1)}
+        disabled={activeIndex === 0}
+        aria-label="Brosur sebelumnya"
+        className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition-all hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
+      >
+        <ChevronLeft size={18} />
+      </button>
+      <button
+        type="button"
+        onClick={() => scrollToIndex(activeIndex + 1)}
+        disabled={activeIndex === items.length - 1}
+        aria-label="Brosur berikutnya"
+        className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition-all hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
+      >
+        <ChevronRight size={18} />
+      </button>
     </div>
   );
 }
