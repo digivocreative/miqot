@@ -65,7 +65,7 @@ import {
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
 import { requireBaniAccess } from './lib/bani-access.js';
-import { runBaniConversation, BANI_SOURCE_NOTE } from './lib/bani-orchestrator.js';
+import { runBaniConversation } from './lib/bani-orchestrator.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -1930,7 +1930,6 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
       answer: result.answer,
       cards: result.cards,
       tools_used: result.tools_used,
-      source_note: BANI_SOURCE_NOTE,
     });
   } catch (error) {
     // Pesan internal (termasuk body error OpenAI) tinggal di log — klien cuma
