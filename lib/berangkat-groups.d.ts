@@ -13,6 +13,7 @@ export interface BerangkatItem {
   manasik_tgl?: string | null;
   manasik_jam?: string | null;
   berangkat_kode_penerbangan?: string | null;
+  itinerary_ready?: boolean;
   jk: string | null;
   tgl_berangkat: string;
   hari_lagi: number;
@@ -23,6 +24,8 @@ export interface BerangkatItem {
 
 export interface BerangkatGroup {
   key: string;
+  jadwal_id: string | null;
+  itinerary_ready: boolean;
   paket: string;
   count: number;
   tour_leader: string | null;

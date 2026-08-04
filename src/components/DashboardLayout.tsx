@@ -1262,7 +1262,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <Suspense fallback={null}><BirthdayWidget onSelectJamaah={setSelectedBirthday} /></Suspense>
           </div>
           <div style={{ order: 2 }}>
-            <Suspense fallback={null}><UpcomingSchedule /></Suspense>
+            <Suspense fallback={null}><UpcomingSchedule agentSlug={agentData.slug} /></Suspense>
           </div>
           <div style={{ order: 4 }}>
             <Suspense fallback={null}><CuacaWidget /></Suspense>

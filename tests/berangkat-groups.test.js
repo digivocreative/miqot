@@ -16,6 +16,31 @@ test('buildBerangkatGroups mengelompokkan item dengan jadwal_id yang sama', () =
   assert.equal(result[0].count, 2);
 });
 
+test('buildBerangkatGroups mengekspos jadwal_id dan itinerary_ready sebagai field grup', () => {
+  // Dipakai menyusun link share /:slug/:jadwalId/itinerary di detail grup —
+  // `key` tak bisa dipakai karena bisa berupa kunci gabungan.
+  const items = [
+    { nama: 'A', paket: 'UMROH REGULER', jadwal_id: 'J1', itinerary_ready: true, tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+  ];
+
+  const [group] = buildBerangkatGroups(items);
+
+  assert.equal(group.jadwal_id, 'J1');
+  assert.equal(group.itinerary_ready, true);
+});
+
+test('buildBerangkatGroups memberi jadwal_id null dan itinerary_ready false pada grup berkunci gabungan', () => {
+  const items = [
+    { nama: 'A', paket: 'PAKET X', jadwal_id: null, berangkat_kode_penerbangan: 'SV821', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },
+  ];
+
+  const [group] = buildBerangkatGroups(items);
+
+  assert.notEqual(group.key, null);
+  assert.equal(group.jadwal_id, null);
+  assert.equal(group.itinerary_ready, false);
+});
+
 test('buildBerangkatGroups memakai kunci gabungan paket|tgl|kode saat jadwal_id null, paket berbeda tidak menyatu', () => {
   const items = [
     { nama: 'A', paket: 'PAKET X', jadwal_id: null, berangkat_kode_penerbangan: 'SV821', tgl_berangkat: '2026-08-05', jk: 'L', hari_lagi: 2, lunas: true, sisa: 0, wa: null },

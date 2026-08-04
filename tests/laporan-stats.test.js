@@ -137,6 +137,7 @@ test('buildBerangkatMendatang preserves schedule metadata for package grouping',
     manasik_tgl: '2026-06-06',
     manasik_jam: null,
     berangkat_kode_penerbangan: 'EK 357/809',
+    itinerary_ready: false,
     jk: 'L',
     tgl_berangkat: '2026-06-20',
     hari_lagi: 0,
@@ -144,6 +145,25 @@ test('buildBerangkatMendatang preserves schedule metadata for package grouping',
     sisa: 0,
     wa: undefined,
   });
+});
+
+test('buildBerangkatMendatang meneruskan itinerary_ready ke baris hasil', () => {
+  // Dipakai detail Berangkat Mendatang untuk memutuskan tombol "Salin Link
+  // Itinerary" muncul atau chip "Itinerary belum ada" — kalau field ini jatuh
+  // dari proyeksi, tombolnya hilang diam-diam di kedua layar.
+  const [row] = buildBerangkatMendatang([
+    {
+      nama: 'SITI AMINAH',
+      paket: 'HEMAT',
+      jadwal_id: 'JBU1539',
+      itinerary_ready: true,
+      jk: 'P',
+      tgl_berangkat: '2026-06-20',
+      sisa: 0,
+    },
+  ], '2026-06-20').berangkatBulanIni;
+
+  assert.equal(row.itinerary_ready, true);
 });
 
 test('stats endpoint enriches upcoming departures with jadwal_nama', () => {

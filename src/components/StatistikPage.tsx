@@ -1124,7 +1124,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           title="Detail Keberangkatan"
           subtitle={`${selectedBerangkatGroup.count} jamaah · ${fmtTglLong(selectedBerangkatGroup.tgl_berangkat)}`}
         >
-          <BerangkatGroupDetail group={selectedBerangkatGroup} />
+          <BerangkatGroupDetail group={selectedBerangkatGroup} agentSlug={agentSlug} />
         </StatListModal>
       )}
 

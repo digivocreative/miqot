@@ -2,8 +2,10 @@
 // Statistik dan kartu kalender dashboard. Satu salinan saja: kalau tampilan
 // barisnya berubah, berubah di kedua layar sekaligus.
 
-import { CalendarDays, Check, ChevronRight, Users } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarDays, Check, ChevronRight, Copy, Users } from 'lucide-react';
 import { normalizeWaNumber } from '../../utils/phone';
+import { trackEvent } from '../../utils/analytics';
 import { getDestinationFlags, fmtTgl, fmtTglLong } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup, DestinationFlag } from '../../../lib/berangkat-groups.js';
 
@@ -173,7 +175,79 @@ export function BerangkatGroupSummaryRow({ group, onSelect }: { group: Berangkat
   );
 }
 
-export function BerangkatGroupDetail({ group }: { group: BerangkatGroup }) {
+// `window` dijaga karena komponen ini ikut terseret ke lingkungan tanpa DOM
+// (harness render di node) lewat impor lain.
+function siteOrigin(): string {
+  return typeof window === 'undefined' ? '' : window.location.origin;
+}
+
+// Link halaman share publik /:slug/:jadwalId/itinerary — sama persis dengan
+// yang disalin tombol di ItineraryModal, supaya agen tak perlu membuka kartu
+// paket hanya untuk mengambil linknya. URL-nya ditampilkan apa adanya supaya
+// agen tahu persis apa yang akan dikirim ke jamaah sebelum menyalin.
+function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSlug: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sheet bisa ditutup sebelum label "Tersalin" habis waktunya
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, []);
+
+  if (!group.jadwal_id || !group.itinerary_ready) {
+    return (
+      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-center text-[10px] font-semibold text-gray-400 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-500">
+        Itinerary belum ada
+      </div>
+    );
+  }
+
+  const shareUrl = `${siteOrigin()}/${agentSlug}/${group.jadwal_id}/itinerary`;
+  // Skema dibuang dari tampilan saja (yang disalin tetap URL utuh) — di lebar
+  // sheet HP, "https://" memakan ruang yang lebih berguna buat nama jadwalnya.
+  const displayUrl = shareUrl.replace(/^https?:\/\//, '');
+
+  const copyLink = async () => {
+    trackEvent('action', 'copy_itinerary_link', { paket: group.paket });
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      // Clipboard ditolak / bukan secure context — agen tetap bisa menyalin manual
+      window.prompt('Salin link:', shareUrl);
+      return;
+    }
+    setCopied(true);
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-2.5 pr-1.5 dark:border-slate-700 dark:bg-slate-700/30">
+      <span
+        title={shareUrl}
+        dir="ltr"
+        className="min-w-0 flex-1 truncate text-[10px] font-medium text-gray-500 dark:text-slate-400"
+      >
+        {displayUrl}
+      </span>
+      <button
+        type="button"
+        onClick={copyLink}
+        aria-label={`Salin link itinerary ${group.paket}`}
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-bold transition-colors active:scale-95 ${
+          copied
+            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300'
+            : 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-300'
+        }`}
+      >
+        {copied ? <Check size={11} strokeWidth={3} /> : <Copy size={11} strokeWidth={2.4} />}
+        <span>{copied ? 'Tersalin' : 'Copy'}</span>
+      </button>
+    </div>
+  );
+}
+
+export function BerangkatGroupDetail({ group, agentSlug }: { group: BerangkatGroup; agentSlug?: string | null }) {
   const manasikLabel = group.manasik_tgl
     ? fmtTglLong(group.manasik_tgl)
     : null;
@@ -193,6 +267,7 @@ export function BerangkatGroupDetail({ group }: { group: BerangkatGroup }) {
           <GroupMeta label="Tour Leader" value={group.tour_leader} />
           <GroupMeta label="Manasik" value={manasikLabel} />
         </div>
+        {agentSlug && <ItineraryLinkRow group={group} agentSlug={agentSlug} />}
       </div>
       <div className="divide-y divide-gray-50 dark:divide-slate-700/40">
         {group.items.map((item, i) => <BerangkatRow key={`${group.key}-${item.nama}-${i}`} item={item} showPackage={false} />)}

@@ -120,7 +120,9 @@ function parsePaket(paket: string | null): { name: string; departure: string | n
 }
 
 
-export default function UpcomingSchedule() {
+// agentSlug dipakai untuk menyusun link share itinerary (/:slug/:jadwalId/itinerary)
+// di detail Berangkat Mendatang dan di tombol salin ItineraryModal.
+export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | null }) {
   const now = useMemo(() => new Date(), []);
   const [currentMonth, setCurrentMonth] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -791,7 +793,7 @@ export default function UpcomingSchedule() {
               </div>
               <div className="flex-1 overflow-y-auto">
                 {selectedGroup ? (
-                  <BerangkatGroupDetail group={selectedGroup} />
+                  <BerangkatGroupDetail group={selectedGroup} agentSlug={agentSlug} />
                 ) : (
                   <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
                     {berangkatGroups.map(group => (
@@ -812,6 +814,7 @@ export default function UpcomingSchedule() {
             fileUrl={activeItinerary.url}
             title={activeItinerary.title}
             jadwalId={activeItinerary.jadwalId}
+            agentSlug={agentSlug}
           />
         </Suspense>
       )}
