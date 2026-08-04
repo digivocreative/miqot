@@ -139,10 +139,18 @@ test('BaniPage memakai pool bersama dan mengundi ulang saat percakapan dibersihk
   assert.match(reset[0], /clearStoredConversation\(\)/, 'bersihkan harus menghapus percakapan tersimpan');
 });
 
-// Chip lanjutan datang dari model; kalau kosong, undian generik lebih berguna
-// daripada ruang kosong di bawah jawaban.
-test('BaniPage menjatuhkan saran lanjutan ke undian saat model tidak memberi', () => {
+// Chip lanjutan HANYA dari model. Undian generik pernah dipasang sebagai jaring
+// pengaman di sini lalu dicabut: chip yang tak nyangkut ke jawaban barusan
+// mengajari agent bahwa saran di kolom itu boleh diabaikan.
+test('BaniPage tidak mengarang saran lanjutan saat model tidak memberi', () => {
   const src = readFileSync(join(rootPath, 'src/components/bani/BaniPage.tsx'), 'utf8');
-  assert.match(src, /if \(lastTurn\.followUps\.length\) return lastTurn\.followUps;/);
-  assert.match(src, /pickBaniSuggestions\(3, turns\.map\(\(t\) => t\.question\)\)/);
+  const chips = src.match(/const followUpChips = [\s\S]*?;\n/);
+  assert.ok(chips, 'followUpChips tidak ditemukan');
+  assert.doesNotMatch(chips[0], /pickBaniSuggestions/, 'saran lanjutan tidak boleh jatuh ke undian generik');
+  assert.match(chips[0], /lastTurn\?\.followUps/);
+});
+
+test('prompt Bani membolehkan daftar saran lanjutan kosong', () => {
+  const src = readFileSync(join(rootPath, 'lib/bani-orchestrator.js'), 'utf8');
+  assert.match(src, /kirim \[\] — daftar kosong jauh lebih baik/);
 });

@@ -159,3 +159,15 @@ test('UI hanya menawarkan kirim untuk jawaban kompleks', () => {
   assert.match(src, /\/api\/bani\/telegram/);
   assert.match(src, /telegram_not_connected/, 'klien harus menangani Telegram belum terhubung');
 });
+
+// Kirim keluar aplikasi lewat konfirmasi dulu (permintaan agent 4 Agt 2026) —
+// pola yang sama dengan BaniWaConfirm untuk klik nama jamaah → WhatsApp.
+test('kirim ke Telegram melewati dialog konfirmasi, bukan langsung terkirim', () => {
+  const src = read('src/components/bani/BaniPage.tsx');
+  assert.match(src, /function BaniTelegramConfirm/);
+  assert.match(src, /onClick=\{\(\) => setTelegramConfirm\(true\)\}/, 'tombol hanya membuka konfirmasi');
+  // Satu-satunya jalur ke sendToTelegram adalah tombol Kirim di dalam dialog.
+  const calls = src.match(/sendToTelegram\(\)/g) || [];
+  assert.equal(calls.length, 1, 'sendToTelegram hanya dipanggil dari konfirmasi');
+  assert.match(src, /setTelegramConfirm\(false\);\s*\n\s*sendToTelegram\(\);/);
+});

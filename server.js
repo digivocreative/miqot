@@ -14665,7 +14665,13 @@ async function sendTelegramMessageDirect(chatId, text, options = {}) {
       signal: AbortSignal.timeout(10_000),
     });
     const payload = await response.json().catch(() => null);
-    return response.ok && payload?.ok === true;
+    if (!(response.ok && payload?.ok === true)) {
+      // Tanpa log ini kegagalan Telegram bisu total — 401 token basi, 403 bot
+      // diblokir, dan 400 can't-parse-entities semua tampak sama dari luar.
+      console.error(`[Telegram] sendMessage ditolak (HTTP ${response.status}): ${payload?.description || 'tanpa deskripsi'}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error(`[Telegram] sendMessage error:`, err.message);
     return false;

@@ -13,8 +13,10 @@
 // navigasi keyboard serta pembacaan screen reader.
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, MessageCircle, Image as ImageIcon } from 'lucide-react';
 import { normalizeWaNumber } from '../../utils/phone';
+import { useBaniConfirmMotion } from './baniConfirmMotion';
 
 export type BaniPackageCard = {
   type: 'package';
@@ -42,6 +44,8 @@ export type BaniJamaahCard = {
   /** Nama paket LENGKAP (umroh_schedules.jadwal_nama). `paket` hanya tier. */
   paket_nama: string | null;
   tgl_berangkat: string | null;
+  /** Hanya terisi dari tool ulang tahun / detail jamaah — bahan kolom Ultah & Umur. */
+  tgl_lahir: string | null;
   sisa: number | null;
   bayar: number | null;
   wa: string | null;
@@ -86,6 +90,53 @@ export const tanggalKolom = (iso: string | null | undefined) => {
   return Number(tahun) === new Date().getFullYear() ? `${tgl} ${bulan}` : `${tgl} ${bulan} ${tahun.slice(2)}`;
 };
 
+// Keputusan "pakai tahun atau tidak" diambil SEKALI untuk seluruh tabel, bukan
+// per baris. Aturan per-baris membuat satu kolom berisi campuran "11 Feb",
+// "12 Jul 25", "3 Okt" — lebarnya tidak rata (terbaca berantakan pada perataan
+// kanan) dan pembaca tidak punya cara tahu bahwa yang tanpa tahun itu 2026.
+// Satu tanggal di luar tahun berjalan sudah cukup untuk memunculkan tahun di
+// SEMUA baris.
+export function makeTanggalKolom(values: (string | null | undefined)[]) {
+  const tahunIni = new Date().getFullYear();
+  const tahunDari = (iso: string | null | undefined) => {
+    const m = /^(\d{4})-\d{2}-\d{2}/.exec(String(iso || ''));
+    return m ? Number(m[1]) : null;
+  };
+  const perluTahun = values.some((iso) => {
+    const tahun = tahunDari(iso);
+    return tahun !== null && tahun !== tahunIni;
+  });
+  return (iso: string | null | undefined) => {
+    const full = tanggalPendek(iso);
+    if (!full) return null;
+    const [tgl, bulan, tahun] = full.split(' ');
+    return perluTahun ? `${tgl} ${bulan} ${tahun.slice(2)}` : `${tgl} ${bulan}`;
+  };
+}
+
+// Tanggal ultah: tahun lahirnya tidak berguna di sebelah kolom Umur, jadi cukup
+// tanggal & bulan — sekaligus membuat kolomnya rata.
+export const tanggalHariBulan = (iso: string | null | undefined) => {
+  const full = tanggalPendek(iso);
+  if (!full) return null;
+  const [tgl, bulan] = full.split(' ');
+  return `${tgl} ${bulan}`;
+};
+
+// Umur berjalan (tahun penuh) per hari ini. Ulang tahun yang belum lewat tahun
+// ini belum menambah umur — jadi "63 th" di daftar ultah berarti dia akan
+// berulang tahun ke-64.
+export const umurTahun = (iso: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return null;
+  const [lahirTahun, lahirBulan, lahirTgl] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const kini = new Date();
+  let umur = kini.getFullYear() - lahirTahun;
+  const bulanKini = kini.getMonth() + 1;
+  if (bulanKini < lahirBulan || (bulanKini === lahirBulan && kini.getDate() < lahirTgl)) umur -= 1;
+  return umur >= 0 && umur < 130 ? umur : null;
+};
+
 export const tanggalPendek = (iso: string | null | undefined) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
   if (!m) return null;
@@ -100,11 +151,17 @@ export const tanggalPendek = (iso: string | null | undefined) => {
 // itu sekadar tidak muncul.
 export type BaniColumns = { paket: string[]; jamaah: string[] };
 
+// Konteks render disiapkan per TABEL, bukan per baris: `tanggal` sudah tahu
+// apakah seluruh kolom tanggal di tabel ini perlu memasang tahun.
+type RenderCtx = { tanggal: (iso: string | null | undefined) => string | null };
+
 type ColumnSpec<Row> = {
   label: string;
-  render: (row: Row) => ReactNode;
+  render: (row: Row, ctx: RenderCtx) => ReactNode;
   /** Dipakai membangun baris keterangan di bawah nama untuk kolom yang TIDAK dipilih. */
   meta?: (row: Row) => string | null;
+  /** Sumber tanggal kolom ini — dipakai memutuskan tampil-tidaknya tahun untuk SEMUA baris. */
+  dateValue?: (row: Row) => string | null;
 };
 
 // whitespace-nowrap: "22 Agu 2026" di kolom 74px sempat patah jadi dua baris
@@ -115,8 +172,9 @@ const KOSONG = <span className="text-[11px] font-medium text-gray-300 dark:text-
 const PAKET_COLUMNS: Record<string, ColumnSpec<BaniPackageCard>> = {
   berangkat: {
     label: 'Berangkat',
-    render: (row) => tanggalKolom(row.berangkat_tgl) || KOSONG,
+    render: (row, ctx) => ctx.tanggal(row.berangkat_tgl) || KOSONG,
     meta: (row) => tanggalPendek(row.berangkat_tgl),
+    dateValue: (row) => row.berangkat_tgl,
   },
   harga: {
     label: 'Mulai',
@@ -147,8 +205,26 @@ const PAKET_COLUMNS: Record<string, ColumnSpec<BaniPackageCard>> = {
 const JAMAAH_COLUMNS: Record<string, ColumnSpec<BaniJamaahCard>> = {
   berangkat: {
     label: 'Berangkat',
-    render: (row) => tanggalKolom(row.tgl_berangkat) || KOSONG,
+    render: (row, ctx) => ctx.tanggal(row.tgl_berangkat) || KOSONG,
     meta: (row) => (tanggalPendek(row.tgl_berangkat) ? `brgkt ${tanggalPendek(row.tgl_berangkat)}` : null),
+    dateValue: (row) => row.tgl_berangkat,
+  },
+  // Pertanyaan ulang tahun butuh tanggal ultah + umurnya, bukan tanggal
+  // berangkat. Tahun lahir sengaja tidak ditampilkan: sudah terwakili Umur.
+  ultah: {
+    label: 'Ultah',
+    render: (row) => tanggalHariBulan(row.tgl_lahir) || KOSONG,
+    meta: (row) => (tanggalHariBulan(row.tgl_lahir) ? `ultah ${tanggalHariBulan(row.tgl_lahir)}` : null),
+  },
+  umur: {
+    label: 'Umur',
+    render: (row) => {
+      const umur = umurTahun(row.tgl_lahir);
+      return typeof umur === 'number'
+        ? <span title={tanggalPendek(row.tgl_lahir) || undefined}>{umur} th</span>
+        : KOSONG;
+    },
+    meta: (row) => (typeof umurTahun(row.tgl_lahir) === 'number' ? `${umurTahun(row.tgl_lahir)} th` : null),
   },
   sisa: {
     label: 'Sisa',
@@ -189,6 +265,16 @@ function buildMeta<Row>(row: Row, specs: Record<string, ColumnSpec<Row>>, shown:
 function resolveColumns<Row>(keys: string[], specs: Record<string, ColumnSpec<Row>>, fallback: string[]) {
   const picked = keys.filter((key) => specs[key]);
   return (picked.length ? picked : fallback).slice(0, 2);
+}
+
+// Semua tanggal yang benar-benar TAMPIL di tabel ini menentukan satu format
+// bersama, sehingga tidak ada lagi kolom berisi campuran "11 Feb" & "12 Jul 25".
+function buildRenderCtx<Row>(rows: Row[], specs: Record<string, ColumnSpec<Row>>, keys: string[]): RenderCtx {
+  const values = keys.flatMap((key) => {
+    const dateValue = specs[key]?.dateValue;
+    return dateValue ? rows.map(dateValue) : [];
+  });
+  return { tanggal: makeTanggalKolom(values) };
 }
 
 // Kontras mode terang (4 Agt 2026): halaman Bani mewarisi gradien gray-50 →
@@ -234,6 +320,7 @@ export function BaniPaketTable({
   onOpenBrosur?: (row: BaniPackageCard) => void;
 }) {
   const keys = resolveColumns(columns, PAKET_COLUMNS, ['berangkat', 'harga']);
+  const ctx = buildRenderCtx(rows, PAKET_COLUMNS, keys);
   const metaOrder = ['berangkat', 'durasi', 'maskapai', 'harga'];
   return (
     <BaniTableShell
@@ -266,7 +353,7 @@ export function BaniPaketTable({
             </td>
             {keys.map((key) => (
               <td key={key} className={`px-2.5 text-right align-middle ${NUM} text-gray-700 dark:text-slate-200`}>
-                {PAKET_COLUMNS[key].render(row)}
+                {PAKET_COLUMNS[key].render(row, ctx)}
               </td>
             ))}
             {/* Sel ekor menampilkan aksi paling berguna untuk baris ini. Ada
@@ -314,6 +401,7 @@ export function BaniJamaahTable({
   columns: string[];
 }) {
   const keys = resolveColumns(columns, JAMAAH_COLUMNS, ['berangkat']);
+  const ctx = buildRenderCtx(rows, JAMAAH_COLUMNS, keys);
   // Baris di bawah nama memuat NAMA PAKET saja. Sebelumnya kode booking dan
   // tanggal berangkat ikut, dan hasilnya "AIW0029471 · HEMAT" — kode panjang
   // yang tak berarti bagi agent mendahului satu-satunya keterangan yang berarti.
@@ -364,7 +452,7 @@ export function BaniJamaahTable({
               </td>
               {keys.map((key) => (
                 <td key={key} className={`px-2.5 text-right align-middle ${NUM} text-gray-700 dark:text-slate-200`}>
-                  {JAMAAH_COLUMNS[key].render(row)}
+                  {JAMAAH_COLUMNS[key].render(row, ctx)}
                 </td>
               ))}
             </tr>
@@ -372,9 +460,13 @@ export function BaniJamaahTable({
         })}
       </BaniTableShell>
 
-      {confirmRow && (
-        <BaniWaConfirm row={confirmRow} onClose={() => setConfirmRow(null)} />
-      )}
+      {/* AnimatePresence menahan dialog tetap terpasang selama animasi tutup —
+          tanpa ini `confirmRow` jadi null dan dialognya hilang seketika. */}
+      <AnimatePresence>
+        {confirmRow && (
+          <BaniWaConfirm key="wa-confirm" row={confirmRow} onClose={() => setConfirmRow(null)} />
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -386,6 +478,7 @@ function BaniWaConfirm({ row, onClose }: { row: BaniJamaahCard; onClose: () => v
   const titleId = useId();
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const waNumber = normalizeWaNumber(row.wa);
+  const { backdrop, panel } = useBaniConfirmMotion();
 
   useEffect(() => {
     confirmRef.current?.focus();
@@ -400,17 +493,19 @@ function BaniWaConfirm({ row, onClose }: { row: BaniJamaahCard; onClose: () => v
   };
 
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
       onClick={onClose}
       role="presentation"
+      {...backdrop}
     >
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-xs rounded-2xl border border-gray-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+        {...panel}
       >
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">
@@ -439,7 +534,7 @@ function BaniWaConfirm({ row, onClose }: { row: BaniJamaahCard; onClose: () => v
             Buka WhatsApp
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

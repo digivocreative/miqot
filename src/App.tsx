@@ -7,6 +7,7 @@ import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
+import { resolvePackageBackTarget } from '@/lib/packageBackTarget';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
@@ -72,6 +73,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
+  // Dibaca SEKALI saat mount: URL sempat ditulis ulang (bersih-bersih param
+  // expand/transition), dan penanda asal halaman tidak boleh ikut hilang.
+  const [backFrom] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('from');
+  });
   const [isCompactView, setIsCompactView] = useState(() => {
     return getLocalStorageItem('compactView') === 'true';
   });
@@ -671,6 +678,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       : '';
     // On custom domain, host already identifies the agent — go to host root.
     const backHref = isCustomDomain ? '/' : (agentSlug ? `/${agentSlug}` : '/');
+    // Halaman ini bisa dicapai dari beberapa arah. Yang datang lewat Bani
+    // (?from=bani) harus kembali ke percakapannya, bukan ke daftar jadwal.
+    const backTarget = resolvePackageBackTarget(backFrom, backHref);
 
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
@@ -682,10 +692,11 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
               disabled={isGoingBack}
               onClick={() => {
                 setIsGoingBack(true);
-                window.location.href = backHref;
+                window.location.href = backTarget.href;
               }}
               className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
-              title="Kembali"
+              title={backTarget.label}
+              aria-label={backTarget.label}
             >
               {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>}
             </button>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import {
   Calculator, ArrowLeftRight, Settings,
@@ -598,6 +598,29 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Refresh agent data on mount to get latest photo/profile from server
   useEffect(() => { refreshAgent(); }, [refreshAgent]);
 
+  // Header sub-halaman `sticky top-0` menutupi puncak viewport, jadi halaman di
+  // bawahnya perlu tahu setinggi apa penutup itu untuk bisa menaruh sesuatu "di
+  // puncak layar" — Bani membawa pertanyaan terbaru ke sana. Diukur, bukan
+  // di-hardcode: tingginya berbeda antara varian ramping dan biasa, dan ikut
+  // safe-area-inset-top di perangkat berponi.
+  //
+  // Hook ini WAJIB di badan utama komponen: header-nya dirender di dalam cabang
+  // `activeTab !== 'home'`, dan memasang hook di sana membuat urutan hook berubah
+  // antar-render.
+  const subPageHeaderRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = subPageHeaderRef.current;
+    if (!el) return;
+    const publish = () => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 0) document.documentElement.style.setProperty('--dash-header-h', `${h}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeTab]);
+
   const handleLogout = () => {
     clearSession();
     onLogout();
@@ -672,11 +695,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const terasPostId = activeTab === 'teras' ? getTerasPostIdFromPath() : null;
     const terasProfileSlug = activeTab === 'teras' ? getTerasProfileSlugFromPath() : null;
     // Teras: header dipadatkan agar feed dapat ruang layar lebih banyak
-    const compactHeader = activeTab === 'teras';
+    // Header ramping: dipakai halaman yang isinya mengisi tinggi layar penuh
+    // (feed Teras, percakapan Bani), supaya baris judul tidak memakan ruang baca.
+    // Mengatur satu paket sekaligus — lebar wadah, padding, chip tombol, ukuran
+    // ikon, dan judul — jadi kedua halaman itu tampil identik.
+    const compactHeader = activeTab === 'teras' || activeTab === 'bani';
     return (
       <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${(activeTab === 'teras' || activeTab === 'bani') ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header */}
-        <header className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${(activeTab === 'teras' || activeTab === 'bani') ? 'shrink-0' : ''}`}>
+        <header
+          ref={subPageHeaderRef}
+          className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${(activeTab === 'teras' || activeTab === 'bani') ? 'shrink-0' : ''}`}
+        >
           <div className={`${compactHeader ? 'max-w-2xl gap-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]' : 'max-w-lg gap-3 py-3'} mx-auto flex items-center px-4`}>
             <button
               type="button"

@@ -11,6 +11,7 @@ import {
   stripCardEntityLines,
   pickBaniColumns,
   dropUniformBaniColumns,
+  dropEmptyBaniColumns,
   hydrateBaniMedia,
   BANI_MAX_MEDIA,
   hydrateBaniKalkulasi,
@@ -310,10 +311,25 @@ test('hydrateBaniCards mengisi kartu lengkap dari row hasil tool', () => {
     // paketnya diambil lewat jadwal_id di lib/bani-tools.js.
     paket_nama: null,
     tgl_berangkat: '2026-12-05',
+    // Bahan kolom Ultah/Umur — hanya ikut dari hasil jamaah_birthdays /
+    // get_jamaah; row list_jamaah seperti fixture ini memang tidak membawanya.
+    tgl_lahir: null,
     sisa: 28900000,
     bayar: 5000000,
     wa: '0811',
   });
+});
+
+test('kartu jamaah dari hasil ulang tahun membawa tgl_lahir', () => {
+  const cards = hydrateBaniCards(
+    [{
+      name: 'jamaah_birthdays',
+      ok: true,
+      data: { rows: [{ jm_id: 'JM900', nama: 'ZAKARIA', tgl_lahir: '1963-08-11', days_until_birthday: 0 }] },
+    }],
+    { answer: 'x', jamaah_ids: ['JM900'] },
+  );
+  assert.equal(cards[0].tgl_lahir, '1963-08-11');
 });
 
 test('hydrateBaniCards membatasi kartu per tipe dan membuang duplikat', () => {
@@ -645,9 +661,10 @@ test('hydrateBaniMedia memotong di BANI_MAX_MEDIA', () => {
 // Terbit OTOMATIS dari pemanggilan kalkulasi_harga yang sukses — model tidak
 // memegang field JSON-nya, jadi angka kartu tidak pernah lewat tangan model.
 
-const kalkulasiRecord = (overrides = {}) => ({
+const kalkulasiRecord = (overrides = {}, args = undefined) => ({
   name: 'kalkulasi_harga',
   ok: true,
+  args,
   data: {
     paket: 'REGULER UHUD 9HR',
     jadwal_id: 'JBU1484',
@@ -674,6 +691,21 @@ test('hydrateBaniKalkulasi memproyeksikan hasil kalkulasi_harga yang sukses', ()
   assert.equal(k.items.length, 2);
   assert.equal(k.items[0].harga_satuan, 33900000);
   assert.match(k.items[1].catatan, /diskon anak/);
+  // Record lama tanpa args → gema input kosong, bukan crash.
+  assert.deepEqual(k.input, {});
+});
+
+test('hydrateBaniKalkulasi menggemakan argumen tool yang sah sebagai input', () => {
+  const [k] = hydrateBaniKalkulasi([kalkulasiRecord({}, {
+    jadwal_id: 'JBU1484',          // bukan kunci input → tidak ikut
+    kamar_quad: 2,
+    anak_tanpa_kasur: 1,
+    diskon_per_pax: 1000000,
+    kamar_double: 0,               // nol → dibuang, catatan tetap ringkas
+    infant: -3,                    // negatif → dibuang
+    tier: 'UHUD',                  // string → bukan bagian input numerik
+  })]);
+  assert.deepEqual(k.input, { kamar_quad: 2, anak_tanpa_kasur: 1, diskon_per_pax: 1000000 });
 });
 
 test('hydrateBaniKalkulasi hanya membaca kalkulasi_harga yang benar-benar sukses', () => {
@@ -725,6 +757,38 @@ test('pemanggilan kalkulasi_harga otomatis menerbitkan kartu kalkulasi di hasil 
   assert.equal(out.kalkulasi[0].tier, 'UHUD');
   assert.equal(out.kalkulasi[0].grand_total, 2 * 33900000);
   assert.deepEqual(out.kalkulasi[0].items.map((i) => i.label), ['Dewasa Quad Room']);
+  // Argumen pemanggilan ikut tergemakan — bahan jangkar riwayat di klien.
+  assert.deepEqual(out.kalkulasi[0].input, { kamar_quad: 2 });
+});
+
+// "Kasih diskon 1 juta per orang" pernah dijawab "paket yang mana?" — giliran
+// kalkulasi tidak menerbitkan kartu paket, jadi jangkar [Kartu di layar] kosong.
+// Sekarang kartu kalkulasi ikut jadi jangkar LENGKAP dengan parameternya.
+test('jangkar kalkulasi di riwayat membawa parameter hitungan ke giliran assistant', async () => {
+  const callOpenAI = scriptedOpenAI([jsonResponse({ answer: 'ok' })]);
+  await runBaniConversation({
+    question: 'kasih diskon 1 juta per orang',
+    history: [{
+      question: 'hitung 2 orang quad di paket terdekat',
+      answer: 'Totalnya Rp73,8 juta.',
+      shown: [{
+        type: 'kalkulasi',
+        id: 'JBU1620',
+        nama: 'UMRAH REGULER PLUS REDSEA "RAHMAH]"',
+        tier: 'RAHMAH',
+        input: { kamar_quad: 2, bukan_kunci: 9, diskon_flat: -5 },
+        total: 73800000,
+      }],
+    }],
+    agent: AGENT,
+    supabase: okSupabase(),
+    callOpenAI,
+    model: 'test',
+  });
+  const assistant = callOpenAI.calls[0].messages.find((m) => m.role === 'assistant');
+  // Karakter perusak format ([ ] ") di nama tersapu jadi spasi lalu dirapikan.
+  assert.match(assistant.content, /kalkulasi JBU1620 "UMRAH REGULER PLUS REDSEA RAHMAH" \(tier RAHMAH, kamar_quad=2, total=73800000\)/);
+  assert.ok(!assistant.content.includes('bukan_kunci'), 'kunci di luar whitelist dibuang');
 });
 
 test('kalkulasi_harga yang ditolak tool (tanpa item) tidak menerbitkan kartu', async () => {
@@ -746,6 +810,16 @@ test('prompt mengarahkan hitungan biaya ke kalkulasi_harga, bukan hitung manual'
   assert.match(prompt, /panggil kalkulasi_harga — JANGAN menghitung sendiri/);
   assert.match(prompt, /tombol salin teks WA dan PDF/);
   assert.match(prompt, /rincian per barisnya jangan diulang/);
+  // Bertanya ulang hanya boleh kalau komposisinya benar-benar tidak diketahui.
+  assert.match(prompt, /tidak ada di pertanyaan MAUPUN di jangkar kalkulasi riwayat/);
+});
+
+test('prompt menjelaskan jangkar kalkulasi untuk lanjutan yang mengubah hitungan', () => {
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.match(prompt, /Jangkar berbentuk "kalkulasi ID \(tier \.\.\., kamar_quad=2, \.\.\.\)"/);
+  assert.match(prompt, /"kasih diskon sekian"/);
+  assert.match(prompt, /parameter dari jangkar/);
+  assert.match(prompt, /JANGAN bertanya ulang paket atau jumlahnya/);
 });
 
 test('riwayat dengan kartu tampil menempelkan catatan [Kartu di layar] pada giliran assistant', async () => {
@@ -810,6 +884,36 @@ test('kolom kosong di semua baris juga dibuang', () => {
     { type: 'jamaah', jm_id: 'B', sisa: null },
   ];
   assert.deepEqual(dropUniformBaniColumns(['sisa'], kosong), []);
+});
+
+// Kolom "ultah"/"umur" bergantung tgl_lahir yang hanya ikut di hasil
+// jamaah_birthdays — dari list_jamaah kolomnya cuma jadi deretan "—".
+test('dropEmptyBaniColumns membuang kolom kosong walau barisnya cuma satu', () => {
+  const satu = [{ type: 'jamaah', jm_id: 'A', tgl_lahir: null, tgl_berangkat: '2026-08-05' }];
+  assert.deepEqual(dropEmptyBaniColumns(['ultah', 'umur', 'berangkat'], satu), ['berangkat']);
+  // Satu baris berisi sudah cukup untuk mempertahankan kolomnya.
+  const sebagian = [
+    { type: 'jamaah', jm_id: 'A', tgl_lahir: null },
+    { type: 'jamaah', jm_id: 'B', tgl_lahir: '1975-08-03' },
+  ];
+  assert.deepEqual(dropEmptyBaniColumns(['ultah'], sebagian), ['ultah']);
+});
+
+test('pertanyaan ulang tahun memakai kolom ultah + umur, bukan berangkat', () => {
+  const cards = [
+    { type: 'jamaah', jm_id: 'A', tgl_lahir: '1975-08-03', tgl_berangkat: '2026-08-05' },
+    { type: 'jamaah', jm_id: 'B', tgl_lahir: '1980-08-11', tgl_berangkat: '2026-08-05' },
+  ];
+  const columns = resolveBaniColumns({ jamaah_columns: ['ultah', 'umur'] }, cards);
+  assert.deepEqual(columns.jamaah, ['ultah', 'umur']);
+});
+
+test('kolom ultah/umur gugur bila hasil tool tidak membawa tgl_lahir', () => {
+  const cards = [
+    { type: 'jamaah', jm_id: 'A', tgl_berangkat: '2026-08-05' },
+    { type: 'jamaah', jm_id: 'B', tgl_berangkat: '2026-09-01' },
+  ];
+  assert.deepEqual(resolveBaniColumns({ jamaah_columns: ['ultah', 'umur'] }, cards).jamaah, []);
 });
 
 test('resolveBaniColumns membuang kolom seragam dari pilihan model', () => {
@@ -1143,6 +1247,68 @@ test('WhatsApp jamaah lewat konfirmasi, bukan tombol di ujung baris', () => {
   assert.match(src, /waNumber \? \(/);
 });
 
+// Dialog konfirmasi muncul DAN menutup dengan animasi. Yang mudah hilang diam-
+// diam adalah animasi tutupnya: tanpa <AnimatePresence> di pemanggil, state
+// berubah, komponennya lepas seketika, dan `exit` tidak pernah berjalan —
+// tanpa satu pun galat.
+test('konfirmasi Bani beranimasi saat muncul maupun saat tertutup', () => {
+  const motion = read('src/components/bani/baniConfirmMotion.ts');
+  assert.match(motion, /export function useBaniConfirmMotion/);
+  assert.match(motion, /exit:/, 'gerak tutup harus ikut didefinisikan');
+  assert.match(motion, /useReducedMotion/, 'prefers-reduced-motion wajib dihormati');
+
+  // Kerangka yang benar-benar memasang gerak: satu di BaniPage (dipakai dialog
+  // Telegram & Bersihkan), satu lagi menyatu di BaniWaConfirm.
+  for (const [berkas, kerangka] of [
+    ['src/components/bani/BaniPage.tsx', 'BaniConfirmShell'],
+    ['src/components/bani/BaniResultTable.tsx', 'BaniWaConfirm'],
+  ]) {
+    const body = read(berkas).slice(read(berkas).indexOf(`function ${kerangka}`));
+    assert.match(body, /useBaniConfirmMotion\(\)/, `${kerangka} harus memakai gerak bersama`);
+    assert.match(body, /<motion\.div[\s\S]{0,400}\{\.\.\.backdrop\}/, `${kerangka}: latar harus beranimasi`);
+    assert.match(body, /<motion\.div[\s\S]{0,400}\{\.\.\.panel\}/, `${kerangka}: panel harus beranimasi`);
+  }
+
+  // Tiap pemanggil membungkus dialognya dengan AnimatePresence — ini satu-
+  // satunya yang membuat animasi tutup sempat terlihat.
+  for (const [berkas, dialog] of [
+    ['src/components/bani/BaniResultTable.tsx', 'BaniWaConfirm'],
+    ['src/components/bani/BaniPage.tsx', 'BaniTelegramConfirm'],
+    ['src/components/bani/BaniPage.tsx', 'BaniClearConfirm'],
+  ]) {
+    assert.match(
+      read(berkas),
+      new RegExp(`<AnimatePresence>[\\s\\S]{0,400}<${dialog}`),
+      `${dialog} harus dibungkus AnimatePresence supaya animasi tutupnya jalan`,
+    );
+  }
+});
+
+// "Bersihkan percakapan" membuang riwayat 24 jam tanpa jalan kembali, dan
+// tombolnya bersebelahan dengan "Kirim ke Telegram" — persis pola salah sentuh
+// yang sudah dijaga konfirmasi di dua tombol lain.
+test('bersihkan percakapan melewati konfirmasi, bukan langsung terhapus', () => {
+  const src = read('src/components/bani/BaniPage.tsx');
+  assert.match(src, /function BaniClearConfirm/);
+  assert.match(src, /onClick=\{\(\) => setClearConfirm\(true\)\}/, 'tombol hanya membuka konfirmasi');
+  // Satu-satunya jalur ke clearConversation adalah tombol di dalam dialog.
+  const pemanggil = src.match(/onC(?:lick|onfirm)=\{clearConversation\}/g) || [];
+  assert.deepEqual(pemanggil, ['onConfirm={clearConversation}'], 'clearConversation hanya dari konfirmasi');
+  // Dialognya dirender di AKAR halaman, DI LUAR blok `phase !== 'idle'`:
+  // membersihkan percakapan mengembalikan phase ke 'idle', dan blok percakapan
+  // yang ikut lepas akan membawa serta AnimatePresence-nya sebelum animasi
+  // tutup sempat berjalan. Bilah input adalah patokannya — ia sudah di akar,
+  // sesudah blok percakapan ditutup.
+  const bilahInput = src.indexOf('</form>');
+  assert.ok(bilahInput > 0, 'bilah input jadi patokan letak; strukturnya berubah?');
+  for (const state of ['clearConfirm', 'telegramConfirm']) {
+    assert.ok(
+      src.indexOf(`{${state} && (`) > bilahInput,
+      `dialog ${state} harus dirender di akar BaniPage, bukan di dalam blok percakapan`,
+    );
+  }
+});
+
 // Istilah rombongan di Alhijaz adalah "Kloter". Model menirukan nama field ke
 // dalam jawabannya, jadi keluaran calendar_events pun harus memakai kunci itu —
 // prompt saja tidak cukup kalau tool-nya masih menyodorkan "grup".
@@ -1171,6 +1337,37 @@ test('ejaan mutawif yang beragam dikenali, jawabannya tetap satu ejaan', () => {
   assert.match(tools, /muthowif, mutowif, muthawwif, ustad, ustadz, pembimbing/);
 });
 
+// Kolom tanggal sempat mencampur "11 Feb" (tahun berjalan, tahun disembunyikan)
+// dengan "12 Jul 25" di tabel yang sama — lebar sel jadi tidak rata dan pembaca
+// tak punya cara tahu tahun baris yang polos. Keputusannya kini per TABEL.
+test('format tanggal kolom seragam untuk seluruh tabel', () => {
+  const table = read('src/components/bani/BaniResultTable.tsx');
+  assert.match(table, /export function makeTanggalKolom/);
+  assert.match(table, /function buildRenderCtx/);
+  assert.match(table, /render: \(row, ctx\) => ctx\.tanggal\(row\.berangkat_tgl\)/);
+  assert.match(table, /render: \(row, ctx\) => ctx\.tanggal\(row\.tgl_berangkat\)/);
+  // Kedua tabel wajib menyiapkan ctx dari baris yang benar-benar dirender.
+  const ctxCalls = table.match(/buildRenderCtx\(rows, /g) || [];
+  assert.equal(ctxCalls.length, 2, 'tabel paket dan jamaah sama-sama memakai ctx');
+});
+
+test('kolom ultah & umur dirender dari tgl_lahir', () => {
+  const table = read('src/components/bani/BaniResultTable.tsx');
+  assert.match(table, /export const umurTahun/);
+  assert.match(table, /export const tanggalHariBulan/);
+  assert.match(table, /ultah: \{\s*\n\s*label: 'Ultah'/);
+  assert.match(table, /umur: \{\s*\n\s*label: 'Umur'/);
+  assert.match(table, /tgl_lahir: string \| null;/, 'kartu jamaah harus membawa tgl_lahir');
+  // Tahun lahir tidak ditampilkan di kolom Ultah — sudah terwakili Umur.
+  assert.doesNotMatch(table, /render: \(row\) => tanggalKolom\(row\.tgl_lahir\)/);
+});
+
+test('prompt mengarahkan pertanyaan ulang tahun ke kolom ultah + umur', () => {
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.match(prompt, /ditanya ULANG TAHUN → \["ultah", "umur"\]/);
+  assert.match(prompt, /JANGAN "berangkat"/);
+});
+
 // Brosur diminta → pratinjau inline + BrochureModal; itinerary → tombol +
 // ItineraryModal. Viewer-nya KOMPONEN FITUR ASLINYA yang juga dipakai Jadwal
 // (pola lampiran AskAIModal), bukan popup tiruan lokal — permintaan agent
@@ -1196,6 +1393,11 @@ test('kartu kalkulasi Bani memakai modal, teks WA, dan PDF milik fitur Kalkulasi
   assert.match(page, /generateQuotationPdfBlob/, 'PDF memakai generator bersama');
   assert.match(page, /\/kalkulasi\?paket=/, 'link Ubah membuka kalkulator terprasetel');
   assert.match(page, /readKalkulasi\(data\.kalkulasi\)/, 'payload server tersaring readKalkulasi');
+  // Jangkar riwayat: giliran kalkulasi ikut mengirim referensi + parameternya,
+  // dan didahulukan dari kartu paket/jamaah (server memangkas shown ke 6).
+  assert.match(page, /type: 'kalkulasi',\s*\n\s*id: k\.jadwal_id/, 'kartu kalkulasi ikut jadi jangkar shown');
+  assert.match(page, /input: k\.input/, 'parameter hitungan ikut terkirim sebagai jangkar');
+  assert.match(page, /function readKalkulasiInput/, 'gema input tersaring whitelist di klien');
 });
 
 test('modal hasil kalkulasi diekstrak sekali, KalkulasiPage tinggal memakainya', () => {
