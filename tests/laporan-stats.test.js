@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildBerangkatMendatang, computeUmrohKomisi } from '../lib/laporan-stats.js';
+import { enrichBerangkatRows } from '../lib/berangkat-enrich.js';
 
 const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const statistikSource = readFileSync(new URL('../src/components/StatistikPage.tsx', import.meta.url), 'utf8');
 const berangkatGroupsSource = readFileSync(new URL('../lib/berangkat-groups.js', import.meta.url), 'utf8');
+const berangkatEnrichSource = readFileSync(new URL('../lib/berangkat-enrich.js', import.meta.url), 'utf8');
 const berangkatGroupViewsSource = readFileSync(new URL('../src/components/berangkat/BerangkatGroupViews.tsx', import.meta.url), 'utf8');
 
 test('buildBerangkatMendatang includes upcoming departures across Hijriah years within 60 days', () => {
@@ -151,9 +153,80 @@ test('stats endpoint enriches upcoming departures with jadwal_nama', () => {
   // bawah tetap lolos meski blok enrichment /stats dihapus total.
   assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,3600}id_jadwal:raw_data->>id_jadwal/);
   assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,6200}getScheduleDetailMap/);
-  assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,7500}calendar_events[\s\S]{0,300}tour_leader/);
-  assert.match(serverSource, /const enrichedBebRows = \(bebRows \|\| \[\]\)[\s\S]{0,600}scheduleDetailMap\.get\(r\.id_jadwal\)\?\.jadwal_nama/);
+  // Blok enrichment-nya kini di lib/berangkat-enrich.js (dibagi dua endpoint),
+  // jadi query kalender + mapping-nya di-assert di sana; yang tersisa di
+  // server.js adalah pemanggilan loader bersama — tetap dijangkarkan ke rute
+  // /stats supaya tak lolos kalau blok itu hilang dari endpoint ini.
+  assert.match(serverSource, /app\.get\('\/api\/laporan\/stats', dbLoadShedGuard, authMiddleware[\s\S]{0,7500}loadEnrichedBerangkatRows\(\{[\s\S]{0,200}rows: bebRows/);
+  assert.match(berangkatEnrichSource, /\.from\('calendar_events'\)[\s\S]{0,300}tour_leader/);
+  assert.match(berangkatEnrichSource, /\.eq\('event_type', 'keberangkatan'\)/);
+  assert.match(berangkatEnrichSource, /export function enrichBerangkatRows[\s\S]{0,600}scheduleDetailMap\.get\(row\.id_jadwal\)\?\.jadwal_nama/);
+  assert.match(serverSource, /const enrichedBebRows = await loadEnrichedBerangkatRows/);
   assert.match(serverSource, /buildBerangkatMendatang\(enrichedBebRows, todayStr\)/);
+});
+
+test('both Berangkat Mendatang screens enrich rows through the same shared path', () => {
+  // Kartu Statistik dan section kartu kalender dashboard menampilkan angka yang
+  // sama kepada pengguna, jadi input buildBerangkatMendatang tidak boleh
+  // menyimpang: keduanya WAJIB lewat loader bersama, bukan blok enrichment
+  // sendiri-sendiri yang bisa diberi kolom/filter berbeda diam-diam.
+  assert.match(serverSource, /app\.get\('\/api\/calendar\/berangkat-mendatang', dbLoadShedGuard, authMiddleware[\s\S]{0,2600}loadEnrichedBerangkatRows\(\{[\s\S]{0,200}rows: bebRows/);
+  assert.equal((serverSource.match(/loadEnrichedBerangkatRows\(\{/g) || []).length, 2);
+  // Tidak boleh ada lagi query kalender enrichment yang berdiri sendiri di
+  // server.js — itulah duplikasi yang dihapus refactor ini.
+  assert.doesNotMatch(serverSource, /select\('jadwal_id, event_date/);
+  assert.doesNotMatch(serverSource, /calendarByJadwalId/);
+});
+
+test('enrichBerangkatRows joins schedule detail and the earliest keberangkatan event', () => {
+  const scheduleDetailMap = new Map([
+    ['JBU1539', {
+      jadwal_nama: 'PROMO PLUS DUBAI + TAIF 11HR',
+      manasik_tgl: '2026-06-06',
+      manasik_jam: '09:00',
+      berangkat_kode_penerbangan: 'EK 357/809',
+    }],
+  ]);
+  const calendarRows = [
+    { jadwal_id: 'JBU1539', event_date: '2026-06-21', tour_leader: 'TL SUSULAN' },
+    { jadwal_id: 'JBU1539', event_date: '2026-06-20', tour_leader: 'LENI AULIANINGSIH' },
+  ];
+
+  const enriched = enrichBerangkatRows(
+    [
+      { nama: 'ACHMAD NIZAM YUSUF', paket: 'HEMAT', id_jadwal: 'JBU1539', sisa: 0 },
+      { nama: 'TANPA JADWAL', paket: 'HEMAT', id_jadwal: null, sisa: 0 },
+    ],
+    { scheduleDetailMap, calendarRows },
+  );
+
+  assert.equal(enriched[0].jadwal_id, 'JBU1539');
+  assert.equal(enriched[0].jadwal_nama, 'PROMO PLUS DUBAI + TAIF 11HR');
+  assert.equal(enriched[0].manasik_tgl, '2026-06-06');
+  assert.equal(enriched[0].manasik_jam, '09:00');
+  assert.equal(enriched[0].berangkat_kode_penerbangan, 'EK 357/809');
+  // event_date paling awal yang menang, bukan baris terakhir yang ditemui.
+  assert.equal(enriched[0].tour_leader, 'LENI AULIANINGSIH');
+  assert.equal(enriched[0].nama, 'ACHMAD NIZAM YUSUF');
+
+  // Baris tanpa jadwal tetap ikut, metadata-nya null (bukan undefined/throw).
+  assert.equal(enriched[1].jadwal_id, null);
+  assert.equal(enriched[1].jadwal_nama, null);
+  assert.equal(enriched[1].tour_leader, null);
+  assert.equal(enriched.length, 2);
+});
+
+test('enrichBerangkatRows degrades to null tour_leader when calendar rows are missing', () => {
+  // Jalur fail-soft: query kalender gagal → calendarRows kosong, daftar tetap
+  // terbentuk tanpa TL, bukan endpoint yang ikut gagal.
+  const enriched = enrichBerangkatRows(
+    [{ nama: 'SITI', id_jadwal: 'JBU9999', sisa: 0 }],
+    { scheduleDetailMap: new Map() },
+  );
+
+  assert.equal(enriched[0].tour_leader, null);
+  assert.equal(enriched[0].jadwal_nama, null);
+  assert.equal(enriched[0].jadwal_id, 'JBU9999');
 });
 
 test('Statistik page shows compact upcoming package rows with click-through detail modal', () => {
