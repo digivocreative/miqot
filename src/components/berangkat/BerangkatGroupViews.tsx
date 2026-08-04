@@ -3,7 +3,7 @@
 // barisnya berubah, berubah di kedua layar sekaligus.
 
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, Check, ChevronRight, Copy, Users } from 'lucide-react';
+import { CalendarDays, Check, ChevronRight, Copy, Link2, Users } from 'lucide-react';
 import { normalizeWaNumber } from '../../utils/phone';
 import { trackEvent } from '../../utils/analytics';
 import { getDestinationFlags, fmtTgl, fmtTglLong } from '../../../lib/berangkat-groups.js';
@@ -223,13 +223,18 @@ function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSl
 
   return (
     <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-2.5 pr-1.5 dark:border-slate-700 dark:bg-slate-700/30">
-      <span
-        title={shareUrl}
-        dir="ltr"
-        className="min-w-0 flex-1 truncate text-[10px] font-medium text-gray-500 dark:text-slate-400"
-      >
-        {displayUrl}
-      </span>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Link2 size={13} strokeWidth={2.2} className="shrink-0 text-gray-400 dark:text-slate-500" />
+        {/* Sepadan dengan nilai GroupMeta di atasnya (11px, gray-700/slate-100)
+            supaya URL terbaca sebagai data, bukan keterangan kaki */}
+        <span
+          title={shareUrl}
+          dir="ltr"
+          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100"
+        >
+          {displayUrl}
+        </span>
+      </div>
       <button
         type="button"
         onClick={copyLink}
