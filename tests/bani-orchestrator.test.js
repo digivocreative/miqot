@@ -1331,23 +1331,25 @@ test('respons endpoint & UI tidak lagi menempelkan catatan sumber', () => {
 
 // ── gate rollout ─────────────────────────────────────────────────────────────
 
-test('gate Bani hanya membuka slug pilot', () => {
+test('gate Bani terbuka untuk semua agent yang punya slug', () => {
   assert.equal(isBaniEnabledForAgent('nikita'), true);
   assert.equal(isBaniEnabledForAgent({ slug: 'NIKITA' }), true);
-  assert.equal(isBaniEnabledForAgent({ slug: 'bagas' }), false);
+  assert.equal(isBaniEnabledForAgent({ slug: 'bagas' }), true);
+  assert.equal(isBaniEnabledForAgent({ slug: 'agent-lain' }), true);
   assert.equal(isBaniEnabledForAgent(''), false);
+  assert.equal(isBaniEnabledForAgent('   '), false);
   assert.equal(isBaniEnabledForAgent(null), false);
   assert.equal(isBaniEnabledForAgent({}), false);
 });
 
-test('requireBaniAccess menolak agent non-pilot dengan 403', () => {
+test('requireBaniAccess menolak agent tanpa slug dengan 403', () => {
   let status = null; let body = null;
   const res = { status(code) { status = code; return this; }, json(payload) { body = payload; return this; } };
 
-  assert.equal(requireBaniAccess({ slug: 'nikita' }, res), true);
-  assert.equal(status, null, 'agent pilot tidak boleh menyentuh res');
+  assert.equal(requireBaniAccess({ slug: 'agent-lain' }, res), true);
+  assert.equal(status, null, 'agent ber-slug tidak boleh menyentuh res');
 
-  assert.equal(requireBaniAccess({ slug: 'agent-lain' }, res), false);
+  assert.equal(requireBaniAccess({}, res), false);
   assert.equal(status, 403);
   assert.deepEqual(body, { error: 'Fitur Bani belum tersedia untuk agent ini' });
 });

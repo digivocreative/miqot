@@ -650,12 +650,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   }, [activeTab, terasEnabled, terasProfileRouteSlug, navigatePath]);
 
   // Bani (asisten AI in-app) — kartu menu di baris Teras pada home, halamannya
-  // di /dashboard/bani. Ber-gate slug pilot; halamannya lazy, jadi agent di
-  // luar pilot tidak mengunduh chunk-nya sama sekali.
+  // di /dashboard/bani. Terbuka untuk semua agent ber-slug; halamannya tetap
+  // lazy, jadi chunk-nya hanya diunduh saat halamannya dibuka.
   const baniEnabled = isBaniEnabledForSlug(agentData.slug);
 
-  // Link /dashboard/bani bisa saja dibuka agent di luar pilot — perlakuannya
-  // sama dengan /dashboard/teras tanpa akses: redirect senyap ke home.
+  // Link /dashboard/bani bisa saja dibuka tanpa akses — perlakuannya sama
+  // dengan /dashboard/teras tanpa akses: redirect senyap ke home.
   useEffect(() => {
     if (activeTab === 'bani' && !baniEnabled) {
       navigatePath('/dashboard', { replace: true });

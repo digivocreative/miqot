@@ -226,7 +226,7 @@ test('endpoint kirim-Telegram ter-gate dan tujuannya tidak pernah dari klien', (
   assert.ok(route.length > 200, 'route /api/bani/telegram tidak ditemukan');
 
   assert.match(route, /authMiddleware/);
-  assert.match(route, /requireBaniAccess\(agent, res\)/, 'gate pilot Bani harus ditegakkan');
+  assert.match(route, /requireBaniAccess\(agent, res\)/, 'gate akses Bani harus ditegakkan');
   assert.match(route, /sendTelegramMessageDirect\(agent\.telegram_chat_id/, 'tujuan wajib chat id milik pemegang JWT');
   assert.ok(!/req\.body[^\n]*chat_id/.test(route), 'chat id tidak boleh datang dari body klien');
   assert.match(route, /telegram_not_connected/, 'kasus belum terhubung harus punya kode sendiri');
