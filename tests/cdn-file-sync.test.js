@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   buildCdnMetadataUpdate,
   buildContentAddressedCdnPath,
+  buildItineraryParseCandidates,
   buildSourceDownloadCandidates,
   getCdnFileDecision,
   resolveScheduleBrochureSource,
@@ -153,4 +154,55 @@ test('buildCdnMetadataUpdate: writes CDN and fingerprint metadata for one file t
     itinerary_source_content_type: 'application/pdf',
     itinerary_cdn_synced_at: '2026-05-22T00:00:00.000Z',
   });
+});
+
+// Salinan CDN dulu (byte-nya yang di-fingerprint), origin sebagai jaring
+// pengaman. Jaring itu pernah mati diam-diam: naik-paksa ke https:// padahal
+// origin jadwal cuma melayani port 80 — JBU1565 (Agu 2026) memegang itinerary
+// salah dan tidak punya jalan mundur saat salinan CDN-nya keliru.
+test('buildItineraryParseCandidates: keeps the direct-IP origin on HTTP as fallback', () => {
+  const candidates = buildItineraryParseCandidates(
+    'http://115.124.86.220/itinerary/umrah-plus-turkey-15hr-kereta-cepat-crZKtrM',
+    { url: 'https://alhijaz.b-cdn.net/itinerary/JBU1565-45c828f0a9e9fbd9.pdf', sha256: '45c828f0a9e9fbd9dbd1c81ec1da11354b32f567522b741aeeac8cd8e356c6a1' },
+  );
+
+  assert.deepEqual(candidates, [
+    'https://alhijaz.b-cdn.net/itinerary/JBU1565-45c828f0a9e9fbd9.pdf?v=45c828f0a9e9fbd9',
+    'http://115.124.86.220/itinerary/umrah-plus-turkey-15hr-kereta-cepat-crZKtrM',
+  ]);
+  assert.ok(!candidates.some(url => url.startsWith('https://115.124.86.220')));
+});
+
+test('buildItineraryParseCandidates: expands the public jadwal host to origin then HTTPS', () => {
+  assert.deepEqual(
+    buildItineraryParseCandidates('http://jadwal.alhijaz.co/itinerary/paket', {
+      url: 'https://alhijaz.b-cdn.net/itinerary/JBU1493.pdf',
+      sha256: null,
+    }),
+    [
+      'https://alhijaz.b-cdn.net/itinerary/JBU1493.pdf',
+      'http://115.124.86.220/itinerary/paket',
+      'https://jadwal.alhijaz.co/itinerary/paket',
+    ],
+  );
+});
+
+test('buildItineraryParseCandidates: falls back to the source alone without a CDN copy', () => {
+  assert.deepEqual(
+    buildItineraryParseCandidates('http://115.124.86.220/itinerary/paket', {}),
+    ['http://115.124.86.220/itinerary/paket'],
+  );
+  assert.deepEqual(buildItineraryParseCandidates('', {}), []);
+});
+
+test('itinerary sync builds its download candidates from the shared helper', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const syncAllItineraries = server.slice(
+    server.indexOf('async function syncAllItineraries()'),
+    server.indexOf('[ItinerarySync] Complete:'),
+  );
+
+  assert.match(syncAllItineraries, /buildItineraryParseCandidates\(/);
+  // Naik-paksa ke https:// mematikan origin jadwal yang hanya punya port 80.
+  assert.doesNotMatch(syncAllItineraries, /replace\(\/\^http:\\\/\\\/\/, 'https:\/\/'\)/);
 });

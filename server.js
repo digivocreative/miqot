@@ -167,7 +167,7 @@ import {
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
-import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
+import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildItineraryParseCandidates, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
   isKursCacheRefreshDue,
@@ -2934,9 +2934,10 @@ async function syncAllItineraries() {
       // Cloudflare kronis 522/lambat (generasi PDF on-the-fly bisa > timeout)
       // dan edge-nya bisa menyajikan byte lama di URL yang sama.
       const sched = schedById.get(pkg.jadwal_id);
-      const candidates = [];
-      if (sched?.itinerary_cdn) candidates.push(appendUrlVersion(sched.itinerary_cdn, sched.itinerary_source_sha256));
-      candidates.push(pkg.itinerary.replace(/^http:\/\//, 'https://'));
+      const candidates = buildItineraryParseCandidates(pkg.itinerary, {
+        url: sched?.itinerary_cdn,
+        sha256: sched?.itinerary_source_sha256,
+      });
 
       console.log(`[ItinerarySync] Parsing: ${pkg.jadwal_nama} (${pkg.jadwal_id})`);
       let parsed = null;
