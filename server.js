@@ -164,7 +164,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
@@ -18727,6 +18727,11 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         // `harga`. Tanpa ini FE tak bisa melabeli harga di payload Caption AI:
         // tierName berisi HEMAT/UHUD/RAHMAH, bukan tipe kamar.
         roomName: details?.room ?? null,
+        // Rincian SEMUA tier paket. `harga`/`hotel` di atas hanya tier
+        // termurah ("mulai dari"); begitu filter Tipe Paket menunjuk sebuah
+        // tier (mis. "Umroh Rahmah"), halaman Brosur memakai daftar ini supaya
+        // paket MIX tidak memasang harga UHUD di bawah judul RAHMAH.
+        tiers: listBrochureTiers(r.paket_harga, r.paket_hotel),
       });
     }
     if (droppedNoPrice > 0) {

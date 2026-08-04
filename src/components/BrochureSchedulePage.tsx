@@ -23,6 +23,7 @@ import {
   type BrochureAgent,
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
+import { brochurePackageSellsTier, projectBrochurePackageToTier } from '../../lib/brochure-schedule.js';
 import { BrochurePromptModal } from './BrochurePromptModal';
 import BrochurePaketGrid, { BrochurePaketGridSkeleton } from './BrochurePaketGrid';
 import SegmentedControl from './common/SegmentedControl';
@@ -222,8 +223,23 @@ function isMusimDinginPackage(pkg: BrochurePackage, dinginWindow: MusimDinginWin
   return (y === dinginWindow.yearOfDec && m === 11) || (y === dinginWindow.yearOfDec + 1 && m === 0);
 }
 
-function isRahmahPackage(pkg: BrochurePackage): boolean {
-  return /\bRAHMAH\b/i.test(pkg.nama);
+/**
+ * Keanggotaan filter Tipe Paket yang menunjuk sebuah tier (lihat
+ * TIER_FOR_PACKAGE_TYPE) mengikuti apa yang benar-benar DIJUAL paket, bukan
+ * namanya. Nama tak bisa dipercaya: cleanBrochurePackageName membuang frasa
+ * "MIX PAKET RAHMAH & UHUD" utuh, jadi paket yang menjual tier RAHMAH
+ * kehilangan tokennya dan tak pernah muncul di filter "Umroh Rahmah" —
+ * sementara bentuk tanpa "&" tetap lolos. Sumbernya sama dengan yang memasang
+ * harga (projectBrochurePackageToTier), jadi keanggotaan dan harga tak bisa
+ * berselisih: setiap paket di filter RAHMAH dijamin punya harga RAHMAH.
+ */
+function packageSellsTier(pkg: BrochurePackage, tier: string): boolean {
+  const sells = brochurePackageSellsTier(pkg, tier);
+  if (sells !== null) return sells;
+  // null = backend belum mengirim `tiers` (respons API versi lama). Tidak tahu
+  // ≠ tidak punya, jadi jatuh balik ke uji nama supaya filter tidak mendadak
+  // kosong sebelum server ter-deploy.
+  return pkg.nama.toUpperCase().split(/[^A-Z0-9]+/).includes(tier.toUpperCase());
 }
 
 function isPromoPackage(pkg: BrochurePackage): boolean {
@@ -232,10 +248,20 @@ function isPromoPackage(pkg: BrochurePackage): boolean {
 
 function matchesPackageType(pkg: BrochurePackage, type: string, musimDinginWindow: MusimDinginWindow): boolean {
   if (type === TYPE_UMROH_MUSIM_DINGIN) return isMusimDinginPackage(pkg, musimDinginWindow);
-  if (type === TYPE_UMROH_RAHMAH) return isRahmahPackage(pkg);
   if (type === TYPE_UMROH_PROMO) return isPromoPackage(pkg);
+  const tier = TIER_FOR_PACKAGE_TYPE[type];
+  if (tier) return packageSellsTier(pkg, tier);
   return derivePackageType(pkg.nama) === type;
 }
+
+// Tipe paket yang sebetulnya menunjuk sebuah TIER harga di paket_harga AWAPI.
+// Paket "MIX" menjual dua tier sekaligus (mis. RAHMAH + UHUD), dan backend
+// mengirim harga tier TERMURAH sebagai "mulai dari" — di bawah filter ini itu
+// jadi harga UHUD berlabel RAHMAH, selisihnya sampai belasan juta. Filter lain
+// (Promo, Musim Dingin, Plus …) bukan tier, jadi tidak dipetakan ke sini.
+const TIER_FOR_PACKAGE_TYPE: Record<string, string> = {
+  [TYPE_UMROH_RAHMAH]: 'RAHMAH',
+};
 
 function brochureLabelForType(type: string, fallback: string): string {
   if (type === TYPE_UMROH_SAJA) return 'REGULER';
@@ -460,7 +486,11 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       if (optionPackages.some(p => isMusimDinginPackage(p, musimDinginWindow))) {
         ordered.push({ value: TYPE_UMROH_MUSIM_DINGIN, label: 'Umroh Musim Dingin' });
       }
-      if (optionPackages.some(isRahmahPackage)) ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
+      // Lewat matchesPackageType, bukan predikat sendiri: daftar opsi dan isi
+      // filter wajib memakai aturan keanggotaan yang sama persis.
+      if (optionPackages.some(p => matchesPackageType(p, TYPE_UMROH_RAHMAH, musimDinginWindow))) {
+        ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
+      }
       if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
       for (const t of PACKAGE_TYPES) {
         if (present.has(t.value)) ordered.push({ value: t.value, label: t.value.replace(/^PLUS /, 'Plus ') });
@@ -572,8 +602,13 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     if (filterDim === 'tipe') {
       const opt = availableValues.find(v => v.value === filterValue);
       const brochureLabel = brochureLabelForType(filterValue, opt?.label || filterValue);
+      const tier = TIER_FOR_PACKAGE_TYPE[filterValue] ?? null;
       const matches = allPackages
         .filter(p => matchesPackageType(p, filterValue, musimDinginWindow))
+        // Harga & hotel mengikuti tier yang sedang difilter — tanpa ini paket
+        // MIX tampil dengan harga tier termurahnya (UHUD/HEMAT) padahal
+        // judulnya RAHMAH.
+        .map(p => projectBrochurePackageToTier(p, tier))
         // Span multiple months → sort by departure date so rows read chronologically.
         .sort((a, b) => String(a.berangkat_tgl).localeCompare(String(b.berangkat_tgl)));
       return { filterLabel: brochureLabel, filteredPackages: applyAvailability(matches), showFullDate: true };

@@ -2,6 +2,9 @@ import { Check } from 'lucide-react';
 import { normalizeWaNumber } from '../utils/phone';
 import WhatsAppIcon from './bio/WhatsAppIcon';
 import { getCatalogCover, DEFAULT_COVER_ID, type CatalogCover } from '@/lib/catalogCovers';
+import type { BrochureTierInfo } from '../../lib/brochure-schedule.js';
+
+export type { BrochureTierInfo };
 
 export interface BrochurePackage {
   id: string;
@@ -23,11 +26,16 @@ export interface BrochurePackage {
   brosur?: string | null;
   /** Turunan kecil (lebar 400px) untuk grid. null → pakai `brosur` penuh. */
   brosurThumb?: string | null;
-  /** Nama tier harga termurah dari backend (HEMAT/UHUD/RAHMAH). */
+  /** Nama tier harga yang dipakai `harga` (HEMAT/UHUD/RAHMAH). Default dari
+   *  backend = tier TERMURAH; diganti tier terpilih saat filter Tipe Paket
+   *  menunjuk sebuah tier (lihat projectBrochurePackageToTier). */
   tierName?: string | null;
   /** Tipe kamar (Quard/Triple/Double) yang harganya dipakai sebagai `harga`.
    *  Dipakai untuk melabeli harga di payload Caption AI. */
   roomName?: string | null;
+  /** Rincian semua tier paket (harga + hotel per tier). Dipakai halaman Brosur
+   *  untuk memproyeksikan paket MIX ke tier yang sedang difilter. */
+  tiers?: BrochureTierInfo[] | null;
 }
 
 export interface BrochureHotel {
