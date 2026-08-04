@@ -323,20 +323,20 @@ test('cleanCalendarPaket splits the legacy manasik date prefix like the dashboar
   // dilihat asisten AI harus sama dengan yang tampil di kalender dashboard.
   assert.deepEqual(
     cleanCalendarPaket('20/06/2026PROMO PLUS DUBAI + TAIF 11HR'),
-    { paket: 'PROMO PLUS DUBAI + TAIF 11HR', grup_berangkat_tgl: '2026-06-20' },
+    { paket: 'PROMO PLUS DUBAI + TAIF 11HR', kloter_berangkat_tgl: '2026-06-20' },
   );
   // Tanpa prefix (keberangkatan/kepulangan) lewat apa adanya.
   assert.deepEqual(
     cleanCalendarPaket('REGULER MIX PAKET RAHMAH & UHUD 9HR'),
-    { paket: 'REGULER MIX PAKET RAHMAH & UHUD 9HR', grup_berangkat_tgl: null },
+    { paket: 'REGULER MIX PAKET RAHMAH & UHUD 9HR', kloter_berangkat_tgl: null },
   );
   // Bulan mustahil → jangan dikira prefix tanggal.
   assert.deepEqual(
     cleanCalendarPaket('20/13/2026PAKET ANEH'),
-    { paket: '20/13/2026PAKET ANEH', grup_berangkat_tgl: null },
+    { paket: '20/13/2026PAKET ANEH', kloter_berangkat_tgl: null },
   );
-  assert.deepEqual(cleanCalendarPaket(null), { paket: null, grup_berangkat_tgl: null });
-  assert.deepEqual(cleanCalendarPaket(''), { paket: null, grup_berangkat_tgl: null });
+  assert.deepEqual(cleanCalendarPaket(null), { paket: null, kloter_berangkat_tgl: null });
+  assert.deepEqual(cleanCalendarPaket(''), { paket: null, kloter_berangkat_tgl: null });
 });
 
 // ── source contracts ──────────────────────────────────────────────────────────

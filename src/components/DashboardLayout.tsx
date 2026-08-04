@@ -973,7 +973,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             }} displayMode={brosurDisplayMode} onModeChange={handleBrosurModeChange} />
           )}
           {activeTab === 'bani' && baniEnabled && (
-            <BaniPage slug={agentData.slug} onNavigate={navigatePath} />
+            <BaniPage
+              slug={agentData.slug}
+              agent={{
+                name: agentData.name,
+                phone: agentData.phone,
+                photo: agentData.photo || '',
+                website: agentData.website || '',
+              }}
+              onNavigate={navigatePath}
+            />
           )}
           {activeTab === 'teras' && terasEnabled && (
             <TerasPage

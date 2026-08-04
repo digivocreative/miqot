@@ -153,7 +153,8 @@ test('endpoint kirim-Telegram ter-gate dan tujuannya tidak pernah dari klien', (
 
 test('UI hanya menawarkan kirim untuk jawaban kompleks', () => {
   const src = read('src/components/bani/BaniPage.tsx');
-  assert.match(src, /isComplexBaniAnswer\(answer, cards\)/);
+  // Bani kini bertahap: yang ditawarkan untuk dikirim adalah giliran TERAKHIR.
+  assert.match(src, /isComplexBaniAnswer\(lastTurn!\.answer, lastTurn!\.cards\)/);
   assert.match(src, /canSendTelegram && \(/, 'tombol harus bergantung pada penilaian kompleksitas');
   assert.match(src, /\/api\/bani\/telegram/);
   assert.match(src, /telegram_not_connected/, 'klien harus menangani Telegram belum terhubung');

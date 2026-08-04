@@ -1929,6 +1929,10 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
 
     const result = await runBaniConversation({
       question,
+      // Riwayat dikirim balik oleh klien tiap request — server Bani tetap tanpa
+      // state. Isinya dibersihkan di sanitizeBaniHistory (hanya pasangan
+      // question/answer, dipotong jumlah & panjangnya) sebelum menyentuh model.
+      history: req.body?.history,
       agent,
       supabase,
       log: console.log,
@@ -1949,6 +1953,10 @@ app.post('/api/bani/ask', authMiddleware, async (req, res) => {
       success: true,
       answer: result.answer,
       cards: result.cards,
+      columns: result.columns,
+      media: result.media,
+      kalkulasi: result.kalkulasi,
+      follow_ups: result.follow_ups,
       tools_used: result.tools_used,
     });
   } catch (error) {

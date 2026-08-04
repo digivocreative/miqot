@@ -127,11 +127,22 @@ test('remember: input rusak dari localStorage tidak merusak daftar', () => {
   assert.deepEqual(rememberBaniSuggestions('bukan-array', []), []);
 });
 
-test('BaniPage memakai pool bersama dan mengundi ulang saat "Tanya yang lain"', () => {
+// Tombol "Tanya yang lain" dicabut 4 Agt 2026, diganti "Bersihkan percakapan"
+// (percakapan kini bertahan 24 jam) plus chip pertanyaan lanjutan dari model.
+test('BaniPage memakai pool bersama dan mengundi ulang saat percakapan dibersihkan', () => {
   const src = readFileSync(join(rootPath, 'src/components/bani/BaniPage.tsx'), 'utf8');
   assert.match(src, /from '@\/lib\/baniSuggestions'/, 'pool harus dari modul bersama');
   assert.ok(!/const SUGGESTION_POOL = \[/.test(src), 'jangan menghidupkan lagi pool lokal di komponen');
-  const reset = src.match(/const resetToIdle = useCallback\(\(\) => \{[\s\S]*?\}, \[\]\);/);
-  assert.ok(reset, 'resetToIdle tidak ditemukan');
-  assert.match(reset[0], /setSuggestions\(drawSuggestions\(\)\)/, 'reset harus mengundi saran baru');
+  const reset = src.match(/const clearConversation = useCallback\(\(\) => \{[\s\S]*?\}, \[\]\);/);
+  assert.ok(reset, 'clearConversation tidak ditemukan');
+  assert.match(reset[0], /setSuggestions\(drawSuggestions\(\)\)/, 'bersihkan harus mengundi saran baru');
+  assert.match(reset[0], /clearStoredConversation\(\)/, 'bersihkan harus menghapus percakapan tersimpan');
+});
+
+// Chip lanjutan datang dari model; kalau kosong, undian generik lebih berguna
+// daripada ruang kosong di bawah jawaban.
+test('BaniPage menjatuhkan saran lanjutan ke undian saat model tidak memberi', () => {
+  const src = readFileSync(join(rootPath, 'src/components/bani/BaniPage.tsx'), 'utf8');
+  assert.match(src, /if \(lastTurn\.followUps\.length\) return lastTurn\.followUps;/);
+  assert.match(src, /pickBaniSuggestions\(3, turns\.map\(\(t\) => t\.question\)\)/);
 });
