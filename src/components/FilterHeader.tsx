@@ -135,23 +135,49 @@ export function FilterHeader({
   // around under the fixed header while the user scrolls. Hence: on mount (nothing is
   // animating yet), on viewport resize, and on transitionend — all gated on `isVisible`,
   // so a collapsed header never overwrites the value.
+  //
+  // JEBAKAN: `transitionend` MENGGELEMBUNG. Di dalam header ada 13 elemen bertransisi,
+  // dan beberapa (`transition-all` 0,15s/0,2s pada input cari + tombol) selesai SEBELUM
+  // animasi buka header sendiri (0,3s). Tanpa saringan, publish() ikut jalan di tengah
+  // animasi lalu mengukur tinggi antara — 165px dan 175px, bukan 181px yang sudah tenang.
+  // Tiap nilai baru mengubah padding <main>, yang memaksa relayout SELURUH dokumen
+  // (~11ms untuk 33 kartu di desktop; jauh lebih mahal di iPhone) dan menggeser seluruh
+  // daftar kartu. Efeknya: daftar tersentak 176→186→192px tiap header muncul —
+  // persis "flicker" yang terlihat saat menggulir. Karena itu hanya transisi yang
+  // BENAR-BENAR menentukan tinggi header (grid-template-rows + padding pada dua
+  // pembungkus di bawah ini) yang boleh memicu pengukuran.
   const isVisibleRef = useRef(isVisible);
   isVisibleRef.current = isVisible;
+  const padBoxRef = useRef<HTMLDivElement>(null);
+  const collapseRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const el = headerRef.current;
     if (!el) return;
+    let lastPublished = '';
     const publish = () => {
       if (!isVisibleRef.current) return;
       const h = Math.round(el.getBoundingClientRect().height);
-      if (h > 0) document.documentElement.style.setProperty('--filter-header-h', `${h}px`);
+      if (h <= 0) return;
+      const value = `${h}px`;
+      // Menulis nilai yang sama tidak dibaca ulang oleh engine, tapi tetap murah untuk
+      // dijaga di sini supaya niatnya eksplisit.
+      if (value === lastPublished) return;
+      lastPublished = value;
+      document.documentElement.style.setProperty('--filter-header-h', value);
+    };
+    const onTransitionEnd = (e: TransitionEvent) => {
+      const settled =
+        (e.target === collapseRef.current && e.propertyName === 'grid-template-rows') ||
+        (e.target === padBoxRef.current && e.propertyName.startsWith('padding'));
+      if (settled) publish();
     };
     publish(); // mount: expanded, nothing animating yet
     window.addEventListener('resize', publish);
-    el.addEventListener('transitionend', publish);
+    el.addEventListener('transitionend', onTransitionEnd);
     return () => {
       window.removeEventListener('resize', publish);
-      el.removeEventListener('transitionend', publish);
+      el.removeEventListener('transitionend', onTransitionEnd);
     };
   }, []);
 
@@ -160,33 +186,68 @@ export function FilterHeader({
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
     const lastScrollY = lastScrollYRef.current;
-    lastScrollYRef.current = currentScrollY;
 
     // Scroll kompensasi anchor kartu, bukan gestur user — jangan toggle header
     // di tengah animasi pindah kartu (header melebar bisa menutupi kartu yang di-tap).
-    if (isProgrammaticScrollActive()) return;
+    if (isProgrammaticScrollActive()) {
+      lastScrollYRef.current = currentScrollY;
+      return;
+    }
 
     const windowHeight = window.innerHeight;
+    // Bacaan `scrollHeight` ini MEMAKSA layout sinkron. Murah saat layout bersih, tapi
+    // saat kartu terbuka framer-motion menganimasikan `height` panel tiap frame (dan
+    // kartu ber-content-visibility keluar-masuk viewport), jadi layout hampir selalu
+    // kotor — sekali baca = relayout seluruh dokumen. Dulu ini jalan sekali per EVENT
+    // scroll; iOS Safari menembakkan event scroll lebih rapat dari frame saat momentum,
+    // sehingga satu frame bisa menanggung beberapa relayout penuh dan scroll-nya
+    // tersendat. Sekarang digas rAF (lihat useEffect di bawah): maksimal sekali per frame.
     const documentHeight = document.documentElement.scrollHeight;
 
     if (currentScrollY === 0) {
       // Mentok atas -> muncul
+      lastScrollYRef.current = currentScrollY;
       setIsVisible(true);
-    } else if (windowHeight + currentScrollY >= documentHeight - 10) {
-      // Mentok bawah (toleransi 10px) -> muncul
-      setIsVisible(true);
-    } else if (currentScrollY > lastScrollY) {
-      // Scroll ke bawah -> sembunyi
-      setIsVisible(false);
-    } else {
-      // Scroll ke atas -> muncul
-      setIsVisible(true);
+      return;
     }
+    if (windowHeight + currentScrollY >= documentHeight - 10) {
+      // Mentok bawah (toleransi 10px) -> muncul
+      lastScrollYRef.current = currentScrollY;
+      setIsVisible(true);
+      return;
+    }
+
+    // Ambang 4px: rubber-band dan momentum iOS melaporkan delta sub-pixel yang
+    // bolak-balik arah, dan tiap pembalikan me-restart animasi 300ms header —
+    // header jadi terlihat berkedip buka-tutup. Delta sekecil itu bukan gestur.
+    // Sengaja HANYA menggerbangi toggle berbasis arah; mentok atas/bawah di atas
+    // tetap tanpa syarat supaya header selalu muncul di kedua ujung halaman.
+    // `lastScrollYRef` tidak diperbarui saat di bawah ambang, supaya guliran pelan
+    // tetap terakumulasi sampai melewati 4px dan tidak hilang begitu saja.
+    const delta = currentScrollY - lastScrollY;
+    if (Math.abs(delta) < 4) return;
+    lastScrollYRef.current = currentScrollY;
+
+    // Scroll ke bawah -> sembunyi, ke atas -> muncul
+    setIsVisible(delta < 0);
   }, []);
 
   useEffect(() => {
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    // Gas rAF: banyak event scroll dalam satu frame dilipat jadi satu pemanggilan,
+    // supaya `scrollHeight` di atas tidak memaksa relayout berkali-kali per frame.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        handleScroll();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [handleScroll]);
 
   const handleClearSearch = () => {
@@ -234,6 +295,7 @@ export function FilterHeader({
     >
       {/* Vertical padding slims symmetrically (16px -> 8px) while the rows are hidden */}
       <div
+        ref={padBoxRef}
         className="max-w-lg mx-auto px-4 transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
         style={{
           paddingTop: isVisible ? '16px' : '8px',
@@ -314,6 +376,7 @@ export function FilterHeader({
         {/* Grid-rows 1fr/0fr animates to the exact content height (max-height overshoot causes a laggy start). */}
         {/* Dropdown panels render via portal so the overflow-hidden collapse wrapper can't clip them. */}
         <div
+          ref={collapseRef}
           className="grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
             gridTemplateRows: isVisible ? '1fr' : '0fr',

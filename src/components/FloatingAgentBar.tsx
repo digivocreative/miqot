@@ -31,24 +31,48 @@ export default function FloatingAgentBar({ agent, slug, message: messageProp, ev
   const handleScroll = useCallback(() => {
     const currentScrollY = window.scrollY;
     const lastScrollY = lastScrollYRef.current;
-    lastScrollYRef.current = currentScrollY;
 
     // Scroll kompensasi anchor kartu, bukan gestur user — jangan munculkan bar
     // di tengah animasi pindah kartu.
-    if (isProgrammaticScrollActive()) return;
+    if (isProgrammaticScrollActive()) {
+      lastScrollYRef.current = currentScrollY;
+      return;
+    }
 
     if (currentScrollY <= 50) {
+      lastScrollYRef.current = currentScrollY;
       setIsVisible(true);
-    } else if (currentScrollY > lastScrollY) {
-      setIsVisible(false);
-    } else {
-      setIsVisible(true);
+      return;
     }
+
+    // Ambang 4px, sama alasannya dengan FilterHeader: delta sub-pixel dari momentum
+    // iOS membalik arah bolak-balik dan me-restart animasi 300ms bar ini, sehingga
+    // bar terlihat berkedip naik-turun saat menggulir. Hanya toggle berbasis arah
+    // yang digerbangi — zona atas (≤50px) di atas tetap tanpa syarat.
+    const delta = currentScrollY - lastScrollY;
+    if (Math.abs(delta) < 4) return;
+    lastScrollYRef.current = currentScrollY;
+
+    // Scroll ke bawah -> sembunyi, ke atas -> muncul
+    setIsVisible(delta < 0);
   }, []);
 
   useEffect(() => {
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    // Gas rAF — event scroll iOS lebih rapat dari frame saat momentum; tanpa ini
+    // setiap event memicu render React sendiri-sendiri di tengah gestur.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        handleScroll();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [handleScroll]);
 
   // General WA message (not package-specific) — bisa dioverride via prop
@@ -83,7 +107,7 @@ export default function FloatingAgentBar({ agent, slug, message: messageProp, ev
         rounded-full
         flex items-center justify-between
         p-2 pl-3
-        transition-all duration-300 ease-in-out
+        transition-[transform,opacity] duration-300 ease-in-out
         ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-[200%] opacity-0'}
       `}
     >
