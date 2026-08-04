@@ -12,7 +12,13 @@
 import { PDFParse } from 'pdf-parse';
 import { matchEventToSchedule, findSiblingKeberangkatan, tokenizeName, overlapScore } from './lib/calendar-jadwal-match.js';
 import { buildScheduleFallbackDetails, parseCalendarJadwalIds } from './lib/calendar-schedule-fallback.js';
-import { fetchPublicCalendarEvents, fetchPublicEventDetail } from './lib/calendar-public-source.js';
+import {
+  CALENDAR_PUBLIC_READER_BASE_URL,
+  CALENDAR_PUBLIC_READER_MIN_INTERVAL_MS,
+  fetchPublicCalendarEvents,
+  fetchPublicEventDetail,
+  fetchPublicEventDetailFromReader,
+} from './lib/calendar-public-source.js';
 import { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
 import {
   extractDepartureMeetingInfoFromText,
@@ -38,6 +44,10 @@ const CALENDAR_PUBLIC_DETAIL_CONCURRENCY = parsePositiveInt(
 const CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY = parsePositiveInt(
   process.env.CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY,
   1,
+);
+const CALENDAR_PUBLIC_MUTAWIF_READER_DAYS = parsePositiveInt(
+  process.env.CALENDAR_PUBLIC_MUTAWIF_READER_DAYS,
+  180,
 );
 const parsedMaxStaleDeleteRatio = Number.parseFloat(
   process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
@@ -98,7 +108,62 @@ async function loadScheduleFallbackMap(supabase, events) {
   return new Map((data || []).map(row => [row.jadwal_id, row]));
 }
 
-async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback) {
+function jakartaDateString(date) {
+  return new Date(date.getTime() + (7 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+}
+
+function addIsoDateDays(isoDate, days) {
+  const value = new Date(`${isoDate}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function withMutawifSourceAvailable(row) {
+  Object.defineProperty(row, '_mutawifSourceAvailable', {
+    value: true,
+    enumerable: false,
+  });
+  return row;
+}
+
+export function isMeaningfulMutawif(value) {
+  return String(value || '')
+    .split(/[•·]/)
+    .some(name => {
+      const normalized = name.trim();
+      return normalized !== '-' && /[\p{L}\p{N}]/u.test(normalized);
+    });
+}
+
+export function mergeMutawifReaderDetails(details, readerDetails) {
+  const readerByGroup = new Map(
+    (readerDetails || [])
+      .filter(row => row?._mutawifSourceAvailable === true && row.group_number)
+      .map(row => [String(row.group_number), row]),
+  );
+  let rowsUpdated = 0;
+  const rows = (details || []).map(detail => {
+    const current = readerByGroup.get(String(detail?.group_number || ''));
+    if (!current) return detail;
+    rowsUpdated += 1;
+    return withMutawifSourceAvailable({
+      ...detail,
+      mutawif: current.mutawif || '-',
+    });
+  });
+  return { rows, rowsUpdated };
+}
+
+function eventCanUseMutawifReader(event, options) {
+  return Boolean(
+    options.readerBaseUrl
+      && event?.type === 'keberangkatan'
+      && event?.date >= options.readerRangeStart
+      && event?.date <= options.readerRangeEnd,
+  );
+}
+
+async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback, readerOptions) {
   const failedKey = `${event.date}_${event.type}`;
   let details;
 
@@ -106,10 +171,51 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
     details = await fetchPublicEventDetail(event, fetch, { forceFallback });
   } catch (err) {
     console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
-    return { rows: [], failedKey, fallbackUsed: 0, emptyDetails: 0, detailUsesFallback: false };
+    return {
+      rows: [],
+      failedKey,
+      fallbackUsed: 0,
+      emptyDetails: 0,
+      detailUsesFallback: false,
+      mutawifReaderEvents: 0,
+      mutawifReaderRows: 0,
+      mutawifReaderFailures: 0,
+    };
   }
 
   const detailUsesFallback = details._calendarSource === 'fallback';
+  let mutawifReaderEvents = 0;
+  let mutawifReaderRows = 0;
+  let mutawifReaderFailures = 0;
+  const detailNeedsMutawif = details.length === 0
+    || details.some(detail => detail._mutawifSourceAvailable !== true);
+  if (detailUsesFallback && detailNeedsMutawif && eventCanUseMutawifReader(event, readerOptions)) {
+    try {
+      const readerDetails = await fetchPublicEventDetailFromReader(event, fetch, {
+        readerBaseUrl: readerOptions.readerBaseUrl,
+        minimumIntervalMs: readerOptions.readerMinimumIntervalMs,
+      });
+      if (details.length === 0) {
+        details = readerDetails;
+        mutawifReaderRows = readerDetails.length;
+      } else {
+        const expectedRows = details.filter(detail => detail?.group_number).length;
+        const merged = mergeMutawifReaderDetails(details, readerDetails);
+        details = merged.rows;
+        mutawifReaderRows = merged.rowsUpdated;
+        if (merged.rowsUpdated < expectedRows) {
+          throw new Error(
+            `hanya ${merged.rowsUpdated}/${expectedRows} GROUP cocok dengan detail fallback`,
+          );
+        }
+      }
+      if (mutawifReaderRows > 0) mutawifReaderEvents = 1;
+    } catch (err) {
+      mutawifReaderFailures = 1;
+      console.warn(`[Calendar] Reader MUTAWIF gagal utk ${event.date}/${event.type}: ${err.message}`);
+    }
+  }
+
   let fallbackUsed = 0;
   let emptyDetails = 0;
   if (details.length === 0) {
@@ -122,7 +228,16 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
       // Jangan tulis placeholder _0 karena itu akan menghapus baris detail lama.
       emptyDetails = 1;
       console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
-      return { rows: [], failedKey, fallbackUsed, emptyDetails, detailUsesFallback };
+      return {
+        rows: [],
+        failedKey,
+        fallbackUsed,
+        emptyDetails,
+        detailUsesFallback,
+        mutawifReaderEvents,
+        mutawifReaderRows,
+        mutawifReaderFailures,
+      };
     }
   }
 
@@ -130,18 +245,32 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
     const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
     const id = `${event.date}_${event.type}_${rowKey}`;
     const detailData = { ...detail };
+    const mutawifSourceAvailable = detail._mutawifSourceAvailable === true;
+    const mutawifSourceValid = isMeaningfulMutawif(detail.mutawif);
     return {
       id,
       event_date: event.date,
       event_type: event.type,
       ...detailData,
       raw_data: detailData,
-      _preserve_mutawif: detail._mutawifSourceAvailable !== true,
+      // Data valid tidak boleh turun menjadi placeholder hanya karena sumber
+      // sesaat mengosongkan nama. Flag regresi dibuang sebelum upsert.
+      _preserve_mutawif: !mutawifSourceAvailable || !mutawifSourceValid,
+      _mutawif_regression_candidate: mutawifSourceAvailable && !mutawifSourceValid,
       synced_at: new Date().toISOString(),
     };
   });
 
-  return { rows, failedKey: null, fallbackUsed, emptyDetails, detailUsesFallback };
+  return {
+    rows,
+    failedKey: null,
+    fallbackUsed,
+    emptyDetails,
+    detailUsesFallback,
+    mutawifReaderEvents,
+    mutawifReaderRows,
+    mutawifReaderFailures,
+  };
 }
 
 function isMissingMutawifColumnError(error) {
@@ -195,10 +324,25 @@ async function saveCalendarStaleCandidates(supabase, ids) {
 }
 
 // ── Main sync function ──
-export async function syncCalendar(supabase) {
+export async function syncCalendar(supabase, options = {}) {
   console.log('[Calendar] Starting sync...');
 
-  const now = new Date();
+  const now = options.now instanceof Date ? options.now : new Date();
+  const readerBaseUrl = options.readerBaseUrl ?? CALENDAR_PUBLIC_READER_BASE_URL;
+  const readerMinimumIntervalMs = options.readerMinimumIntervalMs
+    ?? CALENDAR_PUBLIC_READER_MIN_INTERVAL_MS;
+  const readerWindowDays = parsePositiveInt(
+    options.readerWindowDays,
+    CALENDAR_PUBLIC_MUTAWIF_READER_DAYS,
+  );
+  const readerRangeStart = jakartaDateString(now);
+  const readerRangeEnd = addIsoDateDays(readerRangeStart, readerWindowDays);
+  const readerOptions = {
+    readerBaseUrl,
+    readerMinimumIntervalMs,
+    readerRangeStart,
+    readerRangeEnd,
+  };
   const rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const rangeStartStr = rangeStart.toISOString().split('T')[0];
   let calendarEvents;
@@ -242,6 +386,10 @@ export async function syncCalendar(supabase) {
   let fallbackUsed = 0;
   let emptyDetails = 0;
   let detailOriginFallbackUsed = 0;
+  let mutawifReaderEvents = 0;
+  let mutawifReaderRows = 0;
+  let mutawifReaderFailures = 0;
+  let mutawifRegressionsPrevented = 0;
 
   const detailConcurrency = publicPageUsesFallback
     ? CALENDAR_PUBLIC_FALLBACK_DETAIL_CONCURRENCY
@@ -250,7 +398,12 @@ export async function syncCalendar(supabase) {
     filtered,
     detailConcurrency,
     async (event) => {
-      const result = await resolvePublicEventRows(event, scheduleFallbackById, publicPageUsesFallback);
+      const result = await resolvePublicEventRows(
+        event,
+        scheduleFallbackById,
+        publicPageUsesFallback,
+        readerOptions,
+      );
       detailsFetched += 1;
       if (detailsFetched % 10 === 0 || detailsFetched === filtered.length) {
         console.log(`[Calendar] Fetched details for ${detailsFetched}/${filtered.length} events...`);
@@ -264,6 +417,9 @@ export async function syncCalendar(supabase) {
     fallbackUsed += result.fallbackUsed;
     emptyDetails += result.emptyDetails;
     if (result.detailUsesFallback) detailOriginFallbackUsed += 1;
+    mutawifReaderEvents += result.mutawifReaderEvents;
+    mutawifReaderRows += result.mutawifReaderRows;
+    mutawifReaderFailures += result.mutawifReaderFailures;
     if (result.rows.length > 0) allRows.push(...result.rows);
   }
 
@@ -275,6 +431,7 @@ export async function syncCalendar(supabase) {
   if (detailOriginFallbackUsed > 0) degradedReasons.push('detail_fallback');
   if (fallbackUsed > 0) degradedReasons.push('schedule_fallback');
   if (failedEventKeys.size > 0) degradedReasons.push('detail_failures');
+  if (mutawifReaderFailures > 0) degradedReasons.push('mutawif_reader_failures');
 
   let rowsUpserted = 0;
   const resultMeta = () => ({
@@ -286,6 +443,10 @@ export async function syncCalendar(supabase) {
     source: syncSource,
     degraded: degradedReasons.length > 0,
     degradedReasons,
+    mutawifReaderEvents,
+    mutawifReaderRows,
+    mutawifReaderFailures,
+    mutawifRegressionsPrevented,
   });
 
   if (allRows.length === 0) {
@@ -315,14 +476,23 @@ export async function syncCalendar(supabase) {
   const existingById = new Map((existingRows || []).map(row => [row.id, row]));
   for (const row of allRows) {
     const preserveMutawif = row._preserve_mutawif;
+    const regressionCandidate = row._mutawif_regression_candidate;
     delete row._preserve_mutawif;
+    delete row._mutawif_regression_candidate;
     if (!preserveMutawif) continue;
 
     const existingMutawif = existingById.get(row.id)?.raw_data?.mutawif;
-    if (existingMutawif && existingMutawif !== '-') {
+    if (isMeaningfulMutawif(existingMutawif)) {
       row.mutawif = existingMutawif;
       row.raw_data = { ...row.raw_data, mutawif: existingMutawif };
+      if (regressionCandidate) mutawifRegressionsPrevented += 1;
     }
+  }
+  if (mutawifRegressionsPrevented > 0) {
+    degradedReasons.push('mutawif_regressions_prevented');
+    console.warn(
+      `[Calendar] ${mutawifRegressionsPrevented} nama MUTAWIF lama dipertahankan karena sumber mengirim placeholder`,
+    );
   }
 
   // Upsert harus selesai seluruhnya sebelum stale-delete. Jika satu batch
@@ -408,10 +578,24 @@ export async function syncCalendar(supabase) {
   if (detailOriginFallbackUsed > 0) {
     console.warn(`[Calendar] ${detailOriginFallbackUsed} detail memakai origin fallback`);
   }
+  if (mutawifReaderEvents > 0 || mutawifReaderFailures > 0) {
+    console.log(
+      `[Calendar] Reader MUTAWIF: ${mutawifReaderRows} row dari ${mutawifReaderEvents} event, `
+      + `${mutawifReaderFailures} gagal`,
+    );
+  }
   console.log(`[Calendar] Sync complete: ${rowsUpserted} rows upserted from ${detailsFetched} events`);
 
   if (existingRowsError) {
     const syncError = `sync data selesai, tetapi verifikasi row lama gagal: ${existingRowsError.message}`;
+    return { success: false, error: syncError, ...resultMeta() };
+  }
+  if (mutawifReaderFailures > 0) {
+    const syncError = `${mutawifReaderFailures} detail MUTAWIF gagal diverifikasi; nama lama dipertahankan dan sync akan dicoba ulang`;
+    return { success: false, error: syncError, ...resultMeta() };
+  }
+  if (mutawifRegressionsPrevented > 0) {
+    const syncError = `${mutawifRegressionsPrevented} regresi nama MUTAWIF dicegah; sumber mengirim placeholder dan perlu diperiksa`;
     return { success: false, error: syncError, ...resultMeta() };
   }
   if (failedEventKeys.size > 0) {

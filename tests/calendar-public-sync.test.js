@@ -7,6 +7,8 @@ import { ReadableStream, TransformStream } from 'node:stream/web';
 process.env.CALENDAR_PUBLIC_MIN_EVENT_COUNT = '1';
 process.env.CALENDAR_PUBLIC_REQUIRED_EVENT_TYPES = 'keberangkatan';
 process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = '1';
+// Relay is opt-in per test so fallback orchestration tests stay fully local.
+process.env.CALENDAR_PUBLIC_READER_BASE_URL = '';
 
 // Tes ini menguji orkestrasi & parsing sync. Transport tetap memakai URL domain
 // resmi; DNS pinning berada di dispatcher dan tidak mengubah URL yang di-stub.
@@ -84,6 +86,14 @@ function htmlResponse(body, status = 200) {
     status,
     headers: { get() { return 'text/html'; } },
     async text() { return body; },
+  };
+}
+
+function jsonResponse(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return body; },
   };
 }
 
@@ -417,6 +427,201 @@ test('syncCalendar preserves existing MUTAWIF when fallback detail has no MUTAWI
     assert.equal(supabase.state.upserted[0].mutawif, '• MUTAWIF TERSIMPAN');
     assert.equal(supabase.state.upserted[0].raw_data.mutawif, '• MUTAWIF TERSIMPAN');
     assert.equal(Object.hasOwn(supabase.state.upserted[0], '_preserve_mutawif'), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar enriches upcoming fallback departures from the current MUTAWIF reader', async () => {
+  const originalFetch = global.fetch;
+  const readerRequests = [];
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'reader.example') {
+        readerRequests.push(String(url));
+        return jsonResponse({
+          code: 200,
+          status: 200,
+          data: {
+            httpStatus: 200,
+            content: `
+              | GROUP | PESAWAT | WAKTU | PAKET | PAX | STAFF | TL | MUTAWIF |
+              | --- | --- | --- | --- | --- | --- | --- | --- |
+              | 10 | SAUDIA ~ SV 827 | 00.40 | PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT) | 47 | - | • SUSTEN MARYANI MASCIK | • HANAFI FAUZAN |
+            `,
+          },
+        });
+      }
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return parsed.protocol === 'https:'
+          ? htmlResponse('blocked', 403)
+          : htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php' && parsed.protocol === 'http:') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase();
+    const result = await syncCalendar(supabase, {
+      readerBaseUrl: 'https://reader.example',
+      readerMinimumIntervalMs: 0,
+      readerWindowDays: 45,
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.source, 'fallback');
+    assert.equal(result.mutawifReaderEvents, 1);
+    assert.equal(result.mutawifReaderRows, 1);
+    assert.equal(result.mutawifReaderFailures, 0);
+    assert.equal(readerRequests.length, 1);
+    assert.equal(supabase.state.upserted[0].mutawif, '• HANAFI FAUZAN');
+    assert.equal(supabase.state.upserted[0].raw_data.mutawif, '• HANAFI FAUZAN');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar preserves a valid MUTAWIF and fails safely when reader regresses to a placeholder', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'reader.example') {
+        return jsonResponse({
+          code: 200,
+          status: 200,
+          data: {
+            httpStatus: 200,
+            content: `
+              | GROUP | PESAWAT | WAKTU | PAKET | PAX | STAFF | TL | MUTAWIF |
+              | --- | --- | --- | --- | --- | --- | --- | --- |
+              | 10 | SAUDIA ~ SV 827 | 00.40 | PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT) | 47 | - | • SUSTEN MARYANI MASCIK | . . . . . |
+            `,
+          },
+        });
+      }
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return parsed.protocol === 'https:'
+          ? htmlResponse('blocked', 403)
+          : htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php' && parsed.protocol === 'http:') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const id = `${SYNC_EVENT_DATE}_keberangkatan_10`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarRows: [{ id, raw_data: { mutawif: '• HANAFI FAUZAN' } }],
+    });
+    const result = await syncCalendar(supabase, {
+      readerBaseUrl: 'https://reader.example',
+      readerMinimumIntervalMs: 0,
+      readerWindowDays: 180,
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.mutawifReaderFailures, 0);
+    assert.equal(result.mutawifRegressionsPrevented, 1);
+    assert.match(result.error, /regresi nama MUTAWIF dicegah/);
+    assert.equal(supabase.state.upserted[0].mutawif, '• HANAFI FAUZAN');
+    assert.equal(supabase.state.upserted[0].raw_data.mutawif, '• HANAFI FAUZAN');
+    assert.equal(Object.hasOwn(supabase.state.upserted[0], '_mutawif_regression_candidate'), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar preserves old MUTAWIF and reports a retryable failure when reader is unavailable', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'reader.example') return jsonResponse({}, 503);
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return parsed.protocol === 'https:'
+          ? htmlResponse('blocked', 403)
+          : htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php' && parsed.protocol === 'http:') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const id = `${SYNC_EVENT_DATE}_keberangkatan_10`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarRows: [{ id, raw_data: { mutawif: '• HANAFI FAUZAN' } }],
+    });
+    const result = await syncCalendar(supabase, {
+      readerBaseUrl: 'https://reader.example',
+      readerMinimumIntervalMs: 0,
+      readerWindowDays: 180,
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.mutawifReaderFailures, 1);
+    assert.equal(result.mutawifRegressionsPrevented, 0);
+    assert.match(result.error, /detail MUTAWIF gagal diverifikasi/);
+    assert.equal(supabase.state.upserted[0].mutawif, '• HANAFI FAUZAN');
+    assert.equal(supabase.state.upserted[0].raw_data.mutawif, '• HANAFI FAUZAN');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('syncCalendar rejects a reader table whose GROUP does not match the fallback detail', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'reader.example') {
+        return jsonResponse({
+          code: 200,
+          status: 200,
+          data: {
+            httpStatus: 200,
+            content: `
+              | GROUP | PESAWAT | WAKTU | PAKET | PAX | STAFF | TL | MUTAWIF |
+              | --- | --- | --- | --- | --- | --- | --- | --- |
+              | 999 | SAUDIA ~ SV 827 | 00.40 | PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT) | 47 | - | • SUSTEN MARYANI MASCIK | • NAMA SALAH |
+            `,
+          },
+        });
+      }
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return parsed.protocol === 'https:'
+          ? htmlResponse('blocked', 403)
+          : htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php' && parsed.protocol === 'http:') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const id = `${SYNC_EVENT_DATE}_keberangkatan_10`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarRows: [{ id, raw_data: { mutawif: '• HANAFI FAUZAN' } }],
+    });
+    const result = await syncCalendar(supabase, {
+      readerBaseUrl: 'https://reader.example',
+      readerMinimumIntervalMs: 0,
+      readerWindowDays: 180,
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.mutawifReaderFailures, 1);
+    assert.match(result.error, /detail MUTAWIF gagal diverifikasi/);
+    assert.equal(supabase.state.upserted[0].mutawif, '• HANAFI FAUZAN');
   } finally {
     global.fetch = originalFetch;
   }

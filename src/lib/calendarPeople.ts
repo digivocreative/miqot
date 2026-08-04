@@ -1,8 +1,12 @@
+function isCalendarPersonName(value: string): boolean {
+  return value !== '-' && /[\p{L}\p{N}]/u.test(value);
+}
+
 export function formatCalendarPeople(value: string | null | undefined): string {
   const names = String(value || '')
     .split(/[•·]/)
     .map(name => name.trim())
-    .filter(name => name && name !== '-');
+    .filter(isCalendarPersonName);
 
   return [...new Set(names)].join(', ');
 }
@@ -14,7 +18,7 @@ export function formatCalendarPrimaryPerson(
   const firstPerson = String(value || '')
     .split(/[•·]/)
     .map(name => name.trim())
-    .find(name => name && name !== '-');
+    .find(isCalendarPersonName);
 
   if (!firstPerson) return '';
   return firstPerson.split(/\s+/).slice(0, Math.max(1, maxWords)).join(' ');

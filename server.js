@@ -24279,6 +24279,10 @@ async function runCalendarSyncAttempt(attempt = 0) {
       last_events_total: syncResult?.eventsTotal ?? null,
       last_events_succeeded: syncResult?.eventsSucceeded ?? null,
       last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+      last_mutawif_reader_events: syncResult?.mutawifReaderEvents ?? null,
+      last_mutawif_reader_rows: syncResult?.mutawifReaderRows ?? null,
+      last_mutawif_reader_failures: syncResult?.mutawifReaderFailures ?? null,
+      last_mutawif_regressions_prevented: syncResult?.mutawifRegressionsPrevented ?? null,
       alerted: calendarSyncAlerted,
     };
     if (syncResult?.degraded) {
@@ -24307,6 +24311,10 @@ async function runCalendarSyncAttempt(attempt = 0) {
     last_events_total: syncResult?.eventsTotal ?? null,
     last_events_succeeded: syncResult?.eventsSucceeded ?? null,
     last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+    last_mutawif_reader_events: syncResult?.mutawifReaderEvents ?? null,
+    last_mutawif_reader_rows: syncResult?.mutawifReaderRows ?? null,
+    last_mutawif_reader_failures: syncResult?.mutawifReaderFailures ?? null,
+    last_mutawif_regressions_prevented: syncResult?.mutawifRegressionsPrevented ?? null,
     alerted: calendarSyncAlerted,
   });
 
@@ -24322,12 +24330,17 @@ async function runCalendarSyncAttempt(attempt = 0) {
     const sejak = calendarLastSuccessAt
       ? `\nSukses terakhir: ${new Date(calendarLastSuccessAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`
       : '';
+    const isMutawifIncident = (syncResult?.mutawifReaderFailures || 0) > 0
+      || (syncResult?.mutawifRegressionsPrevented || 0) > 0;
+    const impact = isMutawifIncident
+      ? 'Nama mutawif valid yang sudah tersimpan tetap diamankan; pembaruan mutawif dibekukan sampai sumber terverifikasi pulih.'
+      : 'Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak.';
     try {
       await sendOpsAlert(
         `🗓️⚠️ <b>Sync kalender gagal ${totalAttempts}x berturut-turut</b>\n\n` +
         `${escapeHtml(failReason)}${sejak}\n\n` +
-        `Data kalender (event, grup, jam) membeku sampai sync pulih — card penerbangan ikut terdampak. ` +
-        `Cek: halaman publik kegiatan, endpoint _kmodal.php, layout halaman, atau koneksi ke server publik.`
+        `${impact} ` +
+        `Cek: halaman publik kegiatan, endpoint _kmodal.php, jalur Reader MUTAWIF, layout halaman, atau koneksi ke server publik.`
       );
       calendarSyncAlerted = true;
       await persistCalendarSyncHealth({ alerted: true });
