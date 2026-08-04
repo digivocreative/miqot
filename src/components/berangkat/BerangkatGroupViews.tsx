@@ -101,10 +101,18 @@ function BerangkatRow({ item, showPackage = true }: { item: BerangkatItem; showP
   );
 }
 
+// Satu definisi gaya label untuk seluruh header detail — dipakai grid meta dan
+// baris link itinerary, supaya keduanya tak pernah berbeda sendiri.
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="truncate text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{children}</p>
+  );
+}
+
 function GroupMeta({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="min-w-0">
-      <p className="truncate text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{label}</p>
+      <FieldLabel>{label}</FieldLabel>
       <p className="mt-0.5 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100">{value || '-'}</p>
     </div>
   );
@@ -195,9 +203,14 @@ function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSl
   }, []);
 
   if (!group.jadwal_id || !group.itinerary_ready) {
+    // Label sudah menyebut "itinerary", jadi isinya cukup "Belum tersedia" —
+    // menulis "Itinerary belum ada" di bawahnya jadi mengulang kata.
     return (
-      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-center text-[10px] font-semibold text-gray-400 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-500">
-        Itinerary belum ada
+      <div className="mt-3">
+        <FieldLabel>Link Itinerary</FieldLabel>
+        <div className="mt-1 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-center text-[10px] font-semibold text-gray-400 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-500">
+          Belum tersedia
+        </div>
       </div>
     );
   }
@@ -222,32 +235,35 @@ function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSl
   };
 
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-2.5 pr-1.5 dark:border-slate-700 dark:bg-slate-700/30">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <Link2 size={13} strokeWidth={2.2} className="shrink-0 text-gray-400 dark:text-slate-500" />
-        {/* Sepadan dengan nilai GroupMeta di atasnya (11px, gray-700/slate-100)
-            supaya URL terbaca sebagai data, bukan keterangan kaki */}
-        <span
-          title={shareUrl}
-          dir="ltr"
-          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100"
+    <div className="mt-3">
+      <FieldLabel>Link Itinerary</FieldLabel>
+      <div className="mt-1 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 py-1.5 pl-2.5 pr-1.5 dark:border-slate-700 dark:bg-slate-700/30">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <Link2 size={13} strokeWidth={2.2} className="shrink-0 text-gray-400 dark:text-slate-500" />
+          {/* Sepadan dengan nilai GroupMeta di atasnya (11px, gray-700/slate-100)
+              supaya URL terbaca sebagai data, bukan keterangan kaki */}
+          <span
+            title={shareUrl}
+            dir="ltr"
+            className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-700 dark:text-slate-100"
+          >
+            {displayUrl}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={copyLink}
+          aria-label={`Salin link itinerary ${group.paket}`}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-bold transition-colors active:scale-95 ${
+            copied
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300'
+              : 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-300'
+          }`}
         >
-          {displayUrl}
-        </span>
+          {copied ? <Check size={11} strokeWidth={3} /> : <Copy size={11} strokeWidth={2.4} />}
+          <span>{copied ? 'Tersalin' : 'Copy'}</span>
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={copyLink}
-        aria-label={`Salin link itinerary ${group.paket}`}
-        className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-bold transition-colors active:scale-95 ${
-          copied
-            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300'
-            : 'border-blue-500/20 bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-300'
-        }`}
-      >
-        {copied ? <Check size={11} strokeWidth={3} /> : <Copy size={11} strokeWidth={2.4} />}
-        <span>{copied ? 'Tersalin' : 'Copy'}</span>
-      </button>
     </div>
   );
 }
