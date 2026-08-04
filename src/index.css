@@ -16,6 +16,18 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Tinggi FilterHeader saat mengembang — <main> memakainya sebagai offset karena
+     header-nya `fixed`. FilterHeader menimpa nilai ini dengan hasil ukur nyata;
+     angka di sini hanya untuk paint pertama sebelum JS sempat mengukur, jadi
+     tidak ada lompatan. Jangan dipakai sebagai sumber kebenaran tinggi header. */
+  --filter-header-h: 167px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --filter-header-h: 181px;
+  }
 }
 
 body {

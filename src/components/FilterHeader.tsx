@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import { useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { isSessionValid } from '@/utils/authUtils';
 import { isProgrammaticScrollActive } from '@/lib/programmatic-scroll';
 import type { UmrohPackage } from '@/types';
@@ -60,6 +60,20 @@ export interface FilterHeaderProps {
   onToggleCompact?: () => void;
 }
 
+// Trigger sizing for the filter-row dropdowns: two of them share the row (flex-1),
+// so on <sm the default variant's text-sm truncates long labels ("UMROH MUSIM DINGIN",
+// "Madinah (12 paket)"). Shrink font + padding on mobile only; ≥sm keeps the
+// default-variant look. Passed as triggerSizeClass (replaces, not appends).
+// h-9 pins the mobile height to the search row below it (both 36px); `sm:h-auto`
+// hands height back to sm:py-2.5 so the ≥sm look is unchanged.
+const FILTER_ROW_TRIGGER_SIZE =
+  'h-9 gap-1.5 px-2.5 text-xs sm:h-auto sm:gap-2 sm:px-3 sm:py-2.5 sm:text-sm font-medium rounded-xl';
+
+// Search icon + the two square action buttons shrink with the row on mobile.
+// lucide's `size` prop writes width/height attributes, which CSS beats — so the
+// responsive sizing has to come from classes, not the prop.
+const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
+
 // Filter mode options for dropdown
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
@@ -107,9 +121,39 @@ export function FilterHeader({
   onToggleCompact,
 }: FilterHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const lastScrollYRef = useRef(0);
   const loggedIn = useMemo(() => isSessionValid(), []);
+
+  // The header is `fixed`, so <main> offsets itself by --filter-header-h. Publish the
+  // measured height instead of letting that offset hardcode it — the two drifted apart
+  // once the rows were resized, leaving a visible gap above the first card.
+  //
+  // Measure only the SETTLED EXPANDED height. Sampling per-frame (ResizeObserver) would
+  // feed the collapse/expand animation into <main>'s padding and shove the page content
+  // around under the fixed header while the user scrolls. Hence: on mount (nothing is
+  // animating yet), on viewport resize, and on transitionend — all gated on `isVisible`,
+  // so a collapsed header never overwrites the value.
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
+
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => {
+      if (!isVisibleRef.current) return;
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 0) document.documentElement.style.setProperty('--filter-header-h', `${h}px`);
+    };
+    publish(); // mount: expanded, nothing animating yet
+    window.addEventListener('resize', publish);
+    el.addEventListener('transitionend', publish);
+    return () => {
+      window.removeEventListener('resize', publish);
+      el.removeEventListener('transitionend', publish);
+    };
+  }, []);
 
 
 
@@ -178,7 +222,8 @@ export function FilterHeader({
   const showLandingDropdown = filterMode === 'LANDING DI';
 
   return (
-    <header 
+    <header
+      ref={headerRef}
       className={`
         fixed top-0 left-0 right-0 z-50
         bg-white/85 dark:bg-slate-900/85
@@ -284,6 +329,7 @@ export function FilterHeader({
           {/* Main Filter Dropdown */}
           <FilterDropdown
             variant="default"
+            triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
             portal
             value={filterMode}
             onChange={(v) => {
@@ -303,6 +349,7 @@ export function FilterHeader({
           {showSortDropdown && (
             <FilterDropdown
               variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
               value={sortOrder || ''}
               onChange={(v) => onSortOrderChange?.((v as SortOrder) || null)}
@@ -316,6 +363,7 @@ export function FilterHeader({
           {showLandingDropdown && (
             <FilterDropdown
               variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
@@ -332,6 +380,7 @@ export function FilterHeader({
           {showMonthDropdown && (
             <FilterDropdown
               variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
@@ -348,6 +397,7 @@ export function FilterHeader({
           {showDurationDropdown && (
             <FilterDropdown
               variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
@@ -365,8 +415,7 @@ export function FilterHeader({
             {/* Search Input */}
             <div className="relative flex-1">
               <Search
-                size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none"
+                className={`absolute left-3 sm:left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none ${ROW_ICON_SIZE}`}
               />
               <input
                 ref={inputRef}
@@ -375,11 +424,11 @@ export function FilterHeader({
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="Cari..."
                 className="
-                  w-full pl-10 pr-10 py-2.5
+                  w-full h-9 pl-9 pr-9 sm:h-auto sm:pl-10 sm:pr-10 sm:py-2.5
                   bg-gray-100/80 dark:bg-slate-800/80
                   border border-transparent
                   rounded-xl
-                  text-sm font-medium
+                  text-xs sm:text-sm font-medium
                   text-gray-900 dark:text-slate-100
                   placeholder-gray-400 dark:placeholder-slate-500
                   outline-none
@@ -394,9 +443,9 @@ export function FilterHeader({
                 <button
                   onClick={handleClearSearch}
                   className="
-                    absolute right-3 top-1/2 -translate-y-1/2
+                    absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2
                     flex items-center justify-center
-                    w-5 h-5 rounded-full
+                    w-4 h-4 sm:w-5 sm:h-5 rounded-full
                     bg-gray-200 dark:bg-slate-600
                     hover:bg-gray-300 dark:hover:bg-slate-500
                     text-gray-500 dark:text-slate-300
@@ -414,7 +463,7 @@ export function FilterHeader({
               onClick={onToggleFilter}
               className={`
                 relative flex items-center justify-center
-                w-11 h-11 shrink-0
+                w-9 h-9 sm:w-11 sm:h-11 shrink-0
                 bg-gray-100/80 dark:bg-slate-800/80
                 border border-transparent
                 text-gray-600 dark:text-slate-300
@@ -426,7 +475,7 @@ export function FilterHeader({
               `}
               aria-label="Filter"
             >
-              <SlidersHorizontal size={18} />
+              <SlidersHorizontal className={ROW_ICON_SIZE} />
               {isFilterActive && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></span>
               )}
@@ -437,7 +486,7 @@ export function FilterHeader({
               onClick={onToggleCompact}
               className={`
                 relative flex items-center justify-center
-                w-11 h-11 shrink-0
+                w-9 h-9 sm:w-11 sm:h-11 shrink-0
                 rounded-xl
                 transition-all duration-200
                 active:scale-95
@@ -449,7 +498,7 @@ export function FilterHeader({
               aria-label="Toggle Compact View"
               title={isCompactView ? 'Tampilan Normal' : 'Tampilan Compact'}
             >
-              <LayoutList size={18} />
+              <LayoutList className={ROW_ICON_SIZE} />
             </button>
           </div>
         </div>

@@ -23,6 +23,13 @@ export interface FilterDropdownProps {
    */
   variant?: 'mini' | 'compact' | 'default';
   /**
+   * Replaces the variant's trigger geometry classes (padding/font/gap/rounding)
+   * wholesale — never appended, so no conflicting Tailwind utilities. Use for
+   * context-specific responsive sizing (e.g. FilterHeader shrinks its filter row
+   * on <sm so long labels don't truncate). Skin colors still follow `variant`.
+   */
+  triggerSizeClass?: string;
+  /**
    * Render the popover into document.body (fixed-positioned) so it escapes an
    * ancestor with `overflow:hidden`/scroll (e.g. an animated/collapsing filter panel).
    */
@@ -60,6 +67,7 @@ export default function FilterDropdown({
   widthClass = '',
   disabled = false,
   variant = 'default',
+  triggerSizeClass,
   portal = false,
   accent = false,
   inputSkin = false,
@@ -232,7 +240,7 @@ export default function FilterDropdown({
   const disabledSkin = inputSkin
     ? 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed opacity-50'
     : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed';
-  const triggerClass = `${TRIGGER_BASE} ${TRIGGER_SIZE[variant]} ${
+  const triggerClass = `${TRIGGER_BASE} ${triggerSizeClass ?? TRIGGER_SIZE[variant]} ${
     disabled
       ? disabledSkin
       : `cursor-pointer ${accent ? emeraldSkin : inputSkin ? formInputSkin : graySkin}`

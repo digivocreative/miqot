@@ -776,7 +776,14 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* ============================================ */}
       {/* MAIN CONTENT */}
       {/* ============================================ */}
-      <main className="max-w-lg mx-auto px-4 pt-48 pb-8">
+      {/* Offset = tinggi FilterHeader (fixed) + jarak 11px ke kartu pertama.
+          Dulu ini `pt-48` (192px) dan langsung meleset 14px begitu baris header
+          dikecilkan di mobile — karena itu angkanya sekarang datang dari
+          --filter-header-h yang diukur FilterHeader sendiri. */}
+      <main
+        className="max-w-lg mx-auto px-4 pb-8"
+        style={{ paddingTop: 'calc(var(--filter-header-h) + 11px)' }}
+      >
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16">
