@@ -1185,10 +1185,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                                     rows={3}
                                     maxLength={240}
                                     autoFocus
-                                    className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 coarse:py-1.5 text-[12px] text-gray-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40 outline-none resize-none transition-all"
+                                    // Sama seperti catatan di JamaahPage: tanpa `coarse:leading-5`
+                                    // tiga barisnya tumbuh 18px→24px dan kotaknya membengkak 14px.
+                                    className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 coarse:py-1.5 text-[12px] coarse:leading-5 text-gray-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40 outline-none resize-none transition-all"
                                   />
                                   {!noteText && (
-                                    <div className="absolute top-0 left-0 right-0 px-3 py-2 coarse:py-1.5 pointer-events-none">
+                                    // Overlay wajib memakai leading yang sama, kalau tidak baris
+                                    // bayangannya meleset dari baris asli.
+                                    <div className="absolute top-0 left-0 right-0 px-3 py-2 coarse:py-1.5 coarse:leading-5 pointer-events-none">
                                       <span className="text-[12px] coarse:text-[16px] text-gray-400 dark:text-slate-500">{typingPlaceholder}</span><span className="text-[12px] coarse:text-[16px] text-gray-400 dark:text-slate-500 animate-cursor-blink">|</span>
                                     </div>
                                   )}

@@ -640,7 +640,9 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
                   value={config.accessToken}
                   onChange={e => updateConfig({ accessToken: e.target.value })}
                   placeholder="EAABxxxxxxx..."
-                  className="w-full px-3 py-2.5 coarse:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-[12px] font-mono break-all focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 resize-y"
+                  // `coarse:leading-5`: sama seperti kotak catatan jamaah — font 16px paksaan
+                  // anti-zoom membuat tiga baris token tumbuh 18px→24px dan kotaknya 76px→90px.
+                  className="w-full px-3 py-2.5 coarse:py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-[12px] coarse:leading-5 font-mono break-all focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 resize-y"
                 />
                 <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">Generate token di Meta Events Manager &gt; Settings &gt; Conversions API.</p>
               </div>

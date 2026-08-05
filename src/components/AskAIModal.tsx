@@ -1010,7 +1010,10 @@ export default function AskAIModal({
                 placeholder="Tanya soal paket ini…"
                 disabled={isTyping}
                 maxLength={500}
-                className="flex-1 min-w-0 px-3.5 py-2.5 bg-gray-100 dark:bg-slate-800 border-0 rounded-full text-[13px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
+                // `coarse:py-2`: di perangkat sentuh font dipaksa 16px (anti-zoom iOS), line-box
+                // 19.5px→24px. Tanpa kompensasi pil ini jadi 44px sementara tombol kirim di
+                // sebelahnya tetap 40px — tingginya jomplang. py-2 mengembalikannya ke 40px.
+                className="flex-1 min-w-0 px-3.5 py-2.5 coarse:py-2 bg-gray-100 dark:bg-slate-800 border-0 rounded-full text-[13px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
               />
               {isTyping ? (
                 <button
