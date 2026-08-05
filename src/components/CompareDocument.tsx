@@ -113,6 +113,10 @@ const s = StyleSheet.create({
   cellLine: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2.5 },
 
   hargaUtama: { ...b, fontSize: 12, color: C.ink },
+  hargaBaris: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 3 },
+  hargaLabel: { fontSize: 7.5, color: C.gray },
+  hargaNilai: { ...b, fontSize: 10, color: C.ink },
+  hargaKosong: { fontSize: 7.5, color: C.grayLight },
   tglUtama: { ...b, fontSize: 9.5, color: C.ink },
   jam: { fontSize: 7.5, color: C.gray },
   kode: { ...b, fontSize: 7.5, color: C.gold },
@@ -133,8 +137,12 @@ const s = StyleSheet.create({
   qrJudul: { ...b, fontSize: 7.5, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
   qrUrl: { fontSize: 6.5, lineHeight: 1.3, color: C.grayLight },
 
-  destJumlah: { ...b, fontSize: 8.5, color: C.ink, marginBottom: 2 },
-  destDaftar: { fontSize: 7.5, lineHeight: 1.45, color: C.gray },
+  destJumlah: { ...b, fontSize: 8.5, color: C.ink, marginBottom: 4 },
+  // Label kecil yang membungkus; satu paragraf bertitik-tengah sepanjang sebelas
+  // nama tempat susah dipindai dan patah barisnya tak menentu.
+  destPills: { flexDirection: 'row', flexWrap: 'wrap' as const, gap: 3 },
+  destPill: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, backgroundColor: C.bgTint },
+  destPillTeks: { fontSize: 6.8, color: C.ink },
 
   footerAccent: { height: 3, backgroundColor: C.burgundy },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.navy },
@@ -192,12 +200,11 @@ const ROOM_LABEL: Record<string, string> = { Quard: 'Berempat', Triple: 'Bertiga
  * keduanya dirender hanya bila datanya memang ada — baris "—" kembar cuma
  * memanjangkan dokumen tanpa menambah keterangan.
  */
-const BARIS_HARGA = [
-  { key: 'Quard' as const, label: 'KAMAR BEREMPAT' },
-  { key: 'Triple' as const, label: 'KAMAR BERTIGA' },
-  { key: 'Double' as const, label: 'KAMAR BERDUA' },
-  { key: 'Single' as const, label: 'KAMAR SENDIRI' },
-  { key: 'Infant' as const, label: 'BAYI (0–2 TH)' },
+const BARIS_KAMAR = [
+  { key: 'Quard' as const, label: 'Berempat' },
+  { key: 'Triple' as const, label: 'Bertiga' },
+  { key: 'Double' as const, label: 'Berdua' },
+  { key: 'Single' as const, label: 'Sendiri' },
 ];
 const KIBLAT_KOTA: Record<string, string> = { mekkah: 'Masjidil Haram', madinah: 'Masjid Nabawi' };
 /** "±400m" → "±400 m"; angka dan satuan yang berdempetan susah dibaca di cetak. */
@@ -422,9 +429,13 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const suhu = sides.map(side => kotaSuhu(side.pkg));
   const adaQr = sides.some(side => side.qrDataUrl);
   const adaDestinasi = sides.some(side => side.destinasi?.length);
-  const barisHarga = BARIS_HARGA.filter(
+  // Lima baris terpisah untuk lima tipe kamar bikin seksi harga terasa penuh.
+  // Kamar dirangkum jadi satu baris berisi daftar; bayi berdiri sendiri karena
+  // itu harga per anak, bukan pilihan kamar.
+  const barisKamar = BARIS_KAMAR.filter(
     baris => tierRoomPrice(a.pkg, a.tier, baris.key) > 0 || tierRoomPrice(b.pkg, b.tier, baris.key) > 0,
   );
+  const adaBayi = tierRoomPrice(a.pkg, a.tier, 'Infant') > 0 || tierRoomPrice(b.pkg, b.tier, 'Infant') > 0;
 
   // ── Tinggi halaman ──
   // react-pdf tidak bisa mengukur sebelum merender, jadi tingginya ditaksir per
@@ -452,24 +463,28 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   );
   h += 22 + 12 + poin.length * 3 + Math.ceil(barisPoin * 11.5); // pita kesimpulan
   h += 79 + 17 * barisNama + 13;            // pita paket + penanda landing
-  h += 20 + barisHarga.length * 42;         // seksi harga + baris
+  h += 20 + (16 + barisKamar.length * 14) + (adaBayi ? 34 : 0); // seksi + daftar kamar + bayi
   h += 20 + 2 * 50;                         // seksi penerbangan + 2 baris (kota + kode + rute)
-  h += 20 + kotaHotel.length * 24 + (barisHotel - kotaHotel.length) * 11;
+  h += 20 + kotaHotel.length * 28 + (barisHotel - kotaHotel.length) * 11;
   h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
   h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
   if (adaDestinasi) {
-    const barisDest = Math.max(
-      ...sides.map(side => perkiraanBaris((side.destinasi || []).join(' · '), 52)),
-    );
-    h += 20 + 30 + barisDest * 11;          // seksi + jumlah tempat + daftarnya
+    // Lebar pil ditaksir dari jumlah huruf + padding 12 + jarak 3, sel selebar
+    // ~221pt. 4.6pt/huruf diukur dari render nyata: nama tempat ditulis Kapital
+    // Setiap Kata, jadi jauh lebih lebar daripada rata-rata teks biasa.
+    const barisPil = Math.max(...sides.map(side => {
+      const lebar = (side.destinasi || []).reduce((t, nama) => t + nama.length * 4.6 + 15, 0);
+      return Math.max(1, Math.ceil(lebar / 221));
+    }));
+    h += 20 + 30 + barisPil * 16;           // seksi + jumlah tempat + baris pil
   }
   if (adaQr) h += 65;                       // baris itinerary
   h += 3 + 50;                              // aksen + footer
-  // Sisa aman 24pt. Taksiran yang KURANG membuat dokumen tumpah ke halaman
-  // kedua — sudah terbukti saat sisa aman masih 8pt. Kelebihan 24pt cuma pita
-  // putih tipis di bawah, jauh lebih murah daripada halaman kedua yang isinya
-  // beberapa baris.
-  h += 24;
+  // Sisa aman 56pt. Taksiran yang KURANG membuat dokumen tumpah ke halaman
+  // kedua — sudah terbukti dua kali (sisa 8pt, lalu 24pt setelah baris pil
+  // destinasi masuk). Kelebihan puluhan pt cuma pita putih tipis di bawah, jauh
+  // lebih murah daripada halaman kedua yang isinya beberapa baris.
+  h += 56;
   const pageH = Math.max(420, h);
 
   const namaAgent = agent?.name || '';
@@ -557,10 +572,27 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
 
         {/* ─── HARGA ─── */}
         <Seksi judul="HARGA PER JAMAAH" />
-        {barisHarga.map(baris => (
-          <Baris key={baris.key} label={baris.label}>
+        <Baris label="PILIHAN KAMAR">
+          {sides.map((side, i) => (
+            <Sel key={i} kanan={i === 1}>
+              {barisKamar.map(baris => {
+                const nilai = tierRoomPrice(side.pkg, side.tier, baris.key);
+                return (
+                  <View key={baris.key} style={s.hargaBaris}>
+                    <Text style={s.hargaLabel}>{baris.label}</Text>
+                    <Text style={nilai > 0 ? s.hargaNilai : s.hargaKosong}>
+                      {nilai > 0 ? fmtRupiah(nilai) : 'tidak dijual'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </Sel>
+          ))}
+        </Baris>
+        {adaBayi && (
+          <Baris label="BAYI (0–2 TH)">
             {sides.map((side, i) => {
-              const nilai = tierRoomPrice(side.pkg, side.tier, baris.key);
+              const nilai = tierRoomPrice(side.pkg, side.tier, 'Infant');
               return (
                 <Sel key={i} kanan={i === 1}>
                   <Text style={s.hargaUtama}>{nilai > 0 ? fmtRupiah(nilai) : '—'}</Text>
@@ -568,7 +600,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
               );
             })}
           </Baris>
-        ))}
+        )}
 
         {/* ─── PENERBANGAN ─── */}
         <Seksi judul="PENERBANGAN" />
@@ -637,7 +669,13 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                   {side.destinasi?.length ? (
                     <>
                       <Text style={s.destJumlah}>{side.destinasi.length} tempat</Text>
-                      <Text style={s.destDaftar}>{side.destinasi.join(' · ')}</Text>
+                      <View style={s.destPills}>
+                        {side.destinasi.map((nama, k) => (
+                          <View key={k} style={s.destPill}>
+                            <Text style={s.destPillTeks}>{nama}</Text>
+                          </View>
+                        ))}
+                      </View>
                     </>
                   ) : (
                     <Text style={s.kosong}>—</Text>
