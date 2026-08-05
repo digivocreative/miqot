@@ -90,7 +90,9 @@ const toolCall = (name, args = {}, id = `call_${name}`) => ({
 });
 const toolCallsResponse = (...calls) => ({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls } }] });
 const textResponse = (content) => ({ choices: [{ message: { role: 'assistant', content } }] });
-const jsonResponse = (obj) => textResponse(JSON.stringify(obj));
+// Respons yang dimaksudkan valid selalu membawa minimal satu field kontrak
+// selain `answer`, sama seperti format yang diwajibkan system prompt.
+const jsonResponse = (obj) => textResponse(JSON.stringify({ follow_ups: [], ...obj }));
 
 const toolMessages = (body) => (body?.messages || []).filter((m) => m.role === 'tool');
 
@@ -208,15 +210,27 @@ test('jawaban akhir dengan ```json fence tetap terparse', async () => {
   assert.ok(out.cards.every((c) => c.type !== 'link'));
 });
 
-test('extractBaniJson toleran terhadap pembungkus, menolak yang bukan jawaban', () => {
-  assert.equal(extractBaniJson('{"answer":"halo"}').answer, 'halo');
-  assert.equal(extractBaniJson('```\n{"answer":"halo"}\n```').answer, 'halo');
-  assert.equal(extractBaniJson('Berikut jawabannya: {"answer":"halo"} semoga membantu').answer, 'halo');
+test('extractBaniJson toleran terhadap pembungkus dan mewajibkan kontrak Bani', () => {
+  assert.equal(extractBaniJson('{"answer":"halo","media":[]}').answer, 'halo');
+  assert.equal(extractBaniJson('```\n{"answer":"halo","follow_ups":[]}\n```').answer, 'halo');
+  assert.equal(extractBaniJson('Berikut jawabannya: {"answer":"halo","package_ids":[]} semoga membantu').answer, 'halo');
   assert.equal(extractBaniJson('bukan json'), null);
+  assert.equal(extractBaniJson('{"answer":"halo"}'), null);
   assert.equal(extractBaniJson('{"answer":""}'), null);
-  assert.equal(extractBaniJson('{"answer":123}'), null);
+  assert.equal(extractBaniJson('{"answer":"halo","lain":[]}'), null);
+  assert.equal(extractBaniJson('{"answer":123,"media":[]}'), null);
   assert.equal(extractBaniJson(''), null);
   assert.equal(extractBaniJson(null), null);
+});
+
+test('extractBaniJson menerima answer kosong bila ada field kontrak lain', () => {
+  for (const key of [
+    'package_ids', 'jamaah_ids', 'media', 'follow_ups',
+    'package_columns', 'jamaah_columns',
+  ]) {
+    const parsed = extractBaniJson(JSON.stringify({ answer: '', [key]: [] }));
+    assert.equal(parsed.answer, '', `harus diterima dengan field ${key}`);
+  }
 });
 
 test('format gagal → satu retry; berhasil di retry tidak dianggap degradasi', async () => {
@@ -251,6 +265,102 @@ test('format tetap gagal setelah retry → degradasi memakai teks mentah, tanpa 
   assert.equal(out.answer, 'tetap bukan JSON');
   assert.deepEqual(out.cards, [], 'tanpa JSON tidak ada referensi id yang bisa dipercaya');
   assert.deepEqual(out.tools_used, ['list_jadwal_paket']);
+});
+
+test('degradasi tidak pernah menampilkan JSON kontrak mentah', async () => {
+  const rawContract = '{"answer":"","tidak_dikenal":[]}';
+  const callOpenAI = scriptedOpenAI([textResponse(rawContract), textResponse(rawContract)]);
+
+  const out = await runBaniConversation({
+    question: 'x',
+    agent: AGENT,
+    supabase: okSupabase(),
+    callOpenAI,
+    model: 'stub',
+  });
+
+  assert.equal(out.degraded, true);
+  assert.equal(out.answer, 'Maaf, jawabannya belum bisa dirangkum. Coba tanya ulang dengan lebih spesifik.');
+  assert.doesNotMatch(out.answer, /^\s*[{[]|"answer"\s*:/);
+});
+
+test('answer kosong memakai kalimat default sesuai hasil yang benar-benar terbit', async (t) => {
+  await t.test('brosur jadwal', async () => {
+    const callOpenAI = scriptedOpenAI([jsonResponse({
+      answer: '',
+      media: [{ type: 'brosur_jadwal', bulan: '2026-08' }],
+    })]);
+    const out = await runBaniConversation({
+      question: 'brosur Agustus',
+      agent: AGENT,
+      supabase: okSupabase(),
+      callOpenAI,
+      model: 'stub',
+      now: () => Date.UTC(2026, 7, 5),
+    });
+
+    assert.equal(callOpenAI.calls.length, 1, 'answer kosong yang sah tidak memicu retry');
+    assert.equal(out.answer, 'Ini brosurnya.');
+    assert.equal(out.media[0].type, 'brosur_jadwal');
+  });
+
+  await t.test('itinerary', async () => {
+    const rows = [{
+      ...SCHEDULE_ROWS[0],
+      itinerary_cdn: 'https://cdn.example.com/JBU1484.pdf',
+      itinerary_source_sha256: 'abc123',
+    }];
+    const supabase = stubSupabase((table) => (
+      table === 'umroh_schedules' ? { data: rows, error: null }
+        : { data: [], error: null, count: 0 }
+    ));
+    const callOpenAI = scriptedOpenAI([
+      toolCallsResponse(toolCall('list_jadwal_paket', { month: '2026-12' })),
+      jsonResponse({ answer: '', media: [{ type: 'itinerary', jadwal_id: 'JBU1484' }] }),
+    ]);
+    const out = await runBaniConversation({ question: 'itinerary paket Desember', agent: AGENT, supabase, callOpenAI, model: 'stub' });
+
+    assert.equal(callOpenAI.calls.length, 2, 'tidak ada retry format tambahan');
+    assert.equal(out.answer, 'Ini itinerary-nya.');
+    assert.equal(out.media[0].type, 'itinerary');
+  });
+
+  await t.test('kalkulasi', async () => {
+    const callOpenAI = scriptedOpenAI([
+      toolCallsResponse(toolCall('kalkulasi_harga', { jadwal_id: 'JBU1484', kamar_quad: 2 })),
+      jsonResponse({ answer: '' }),
+    ]);
+    const out = await runBaniConversation({ question: 'hitung dua orang', agent: AGENT, supabase: okSupabase(), callOpenAI, model: 'stub' });
+
+    assert.equal(out.answer, 'Ini rincian biayanya.');
+    assert.equal(out.kalkulasi.length, 1);
+  });
+
+  await t.test('kartu', async () => {
+    const callOpenAI = scriptedOpenAI([
+      toolCallsResponse(toolCall('list_jadwal_paket', { month: '2026-12' })),
+      jsonResponse({ answer: '', package_ids: ['JBU1484'] }),
+    ]);
+    const out = await runBaniConversation({ question: 'paket Desember', agent: AGENT, supabase: okSupabase(), callOpenAI, model: 'stub' });
+
+    assert.equal(out.answer, 'Ini hasilnya.');
+    assert.equal(out.cards.length, 1);
+  });
+
+  await t.test('tanpa hasil terbit', async () => {
+    const out = await runBaniConversation({
+      question: 'x',
+      agent: AGENT,
+      supabase: okSupabase(),
+      callOpenAI: scriptedOpenAI([jsonResponse({ answer: '' })]),
+      model: 'stub',
+    });
+
+    assert.equal(out.answer, 'Maaf, jawabannya belum bisa dirangkum. Coba tanya ulang dengan lebih spesifik.');
+    assert.deepEqual(out.cards, []);
+    assert.deepEqual(out.media, []);
+    assert.deepEqual(out.kalkulasi, []);
+  });
 });
 
 // ── hydration (anti-halusinasi) ──────────────────────────────────────────────
@@ -689,7 +799,7 @@ test('list_jadwal_paket membawa brosur sendiri — permintaan brosur cukup satu 
 
 test('prompt mengarahkan permintaan brosur/itinerary ke field media, bukan URL di teks', () => {
   const prompt = buildBaniSystemPrompt(AGENT);
-  assert.match(prompt, /Kalau agent minta BROSUR atau ITINERARY/);
+  assert.match(prompt, /Kalau agent minta BROSUR PAKET atau ITINERARY/);
   assert.match(prompt, /isi field media/);
   assert.match(prompt, /JANGAN menjawab "brosurnya tersedia" tanpa mengisi media/);
   assert.match(prompt, /"media": \[\]/, 'kontrak JSON harus memuat field media');
@@ -774,6 +884,10 @@ test('brosur jadwal bulan sama tidak digandakan', () => {
 test('prompt membedakan brosur paket dari brosur jadwal', () => {
   const prompt = buildBaniSystemPrompt(AGENT);
   assert.match(prompt, /"Brosur" menunjuk DUA hal berbeda/);
+  assert.match(prompt, /"brosur paket"/);
+  assert.match(prompt, /Urutan keputusan WAJIB: \(1\) kata "jadwal"\/"bulanan".*→ BROSUR JADWAL; \(2\) kata "paket".*→ BROSUR PAKET; \(3\) tidak ada keduanya → BROSUR JADWAL/);
+  assert.match(prompt, /Menyebut bulan TIDAK mengubahnya jadi BROSUR JADWAL/);
+  assert.match(prompt, /available_only: true/);
   assert.match(prompt, /BROSUR JADWAL/);
   assert.match(prompt, /"type": "brosur_jadwal", "bulan": "YYYY-MM"/);
   assert.match(prompt, /TIDAK memakai jadwal_id/);
@@ -849,12 +963,13 @@ test('pipeline raster brosur dipakai bersama, bukan disalin', () => {
 });
 
 test('hydrateBaniMedia memotong di BANI_MAX_MEDIA', () => {
-  const rows = Array.from({ length: 8 }, (_, i) => ({ jadwal_id: `JBU${i}`, nama: `P${i}`, brosur: `https://cdn/b${i}.webp` }));
+  const rows = Array.from({ length: 5 }, (_, i) => ({ jadwal_id: `JBU${i}`, nama: `P${i}`, brosur: `https://cdn/b${i}.webp` }));
   const media = hydrateBaniMedia(
     [{ name: 'list_jadwal_paket', ok: true, data: { rows } }],
     { media: rows.map((r) => ({ type: 'brosur', jadwal_id: r.jadwal_id })) },
   );
   assert.equal(media.length, BANI_MAX_MEDIA);
+  assert.deepEqual(media.map((item) => item.jadwal_id), ['JBU0', 'JBU1', 'JBU2', 'JBU3']);
 });
 
 // ── kartu kalkulasi ──────────────────────────────────────────────────────────
