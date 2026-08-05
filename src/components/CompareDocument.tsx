@@ -7,6 +7,7 @@ import { tierRoomPrice, tierHotelInfo, packageCityHotels } from '@/lib/packageTi
 import { buildCompareVerdict } from '@/lib/compareVerdict';
 import type { CompareVerdict } from '@/lib/compareVerdict';
 import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
+import { formatCalendarMeetingPoint } from '@/lib/calendarPeople';
 import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName, airportCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
 import { destinationPhotosForDays } from '../../lib/itinerary-destinasi.js';
@@ -100,7 +101,12 @@ const s = StyleSheet.create({
   bandMaskapai: { ...b, fontSize: 8.5, color: C.white },
   bandDot: { fontSize: 8.5, color: '#ffffff99' },
   bandDurasi: { fontSize: 8.5, color: C.onDark },
-  rantai: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // Rantai 4+ simpul (Jum'atain Taif+Badar dkk) tidak muat satu baris di kolom
+  // ~265pt — tanpa wrap, pil saling menghimpit. Membungkusnya per UNIT
+  // panah+pil (rantaiUnit) supaya panah tak pernah menggantung sendirian di
+  // ujung baris.
+  rantai: { flexDirection: 'row', flexWrap: 'wrap' as const, alignItems: 'center', gap: 5, rowGap: 4 },
+  rantaiUnit: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   panah: { fontSize: 10, color: '#ffffff80' },
   simpul: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.onDarkFill },
   simpulText: { ...b, fontSize: 8, color: C.white },
@@ -131,6 +137,8 @@ const s = StyleSheet.create({
   tglUtama: { ...b, fontSize: 11, color: C.ink },
   jam: { fontSize: 9, color: C.gray },
   kode: { ...b, fontSize: 9, color: C.goldInk },
+  kumpul: { fontSize: 8.5, lineHeight: 1.35, color: C.gray, marginTop: 2 },
+  kumpulTebal: { ...b, fontSize: 8.5, color: C.ink },
   ruteKota: { ...b, fontSize: 9.5, color: C.ink },
   langsung: { ...b, fontSize: 7.5, color: C.goldInk },
   rute: { fontSize: 7.5, color: C.gray },
@@ -180,6 +188,8 @@ export interface ComparePdfSide {
   qrDataUrl?: string;
   /** Tempat yang dikunjungi, hasil parsing itinerary. Kosong = baris dilewati. */
   destinasi?: string[];
+  /** Titik & jam kumpul di bandara, dari kalender keberangkatan. Kosong = dilewati. */
+  kumpul?: { jam?: string; titik?: string };
 }
 
 export interface CompareDocumentProps {
@@ -361,6 +371,19 @@ function Landing({ kota }: { kota: string }) {
 const SISI_LABEL: Record<'a' | 'b', string> = { a: 'PAKET A', b: 'PAKET B' };
 
 /**
+ * Baris kumpul di sel BERANGKAT. Jam dicek jamValid (bisa kosong/penanda),
+ * titiknya diringkas formatCalendarMeetingPoint — teks kalender mentah bisa
+ * sepanjang satu kalimat. Dua-duanya kosong = baris tidak dicetak.
+ */
+function infoKumpul(side: ComparePdfSide): { jam: string; titik: string } | null {
+  const jamMentah = side.kumpul?.jam || '';
+  const jam = jamValid(jamMentah) ? `${fmtJam(jamMentah)} WIB` : '';
+  const titik = formatCalendarMeetingPoint(side.kumpul?.titik);
+  if (!jam && !titik) return null;
+  return { jam, titik };
+}
+
+/**
  * Foto agent + centang biru mitra resmi, meniru lencana bio (.bio-verified:
  * lingkaran #1d9bf0, centang putih, pojok kanan-bawah avatar). Cincin putih
  * tipis memisahkan lencana dari foto dan latar navy footer. Warna SVG wajib
@@ -481,6 +504,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const suhu = sides.map(side => kotaSuhu(side.pkg));
   const adaQr = sides.some(side => side.qrDataUrl);
   const adaDestinasi = sides.some(side => side.destinasi?.length);
+  const kumpulInfo = sides.map(infoKumpul);
   // Lima baris terpisah untuk lima tipe kamar bikin seksi harga terasa penuh.
   // Kamar dirangkum jadi satu baris berisi daftar; bayi berdiri sendiri karena
   // itu harga per anak, bukan pilihan kamar.
@@ -508,15 +532,28 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   }, 0);
   const maxKotaSuhu = Math.max(suhu[0].length, suhu[1].length, 1);
 
+  // Baris rantai perjalanan: taksir lebar tiap unit (panah 13 + ikon 14 +
+  // huruf 4.7pt + padding pil 16 + jarak 5) lalu bagi lebar kolom ~263pt.
+  const barisRantai = Math.max(1, ...rantai.map(r =>
+    Math.ceil(r.steps.reduce((total, step, k) => {
+      const ikon = ikonBisaDipakai(step.imageSrc) ? 14 : 0;
+      return total + step.label.length * 4.7 + 16 + ikon + (k > 0 ? 18 : 0);
+    }, 0) / 263),
+  ));
+
   let h = 4 + 64 + 1;                       // accent + header (logo di atas alamat) + rule
   const barisPoin = poin.reduce(
     (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 70),
     0,
   );
   h += 26 + 14 + poin.length * 4 + Math.ceil(barisPoin * 14); // pita kesimpulan (font 10)
-  h += 88 + 18 * barisNama;                 // pita paket (landing inline di baris meta)
+  h += 88 + 18 * barisNama + (barisRantai - 1) * 19; // pita paket (landing inline di meta)
   h += 23 + (20 + barisKamar.length * 17) + (adaBayi ? 40 : 0); // seksi + daftar kamar + bayi
-  h += 23 + 2 * 48 + 2 * 44;                // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
+  // Baris kumpul menambah tinggi sel BERANGKAT; titiknya bisa membungkus.
+  const barisKumpul = Math.max(0, ...kumpulInfo.map(k =>
+    k ? perkiraanBaris(`Kumpul ${k.jam} · ${k.titik}`, 44) : 0,
+  ));
+  h += 23 + 2 * 48 + 2 * 44 + barisKumpul * 12; // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
   h += 23 + kotaHotel.length * 33 + (barisHotel - kotaHotel.length) * 14;
   h += 23 + 41 + 46;                        // seksi ketersediaan: seat + manasik
   h += 18 + Math.ceil(maxKotaSuhu * 13.5);  // baris suhu
@@ -606,15 +643,17 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                 <Landing kota={rantai[i].landingCity} />
               </View>
               <View style={s.rantai}>
-                {rantai[i].steps.flatMap((step, k) => [
-                  ...(k > 0 ? [<Text key={`panah-${k}`} style={s.panah}>›</Text>] : []),
-                  <View key={`simpul-${k}`} style={s.simpul}>
-                    {ikonBisaDipakai(step.imageSrc) && (
-                      <Image style={s.simpulIkon} src={`${origin}${step.imageSrc}`} />
-                    )}
-                    <Text style={s.simpulText}>{step.label}</Text>
-                  </View>,
-                ])}
+                {rantai[i].steps.map((step, k) => (
+                  <View key={k} style={s.rantaiUnit}>
+                    {k > 0 && <Text style={s.panah}>›</Text>}
+                    <View style={s.simpul}>
+                      {ikonBisaDipakai(step.imageSrc) && (
+                        <Image style={s.simpulIkon} src={`${origin}${step.imageSrc}`} />
+                      )}
+                      <Text style={s.simpulText}>{step.label}</Text>
+                    </View>
+                  </View>
+                ))}
               </View>
             </View>
           ))}
@@ -664,6 +703,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
             <Baris label={baris.label}>
               {sides.map((side, i) => {
                 const f = baris.ambil(side.pkg);
+                const kumpul = baris.label === 'BERANGKAT' ? kumpulInfo[i] : null;
                 return (
                   <Sel key={i} kanan={i === 1}>
                     <Text style={s.tglUtama}>{fmtTanggal(f.tgl)}</Text>
@@ -671,6 +711,12 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                       {jamValid(f.jam) && <Text style={s.jam}>{fmtJam(f.jam)} WIB</Text>}
                       <Text style={s.kode}>{f.kodePenerbangan}</Text>
                     </View>
+                    {kumpul && (
+                      <Text style={s.kumpul}>
+                        <Text style={s.kumpulTebal}>Kumpul{kumpul.jam ? ` ${kumpul.jam}` : ''}</Text>
+                        {kumpul.titik ? ` · ${kumpul.titik}` : ''}
+                      </Text>
+                    )}
                   </Sel>
                 );
               })}
@@ -706,9 +752,12 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                       <Text style={s.hotelNama}>{rapikanNama(hotel.nama)}</Text>
                       <View style={s.cellLine}>
                         <Bintang jumlah={hotel.stars} />
-                        {Boolean(hotel.jarak) && (
+                        {/* Jarak hanya bermakna di kota kiblat: "±400 m ke
+                            Masjidil Haram" menolong keputusan, "±2 km" di Cairo
+                            tidak menjelaskan ke mana. */}
+                        {Boolean(hotel.jarak) && Boolean(KIBLAT_KOTA[kota.key]) && (
                           <Text style={s.jarak}>
-                            {renggangkanJarak(hotel.jarak)}{KIBLAT_KOTA[kota.key] ? ` ke ${KIBLAT_KOTA[kota.key]}` : ''}
+                            {renggangkanJarak(hotel.jarak)} ke {KIBLAT_KOTA[kota.key]}
                           </Text>
                         )}
                       </View>

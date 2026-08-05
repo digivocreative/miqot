@@ -9,7 +9,6 @@ import {
   Search,
   ChevronDown,
   Loader2,
-  Plane,
   Sun,
   Moon,
   FileText,
@@ -20,7 +19,8 @@ import {
   X,
   Share2,
 } from 'lucide-react';
-import { getPackages } from '@/services';
+import { getPackages, filterAvailable, sortByDepartureDate } from '@/services';
+import { getAuthHeaders } from './LoginPage';
 import type { UmrohPackage } from '@/types';
 import {
   listPackageTiers,
@@ -68,6 +68,8 @@ interface SelectOption {
   flags?: string[];
   colorClass?: string;
   searchText?: string;
+  /** Sisa seat, tampil sebagai lencana kecil di kartu & daftar. */
+  seat?: number;
 }
 
 // ============================================
@@ -103,17 +105,20 @@ function SearchableSelect({
     return o.label.toLowerCase().includes(q) || (o.searchText && o.searchText.toLowerCase().includes(q));
   });
 
-  const selectedLabel = options.find((o) => o.id === value)?.label || '';
-  const parsed = selectedLabel
+  const selectedOpt = options.find((o) => o.id === value) || null;
+  // Nama paket jadi teks utama (boleh dua baris, jangan dipotong): agent
+  // berpikir dalam nama paket, tanggal cukup jadi kicker. Kotak ikon pesawat
+  // dekoratif yang lama cuma memboroskan lebar & tinggi kartu.
+  const parsed = selectedOpt
     ? (() => {
-        const parts = selectedLabel.split(' — ');
+        const parts = selectedOpt.label.split(' — ');
         return { date: parts[0] || '', name: parts[1] || '' };
       })()
     : null;
 
   return (
     <div className="relative">
-      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">{label}</p>
+      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">{label}</p>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -121,28 +126,29 @@ function SearchableSelect({
         className="w-full text-left rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-sm transition-all duration-300 hover:border-emerald-300 dark:hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 disabled:opacity-60 overflow-hidden"
       >
         {loading ? (
-          <div className="flex items-center gap-2 text-slate-400 text-sm px-4 py-4">
+          <div className="flex items-center gap-2 text-slate-400 text-sm px-3.5 py-3.5">
             <Loader2 size={16} className="animate-spin" />
             Memuat paket...
           </div>
         ) : parsed ? (
-          <div className="flex items-stretch">
-            <div className="flex-1 min-w-0 p-4">
-              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Keberangkatan</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">{parsed.date}</p>
-              {parsed.name && (
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{parsed.name}</p>
-              )}
-            </div>
-            <div className="w-px bg-slate-200 my-3 border-l border-dashed border-slate-300" />
-            <div className="flex items-center justify-center px-4 flex-shrink-0">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center border border-amber-100">
-                <Plane size={18} className="text-amber-600 rotate-45" />
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">{parsed.date}</p>
+                {typeof selectedOpt?.seat === 'number' && (
+                  <span className="text-[10px] font-bold px-1.5 py-px rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
+                    Sisa {selectedOpt.seat} seat
+                  </span>
+                )}
               </div>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-snug mt-1">
+                {parsed.name || parsed.date}
+              </p>
             </div>
+            <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </div>
         ) : (
-          <div className="flex items-center justify-between px-4 py-4">
+          <div className="flex items-center justify-between px-3.5 py-3.5">
             <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">{placeholder}</span>
             <ChevronDown size={18} className="text-emerald-500" />
           </div>
@@ -166,7 +172,7 @@ function SearchableSelect({
                 />
               </div>
             </div>
-            <div className="max-h-64 overflow-y-auto">
+            <div className="max-h-80 overflow-y-auto">
               {filtered.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-slate-400">Tidak ditemukan</div>
               ) : (
@@ -182,7 +188,7 @@ function SearchableSelect({
                         setIsOpen(false);
                         setSearch('');
                       }}
-                      className={`w-full text-left px-4 py-3 transition-all duration-300 flex items-center gap-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${
+                      className={`w-full text-left px-3.5 py-2.5 transition-all duration-300 flex items-center gap-3 border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${
                         isSelected
                           ? 'bg-emerald-50 dark:bg-emerald-900/30'
                           : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
@@ -196,9 +202,16 @@ function SearchableSelect({
                           <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">{parts[1]}</p>
                         )}
                       </div>
-                      {opt.flags && (
-                        <div className="flex gap-0.5 text-sm shrink-0">{opt.flags.map((f, i) => <span key={i}>{f}</span>)}</div>
-                      )}
+                      <div className="shrink-0 flex flex-col items-end gap-0.5">
+                        {opt.flags && (
+                          <div className="flex gap-0.5 text-sm">{opt.flags.map((f, i) => <span key={i}>{f}</span>)}</div>
+                        )}
+                        {typeof opt.seat === 'number' && (
+                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            Sisa {opt.seat}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })
@@ -229,8 +242,8 @@ function TierPicker({
   if (!pkg || tiers.length <= 1) return null;
 
   return (
-    <div className="mt-3">
-      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Tipe Paket</p>
+    <div className="mt-2.5">
+      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5">Tipe Paket</p>
       <div className="grid grid-cols-2 gap-2">
         {tiers.map((tier) => {
           const hotel = tierHotelInfo(pkg, tier);
@@ -344,7 +357,17 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
   const fetchPackages = useCallback(async () => {
     setLoadingPackages(true);
     const result = await getPackages({ yearCode: '1448' });
-    if (result.success) setPackages(result.packages);
+    if (result.success) {
+      // Halaman ini alat jualan: paket yang seat-nya habis atau sudah berangkat
+      // tak ada gunanya dibandingkan, jadi disaring sebelum masuk daftar.
+      // Perbandingan string YYYY-MM-DD, bukan Date: tgl API di-parse sebagai
+      // UTC sehingga keberangkatan kemarin masih > tengah malam lokal WIB.
+      const now = new Date();
+      const hariIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const tersedia = filterAvailable(result.packages)
+        .filter(p => String(p.keberangkatan.tgl).slice(0, 10) >= hariIni);
+      setPackages(sortByDepartureDate(tersedia));
+    }
     setLoadingPackages(false);
   }, []);
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
@@ -385,7 +408,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       if (cities.istanbul_hotel || cities.bursa_hotel || cities.cappadocia_hotel || cities.ankara_hotel) flags.push('🇹🇷');
       const searchParts: string[] = [pkg.maskapai, ...listPackageTiers(pkg)];
       ['mekkah_hotel', 'madinah_hotel', 'cairo_hotel', 'istanbul_hotel'].forEach(k => { if (cities[k]) searchParts.push(cities[k]); });
-      return { id: pkg.jadwalId, label: `${dateStr} — ${pkg.nama}`, flags, searchText: searchParts.join(' ') };
+      return { id: pkg.jadwalId, label: `${dateStr} — ${pkg.nama}`, flags, searchText: searchParts.join(' '), seat: pkg.seatSisa };
     });
   }, [packages]);
 
@@ -413,6 +436,15 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
   // ditanya jamaah — pesawat & tanggal sama, hotelnya beda berapa.
   const sameSelection = Boolean(paketA) && paketA === paketB && activeTierA === activeTierB;
 
+  // Tukar posisi A↔B beserta tier mentahnya — lebih cepat daripada memilih
+  // ulang dua kali kalau agent ingin paketnya bertukar kolom di PDF.
+  const swapSelection = () => {
+    setPaketA(paketB);
+    setPaketB(paketA);
+    setTierA(tierB);
+    setTierB(tierA);
+  };
+
   // Tautan itinerary web yang sudah live; QR dilewati kalau paketnya belum punya
   // itinerary atau slug agent tak diketahui — halaman kosong lebih buruk daripada
   // tanpa QR sama sekali.
@@ -428,6 +460,40 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
     setPdfError(false);
   }, []);
 
+  // Titik & jam kumpul dari kalender keberangkatan (data ini tidak ada di API
+  // paket). Best-effort 6 detik: gagal, belum tersinkron, atau jadwal tak
+  // ditemukan berarti barisnya dilewati — jangan menahan pembuatan PDF.
+  const ambilKumpul = useCallback(async (pkg: UmrohPackage) => {
+    const tgl = String(pkg.keberangkatan.tgl).slice(0, 10);
+    const [tahun, bulan] = tgl.split('-').map(Number);
+    if (!tahun || !bulan) return undefined;
+    const batal = new AbortController();
+    const timer = setTimeout(() => batal.abort(), 6000);
+    try {
+      const res = await fetch(`/api/calendar/events?month=${bulan}&year=${tahun}`, {
+        headers: getAuthHeaders(),
+        signal: batal.signal,
+      });
+      if (!res.ok) return undefined;
+      const json = await res.json();
+      const events: Array<{ type?: string; details?: Array<{ jadwal_id?: string | null; jam_kumpul?: string | null; titik_kumpul?: string | null }> }> =
+        json?.success ? (json.data?.events || []) : [];
+      for (const ev of events) {
+        if (ev?.type !== 'keberangkatan') continue;
+        for (const d of ev.details || []) {
+          if (String(d?.jadwal_id || '') !== pkg.jadwalId) continue;
+          if (!d.jam_kumpul && !d.titik_kumpul) return undefined;
+          return { jam: d.jam_kumpul || undefined, titik: d.titik_kumpul || undefined };
+        }
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  }, []);
+
   const handleCompare = useCallback(async () => {
     if (!pkgA || !pkgB || sameSelection || comparing) return;
     setComparing(true);
@@ -436,9 +502,10 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
     setPdfLoading(true);
     trackEvent('action', 'generate_pdf', { paket: `${pkgA.jadwalId} vs ${pkgB.jadwalId}` });
     try {
+      const [kumpulA, kumpulB] = await Promise.all([ambilKumpul(pkgA), ambilKumpul(pkgB)]);
       const blob = await generateComparePdfBlob({
-        a: { pkg: pkgA, tier: activeTierA, itineraryUrl: itineraryUrlFor(pkgA) },
-        b: { pkg: pkgB, tier: activeTierB, itineraryUrl: itineraryUrlFor(pkgB) },
+        a: { pkg: pkgA, tier: activeTierA, itineraryUrl: itineraryUrlFor(pkgA), kumpul: kumpulA },
+        b: { pkg: pkgB, tier: activeTierB, itineraryUrl: itineraryUrlFor(pkgB), kumpul: kumpulB },
         agent,
       });
       pdfBlobRef.current = blob;
@@ -451,7 +518,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       setPdfLoading(false);
       setComparing(false);
     }
-  }, [pkgA, pkgB, activeTierA, activeTierB, sameSelection, comparing, agent, itineraryUrlFor]);
+  }, [pkgA, pkgB, activeTierA, activeTierB, sameSelection, comparing, agent, itineraryUrlFor, ambilKumpul]);
 
   // Pilihan berubah berarti PDF lama sudah tidak mewakili apa pun.
   useEffect(() => {
@@ -532,7 +599,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
             <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Bandingkan Paket
             </h1>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Pilih 2 paket untuk dibandingkan</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Pilih 2 paket · hanya paket yang masih tersedia</p>
           </div>
           <button
             type="button"
@@ -549,7 +616,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       {/* ── MAIN CONTENT ── */}
       <div className="max-w-3xl mx-auto px-4 pb-10">
         {/* Package Selectors Card */}
-        <div className="mt-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-5">
+        <div className="mt-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
           <SearchableSelect
             options={packageOptions}
             value={paketA}
@@ -560,12 +627,18 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
           />
           <TierPicker pkg={pkgA} value={activeTierA} onChange={setTierA} />
 
-          {/* VS Divider */}
-          <div className="flex items-center gap-3 my-4">
+          {/* Pembatas sekaligus tombol tukar A↔B */}
+          <div className="flex items-center gap-3 my-3">
             <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-600 to-transparent" />
-            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/30 border-2 border-emerald-200 dark:border-emerald-700 flex items-center justify-center">
-              <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">VS</span>
-            </div>
+            <button
+              type="button"
+              onClick={swapSelection}
+              title="Tukar posisi Paket A dan B"
+              aria-label="Tukar posisi Paket A dan B"
+              className="w-9 h-9 rounded-full bg-emerald-50 dark:bg-emerald-900/30 border-2 border-emerald-200 dark:border-emerald-700 flex items-center justify-center text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all duration-200 active:scale-95"
+            >
+              <ArrowLeftRight size={14} />
+            </button>
             <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-600 to-transparent" />
           </div>
 
@@ -584,7 +657,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
             type="button"
             onClick={handleCompare}
             disabled={!paketA || !paketB || sameSelection || comparing}
-            className="w-full mt-5 flex items-center justify-center gap-2.5 py-4 rounded-2xl font-bold text-white text-base bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+            className="w-full mt-4 flex items-center justify-center gap-2.5 py-3.5 rounded-2xl font-bold text-white text-base bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
           >
             {comparing ? (
               <><Loader2 size={20} className="animate-spin" /> Membandingkan...</>
