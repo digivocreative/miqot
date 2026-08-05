@@ -79,9 +79,7 @@ const s = StyleSheet.create({
   docDate: { fontSize: 7.5, color: C.gray },
   rule: { height: 0.5, backgroundColor: C.line },
 
-  // flexGrow menyerap selisih taksiran tinggi halaman: sisa taksiran jadi latar
-  // emas pita ini yang sedikit lebih lega, bukan pita putih di bawah footer.
-  kesimpulan: { flexGrow: 1, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
+  kesimpulan: { paddingVertical: 12, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
   kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   kesimpulanTick: { width: 3.5, height: 3.5, backgroundColor: C.gold },
   kesimpulanLabel: { ...b, fontSize: 9, letterSpacing: 1.2, color: '#6b4e0c' },
@@ -98,7 +96,7 @@ const s = StyleSheet.create({
   tierBadge: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: '#ffffff2e' },
   tierText: { ...b, fontSize: 8, letterSpacing: 0.8, color: C.white },
   bandNama: { ...b, fontSize: 14, color: C.white, lineHeight: 1.25, marginBottom: 7 },
-  bandMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 7 },
+  bandMeta: { flexDirection: 'row', flexWrap: 'wrap' as const, alignItems: 'center', gap: 6, marginBottom: 7 },
   bandMaskapai: { ...b, fontSize: 8.5, color: C.white },
   bandDot: { fontSize: 8.5, color: '#ffffff99' },
   bandDurasi: { fontSize: 8.5, color: C.onDark },
@@ -107,14 +105,18 @@ const s = StyleSheet.create({
   simpul: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.onDarkFill },
   simpulText: { ...b, fontSize: 8, color: C.white },
   simpulIkon: { width: 10, height: 10, objectFit: 'contain' as const },
-  landingTanda: { flexDirection: 'row', alignItems: 'center', gap: 3.5, marginTop: 6 },
-  landingTeks: { fontSize: 7.5, color: C.onDarkDim },
+  landingTanda: { flexDirection: 'row', alignItems: 'center', gap: 3.5 },
+  landingTeks: { fontSize: 8.5, color: C.onDarkDim },
 
   seksi: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 7, paddingHorizontal: 20, backgroundColor: C.bgSoft, borderTopWidth: 0.5, borderTopColor: C.line },
   seksiTick: { width: 3, height: 3, backgroundColor: C.gold },
   seksiJudul: { ...b, fontSize: 8.5, letterSpacing: 1.2, color: C.navy },
 
-  row: { flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: C.line },
+  // flexGrow menyebar selisih taksiran tinggi halaman ke SEMUA baris tabel —
+  // tiap baris cuma kebagian 2-4pt, tak kasat mata. Menumpuknya di satu blok
+  // (dulu di pita Kesimpulan) terlihat sebagai ruang kosong dan dikeluhkan user;
+  // footer tetap rapat ke dasar halaman.
+  row: { flexGrow: 1, flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: C.line },
   labelCell: { width: LABEL_W, paddingVertical: 9, paddingHorizontal: 14, backgroundColor: C.bgTint },
   labelText: { ...b, fontSize: 8, letterSpacing: 0.6, lineHeight: 1.35, color: C.gray },
   cell: { flex: 1, paddingVertical: 9, paddingHorizontal: 14 },
@@ -156,8 +158,10 @@ const s = StyleSheet.create({
   footerAccent: { height: 3, backgroundColor: C.burgundy },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: C.navy },
   footerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  avatarWrap: { position: 'relative' as const, width: 32, height: 32 },
   avatar: { width: 32, height: 32, borderRadius: 16, objectFit: 'cover' as const },
   avatarKosong: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#ffffff33' },
+  avatarBadge: { position: 'absolute' as const, right: -2, bottom: -2 },
   agentNama: { ...b, fontSize: 10.5, color: C.white, marginBottom: 2 },
   agentKontak: { fontSize: 8, color: C.onDark },
   footerKanan: { alignItems: 'flex-end' },
@@ -337,14 +341,16 @@ function rantaiPerjalanan(pkg: UmrohPackage) {
  */
 const ikonBisaDipakai = (src: string) => /\.(png|jpe?g)$/i.test(src || '');
 
-/** Pesawat mendarat, penanda kota tempat rombongan turun dari penerbangan. */
+/** Pesawat mendarat, penanda kota tempat rombongan turun dari penerbangan.
+ *  Dirender inline di baris meta (maskapai • durasi • mendarat), bukan baris
+ *  sendiri di bawah rantai. */
 const PLANE_PATH = 'M2.5 19h19v2h-19v-2zm19.57-9.36c-.21-.8-1.04-1.27-1.84-1.06L14.92 10l-6.9-6.43-1.93.51 4.14 7.17-4.97 1.33-1.97-1.54-1.45.39 2.59 4.49L21.01 11.5c.81-.23 1.28-1.05 1.06-1.86z';
 
 function Landing({ kota }: { kota: string }) {
   if (!kota) return null;
   return (
     <View style={s.landingTanda}>
-      <Svg width={7.5} height={7.5} viewBox="0 0 24 24">
+      <Svg width={8.5} height={8.5} viewBox="0 0 24 24">
         <Path d={PLANE_PATH} fill={C.onDarkSolid} />
       </Svg>
       <Text style={s.landingTeks}>Mendarat di {kota}</Text>
@@ -353,6 +359,25 @@ function Landing({ kota }: { kota: string }) {
 }
 
 const SISI_LABEL: Record<'a' | 'b', string> = { a: 'PAKET A', b: 'PAKET B' };
+
+/**
+ * Foto agent + centang biru mitra resmi, meniru lencana bio (.bio-verified:
+ * lingkaran #1d9bf0, centang putih, pojok kanan-bawah avatar). Cincin putih
+ * tipis memisahkan lencana dari foto dan latar navy footer. Warna SVG wajib
+ * padat — lihat catatan alpha-hex di palet.
+ */
+function AvatarTerverifikasi({ foto }: { foto?: string }) {
+  return (
+    <View style={s.avatarWrap}>
+      {foto ? <Image style={s.avatar} src={foto} /> : <View style={s.avatarKosong} />}
+      <Svg style={s.avatarBadge} width={12} height={12} viewBox="0 0 26 26">
+        <Path d="M13 0a13 13 0 1 1 0 26 13 13 0 1 1 0-26z" fill={C.white} />
+        <Path d="M13 2a11 11 0 1 1 0 22 11 11 0 1 1 0-22z" fill="#1d9bf0" />
+        <Path d="M8 13.5l3.4 3.4 6.6-7.2" stroke={C.white} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </Svg>
+    </View>
+  );
+}
 
 /**
  * Poin kesimpulan. Sengaja NETRAL: menyandingkan angka kedua paket, tanpa kata
@@ -489,7 +514,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
     0,
   );
   h += 26 + 14 + poin.length * 4 + Math.ceil(barisPoin * 14); // pita kesimpulan (font 10)
-  h += 88 + 18 * barisNama + 15;            // pita paket + penanda landing
+  h += 88 + 18 * barisNama;                 // pita paket (landing inline di baris meta)
   h += 23 + (20 + barisKamar.length * 17) + (adaBayi ? 40 : 0); // seksi + daftar kamar + bayi
   h += 23 + 2 * 48 + 2 * 44;                // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
   h += 23 + kotaHotel.length * 33 + (barisHotel - kotaHotel.length) * 14;
@@ -577,6 +602,8 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                 <Text style={s.bandMaskapai}>{side.pkg.maskapai}</Text>
                 <Text style={s.bandDot}>•</Text>
                 <Text style={s.bandDurasi}>{durasiHari(side.pkg)} HARI</Text>
+                {Boolean(rantai[i].landingCity) && <Text style={s.bandDot}>•</Text>}
+                <Landing kota={rantai[i].landingCity} />
               </View>
               <View style={s.rantai}>
                 {rantai[i].steps.flatMap((step, k) => [
@@ -589,7 +616,6 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                   </View>,
                 ])}
               </View>
-              <Landing kota={rantai[i].landingCity} />
             </View>
           ))}
         </View>
@@ -803,9 +829,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         <View style={s.footerAccent} />
         <View style={s.footer}>
           <View style={s.footerKiri}>
-            {agentPhotoBase64
-              ? <Image style={s.avatar} src={agentPhotoBase64} />
-              : <View style={s.avatarKosong} />}
+            <AvatarTerverifikasi foto={agentPhotoBase64} />
             <View>
               <Text style={s.agentNama}>{namaAgent || 'Alhijaz Indowisata'}</Text>
               <Text style={s.agentKontak}>
