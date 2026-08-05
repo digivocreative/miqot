@@ -65,18 +65,14 @@ const s = StyleSheet.create({
   docDate: { fontSize: 6.5, color: C.grayLight },
   rule: { height: 0.5, backgroundColor: C.line },
 
-  hero: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 18, paddingHorizontal: 20, backgroundColor: C.navy },
-  heroKicker: { ...b, fontSize: 6.5, letterSpacing: 1.3, color: C.onDarkDim, marginBottom: 1 },
-  heroAngka: { ...b, fontSize: 27, color: C.white },
-  heroKet: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
-  heroKetText: { fontSize: 8, color: C.onDark },
-  heroKetStrong: { ...b, fontSize: 8, color: C.white },
-  heroKetDim: { fontSize: 8, color: C.onDarkDim },
-  chips: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', gap: 7 },
-  chip: { width: 104, paddingVertical: 9, paddingHorizontal: 10, borderRadius: 4, backgroundColor: C.onDarkFill, borderWidth: 0.5, borderColor: '#ffffff33' },
-  chipAspek: { ...b, fontSize: 6.5, letterSpacing: 1.1, color: C.onDarkDim, marginBottom: 2 },
-  chipPemenang: { ...b, fontSize: 10, color: C.white, marginBottom: 2 },
-  chipDetail: { fontSize: 6.5, color: '#ffffffb3' },
+  kesimpulan: { paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.goldSoft },
+  kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
+  kesimpulanTick: { width: 3, height: 3, backgroundColor: C.gold },
+  kesimpulanLabel: { ...b, fontSize: 7, letterSpacing: 1.2, color: C.gold },
+  poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
+  poinDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: C.burgundy, marginTop: 4 },
+  poinTeks: { flex: 1, fontSize: 8, lineHeight: 1.4, color: C.gray },
+  poinTebal: { ...b, fontSize: 8, color: C.ink },
 
   band: { flexDirection: 'row', backgroundColor: C.navySoft },
   bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
@@ -166,9 +162,13 @@ const ROOMS = ['Quard', 'Triple', 'Double'] as const;
 const ROOM_LABEL: Record<string, string> = { Quard: 'Quad', Triple: 'Triple', Double: 'Double' };
 
 /**
- * Bintang digambar sebagai SVG, bukan karakter ★ (U+2605): Inter yang di-embed
- * belum tentu punya glyph itu, dan glyph yang hilang di react-pdf jadi kotak
- * kosong tanpa peringatan.
+ * Bintang digambar SVG supaya ukuran dan warnanya lepas dari metrik font —
+ * deretan ★ 8pt di dalam baris teks 8.5pt duduknya tidak rata.
+ *
+ * Inter yang di-embed SENDIRI punya glyph ★ (U+2605), sudah diperiksa dengan
+ * fontkit; pita Kesimpulan memakai karakternya langsung. Yang perlu diingat
+ * untuk simbol lain: glyph yang tidak ada di font ter-embed hilang diam-diam di
+ * react-pdf, jadi periksa dulu sebelum memakai simbol yang tidak umum.
  */
 const STAR_PATH = 'M12 2l2.94 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.06-1.01L12 2z';
 
@@ -247,31 +247,76 @@ function rantaiPerjalanan(pkg: UmrohPackage): string[] {
 
 const SISI_LABEL: Record<'a' | 'b', string> = { a: 'PAKET A', b: 'PAKET B' };
 
-function chipData(verdict: CompareVerdict, sideA: ComparePdfSide, sideB: ComparePdfSide) {
-  const seat = verdict.seat;
-  return [
-    {
-      aspek: 'HARGA',
-      pemenang: verdict.price ? SISI_LABEL[verdict.price.side] : 'SEIMBANG',
-      detail: verdict.price
-        ? `${verdict.price.wins} dari ${verdict.price.total} tipe kamar`
-        : 'tak ada selisih yang menonjol',
-    },
-    {
-      aspek: 'HOTEL',
-      pemenang: verdict.hotel ? SISI_LABEL[verdict.hotel.side] : 'SEIMBANG',
-      detail: verdict.hotel
-        ? (verdict.hotel.reason === 'bintang' ? 'bintang lebih tinggi' : 'jarak lebih dekat')
-        : 'bintang & jarak setara',
-    },
-    {
-      aspek: 'SEAT',
-      pemenang: seat ? SISI_LABEL[seat.side] : 'SEIMBANG',
-      detail: seat
-        ? `${seat.a} vs ${seat.b} kursi`
-        : `${sideA.pkg.seatSisa} vs ${sideB.pkg.seatSisa} kursi`,
-    },
-  ];
+/**
+ * Tiga poin kesimpulan, dirakit dari verdict. Poin yang verdict-nya `null`
+ * DILEWATI, bukan ditulis "seimbang": pita ini kalimat berita, dan kalimat yang
+ * tak punya dasar lebih baik tidak dicetak sama sekali.
+ */
+function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePdfSide) {
+  const poin: { tebal: string; sisa: string }[] = [];
+  const pkg = { a: a.pkg, b: b.pkg };
+
+  if (verdict.gap && verdict.gap.diff > 0 && verdict.gap.cheaper) {
+    const sisi = verdict.gap.cheaper;
+    const hariIni = durasiHari(pkg[sisi]);
+    const hariLain = durasiHari(pkg[sisi === 'a' ? 'b' : 'a']);
+    const bedaHari = hariIni - hariLain;
+    const ekor = bedaHari > 0
+      ? `, dan ${bedaHari} hari lebih lama`
+      : bedaHari < 0 ? `, tapi ${-bedaHari} hari lebih singkat` : '';
+    poin.push({
+      tebal: `${SISI_LABEL[sisi]} lebih hemat`,
+      sisa: `${fmtRupiah(verdict.gap.diff)} per jamaah (kamar ${ROOM_LABEL[verdict.gap.room]})${ekor}.`,
+    });
+  } else if (verdict.gap) {
+    // `price` masih terisi berarti ada tipe kamar LAIN yang berbeda. Kalau null,
+    // tak ada satu pun tipe yang berselisih — jangan menjanjikan selisih yang
+    // tidak ada di halaman yang sama.
+    poin.push({
+      tebal: `Harga kamar ${ROOM_LABEL[verdict.gap.room]} sama`,
+      sisa: verdict.price
+        ? 'selisihnya ada di tipe kamar lain, bukan di harga dasar.'
+        : `${fmtRupiah(tierRoomPrice(a.pkg, a.tier, verdict.gap.room))} per jamaah di kedua paket.`,
+    });
+  }
+
+  if (verdict.hotel) {
+    const sisi = verdict.hotel.side;
+    const lawan = sisi === 'a' ? 'b' : 'a';
+    const banding = (kota: string) => {
+      const menang = hotelDiKota(pkg[sisi], sisi === 'a' ? a.tier : b.tier, kota);
+      const kalah = hotelDiKota(pkg[lawan], lawan === 'a' ? a.tier : b.tier, kota);
+      if (!menang || !kalah) return '';
+      const ringkas = (h: NonNullable<typeof menang>) =>
+        [h.stars > 0 ? `${h.stars}★` : '', h.jarak].filter(Boolean).join(' ');
+      const kiri = ringkas(menang);
+      const kanan = ringkas(kalah);
+      if (!kiri || !kanan) return '';
+      return `${kota === 'mekkah' ? 'Mekkah' : 'Madinah'} ${kiri} vs ${kanan}`;
+    };
+    const rincian = ['mekkah', 'madinah'].map(banding).filter(Boolean).join('; ');
+    poin.push({
+      tebal: `${SISI_LABEL[sisi]} unggul di hotel`,
+      sisa: rincian ? `${rincian}.` : (verdict.hotel.reason === 'bintang' ? 'bintangnya lebih tinggi.' : 'jaraknya lebih dekat.'),
+    });
+  }
+
+  if (verdict.seat) {
+    const sisi = verdict.seat.side;
+    const lawan = sisi === 'a' ? 'b' : 'a';
+    poin.push({
+      tebal: `Sisa seat ${SISI_LABEL[sisi]} lebih longgar`,
+      sisa: `${verdict.seat[sisi]} dari ${pkg[sisi].seatTotal} kursi, sedangkan ${SISI_LABEL[lawan]} ${verdict.seat[lawan]} dari ${pkg[lawan].seatTotal}.`,
+    });
+  }
+
+  if (!poin.length) {
+    poin.push({
+      tebal: 'Kedua paket sebanding',
+      sisa: 'harga, hotel, dan ketersediaannya tidak berbeda berarti.',
+    });
+  }
+  return poin;
 }
 
 // ============================================
@@ -280,7 +325,7 @@ function chipData(verdict: CompareVerdict, sideA: ComparePdfSide, sideB: Compare
 export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocumentProps) {
   const sides = [a, b];
   const verdict = buildCompareVerdict(verdictSide(a), verdictSide(b));
-  const chips = chipData(verdict, a, b);
+  const poin = poinKesimpulan(verdict, a, b);
 
   const hargaA: Record<string, number> = {};
   const hargaB: Record<string, number> = {};
@@ -316,7 +361,11 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const maxKotaSuhu = Math.max(suhu[0].length, suhu[1].length, 1);
 
   let h = 4 + 51 + 1;                       // accent + header + rule
-  h += 84;                                  // hero
+  const barisPoin = poin.reduce(
+    (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 88),
+    0,
+  );
+  h += 22 + 12 + poin.length * 3 + Math.ceil(barisPoin * 11.5); // pita kesimpulan
   h += 79 + 17 * barisNama;                 // pita paket
   h += 20 + barisHarga.length * 42;         // seksi harga + baris
   h += 20 + 2 * 44;                         // seksi penerbangan + 2 baris
@@ -376,40 +425,21 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         </View>
         <View style={s.rule} />
 
-        {/* ─── HERO KEPUTUSAN ─── */}
-        <View style={s.hero}>
-          <View>
-            {verdict.gap && verdict.gap.diff > 0 && verdict.gap.cheaper ? (
-              <>
-                <Text style={s.heroKicker}>SELISIH HARGA</Text>
-                <Text style={s.heroAngka}>{fmtRupiah(verdict.gap.diff)}</Text>
-                <View style={s.heroKet}>
-                  <Text style={s.heroKetText}>lebih hemat di</Text>
-                  <Text style={s.heroKetStrong}>{SISI_LABEL[verdict.gap.cheaper]}</Text>
-                  <Text style={s.heroKetDim}>· kamar {ROOM_LABEL[verdict.gap.room]}</Text>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={s.heroKicker}>PERBANDINGAN PAKET</Text>
-                <Text style={s.heroAngka}>Dua Pilihan</Text>
-                <View style={s.heroKet}>
-                  <Text style={s.heroKetText}>
-                    {verdict.gap ? `Harga kamar ${ROOM_LABEL[verdict.gap.room]} sama` : 'Harga belum bisa dibandingkan'}
-                  </Text>
-                </View>
-              </>
-            )}
+        {/* ─── KESIMPULAN ─── */}
+        <View style={s.kesimpulan}>
+          <View style={s.kesimpulanHead}>
+            <View style={s.kesimpulanTick} />
+            <Text style={s.kesimpulanLabel}>KESIMPULAN</Text>
           </View>
-          <View style={s.chips}>
-            {chips.map(chip => (
-              <View key={chip.aspek} style={s.chip}>
-                <Text style={s.chipAspek}>{chip.aspek}</Text>
-                <Text style={s.chipPemenang}>{chip.pemenang}</Text>
-                <Text style={s.chipDetail}>{chip.detail}</Text>
-              </View>
-            ))}
-          </View>
+          {poin.map((p, i) => (
+            <View key={i} style={s.poin}>
+              <View style={s.poinDot} />
+              <Text style={s.poinTeks}>
+                <Text style={s.poinTebal}>{p.tebal}</Text>
+                {'  '}{p.sisa}
+              </Text>
+            </View>
+          ))}
         </View>
 
         {/* ─── PITA PAKET ─── */}
