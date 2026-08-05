@@ -23,10 +23,14 @@ Font.register({
 });
 Font.registerHyphenationCallback((word) => [word]);
 
-// ── Palet: burgundy & emas Alhijaz, sama dengan Surat Penawaran ──
+// ── Palet: sama dengan Surat Penawaran (QuotationDocument) ──
+// Pembagiannya juga ditiru dari sana: blok besar memakai biru tua, burgundy
+// tinggal sebagai aksen — pita atas, lencana judul, dan angka yang menang.
+// Dokumen yang seluruhnya merah terasa berat dan boros tinta.
 const C = {
   burgundy: '#b40200',
-  burgundyDeep: '#7a0100',
+  navy: '#1f2937',
+  navySoft: '#374151',
   gold: '#c18f1f',
   goldSoft: '#fbf3e2',
   ink: '#1f2937',
@@ -52,6 +56,8 @@ const s = StyleSheet.create({
 
   accentBar: { height: 4, backgroundColor: C.burgundy },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 13, paddingHorizontal: 20 },
+  headerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  headerLogo: { width: 30, height: 30, borderRadius: 5 },
   company: { ...b, fontSize: 12, color: C.burgundy, marginBottom: 2 },
   address: { fontSize: 6.5, color: C.gray },
   docBadge: { backgroundColor: C.burgundy, borderRadius: 2, paddingVertical: 3, paddingHorizontal: 9, marginBottom: 3 },
@@ -59,7 +65,7 @@ const s = StyleSheet.create({
   docDate: { fontSize: 6.5, color: C.grayLight },
   rule: { height: 0.5, backgroundColor: C.line },
 
-  hero: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 18, paddingHorizontal: 20, backgroundColor: C.burgundy },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 18, paddingHorizontal: 20, backgroundColor: C.navy },
   heroKicker: { ...b, fontSize: 6.5, letterSpacing: 1.3, color: C.onDarkDim, marginBottom: 1 },
   heroAngka: { ...b, fontSize: 27, color: C.white },
   heroKet: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
@@ -71,9 +77,8 @@ const s = StyleSheet.create({
   chipAspek: { ...b, fontSize: 6.5, letterSpacing: 1.1, color: C.onDarkDim, marginBottom: 2 },
   chipPemenang: { ...b, fontSize: 10, color: C.white, marginBottom: 2 },
   chipDetail: { fontSize: 6.5, color: '#ffffffb3' },
-  zoneDivider: { height: 0.6, backgroundColor: C.onDarkFaint },
 
-  band: { flexDirection: 'row', backgroundColor: C.burgundy },
+  band: { flexDirection: 'row', backgroundColor: C.navySoft },
   bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
   bandColRight: { borderLeftWidth: 0.5, borderLeftColor: C.onDarkFaint },
   bandTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
@@ -92,7 +97,7 @@ const s = StyleSheet.create({
 
   seksi: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 20, backgroundColor: C.bgSoft, borderTopWidth: 0.5, borderTopColor: C.line },
   seksiTick: { width: 2.5, height: 2.5, backgroundColor: C.gold },
-  seksiJudul: { ...b, fontSize: 7, letterSpacing: 1.2, color: C.burgundyDeep },
+  seksiJudul: { ...b, fontSize: 7, letterSpacing: 1.2, color: C.navy },
 
   row: { flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: C.line },
   labelCell: { width: LABEL_W, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: C.bgTint },
@@ -124,7 +129,8 @@ const s = StyleSheet.create({
   qrJudul: { ...b, fontSize: 7.5, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
   qrUrl: { fontSize: 6.5, lineHeight: 1.3, color: C.grayLight },
 
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.burgundy },
+  footerAccent: { height: 3, backgroundColor: C.burgundy },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.navy },
   footerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   avatar: { width: 30, height: 30, borderRadius: 15, objectFit: 'cover' as const },
   avatarKosong: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#ffffff33' },
@@ -310,7 +316,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const maxKotaSuhu = Math.max(suhu[0].length, suhu[1].length, 1);
 
   let h = 4 + 51 + 1;                       // accent + header + rule
-  h += 84 + 1;                              // hero + pemisah zona
+  h += 84;                                  // hero
   h += 79 + 17 * barisNama;                 // pita paket
   h += 20 + barisHarga.length * 42;         // seksi harga + baris
   h += 20 + 2 * 44;                         // seksi penerbangan + 2 baris
@@ -318,7 +324,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
   h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
   if (adaQr) h += 65;                       // baris itinerary
-  h += 50;                                  // footer
+  h += 3 + 50;                              // aksen + footer
   h += 8;                                   // sisa aman
   const pageH = Math.max(420, h);
 
@@ -330,6 +336,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
     return lokal.replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3');
   })();
   const hariIni = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const Sel = ({ children, menang, kanan }: { children: ReactNode; menang?: boolean; kanan?: boolean }) => (
     <View style={[s.cell, menang ? s.cellWin : {}, kanan ? s.cellRight : {}]}>{children}</View>
@@ -355,9 +362,12 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         {/* ─── HEADER ─── */}
         <View style={s.accentBar} />
         <View style={s.header}>
-          <View>
-            <Text style={s.company}>PT ALHIJAZ INDOWISATA</Text>
-            <Text style={s.address}>Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang — Jakarta Timur</Text>
+          <View style={s.headerKiri}>
+            <Image style={s.headerLogo} src={`${origin}/icon-192x192.png`} />
+            <View>
+              <Text style={s.company}>PT ALHIJAZ INDOWISATA</Text>
+              <Text style={s.address}>Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang — Jakarta Timur</Text>
+            </View>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <View style={s.docBadge}><Text style={s.docTitle}>PERBANDINGAN PAKET</Text></View>
@@ -401,7 +411,6 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
             ))}
           </View>
         </View>
-        <View style={s.zoneDivider} />
 
         {/* ─── PITA PAKET ─── */}
         <View style={s.band}>
@@ -573,6 +582,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         )}
 
         {/* ─── FOOTER ─── */}
+        <View style={s.footerAccent} />
         <View style={s.footer}>
           <View style={s.footerKiri}>
             {agentPhotoBase64
