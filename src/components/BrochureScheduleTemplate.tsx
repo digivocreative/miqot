@@ -470,6 +470,15 @@ export function cleanPackageDisplayName(name: string): string {
   return cleaned;
 }
 
+// Satu-satunya pola "Kereta Cepat" di aplikasi: dipakai pill di brosur DAN
+// filter Tipe Paket (BrochureSchedulePage). Kalau dipisah, sebuah paket bisa
+// lolos filter tanpa memakai pill-nya — atau sebaliknya.
+export const KERETA_CEPAT_PATTERN = /\bKERETA\s+CEPAT\b/i;
+
+export function hasKeretaCepat(rawName: string | undefined | null): boolean {
+  return KERETA_CEPAT_PATTERN.test(String(rawName || ''));
+}
+
 // Order of definitions = display order of pills under the title.
 export type PillTag = { label: string; pattern: RegExp; bg: string; fg: string };
 const UMROH_DULU_PILL: PillTag = {
@@ -481,7 +490,7 @@ const UMROH_DULU_PILL: PillTag = {
 const PILL_TAGS: ReadonlyArray<PillTag> = [
   { label: 'Hotel Bintang 5', pattern: /\bRAHMAH\b/i,            bg: '#7A4F12', fg: '#FFFFFF' },
   UMROH_DULU_PILL,
-  { label: 'Kereta Cepat',    pattern: /\bKERETA\s+CEPAT\b/i,    bg: '#0F766E', fg: '#FFFFFF' },
+  { label: 'Kereta Cepat',    pattern: KERETA_CEPAT_PATTERN,     bg: '#0F766E', fg: '#FFFFFF' },
   { label: '2x Jumatan',      pattern: /\bJUM['‘’]?ATAIN\b/i,    bg: DARK_RED,  fg: '#FFFFFF' },
 ];
 

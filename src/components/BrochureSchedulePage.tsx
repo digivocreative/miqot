@@ -18,6 +18,7 @@ import {
   BROCHURE_PLAYFAIR_FONT,
   PACKAGE_TYPES,
   derivePackageType,
+  hasKeretaCepat,
   type BrochureMonth,
   type BrochurePackage,
   type BrochureAgent,
@@ -180,6 +181,7 @@ const TYPE_UMROH_SAJA = 'UMROH SAJA';
 const TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
 const TYPE_UMROH_PROMO = 'UMROH PROMO';
 const TYPE_UMROH_MUSIM_DINGIN = 'UMROH MUSIM DINGIN';
+const TYPE_KERETA_CEPAT = 'KERETA CEPAT';
 
 interface MusimDinginWindow {
   yearOfDec: number;
@@ -237,6 +239,10 @@ function isPromoPackage(pkg: BrochurePackage): boolean {
 function matchesPackageType(pkg: BrochurePackage, type: string, musimDinginWindow: MusimDinginWindow): boolean {
   if (type === TYPE_UMROH_MUSIM_DINGIN) return isMusimDinginPackage(pkg, musimDinginWindow);
   if (type === TYPE_UMROH_PROMO) return isPromoPackage(pkg);
+  // Kereta Cepat itu fasilitas, bukan tier maupun destinasi: sebuah paket bisa
+  // sekaligus PLUS TURKI dan Kereta Cepat, jadi ia tidak lewat derivePackageType
+  // (yang memilih SATU tipe per paket) dan tidak menggeser harga ke tier lain.
+  if (type === TYPE_KERETA_CEPAT) return hasKeretaCepat(pkg.nama);
   const tier = TIER_FOR_PACKAGE_TYPE[type];
   if (tier) return packageSellsTier(pkg, tier);
   return derivePackageType(pkg.nama) === type;
@@ -256,6 +262,7 @@ function brochureLabelForType(type: string, fallback: string): string {
   if (type === TYPE_UMROH_RAHMAH) return 'RAHMAH';
   if (type === TYPE_UMROH_PROMO) return 'PROMO';
   if (type === TYPE_UMROH_MUSIM_DINGIN) return 'MUSIM DINGIN';
+  if (type === TYPE_KERETA_CEPAT) return 'KERETA CEPAT';
   return fallback || type;
 }
 
@@ -480,6 +487,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
       }
       if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
+      if (optionPackages.some(p => matchesPackageType(p, TYPE_KERETA_CEPAT, musimDinginWindow))) {
+        ordered.push({ value: TYPE_KERETA_CEPAT, label: 'Kereta Cepat' });
+      }
       for (const t of PACKAGE_TYPES) {
         if (present.has(t.value)) ordered.push({ value: t.value, label: t.value.replace(/^PLUS /, 'Plus ') });
       }
