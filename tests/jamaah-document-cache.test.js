@@ -131,6 +131,57 @@ test('buildPrintableJamaahDocumentHtml puts the Jadwal header logo above the pag
   assert.ok(logoBlockIndex < agreementBlockIndex, 'the logo block should stay above the agreement heading');
 });
 
+test('buildPrintableJamaahDocumentHtml starts point nine on a spaced third page', () => {
+  const html = buildPrintableJamaahDocumentHtml(`
+    <html>
+      <head>
+        <style>
+          @media all { .page-break { display: none; } }
+          @media print { .page-break { display: block; page-break-before: always; } }
+        </style>
+      </head>
+      <body>
+        <div class="page-break"></div>
+        <table width="100%"><tbody><tr><td><img src="/assets/logoTandaTerima.png"></td></tr></tbody></table>
+        <table width="100%"><tbody><tr><td>PERJANJIAN ANTARA JAMAAH UMRAH DENGAN PPIU PT ALHIJAZ INDOWISATA</td></tr></tbody></table>
+        <p></p>
+        <table width="100%" border="0">
+          <tbody>
+            <tr><td>8.</td><td>Ketentuan kedelapan</td></tr>
+            <tr><td>9.</td><td>Ketentuan kesembilan</td></tr>
+            <tr><td>10.</td><td>Ketentuan kesepuluh</td></tr>
+            <tr><td colspan="2">Tanda tangan para pihak</td></tr>
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `);
+
+  const $ = load(html);
+  const pageThreeBreak = $('.alhijaz-pernyataan-page-three-break');
+  const pageTwoTable = pageThreeBreak.prev('table');
+  const pageThreeTable = pageThreeBreak.next('table.alhijaz-pernyataan-page-three-table');
+  const pageThreeRows = pageThreeTable.find('> tbody > tr');
+
+  assert.equal(pageThreeBreak.length, 1);
+  assert.equal(pageTwoTable.find('> tbody > tr').length, 1);
+  assert.equal(pageTwoTable.find('> tbody > tr').first().children('td').first().text().trim(), '8.');
+  assert.equal(pageThreeTable.attr('width'), '100%');
+  assert.equal(pageThreeTable.attr('border'), '0');
+  assert.equal(pageThreeRows.length, 3);
+  assert.equal(pageThreeRows.eq(0).children('td').first().text().trim(), '9.');
+  assert.equal(pageThreeRows.eq(1).children('td').first().text().trim(), '10.');
+  assert.match(pageThreeRows.eq(0).attr('class') || '', /alhijaz-pernyataan-page-three-start/);
+  assert.match(
+    $('style').text(),
+    /\.alhijaz-pernyataan-page-three-break\s*\{[\s\S]*page-break-before:\s*always\s*!important;[\s\S]*break-before:\s*page\s*!important;/,
+  );
+  assert.match(
+    $('style').text(),
+    /\.alhijaz-pernyataan-page-three-start > td\s*\{[\s\S]*padding-top:\s*15mm\s*!important;/,
+  );
+});
+
 test('buildPrintableJamaahDocumentHtml uses a white page background in print media', async () => {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
