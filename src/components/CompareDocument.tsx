@@ -71,14 +71,14 @@ const s = StyleSheet.create({
   docDate: { fontSize: 6.5, color: C.grayLight },
   rule: { height: 0.5, backgroundColor: C.line },
 
-  kesimpulan: { paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.goldSoft },
+  kesimpulan: { paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
   kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
   kesimpulanTick: { width: 3, height: 3, backgroundColor: C.gold },
-  kesimpulanLabel: { ...b, fontSize: 7, letterSpacing: 1.2, color: C.gold },
+  kesimpulanLabel: { ...b, fontSize: 7, letterSpacing: 1.2, color: '#8a6410' },
   poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
-  poinDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: C.burgundy, marginTop: 4 },
-  poinTeks: { flex: 1, fontSize: 8, lineHeight: 1.4, color: C.gray },
-  poinTebal: { ...b, fontSize: 8, color: C.ink },
+  poinDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: C.gold, marginTop: 4 },
+  poinTeks: { flex: 1, fontSize: 8, lineHeight: 1.4, color: '#334155' },
+  poinTebal: { ...b, fontSize: 8, color: C.navy },
 
   band: { flexDirection: 'row', backgroundColor: C.navy },
   bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
@@ -164,7 +164,13 @@ export interface CompareDocumentProps {
 // Helpers
 // ============================================
 const ROOMS = ['Quard', 'Triple', 'Double'] as const;
-const ROOM_LABEL: Record<string, string> = { Quard: 'Quad', Triple: 'Triple', Double: 'Double' };
+// Istilah kamar dalam bahasa sehari-hari. Pembaca dokumen ini calon jamaah,
+// bukan staf travel — "Quad/Triple/Double" itu kosakata kantor.
+const ROOM_LABEL: Record<string, string> = { Quard: 'Berempat', Triple: 'Bertiga', Double: 'Berdua' };
+const KIBLAT_KOTA: Record<string, string> = { mekkah: 'Masjidil Haram', madinah: 'Masjid Nabawi' };
+/** "±400m" → "±400 m"; angka dan satuan yang berdempetan susah dibaca di cetak. */
+const renggangkanJarak = (teks: string) =>
+  String(teks || '').replace(/(\d)\s*(km|m)\b/gi, '$1 $2');
 
 /**
  * Bintang digambar SVG supaya ukuran dan warnanya lepas dari metrik font —
@@ -292,82 +298,77 @@ function Landing({ kota }: { kota: string }) {
 }
 
 const SISI_LABEL: Record<'a' | 'b', string> = { a: 'PAKET A', b: 'PAKET B' };
-/** Di kalimat, huruf kapital penuh terbaca seperti berteriak. */
-const NAMA_SISI: Record<'a' | 'b', string> = { a: 'Paket A', b: 'Paket B' };
 
 /**
- * Tiga poin kesimpulan, dirakit dari verdict. Poin yang verdict-nya `null`
- * DILEWATI, bukan ditulis "seimbang": pita ini kalimat berita, dan kalimat yang
- * tak punya dasar lebih baik tidak dicetak sama sekali.
+ * Poin kesimpulan. Sengaja NETRAL: menyandingkan angka kedua paket, tanpa kata
+ * "lebih baik" atau "lebih hemat". Yang termurah atau terdekat belum tentu yang
+ * paling cocok — pilihan itu milik jamaah dan agentnya, dokumen ini cukup
+ * menaruh angkanya berdampingan supaya mudah ditimbang.
+ *
+ * Verdict tetap dipakai, tapi hanya untuk menentukan APA yang layak disebut:
+ * baris yang datanya tak lengkap atau tak berbeda tidak ikut dicetak.
  */
 function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePdfSide) {
   const poin: { tebal: string; sisa: string }[] = [];
-  const pkg = { a: a.pkg, b: b.pkg };
 
-  if (verdict.gap && verdict.gap.diff > 0 && verdict.gap.cheaper) {
-    const sisi = verdict.gap.cheaper;
-    const hariIni = durasiHari(pkg[sisi]);
-    const hariLain = durasiHari(pkg[sisi === 'a' ? 'b' : 'a']);
-    const bedaHari = hariIni - hariLain;
-    const ekor = bedaHari > 0
-      ? `, dan perjalanannya ${bedaHari} hari lebih lama`
-      : bedaHari < 0 ? `, meski perjalanannya ${-bedaHari} hari lebih singkat` : '';
+  if (verdict.gap) {
+    const kamar = ROOM_LABEL[verdict.gap.room].toLowerCase();
+    const hargaA = tierRoomPrice(a.pkg, a.tier, verdict.gap.room);
+    const hargaB = tierRoomPrice(b.pkg, b.tier, verdict.gap.room);
+    const selisih = verdict.gap.diff > 0 ? ` Selisihnya ${fmtRupiah(verdict.gap.diff)}.` : ' Harganya sama.';
     poin.push({
-      tebal: `${NAMA_SISI[sisi]} lebih hemat ${fmtRupiah(verdict.gap.diff)} per jamaah`,
-      sisa: `untuk kamar ${ROOM_LABEL[verdict.gap.room]}${ekor}.`,
-    });
-  } else if (verdict.gap) {
-    // `price` masih terisi berarti ada tipe kamar LAIN yang berbeda. Kalau null,
-    // tak ada satu pun tipe yang berselisih — jangan menjanjikan selisih yang
-    // tidak ada di halaman yang sama.
-    poin.push({
-      tebal: `Harga kamar ${ROOM_LABEL[verdict.gap.room]} sama`,
-      sisa: verdict.price
-        ? '— selisihnya ada di tipe kamar lain, bukan di harga dasarnya.'
-        : `— ${fmtRupiah(tierRoomPrice(a.pkg, a.tier, verdict.gap.room))} per jamaah di kedua paket.`,
+      tebal: `Harga kamar ${kamar}`,
+      sisa: `— Paket A ${fmtRupiah(hargaA)}, Paket B ${fmtRupiah(hargaB)}.${selisih}`,
     });
   }
 
   if (verdict.hotel) {
-    const sisi = verdict.hotel.side;
-    const lawan = sisi === 'a' ? 'b' : 'a';
-    const banding = (kota: string) => {
-      const menang = hotelDiKota(pkg[sisi], sisi === 'a' ? a.tier : b.tier, kota);
-      const kalah = hotelDiKota(pkg[lawan], lawan === 'a' ? a.tier : b.tier, kota);
-      if (!menang || !kalah) return '';
-      const ringkas = (h: NonNullable<typeof menang>) =>
-        [h.stars > 0 ? `${h.stars}★` : '', h.jarak].filter(Boolean).join(' ');
-      const kiri = ringkas(menang);
-      const kanan = ringkas(kalah);
-      if (!kiri || !kanan) return '';
-      // Kota yang bintang dan jaraknya persis sama bukan bukti keunggulan —
-      // mencantumkannya membuat kalimatnya berbunyi "4★ ±150m berbanding
-      // 4★ ±150m", yang justru melemahkan poinnya.
-      if (kiri === kanan) return '';
-      return `${kota === 'mekkah' ? 'Mekkah' : 'Madinah'} ${kiri} berbanding ${kanan}`;
+    // "±400m" jadi "sekitar 400 m" — pita ini bagian yang paling sering dibaca
+    // jamaah sendiri, jadi lambangnya dieja.
+    const ringkas = (side: ComparePdfSide, kota: string) => {
+      const h = hotelDiKota(side.pkg, side.tier, kota);
+      if (!h) return '';
+      const jarak = renggangkanJarak(h.jarak).replace(/^±\s*/, 'sekitar ');
+      const bintang = h.stars > 0 ? `${h.stars} bintang` : '';
+      if (bintang && jarak) return `${bintang} (${jarak})`;
+      return bintang || jarak;
     };
-    const rincian = ['mekkah', 'madinah'].map(banding).filter(Boolean).join('; ');
-    poin.push({
-      tebal: `Hotel ${NAMA_SISI[sisi]} lebih baik`,
-      sisa: rincian
-        ? `— ${rincian}.`
-        : (verdict.hotel.reason === 'bintang' ? '— bintangnya lebih tinggi.' : '— jaraknya lebih dekat.'),
-    });
+    const rincian = (['mekkah', 'madinah'] as const)
+      .map(kota => {
+        const kiri = ringkas(a, kota);
+        const kanan = ringkas(b, kota);
+        if (!kiri || !kanan || kiri === kanan) return '';
+        const nama = kota === 'mekkah' ? 'Mekkah' : 'Madinah';
+        // Titik dua, bukan tanda pisah kedua: "Hotel — Mekkah — Paket A ..."
+        // membuat dua tanda pisah beruntun dalam satu kalimat.
+        return `${nama}: Paket A ${kiri}, Paket B ${kanan}`;
+      })
+      .filter(Boolean);
+    if (rincian.length) {
+      poin.push({ tebal: 'Hotel', sisa: `— ${rincian.join('. ')}.` });
+    }
   }
 
   if (verdict.seat) {
-    const sisi = verdict.seat.side;
-    const lawan = sisi === 'a' ? 'b' : 'a';
     poin.push({
-      tebal: `Sisa seat ${NAMA_SISI[sisi]} lebih banyak`,
-      sisa: `— ${verdict.seat[sisi]} dari ${pkg[sisi].seatTotal} kursi, berbanding ${verdict.seat[lawan]} dari ${pkg[lawan].seatTotal} kursi di ${NAMA_SISI[lawan]}.`,
+      tebal: 'Sisa kursi',
+      sisa: `— Paket A ${verdict.seat.a} dari ${a.pkg.seatTotal}, Paket B ${verdict.seat.b} dari ${b.pkg.seatTotal}.`,
+    });
+  }
+
+  const hariA = durasiHari(a.pkg);
+  const hariB = durasiHari(b.pkg);
+  if (hariA !== hariB) {
+    poin.push({
+      tebal: 'Lama perjalanan',
+      sisa: `— Paket A ${hariA} hari, Paket B ${hariB} hari.`,
     });
   }
 
   if (!poin.length) {
     poin.push({
       tebal: 'Kedua paket sebanding',
-      sisa: '— harga, hotel, dan ketersediaannya tidak berbeda berarti.',
+      sisa: '— harga, hotel, dan sisa kursinya tidak berbeda berarti.',
     });
   }
   return poin;
@@ -483,23 +484,6 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         </View>
         <View style={s.rule} />
 
-        {/* ─── KESIMPULAN ─── */}
-        <View style={s.kesimpulan}>
-          <View style={s.kesimpulanHead}>
-            <View style={s.kesimpulanTick} />
-            <Text style={s.kesimpulanLabel}>KESIMPULAN</Text>
-          </View>
-          {poin.map((p, i) => (
-            <View key={i} style={s.poin}>
-              <View style={s.poinDot} />
-              <Text style={s.poinTeks}>
-                <Text style={s.poinTebal}>{p.tebal}</Text>
-                {'  '}{p.sisa}
-              </Text>
-            </View>
-          ))}
-        </View>
-
         {/* ─── PITA PAKET ─── */}
         <View style={s.band}>
           {sides.map((side, i) => (
@@ -568,7 +552,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         ))}
 
         {/* ─── HOTEL ─── */}
-        {kotaHotel.length > 0 && <Seksi judul="HOTEL & AKOMODASI" />}
+        {kotaHotel.length > 0 && <Seksi judul="HOTEL" />}
         {kotaHotel.map(kota => {
           const hA = hotelDiKota(a.pkg, a.tier, kota.key);
           const hB = hotelDiKota(b.pkg, b.tier, kota.key);
@@ -581,7 +565,11 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                       <Text style={s.hotelNama}>{rapikanNama(hotel.nama)}</Text>
                       <View style={s.cellLine}>
                         <Bintang jumlah={hotel.stars} />
-                        {Boolean(hotel.jarak) && <Text style={s.jarak}>{hotel.jarak}</Text>}
+                        {Boolean(hotel.jarak) && (
+                          <Text style={s.jarak}>
+                            {renggangkanJarak(hotel.jarak)}{KIBLAT_KOTA[kota.key] ? ` ke ${KIBLAT_KOTA[kota.key]}` : ''}
+                          </Text>
+                        )}
                       </View>
                     </>
                   ) : (
@@ -594,8 +582,8 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         })}
 
         {/* ─── KETERSEDIAAN & PERSIAPAN ─── */}
-        <Seksi judul="KETERSEDIAAN & PERSIAPAN" />
-        <Baris label="SISA SEAT">
+        <Seksi judul="SISA KURSI & MANASIK" />
+        <Baris label="SISA KURSI">
           {sides.map((side, i) => (
             <Sel key={i} kanan={i === 1}>
               <View style={s.cellLine}>
@@ -621,7 +609,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
             </Sel>
           ))}
         </Baris>
-        <Baris label="SUHU SAAT BERANGKAT">
+        <Baris label="PERKIRAAN SUHU">
           {suhu.map((kotaList, i) => (
             <Sel key={i} kanan={i === 1}>
               {kotaList.length > 0 ? kotaList.map(kota => (
@@ -636,14 +624,14 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
 
         {/* ─── ITINERARY ─── */}
         {adaQr && (
-          <Baris label="ITINERARY HARIAN">
+          <Baris label="JADWAL HARIAN">
             {sides.map((side, i) => (
               <Sel key={i} kanan={i === 1}>
                 {side.qrDataUrl ? (
                   <View style={s.qrRow}>
                     <Image style={s.qrImg} src={side.qrDataUrl} />
                     <View style={{ flex: 1 }}>
-                      <Text style={s.qrJudul}>Pindai untuk rincian harian</Text>
+                      <Text style={s.qrJudul}>Scan untuk lihat jadwal harian</Text>
                       <Text style={s.qrUrl}>{side.itineraryUrl}</Text>
                     </View>
                   </View>
@@ -654,6 +642,23 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
             ))}
           </Baris>
         )}
+
+        {/* ─── KESIMPULAN ─── */}
+        <View style={s.kesimpulan}>
+          <View style={s.kesimpulanHead}>
+            <View style={s.kesimpulanTick} />
+            <Text style={s.kesimpulanLabel}>KESIMPULAN</Text>
+          </View>
+          {poin.map((p, i) => (
+            <View key={i} style={s.poin}>
+              <View style={s.poinDot} />
+              <Text style={s.poinTeks}>
+                <Text style={s.poinTebal}>{p.tebal}</Text>
+                {'  '}{p.sisa}
+              </Text>
+            </View>
+          ))}
+        </View>
 
         {/* ─── FOOTER ─── */}
         <View style={s.footerAccent} />
