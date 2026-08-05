@@ -29,7 +29,14 @@ import {
   Moon,
 } from 'lucide-react';
 import { getPackages } from '@/services';
-import type { UmrohPackage, HotelInfo } from '@/types';
+import type { UmrohPackage } from '@/types';
+import {
+  cheapestPackageTier,
+  packageCityHotels,
+  tierHotelInfo,
+  tierRoomPrice,
+  tierStartingPrice,
+} from '@/lib/packageTiers';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -365,13 +372,17 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
         year: 'numeric',
       });
 
+      // Bendera & teks pencarian berlaku SEJADWAL, jadi gabungan semua tier:
+      // paket yang hotel Cairo-nya cuma terdaftar di satu tier tetap harus
+      // berbendera 🇪🇬 dan tetap ketemu saat agent mengetik nama hotel itu.
+      // Nama hotel yang ditampilkan tetap per tier (lihat packageTiers.js).
+      const cityHotels = packageCityHotels(pkg);
+
       // Determine country flags from hotel data
       const flags: string[] = ['🇸🇦']; // Saudi always present
-      const firstTier = Object.keys(pkg.hotel)[0];
-      if (firstTier) {
-        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
-        if (h.cairo_hotel) flags.push('🇪🇬');
-        if (h.istanbul_hotel || h.bursa_hotel || h.cappadocia_hotel || h.ankara_hotel) flags.push('🇹🇷');
+      if (cityHotels.cairo_hotel) flags.push('🇪🇬');
+      if (cityHotels.istanbul_hotel || cityHotels.bursa_hotel || cityHotels.cappadocia_hotel || cityHotels.ankara_hotel) {
+        flags.push('🇹🇷');
       }
 
       // Determine color class from package name + tier keys
@@ -388,15 +399,8 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
 
       // Build extra search text (hotels, airline, etc.)
       const searchParts: string[] = [pkg.maskapai];
-      if (firstTier) {
-        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
-        if (h.mekkah_hotel) searchParts.push(h.mekkah_hotel);
-        if (h.madinah_hotel) searchParts.push(h.madinah_hotel);
-        if (h.cairo_hotel) searchParts.push(h.cairo_hotel);
-        if (h.istanbul_hotel) searchParts.push(h.istanbul_hotel);
-        if (h.bursa_hotel) searchParts.push(h.bursa_hotel);
-        if (h.cappadocia_hotel) searchParts.push(h.cappadocia_hotel);
-        if (h.ankara_hotel) searchParts.push(h.ankara_hotel);
+      for (const key of ['mekkah_hotel', 'madinah_hotel', 'cairo_hotel', 'istanbul_hotel', 'bursa_hotel', 'cappadocia_hotel', 'ankara_hotel']) {
+        if (cityHotels[key]) searchParts.push(cityHotels[key]);
       }
 
       return {
@@ -449,29 +453,36 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
     return Object.keys(selectedPkg.harga);
   }, [selectedPkg]);
 
-  // Reset selected tier when package changes (default to first tier from API)
+  // Reset selected tier when package changes — default ke tier TERMURAH, angka
+  // "mulai dari" yang sama dipakai PackageCard, endpoint Brosur, dan Bandingkan
+  // Paket. Urutan kunci dari hulu bukan urutan harga (JBU1500: UHUD dulu, HEMAT
+  // yang termurah).
   useEffect(() => {
     if (tierKeys.length === 0) {
       setSelectedTier('');
       return;
     }
     if (!tierKeys.includes(selectedTier)) {
-      setSelectedTier(tierKeys[0]);
+      setSelectedTier(cheapestPackageTier(selectedPkg));
     }
-  }, [tierKeys, selectedTier]);
+  }, [tierKeys, selectedTier, selectedPkg]);
 
   // Extract room prices from the active pricing tier
   const roomPrices = useMemo(() => {
     if (!selectedPkg) return ROOM_PRICES_FALLBACK;
-    const tierKey = selectedTier && selectedPkg.harga[selectedTier] ? selectedTier : Object.keys(selectedPkg.harga)[0];
-    if (!tierKey) return ROOM_PRICES_FALLBACK;
-    const tierPricing = selectedPkg.harga[tierKey];
+    // Tier yang benar-benar ada di `harga` dipakai apa adanya — termasuk tier
+    // yang semua kamarnya 'N/A' — supaya angka di layar selalu milik chip yang
+    // ditekan agent. Yang jatuh ke termurah hanya state kosong/basi.
+    const tierKey = selectedTier && selectedPkg.harga[selectedTier]
+      ? selectedTier
+      : cheapestPackageTier(selectedPkg);
+    if (!selectedPkg.harga[tierKey]) return ROOM_PRICES_FALLBACK;
     return {
-      quad: parseInt(tierPricing.Quard || '0', 10) || 0,
-      triple: parseInt(tierPricing.Triple || '0', 10) || 0,
-      double: parseInt(tierPricing.Double || '0', 10) || 0,
-      single: parseInt(tierPricing.Single || '0', 10) || 0,
-      infant: parseInt(tierPricing.Infant || '0', 10) || INFANT_PRICE,
+      quad: tierRoomPrice(selectedPkg, tierKey, 'Quard'),
+      triple: tierRoomPrice(selectedPkg, tierKey, 'Triple'),
+      double: tierRoomPrice(selectedPkg, tierKey, 'Double'),
+      single: tierRoomPrice(selectedPkg, tierKey, 'Single'),
+      infant: tierRoomPrice(selectedPkg, tierKey, 'Infant') || INFANT_PRICE,
     };
   }, [selectedPkg, selectedTier]);
 
@@ -670,14 +681,10 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
                   <div className="grid grid-cols-2 gap-2">
                     {tierKeys.map((tierKey) => {
                       const isSelected = selectedTier === tierKey;
-                      const tierHotel = selectedPkg.hotel[tierKey] as HotelInfo & Record<string, string> | undefined;
+                      const tierHotel = tierHotelInfo(selectedPkg, tierKey);
                       const mekkahStar = tierHotel?.mekkah_bintang ? parseInt(tierHotel.mekkah_bintang, 10) : 0;
                       const madinahStar = tierHotel?.madinah_bintang ? parseInt(tierHotel.madinah_bintang, 10) : 0;
-                      const tierPricing = selectedPkg.harga[tierKey];
-                      const prices = [tierPricing?.Quard, tierPricing?.Triple, tierPricing?.Double, tierPricing?.Single]
-                        .map((p) => parseInt(p || '0', 10) || 0)
-                        .filter((p) => p > 0);
-                      const startingFrom = prices.length > 0 ? Math.min(...prices) : 0;
+                      const startingFrom = tierStartingPrice(selectedPkg, tierKey);
                       return (
                         <button
                           key={tierKey}

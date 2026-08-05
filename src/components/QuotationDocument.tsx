@@ -1,6 +1,7 @@
 import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Circle, Path } from '@react-pdf/renderer';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
+import { resolvePackageTier, tierHotelInfo } from '@/lib/packageTiers';
 
 // ── Register Inter font (self-hosted from /public/fonts; no external CDN dependency) ──
 const fontOrigin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -25,7 +26,7 @@ interface SummaryItem {
 
 export interface QuotationProps {
   pkg: UmrohPackage | null;
-  /** Active pricing tier (e.g. "UHUD", "RAHMAH"). Defaults to first tier in pkg.hotel. */
+  /** Active pricing tier (e.g. "UHUD", "RAHMAH"). Kosong/tak dikenal → tier termurah. */
   tier?: string;
   summary: {
     items: SummaryItem[];
@@ -212,9 +213,10 @@ export function QuotationDocument({ pkg, tier, summary, namaLengkap, agent, agen
     }
   }
 
-  // Hotel info — prefer the active tier when available, fall back to first key
-  const activeTier = pkg ? (tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0]) : null;
-  const hotelData = activeTier && pkg ? (pkg.hotel[activeTier] as unknown as Record<string, string>) : null;
+  // Hotel info — hotel tier terpilih SAJA; tier kosong/asing jatuh ke termurah,
+  // bukan kunci pertama menurut urutan API (lihat src/lib/packageTiers.js).
+  const activeTier = pkg ? resolvePackageTier(pkg, tier) : null;
+  const hotelData = pkg && activeTier ? tierHotelInfo(pkg, activeTier) : null;
   const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL` : 'AKOMODASI HOTEL';
   const hotelNames = hotelData ? [hotelData.mekkah_hotel, hotelData.madinah_hotel].filter(Boolean).join(' / ') : '—';
 

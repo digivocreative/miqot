@@ -35,7 +35,8 @@ import { QuotationDocument } from './QuotationDocument';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import type { AgentData } from '@/data/agents';
-import type { UmrohPackage, HotelInfo } from '@/types';
+import type { UmrohPackage } from '@/types';
+import { resolvePackageTier, tierHotelInfo } from '@/lib/packageTiers';
 
 try {
   pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -90,10 +91,11 @@ export function buildKalkulasiWaText({
     lines.push(`*${fmtDate(pkg.kepulangan.tgl)}*, *${pkg.kepulangan.jam} WIB*`);
     lines.push(`*${pkg.kepulangan.kodePenerbangan}* ─ *${pkg.kepulangan.rute}*`);
     lines.push('');
-    // Hotels for the active tier
-    const activeTier = tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0];
-    if (activeTier) {
-      const h = pkg.hotel[activeTier] as HotelInfo & Record<string, string>;
+    // Hotel tier terpilih SAJA — meminjam hotel tier lain berarti teks WA yang
+    // dikirim ke jamaah memasang hotel UHUD di bawah judul PAKET HEMAT.
+    const activeTier = resolvePackageTier(pkg, tier);
+    const h = tierHotelInfo(pkg, activeTier);
+    if (activeTier && h) {
       lines.push(`*PAKET ${activeTier}*`);
       lines.push('─────────────');
       const hotelKeys: { key: string; starKey: string; label: string }[] = [
@@ -330,8 +332,8 @@ export function KalkulasiResultModal({
     }
   };
 
-  const activeTier = pkg ? (tier && pkg.hotel[tier] ? tier : Object.keys(pkg.hotel)[0]) : null;
-  const hotelData = activeTier && pkg ? (pkg.hotel[activeTier] as HotelInfo & Record<string, string>) : null;
+  const activeTier = pkg ? resolvePackageTier(pkg, tier) : null;
+  const hotelData = pkg && activeTier ? tierHotelInfo(pkg, activeTier) : null;
 
   return createPortal(
     <AnimatePresence>
