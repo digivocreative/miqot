@@ -48,7 +48,7 @@ function stubSupabase(resolver) {
   const calls = [];
   const make = (table) => {
     const chain = {};
-    for (const m of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'not', 'or', 'ilike', 'order', 'range', 'limit']) {
+    for (const m of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'not', 'or', 'ilike', 'in', 'order', 'range', 'limit']) {
       chain[m] = (...args) => { calls.push([m, ...args]); return chain; };
     }
     chain.maybeSingle = () => Promise.resolve(resolver(table));
@@ -106,8 +106,13 @@ test('loop berhenti di BANI_MAX_ROUNDS walau model terus minta tool', async () =
 
   // 3 putaran tool + 1 permintaan perbaikan format = 4 panggilan model, lalu berhenti.
   assert.equal(callOpenAI.calls.length, BANI_MAX_ROUNDS + 1);
-  const executed = supabase.calls.filter(([m]) => m === 'from').length;
+  const executed = supabase.calls.filter(([m, table]) => m === 'from' && table === 'umroh_schedules').length;
   assert.equal(executed, BANI_MAX_ROUNDS, 'satu eksekusi tool per putaran');
+  assert.equal(
+    supabase.calls.filter(([m, table]) => m === 'from' && table === 'itineraries').length,
+    BANI_MAX_ROUNDS,
+    'setiap hasil jadwal membaca cache itinerary tepat sekali',
+  );
   assert.equal(out.degraded, true);
   assert.deepEqual(out.cards, []);
 });
@@ -123,7 +128,7 @@ test('eksekusi tool dibatasi BANI_MAX_TOOL_CALLS walau model minta paralel', asy
 
   await runBaniConversation({ question: 'x', agent: AGENT, supabase, callOpenAI, model: 'stub' });
 
-  const executed = supabase.calls.filter(([m]) => m === 'from').length;
+  const executed = supabase.calls.filter(([m, table]) => m === 'from' && table === 'umroh_schedules').length;
   assert.equal(executed, BANI_MAX_TOOL_CALLS, 'plafon eksekusi tool ditegakkan');
   // Setiap tool_call tetap dibalas (syarat protokol), yang lewat plafon dijawab error.
   const lastRound = toolMessages(callOpenAI.calls.at(-1));
@@ -133,7 +138,11 @@ test('eksekusi tool dibatasi BANI_MAX_TOOL_CALLS walau model minta paralel', asy
 });
 
 test('tool yang error diteruskan sebagai hasil tool, loop lanjut tanpa throw', async () => {
-  const supabase = stubSupabase(() => ({ data: null, error: { message: 'relation "jamaah" does not exist' } }));
+  const supabase = stubSupabase((table) => (
+    table === 'bani_glossary'
+      ? { data: [], error: null }
+      : { data: null, error: { message: 'relation "jamaah" does not exist' } }
+  ));
   const callOpenAI = scriptedOpenAI([
     toolCallsResponse(toolCall('list_jamaah', {})),
     jsonResponse({ answer: 'Datanya belum bisa diambil.', jamaah_ids: [], link: null }),
@@ -166,7 +175,11 @@ test('tool tak dikenal dan argumen non-JSON dibalas error, tidak menghentikan lo
 
   assert.equal(out.success, true);
   assert.deepEqual(out.tools_used, [], 'panggilan invalid tidak dihitung terpakai');
-  assert.equal(supabase.calls.length, 0, 'tidak ada query yang dijalankan');
+  assert.equal(
+    supabase.calls.filter(([method, table]) => method === 'from' && table !== 'bani_glossary').length,
+    0,
+    'selain pembacaan kamus, tidak ada query tool yang dijalankan',
+  );
   const msgs = toolMessages(callOpenAI.calls[1]);
   assert.match(msgs[0].content, /tidak dikenal/);
   assert.match(msgs[1].content, /bukan JSON valid/);
@@ -1376,6 +1389,63 @@ test('system prompt memuat aturan wajib Bani', () => {
   assert.match(prompt, /70 kata/);
 });
 
+test('system prompt tanpa glossary tidak mencetak header kamus kosong', () => {
+  const prompt = buildBaniSystemPrompt(AGENT);
+  assert.doesNotMatch(prompt, /KAMUS ISTILAH AGENT/);
+});
+
+test('system prompt menyisipkan glossary setelah ISTILAH beserta aturan tafsir terbatas', () => {
+  const glossary = 'tahun baru (sinonim: newyear) → yang masih berjalan saat pergantian tahun → filter: {"covers_date":"2026-12-31"}';
+  const prompt = buildBaniSystemPrompt(AGENT, { glossary });
+
+  assert.ok(prompt.indexOf('ISTILAH —') < prompt.indexOf('KAMUS ISTILAH AGENT'));
+  assert.ok(prompt.indexOf('KAMUS ISTILAH AGENT') < prompt.indexOf('GAYA —'));
+  assert.match(prompt, /tahun baru \(sinonim: newyear\)/);
+  assert.match(prompt, /Istilah di kamus WAJIB diterjemahkan ke filter yang tertulis/);
+  assert.match(prompt, /Sebutkan tafsirnya di kalimat pertama jawaban/);
+  assert.match(prompt, /MENEBAK FAKTA TETAP DILARANG/);
+  assert.match(prompt, /nama hotel, dan ketersediaan seat/);
+  assert.match(prompt, /MENAFSIRKAN PERTANYAAN DIBOLEHKAN/);
+  assert.match(prompt, /SATU kalimat pendek yang menawarkan tafsir paling mungkin/);
+  assert.match(prompt, /Jangan mengulang tool dengan tebakan acak/);
+  assert.match(prompt, /follow_ups diisi tafsir-tafsir alternatifnya, maksimal 3/);
+});
+
+test('runBaniConversation memuat glossary dan meresolusi filternya sebelum menyusun prompt', async () => {
+  const supabase = stubSupabase((table) => (
+    table === 'bani_glossary'
+      ? {
+        data: [{
+          istilah: 'tahun baru',
+          sinonim: ['newyear'],
+          tafsir: 'yang masih berjalan saat pergantian tahun',
+          filter: { covers_date: '{{TAHUN_INI}}-12-31' },
+        }],
+        error: null,
+      }
+      : { data: [], error: null }
+  ));
+  const callOpenAI = scriptedOpenAI([jsonResponse({ answer: 'Siap.' })]);
+
+  await runBaniConversation({
+    question: 'paket tahun baru',
+    agent: AGENT,
+    supabase,
+    callOpenAI,
+    model: 'stub',
+    // UTC masih 2026, WIB sudah 2027.
+    now: () => Date.parse('2026-12-31T18:30:00Z'),
+  });
+
+  const systemPrompt = callOpenAI.calls[0].messages[0].content;
+  assert.match(systemPrompt, /KAMUS ISTILAH AGENT/);
+  assert.match(systemPrompt, /"covers_date":"2027-12-31"/);
+  assert.equal(
+    supabase.calls.filter(([method, table]) => method === 'from' && table === 'bani_glossary').length,
+    1,
+  );
+});
+
 test('system prompt melarang disclaimer sumber data dan jawaban bergaya laporan', () => {
   // Tiap balasan dulu ditutup "Data merupakan snapshot hasil sync, bukan
   // real-time" — kalimat yang membuat Bani terdengar seperti mesin. Larangannya
@@ -1473,7 +1543,7 @@ test('requireBaniAccess menolak agent tanpa slug dengan 403', () => {
 
 // Cermin guard tests/bani-tools.test.js: jalur Bani dipakai asisten AI, tidak
 // boleh ada jalur tulis ke database sama sekali.
-for (const file of ['lib/bani-orchestrator.js', 'lib/bani-access.js']) {
+for (const file of ['lib/bani-orchestrator.js', 'lib/bani-glossary.js', 'lib/bani-access.js']) {
   test(`${file} is strictly read-only against the database`, () => {
     const src = read(file);
     assert.doesNotMatch(src, /\.insert\(/);

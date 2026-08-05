@@ -57,6 +57,15 @@ test('parameters JSON Schema konsisten — required merujuk properti yang didekl
       assert.ok(props.includes(req), `${tool.name}: required '${req}' tidak ada di properties`);
     }
     for (const [key, schema] of Object.entries(tool.parameters.properties)) {
+      if (schema.type === 'array') {
+        assert.equal(schema.items?.type, 'string', `${tool.name}.${key}: array hanya boleh berisi string`);
+        continue;
+      }
+      if (schema.type === 'object') {
+        assert.equal(typeof schema.properties, 'object', `${tool.name}.${key}: object wajib punya properties`);
+        assert.ok(Array.isArray(schema.required), `${tool.name}.${key}: object wajib punya required`);
+        continue;
+      }
       assert.ok(
         ['string', 'integer', 'number', 'boolean'].includes(schema.type),
         `${tool.name}.${key}: tipe JSON Schema tidak dikenal (${schema.type})`,
@@ -86,14 +95,53 @@ test('lookup by-id butuh identitasnya — jm_id/jadwal_id wajib', () => {
 function stubSupabase(result) {
   const calls = [];
   const chain = {};
-  for (const method of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'not', 'or', 'ilike', 'order', 'range', 'limit']) {
+  let currentTable = null;
+  for (const method of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'not', 'or', 'ilike', 'in', 'order', 'range', 'limit']) {
     chain[method] = (...args) => { calls.push([method, ...args]); return chain; };
   }
-  chain.then = (resolve, reject) => Promise.resolve(result).then(resolve, reject);
+  chain.then = (resolve, reject) => Promise.resolve(
+    typeof result === 'function'
+      ? result(calls, currentTable)
+      : currentTable === 'itineraries' ? { data: [], error: null } : result,
+  ).then(resolve, reject);
   return {
     calls,
-    from(table) { calls.push(['from', table]); return chain; },
+    from(table) { currentTable = table; calls.push(['from', table]); return chain; },
   };
+}
+
+// Simulasi kecil untuk operator filter yang dipakai list_jadwal_paket. Unit
+// test tetap memeriksa query yang dibangun, sambil membuktikan baris batas yang
+// akan lolos/gugur ketika PostgREST menerapkannya.
+function filteringScheduleSupabase(rows, itineraryRows = []) {
+  return stubSupabase((calls, table) => {
+    if (table === 'itineraries') {
+      const requestedIds = [...calls].reverse().find(([method, column]) => method === 'in' && column === 'jadwal_id')?.[2] || [];
+      return {
+        data: itineraryRows.filter((row) => requestedIds.includes(row.jadwal_id)),
+        error: null,
+      };
+    }
+    let filtered = [...rows];
+    for (const [method, column, value] of calls) {
+      if (method === 'gte') filtered = filtered.filter((row) => String(row[column] || '') >= String(value));
+      else if (method === 'lte') filtered = filtered.filter((row) => String(row[column] || '') <= String(value));
+      else if (method === 'lt') filtered = filtered.filter((row) => String(row[column] || '') < String(value));
+      else if (method === 'ilike') {
+        const term = String(value).replace(/^\*|\*$/g, '').toLowerCase();
+        filtered = filtered.filter((row) => String(row[column] || '').toLowerCase().includes(term));
+      } else if (method === 'or') {
+        const terms = String(column).split(',').map((filter) => {
+          const match = /^jadwal_nama\.ilike\.\*(.*)\*$/.exec(filter);
+          return match ? match[1].toLowerCase() : '';
+        }).filter(Boolean);
+        filtered = filtered.filter((row) => terms.some(
+          (term) => String(row.jadwal_nama || '').toLowerCase().includes(term),
+        ));
+      }
+    }
+    return { data: filtered, error: null };
+  });
 }
 
 const PAKET_HARGA = {
@@ -122,6 +170,8 @@ test('list_jadwal_paket mengembalikan { ok:true, data:{ rows, total, ... } }', a
   assert.deepEqual(out.data.rows.map((r) => r.jadwal_id), ['JBU1484', 'JBU1500']);
   assert.equal(out.data.rows[0].harga_mulai, 33900000);
   assert.equal(out.data.rows[1].sold_out, true);
+  assert.ok(out.data.rows.every((row) => Array.isArray(row.tur) && row.tur.length === 0));
+  assert.ok(out.data.rows.every((row) => row.itinerary_tersedia === false));
   assert.ok(out.data.note.includes('global'));
   assert.equal(supabase.calls[0][0], 'from');
   assert.equal(supabase.calls[0][1], 'umroh_schedules');
@@ -138,6 +188,197 @@ test('list_jadwal_paket available_only membuang paket sold out', async () => {
   const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { available_only: true });
   assert.equal(out.ok, true);
   assert.deepEqual(out.data.rows.map((r) => r.jadwal_id), ['A']);
+});
+
+test('list_jadwal_paket mengekspos schema rentang, covers_date, dan search_any', () => {
+  const tool = BANI_TOOL_BY_NAME.list_jadwal_paket;
+  for (const key of ['berangkat_from', 'berangkat_to', 'covers_date']) {
+    assert.equal(tool.parameters.properties[key].pattern, '^\\d{4}-\\d{2}-\\d{2}$');
+  }
+  assert.deepEqual(tool.parameters.properties.search_any.items, { type: 'string', maxLength: 40 });
+  assert.equal(tool.parameters.properties.search_any.maxItems, 5);
+  assert.ok(tool.parameters.properties.tur.enum.includes('Tur Turki'));
+  assert.deepEqual(tool.parameters.properties.kota_pada_tanggal.required, ['tanggal', 'kota']);
+  assert.deepEqual(tool.parameters.properties.kota_pada_tanggal.properties.kota.enum, ['mekkah', 'madinah']);
+  assert.match(tool.description, /tahun baru.*covers_date/);
+  assert.match(tool.description, /berangkat_from\/berangkat_to/);
+  assert.match(tool.description, /search_any/);
+  assert.match(tool.description, /kota_pada_tanggal/);
+});
+
+test('list_jadwal_paket covers_date menangkap hanya paket yang sedang berjalan', async () => {
+  const supabase = filteringScheduleSupabase([
+    { jadwal_id: 'TAHUN-BARU', jadwal_nama: 'UMRAH TAHUN BARU', berangkat_tgl: '2026-12-27', pulang_tgl: '2027-01-05', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'SUDAH-PULANG', jadwal_nama: 'UMRAH DESEMBER', berangkat_tgl: '2026-12-20', pulang_tgl: '2026-12-30', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'BELUM-BERANGKAT', jadwal_nama: 'UMRAH JANUARI', berangkat_tgl: '2027-01-02', pulang_tgl: '2027-01-10', paket_harga: PAKET_HARGA },
+  ]);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { covers_date: '2027-01-01' });
+
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['TAHUN-BARU']);
+  assert.ok(supabase.calls.some(([method, column, value]) => method === 'lte' && column === 'berangkat_tgl' && value === '2027-01-01'));
+  assert.ok(supabase.calls.some(([method, column, value]) => method === 'gte' && column === 'pulang_tgl' && value === '2027-01-01'));
+  assert.equal(
+    supabase.calls.some(([method, column]) => method === 'gte' && column === 'berangkat_tgl'),
+    false,
+    'covers_date tidak boleh ditimpa guard upcoming bawaan',
+  );
+});
+
+test('list_jadwal_paket berangkat_from/to inklusif di kedua ujung', async () => {
+  const supabase = filteringScheduleSupabase([
+    { jadwal_id: 'SEBELUM', jadwal_nama: 'SEBELUM', berangkat_tgl: '2026-12-26', pulang_tgl: '2027-01-03', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'BATAS-AWAL', jadwal_nama: 'BATAS AWAL', berangkat_tgl: '2026-12-27', pulang_tgl: '2027-01-04', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'BATAS-AKHIR', jadwal_nama: 'BATAS AKHIR', berangkat_tgl: '2027-01-05', pulang_tgl: '2027-01-13', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'SESUDAH', jadwal_nama: 'SESUDAH', berangkat_tgl: '2027-01-06', pulang_tgl: '2027-01-14', paket_harga: PAKET_HARGA },
+  ]);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    berangkat_from: '2026-12-27',
+    berangkat_to: '2027-01-05',
+  });
+
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['BATAS-AWAL', 'BATAS-AKHIR']);
+});
+
+test('list_jadwal_paket month menang atas rentang dan menambahkan note', async () => {
+  const supabase = filteringScheduleSupabase([
+    { jadwal_id: 'DESEMBER', jadwal_nama: 'DESEMBER', berangkat_tgl: '2026-12-20', pulang_tgl: '2026-12-28', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'JANUARI', jadwal_nama: 'JANUARI', berangkat_tgl: '2027-01-02', pulang_tgl: '2027-01-10', paket_harga: PAKET_HARGA },
+  ]);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    month: '2026-12',
+    berangkat_from: '2027-01-01',
+  });
+
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['DESEMBER']);
+  assert.match(out.data.note, /berangkat_from\/berangkat_to diabaikan karena month menang/);
+});
+
+test('list_jadwal_paket search_any memakai OR untuk beberapa ejaan', async () => {
+  const supabase = filteringScheduleSupabase([
+    { jadwal_id: 'A', jadwal_nama: 'UMRAH PLUS TURKI', berangkat_tgl: '2027-01-02', pulang_tgl: '2027-01-10', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'B', jadwal_nama: 'UMRAH PLUS TURKEY', berangkat_tgl: '2027-01-03', pulang_tgl: '2027-01-11', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'C', jadwal_nama: 'UMRAH PLUS DUBAI', berangkat_tgl: '2027-01-04', pulang_tgl: '2027-01-12', paket_harga: PAKET_HARGA },
+  ]);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    search_any: ['turki', 'turkey'],
+    include_departed: true,
+  });
+
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['A', 'B']);
+  assert.ok(supabase.calls.some(
+    ([method, filter]) => method === 'or' && filter === 'jadwal_nama.ilike.*turki*,jadwal_nama.ilike.*turkey*',
+  ));
+});
+
+test('list_jadwal_paket membersihkan sintaks PostgREST dari setiap search_any', async () => {
+  const supabase = filteringScheduleSupabase([]);
+  await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    search_any: ['tu,r()%\\ki', 'turkey'],
+    include_departed: true,
+  });
+
+  const orFilter = supabase.calls.find(([method]) => method === 'or')?.[1];
+  assert.equal(orFilter, 'jadwal_nama.ilike.*tu r    ki*,jadwal_nama.ilike.*turkey*');
+  assert.doesNotMatch(orFilter, /[()%\\]/);
+});
+
+test('tanggal mustahil di list_jadwal_paket menjadi toolError sebelum query', async () => {
+  for (const key of ['berangkat_from', 'berangkat_to', 'covers_date']) {
+    const supabase = stubSupabase({ data: [], error: null });
+    const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { [key]: '2026-13-01' });
+    assert.equal(out.ok, false, `${key} harus ditolak`);
+    assert.match(out.error, new RegExp(`${key}.*YYYY-MM-DD`));
+    assert.equal(supabase.calls.length, 0);
+  }
+
+  const supabase = stubSupabase({ data: [], error: null });
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    kota_pada_tanggal: { tanggal: '2026-13-01', kota: 'mekkah' },
+  });
+  assert.equal(out.ok, false);
+  assert.match(out.error, /kota_pada_tanggal.*YYYY-MM-DD/);
+  assert.equal(supabase.calls.length, 0);
+});
+
+test('list_jadwal_paket mempertahankan paket tanpa cache saat memfilter kota', async () => {
+  const schedules = [
+    { jadwal_id: 'DI-MEKKAH', jadwal_nama: 'UMRAH A', berangkat_tgl: '2026-12-27', pulang_tgl: '2027-01-04', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'DI-MADINAH', jadwal_nama: 'UMRAH B', berangkat_tgl: '2026-12-27', pulang_tgl: '2027-01-04', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'BELUM-CACHE', jadwal_nama: 'UMRAH C', berangkat_tgl: '2026-12-27', pulang_tgl: '2027-01-04', paket_harga: PAKET_HARGA },
+  ];
+  const itineraries = [
+    { jadwal_id: 'DI-MEKKAH', content: { days: [{ dayNumber: 'Hari 6', location: 'Makkah' }] } },
+    { jadwal_id: 'DI-MADINAH', content: { days: [{ dayNumber: 'Hari 6', location: 'Medinah' }] } },
+  ];
+  const supabase = filteringScheduleSupabase(schedules, itineraries);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    include_departed: true,
+    kota_pada_tanggal: { tanggal: '2027-01-01', kota: 'mekkah' },
+  });
+
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['DI-MEKKAH', 'BELUM-CACHE']);
+  assert.deepEqual(
+    out.data.rows.map((row) => [row.itinerary_tersedia, row.kota_pada_tanggal]),
+    [[true, 'Makkah'], [false, null]],
+  );
+  assert.deepEqual(out.data.rows[0].tur, []);
+  assert.match(out.data.note, /1 paket belum punya itinerary tersimpan, posisi kotanya belum bisa dipastikan\./);
+  assert.ok(supabase.calls.some(
+    ([method, column, ids]) => method === 'in' && column === 'jadwal_id'
+      && ids.join(',') === 'DI-MEKKAH,DI-MADINAH,BELUM-CACHE',
+  ));
+});
+
+test('list_jadwal_paket memfilter label tur dari cache itinerary', async () => {
+  const schedules = [
+    { jadwal_id: 'TURKI', jadwal_nama: 'UMRAH PLUS', berangkat_tgl: '2027-01-02', pulang_tgl: '2027-01-10', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'DUBAI', jadwal_nama: 'UMRAH PLUS', berangkat_tgl: '2027-01-03', pulang_tgl: '2027-01-11', paket_harga: PAKET_HARGA },
+    { jadwal_id: 'BELUM-CACHE', jadwal_nama: 'UMRAH PLUS', berangkat_tgl: '2027-01-04', pulang_tgl: '2027-01-12', paket_harga: PAKET_HARGA },
+  ];
+  const itineraries = [
+    { jadwal_id: 'TURKI', content: { days: [{ dayNumber: 'Hari 1', location: 'Cappadocia' }] } },
+    { jadwal_id: 'DUBAI', content: { days: [{ dayNumber: 'Hari 1', location: 'Dubai' }] } },
+  ];
+  const supabase = filteringScheduleSupabase(schedules, itineraries);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    include_departed: true,
+    tur: 'Tur Turki',
+  });
+
+  assert.deepEqual(out.data.rows.map((row) => row.jadwal_id), ['TURKI']);
+  assert.deepEqual(out.data.rows[0].tur, ['Tur Turki']);
+  assert.equal(out.data.rows[0].itinerary_tersedia, true);
+});
+
+test('list_jadwal_paket membatasi lookup itinerary ke 60 kandidat terdekat', async () => {
+  const schedules = Array.from({ length: 61 }, (_, index) => ({
+    jadwal_id: `JBU${String(index).padStart(2, '0')}`,
+    jadwal_nama: `PAKET ${index}`,
+    berangkat_tgl: `2027-01-${String((index % 28) + 1).padStart(2, '0')}`,
+    pulang_tgl: '2027-02-10',
+    paket_harga: PAKET_HARGA,
+  }));
+  const supabase = filteringScheduleSupabase(schedules);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    include_departed: true,
+    limit: 50,
+  });
+
+  const requestedIds = supabase.calls.find(([method, column]) => method === 'in' && column === 'jadwal_id')?.[2];
+  assert.equal(requestedIds.length, 60);
+  assert.equal(out.data.total, 60);
+  assert.equal(out.data.rows.length, 50);
+  assert.match(out.data.note, /Penyaringan itinerary dibatasi ke 60 keberangkatan terdekat\./);
 });
 
 test('bulan mustahil ditolak sebagai { ok:false, error } sebelum menyentuh Postgres', async () => {
