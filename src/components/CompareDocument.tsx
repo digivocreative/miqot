@@ -28,21 +28,25 @@ Font.registerHyphenationCallback((word) => [word]);
 // Pembagiannya juga ditiru dari sana: blok besar memakai biru tua, burgundy
 // tinggal sebagai aksen — pita atas, lencana judul, dan angka yang menang.
 // Dokumen yang seluruhnya merah terasa berat dan boros tinta.
+// Pembaca dokumen ini calon jamaah 40+: abu-abunya dua tingkat lebih tua dan
+// teks emas di atas putih memakai emas TUA (goldInk) — emas terang #c18f1f
+// kontrasnya cuma ~2,9:1, nyaris tak terbaca di cetakan.
 const C = {
   burgundy: '#b40200',
   navy: '#0f172a',
   navyLine: '#334155',
   gold: '#c18f1f',
+  goldInk: '#8a6410',
   goldSoft: '#fbf3e2',
   ink: '#1f2937',
-  gray: '#6b7280',
-  grayLight: '#9ca3af',
+  gray: '#4b5563',
+  grayLight: '#6b7280',
   line: '#e5e7eb',
   bgSoft: '#f8fafc',
   bgTint: '#f3f4f6',
   white: '#ffffff',
-  onDark: '#ffffffcc',
-  onDarkDim: '#ffffff99',
+  onDark: '#ffffffe6',
+  onDarkDim: '#ffffffc4',
   /**
    * Warna padat, BUKAN hex 8-digit. react-pdf menangani alpha-hex dengan benar
    * di `backgroundColor` dan `color` teks, tapi merusaknya di `borderColor` dan
@@ -54,107 +58,111 @@ const C = {
 };
 
 const A4W = 595.28;
-const LABEL_W = 96;
+const LABEL_W = 104;
 
 const b = { fontFamily: 'Inter', fontWeight: 'bold' as const };
 
+// Lantai ukuran font (permintaan user 2026-08-05, pembaca 40+): tak ada teks di
+// bawah 7.5pt; keterangan sekunder minimal 8.5pt, nilai utama 11–14pt.
 const s = StyleSheet.create({
-  page: { fontFamily: 'Inter', fontSize: 8, color: C.ink, backgroundColor: C.white },
+  page: { fontFamily: 'Inter', fontSize: 9, color: C.ink, backgroundColor: C.white },
 
   accentBar: { height: 4, backgroundColor: C.burgundy },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 13, paddingHorizontal: 20 },
   // Logo berwarna yang dipakai Jadwal sudah memuat wordmark "ALHIJAZ — Umroh &
   // Haji Khusus", jadi nama perusahaan tidak ditulis ulang di sebelahnya —
   // cukup satu baris alamat di bawah logo.
-  headerLogo: { width: 116, height: 20, objectFit: 'contain' as const, marginBottom: 4 },
-  address: { fontSize: 6.5, color: C.gray },
-  docBadge: { backgroundColor: C.burgundy, borderRadius: 2, paddingVertical: 3, paddingHorizontal: 9, marginBottom: 3 },
-  docTitle: { ...b, fontSize: 7, color: C.white, letterSpacing: 0.6 },
-  docDate: { fontSize: 6.5, color: C.grayLight },
+  headerLogo: { width: 122, height: 21, objectFit: 'contain' as const, marginBottom: 5 },
+  address: { fontSize: 7.5, color: C.gray },
+  docBadge: { backgroundColor: C.burgundy, borderRadius: 2, paddingVertical: 3.5, paddingHorizontal: 10, marginBottom: 3 },
+  docTitle: { ...b, fontSize: 8, color: C.white, letterSpacing: 0.6 },
+  docDate: { fontSize: 7.5, color: C.gray },
   rule: { height: 0.5, backgroundColor: C.line },
 
-  kesimpulan: { paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
-  kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
-  kesimpulanTick: { width: 3, height: 3, backgroundColor: C.gold },
-  kesimpulanLabel: { ...b, fontSize: 8, letterSpacing: 1.2, color: '#8a6410' },
-  poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3.5 },
-  poinDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gold, marginTop: 4.5 },
-  poinTeks: { flex: 1, fontSize: 9, lineHeight: 1.4, color: '#334155' },
-  poinTebal: { ...b, fontSize: 9, color: C.navy },
+  // flexGrow menyerap selisih taksiran tinggi halaman: sisa taksiran jadi latar
+  // emas pita ini yang sedikit lebih lega, bukan pita putih di bawah footer.
+  kesimpulan: { flexGrow: 1, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
+  kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  kesimpulanTick: { width: 3.5, height: 3.5, backgroundColor: C.gold },
+  kesimpulanLabel: { ...b, fontSize: 9, letterSpacing: 1.2, color: '#6b4e0c' },
+  poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 4 },
+  poinDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gold, marginTop: 5 },
+  poinTeks: { flex: 1, fontSize: 10, lineHeight: 1.4, color: C.ink },
+  poinTebal: { ...b, fontSize: 10, color: C.navy },
 
   band: { flexDirection: 'row', backgroundColor: C.navy },
-  bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
+  bandCol: { flex: 1, paddingVertical: 13, paddingHorizontal: 16 },
   bandColRight: { borderLeftWidth: 0.5, borderLeftColor: C.navyLine },
-  bandTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  bandSisi: { ...b, fontSize: 6.5, letterSpacing: 1.4, color: '#ffffffaa' },
-  tierBadge: { paddingVertical: 2.5, paddingHorizontal: 8, borderRadius: 9, backgroundColor: '#ffffff2e' },
-  tierText: { ...b, fontSize: 7, letterSpacing: 0.8, color: C.white },
-  bandNama: { ...b, fontSize: 13, color: C.white, lineHeight: 1.25, marginBottom: 6 },
-  bandMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  bandMaskapai: { ...b, fontSize: 7.5, color: C.white },
-  bandDot: { fontSize: 7.5, color: '#ffffff80' },
-  bandDurasi: { fontSize: 7.5, color: C.onDark },
+  bandTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 },
+  bandSisi: { ...b, fontSize: 7.5, letterSpacing: 1.4, color: '#ffffffd6' },
+  tierBadge: { paddingVertical: 3, paddingHorizontal: 9, borderRadius: 10, backgroundColor: '#ffffff2e' },
+  tierText: { ...b, fontSize: 8, letterSpacing: 0.8, color: C.white },
+  bandNama: { ...b, fontSize: 14, color: C.white, lineHeight: 1.25, marginBottom: 7 },
+  bandMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 7 },
+  bandMaskapai: { ...b, fontSize: 8.5, color: C.white },
+  bandDot: { fontSize: 8.5, color: '#ffffff99' },
+  bandDurasi: { fontSize: 8.5, color: C.onDark },
   rantai: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  panah: { fontSize: 9, color: '#ffffff66' },
-  simpul: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2.5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: C.onDarkFill },
-  simpulText: { ...b, fontSize: 7, color: C.white },
-  simpulIkon: { width: 9, height: 9, objectFit: 'contain' as const },
-  landingTanda: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
-  landingTeks: { fontSize: 6.5, color: C.onDarkDim },
+  panah: { fontSize: 10, color: '#ffffff80' },
+  simpul: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.onDarkFill },
+  simpulText: { ...b, fontSize: 8, color: C.white },
+  simpulIkon: { width: 10, height: 10, objectFit: 'contain' as const },
+  landingTanda: { flexDirection: 'row', alignItems: 'center', gap: 3.5, marginTop: 6 },
+  landingTeks: { fontSize: 7.5, color: C.onDarkDim },
 
-  seksi: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 20, backgroundColor: C.bgSoft, borderTopWidth: 0.5, borderTopColor: C.line },
-  seksiTick: { width: 2.5, height: 2.5, backgroundColor: C.gold },
-  seksiJudul: { ...b, fontSize: 7, letterSpacing: 1.2, color: C.navy },
+  seksi: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 7, paddingHorizontal: 20, backgroundColor: C.bgSoft, borderTopWidth: 0.5, borderTopColor: C.line },
+  seksiTick: { width: 3, height: 3, backgroundColor: C.gold },
+  seksiJudul: { ...b, fontSize: 8.5, letterSpacing: 1.2, color: C.navy },
 
   row: { flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: C.line },
-  labelCell: { width: LABEL_W, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: C.bgTint },
-  labelText: { ...b, fontSize: 6.8, letterSpacing: 0.8, lineHeight: 1.35, color: C.gray },
-  cell: { flex: 1, paddingVertical: 8, paddingHorizontal: 14 },
+  labelCell: { width: LABEL_W, paddingVertical: 9, paddingHorizontal: 14, backgroundColor: C.bgTint },
+  labelText: { ...b, fontSize: 8, letterSpacing: 0.6, lineHeight: 1.35, color: C.gray },
+  cell: { flex: 1, paddingVertical: 9, paddingHorizontal: 14 },
   cellRight: { borderLeftWidth: 0.5, borderLeftColor: C.line },
-  cellLine: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2.5 },
+  cellLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
 
-  hargaUtama: { ...b, fontSize: 12, color: C.ink },
-  hargaBaris: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 3 },
-  hargaLabel: { fontSize: 7.5, color: C.gray },
-  hargaNilai: { ...b, fontSize: 10, color: C.ink },
-  hargaKosong: { fontSize: 7.5, color: C.grayLight },
-  tglUtama: { ...b, fontSize: 9.5, color: C.ink },
-  jam: { fontSize: 7.5, color: C.gray },
-  kode: { ...b, fontSize: 7.5, color: C.gold },
-  ruteKota: { ...b, fontSize: 7.5, color: C.ink },
-  langsung: { ...b, fontSize: 6.3, color: C.gold },
-  rute: { fontSize: 6.5, color: C.grayLight },
-  hotelNama: { ...b, fontSize: 8.5, color: C.ink },
+  hargaUtama: { ...b, fontSize: 13, color: C.ink },
+  hargaBaris: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 3.5 },
+  hargaLabel: { fontSize: 9, color: C.gray },
+  hargaNilai: { ...b, fontSize: 11, color: C.ink },
+  hargaKosong: { fontSize: 8.5, color: C.grayLight },
+  tglUtama: { ...b, fontSize: 11, color: C.ink },
+  jam: { fontSize: 9, color: C.gray },
+  kode: { ...b, fontSize: 9, color: C.goldInk },
+  ruteKota: { ...b, fontSize: 9.5, color: C.ink },
+  langsung: { ...b, fontSize: 7.5, color: C.goldInk },
+  rute: { fontSize: 7.5, color: C.gray },
+  hotelNama: { ...b, fontSize: 10, color: C.ink },
   bintangRow: { flexDirection: 'row', gap: 1 },
-  jarak: { fontSize: 7, color: C.gray },
-  kosong: { fontSize: 9, color: C.grayLight },
-  seatAngka: { ...b, fontSize: 13, color: C.ink },
-  seatKet: { fontSize: 7.5, color: C.gray },
-  suhuKota: { fontSize: 7, color: C.gray },
-  suhuNilai: { ...b, fontSize: 8, color: C.ink },
+  jarak: { fontSize: 8.5, color: C.gray },
+  kosong: { fontSize: 10, color: C.grayLight },
+  seatAngka: { ...b, fontSize: 14, color: C.ink },
+  seatKet: { fontSize: 9, color: C.gray },
+  suhuKota: { fontSize: 8.5, color: C.gray },
+  suhuNilai: { ...b, fontSize: 9.5, color: C.ink },
 
   qrRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  qrImg: { width: 46, height: 46 },
-  qrJudul: { ...b, fontSize: 7.5, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
-  qrUrl: { fontSize: 6.5, lineHeight: 1.3, color: C.grayLight },
+  qrImg: { width: 52, height: 52 },
+  qrJudul: { ...b, fontSize: 9, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
+  qrUrl: { fontSize: 7.5, lineHeight: 1.3, color: C.gray },
 
   // Label kecil yang membungkus; satu paragraf bertitik-tengah sepanjang sebelas
   // nama tempat susah dipindai dan patah barisnya tak menentu. Jumlah tempatnya
   // TIDAK ditulis di sel — angkanya disandingkan di pita Kesimpulan.
-  destPills: { flexDirection: 'row', flexWrap: 'wrap' as const, gap: 3 },
-  destPill: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, backgroundColor: C.bgTint },
-  destPillTeks: { fontSize: 6.8, color: C.ink },
+  destPills: { flexDirection: 'row', flexWrap: 'wrap' as const, gap: 3.5 },
+  destPill: { paddingVertical: 2.5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: C.bgTint },
+  destPillTeks: { fontSize: 8, color: C.ink },
 
   footerAccent: { height: 3, backgroundColor: C.burgundy },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.navy },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 20, backgroundColor: C.navy },
   footerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  avatar: { width: 30, height: 30, borderRadius: 15, objectFit: 'cover' as const },
-  avatarKosong: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#ffffff33' },
-  agentNama: { ...b, fontSize: 9.5, color: C.white, marginBottom: 1.5 },
-  agentKontak: { fontSize: 7, color: C.onDark },
+  avatar: { width: 32, height: 32, borderRadius: 16, objectFit: 'cover' as const },
+  avatarKosong: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#ffffff33' },
+  agentNama: { ...b, fontSize: 10.5, color: C.white, marginBottom: 2 },
+  agentKontak: { fontSize: 8, color: C.onDark },
   footerKanan: { alignItems: 'flex-end' },
-  disclaimer: { fontSize: 6.5, color: C.onDark, marginBottom: 1.5 },
-  sumber: { fontSize: 6.5, color: C.onDarkDim },
+  disclaimer: { fontSize: 7.5, color: C.onDark, marginBottom: 2 },
+  sumber: { fontSize: 7.5, color: C.onDarkDim },
 });
 
 // ============================================
@@ -228,7 +236,7 @@ function Bintang({ jumlah }: { jumlah: number }) {
   return (
     <View style={s.bintangRow}>
       {Array.from({ length: jumlah }).map((_, i) => (
-        <Svg key={i} width={7.5} height={7.5} viewBox="0 0 24 24">
+        <Svg key={i} width={8.5} height={8.5} viewBox="0 0 24 24">
           <Path d={STAR_PATH} fill={C.gold} />
         </Svg>
       ))}
@@ -465,40 +473,40 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const perkiraanBaris = (teks: string, charPerBaris: number) =>
     Math.max(1, Math.ceil((teks || '').length / charPerBaris));
   const barisNama = Math.max(
-    perkiraanBaris(a.pkg.nama, 30),
-    perkiraanBaris(b.pkg.nama, 30),
+    perkiraanBaris(a.pkg.nama, 28),
+    perkiraanBaris(b.pkg.nama, 28),
   );
   const barisHotel = kotaHotel.reduce((total, kota) => {
     const namaA = hotelDiKota(a.pkg, a.tier, kota.key)?.nama || '';
     const namaB = hotelDiKota(b.pkg, b.tier, kota.key)?.nama || '';
-    return total + Math.max(perkiraanBaris(namaA, 42), perkiraanBaris(namaB, 42));
+    return total + Math.max(perkiraanBaris(namaA, 36), perkiraanBaris(namaB, 36));
   }, 0);
   const maxKotaSuhu = Math.max(suhu[0].length, suhu[1].length, 1);
 
-  let h = 4 + 60 + 1;                       // accent + header (logo di atas alamat) + rule
+  let h = 4 + 64 + 1;                       // accent + header (logo di atas alamat) + rule
   const barisPoin = poin.reduce(
-    (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 78),
+    (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 70),
     0,
   );
-  h += 24 + 12 + poin.length * 3.5 + Math.ceil(barisPoin * 13); // pita kesimpulan (font 9)
-  h += 79 + 17 * barisNama + 13;            // pita paket + penanda landing
-  h += 20 + (16 + barisKamar.length * 14) + (adaBayi ? 34 : 0); // seksi + daftar kamar + bayi
-  h += 20 + 2 * 40 + 2 * 36;                // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
-  h += 20 + kotaHotel.length * 28 + (barisHotel - kotaHotel.length) * 11;
-  h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
-  h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
+  h += 26 + 14 + poin.length * 4 + Math.ceil(barisPoin * 14); // pita kesimpulan (font 10)
+  h += 88 + 18 * barisNama + 15;            // pita paket + penanda landing
+  h += 23 + (20 + barisKamar.length * 17) + (adaBayi ? 40 : 0); // seksi + daftar kamar + bayi
+  h += 23 + 2 * 48 + 2 * 44;                // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
+  h += 23 + kotaHotel.length * 33 + (barisHotel - kotaHotel.length) * 14;
+  h += 23 + 41 + 46;                        // seksi ketersediaan: seat + manasik
+  h += 18 + Math.ceil(maxKotaSuhu * 13.5);  // baris suhu
   if (adaDestinasi) {
-    // Lebar pil ditaksir dari jumlah huruf + padding 12 + jarak 3, sel selebar
-    // ~221pt. 4.6pt/huruf diukur dari render nyata: nama tempat ditulis Kapital
+    // Lebar pil ditaksir dari jumlah huruf + padding 14 + jarak 3,5; sel
+    // selebar ~218pt. 5.4pt/huruf pada font 8 — nama tempat ditulis Kapital
     // Setiap Kata, jadi jauh lebih lebar daripada rata-rata teks biasa.
     const barisPil = Math.max(...sides.map(side => {
-      const lebar = (side.destinasi || []).reduce((t, nama) => t + nama.length * 4.6 + 15, 0);
-      return Math.max(1, Math.ceil(lebar / 221));
+      const lebar = (side.destinasi || []).reduce((t, nama) => t + nama.length * 5.4 + 17.5, 0);
+      return Math.max(1, Math.ceil(lebar / 218));
     }));
-    h += 20 + 16 + barisPil * 16;           // seksi + baris pil (tanpa baris jumlah)
+    h += 23 + 18 + barisPil * 18;           // seksi + baris pil (tanpa baris jumlah)
   }
-  if (adaQr) h += 65;                       // baris itinerary
-  h += 3 + 50;                              // aksen + footer
+  if (adaQr) h += 74;                       // baris itinerary
+  h += 3 + 56;                              // aksen + footer
   // Sisa aman 56pt. Taksiran yang KURANG membuat dokumen tumpah ke halaman
   // kedua — sudah terbukti dua kali (sisa 8pt, lalu 24pt setelah baris pil
   // destinasi masuk). Kelebihan puluhan pt cuma pita putih tipis di bawah, jauh
