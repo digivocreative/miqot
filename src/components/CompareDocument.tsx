@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Path, pdf } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 import type { UmrohPackage } from '@/types';
@@ -63,9 +63,10 @@ const s = StyleSheet.create({
 
   accentBar: { height: 4, backgroundColor: C.burgundy },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 13, paddingHorizontal: 20 },
-  headerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  headerLogo: { width: 73, height: 22, objectFit: 'contain' as const },
-  company: { ...b, fontSize: 12, color: C.burgundy, marginBottom: 2 },
+  // Logo berwarna yang dipakai Jadwal sudah memuat wordmark "ALHIJAZ — Umroh &
+  // Haji Khusus", jadi nama perusahaan tidak ditulis ulang di sebelahnya —
+  // cukup satu baris alamat di bawah logo.
+  headerLogo: { width: 116, height: 20, objectFit: 'contain' as const, marginBottom: 4 },
   address: { fontSize: 6.5, color: C.gray },
   docBadge: { backgroundColor: C.burgundy, borderRadius: 2, paddingVertical: 3, paddingHorizontal: 9, marginBottom: 3 },
   docTitle: { ...b, fontSize: 7, color: C.white, letterSpacing: 0.6 },
@@ -75,11 +76,11 @@ const s = StyleSheet.create({
   kesimpulan: { paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.goldSoft, borderTopWidth: 0.5, borderTopColor: '#e8d9b0' },
   kesimpulanHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
   kesimpulanTick: { width: 3, height: 3, backgroundColor: C.gold },
-  kesimpulanLabel: { ...b, fontSize: 7, letterSpacing: 1.2, color: '#8a6410' },
-  poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3 },
-  poinDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: C.gold, marginTop: 4 },
-  poinTeks: { flex: 1, fontSize: 8, lineHeight: 1.4, color: '#334155' },
-  poinTebal: { ...b, fontSize: 8, color: C.navy },
+  kesimpulanLabel: { ...b, fontSize: 8, letterSpacing: 1.2, color: '#8a6410' },
+  poin: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 3.5 },
+  poinDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: C.gold, marginTop: 4.5 },
+  poinTeks: { flex: 1, fontSize: 9, lineHeight: 1.4, color: '#334155' },
+  poinTebal: { ...b, fontSize: 9, color: C.navy },
 
   band: { flexDirection: 'row', backgroundColor: C.navy },
   bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
@@ -137,9 +138,9 @@ const s = StyleSheet.create({
   qrJudul: { ...b, fontSize: 7.5, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
   qrUrl: { fontSize: 6.5, lineHeight: 1.3, color: C.grayLight },
 
-  destJumlah: { ...b, fontSize: 8.5, color: C.ink, marginBottom: 4 },
   // Label kecil yang membungkus; satu paragraf bertitik-tengah sepanjang sebelas
-  // nama tempat susah dipindai dan patah barisnya tak menentu.
+  // nama tempat susah dipindai dan patah barisnya tak menentu. Jumlah tempatnya
+  // TIDAK ditulis di sel — angkanya disandingkan di pita Kesimpulan.
   destPills: { flexDirection: 'row', flexWrap: 'wrap' as const, gap: 3 },
   destPill: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, backgroundColor: C.bgTint },
   destPillTeks: { fontSize: 6.8, color: C.ink },
@@ -255,6 +256,12 @@ const fmtRupiah = (v: number) => 'Rp ' + v.toLocaleString('id-ID');
 const fmtTanggal = (d: string) =>
   new Date(d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
 const fmtJam = (t: string) => String(t || '').replace('.', ':');
+/**
+ * Jam dari hulu kadang cuma penanda kalender — " (+7)" alih-alih jam (pola yang
+ * sama dengan kartu penerbangan "Perlu Cek"). Yang bukan jam betulan tidak
+ * dicetak: "(+7) WIB" di dokumen resmi lebih buruk daripada tanpa jam.
+ */
+const jamValid = (t: string) => /^\s*\d{1,2}[.:]\d{2}/.test(String(t || ''));
 
 function durasiHari(pkg: UmrohPackage): number {
   const match = pkg.nama.match(/(\d+)\s*HR\b/i);
@@ -389,9 +396,21 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
     }
   }
 
+  // Angka destinasi disandingkan hanya bila KEDUA itinerary terbaca — "12
+  // berbanding —" menyiratkan paket satunya tak ke mana-mana, padahal mungkin
+  // sekadar belum ter-cache.
+  const destinasiA = a.destinasi?.length || 0;
+  const destinasiB = b.destinasi?.length || 0;
+  if (destinasiA > 0 && destinasiB > 0) {
+    poin.push({
+      tebal: 'Tempat yang dikunjungi',
+      sisa: `— Paket A ${destinasiA} tempat, Paket B ${destinasiB} tempat.`,
+    });
+  }
+
   if (verdict.seat) {
     poin.push({
-      tebal: 'Sisa kursi',
+      tebal: 'Sisa seat',
       sisa: `— Paket A ${verdict.seat.a} dari ${a.pkg.seatTotal}, Paket B ${verdict.seat.b} dari ${b.pkg.seatTotal}.`,
     });
   }
@@ -408,7 +427,7 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
   if (!poin.length) {
     poin.push({
       tebal: 'Kedua paket sebanding',
-      sisa: '— harga, hotel, dan sisa kursinya tidak berbeda berarti.',
+      sisa: '— harga, hotel, dan sisa seat-nya tidak berbeda berarti.',
     });
   }
   return poin;
@@ -456,15 +475,15 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   }, 0);
   const maxKotaSuhu = Math.max(suhu[0].length, suhu[1].length, 1);
 
-  let h = 4 + 51 + 1;                       // accent + header + rule
+  let h = 4 + 60 + 1;                       // accent + header (logo di atas alamat) + rule
   const barisPoin = poin.reduce(
-    (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 88),
+    (total, p) => total + perkiraanBaris(`${p.tebal}  ${p.sisa}`, 78),
     0,
   );
-  h += 22 + 12 + poin.length * 3 + Math.ceil(barisPoin * 11.5); // pita kesimpulan
+  h += 24 + 12 + poin.length * 3.5 + Math.ceil(barisPoin * 13); // pita kesimpulan (font 9)
   h += 79 + 17 * barisNama + 13;            // pita paket + penanda landing
   h += 20 + (16 + barisKamar.length * 14) + (adaBayi ? 34 : 0); // seksi + daftar kamar + bayi
-  h += 20 + 2 * 50;                         // seksi penerbangan + 2 baris (kota + kode + rute)
+  h += 20 + 2 * 40 + 2 * 36;                // seksi penerbangan + 2×(tanggal/jam) + 2×(rute)
   h += 20 + kotaHotel.length * 28 + (barisHotel - kotaHotel.length) * 11;
   h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
   h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
@@ -476,7 +495,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
       const lebar = (side.destinasi || []).reduce((t, nama) => t + nama.length * 4.6 + 15, 0);
       return Math.max(1, Math.ceil(lebar / 221));
     }));
-    h += 20 + 30 + barisPil * 16;           // seksi + jumlah tempat + baris pil
+    h += 20 + 16 + barisPil * 16;           // seksi + baris pil (tanpa baris jumlah)
   }
   if (adaQr) h += 65;                       // baris itinerary
   h += 3 + 50;                              // aksen + footer
@@ -524,12 +543,9 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         {/* ─── HEADER ─── */}
         <View style={s.accentBar} />
         <View style={s.header}>
-          <View style={s.headerKiri}>
-            <Image style={s.headerLogo} src={`${origin}/logo-alhijaz.png`} />
-            <View>
-              <Text style={s.company}>PT ALHIJAZ INDOWISATA</Text>
-              <Text style={s.address}>Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang — Jakarta Timur</Text>
-            </View>
+          <View>
+            <Image style={s.headerLogo} src={`${origin}/new-logo-alhijaz-colored.png`} />
+            <Text style={s.address}>PT Alhijaz Indowisata — Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang, Jakarta Timur</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <View style={s.docBadge}><Text style={s.docTitle}>PERBANDINGAN PAKET</Text></View>
@@ -603,30 +619,43 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         )}
 
         {/* ─── PENERBANGAN ─── */}
+        {/* Tiap arah dipecah dua baris — tanggal/jam lalu rutenya — supaya satu
+            sel tidak menumpuk empat lapis keterangan. */}
         <Seksi judul="PENERBANGAN" />
         {([
-          { label: 'BERANGKAT', ambil: (p: UmrohPackage) => p.keberangkatan },
-          { label: 'PULANG', ambil: (p: UmrohPackage) => p.kepulangan },
+          { label: 'BERANGKAT', ruteLabel: 'RUTE PERGI', ambil: (p: UmrohPackage) => p.keberangkatan },
+          { label: 'PULANG', ruteLabel: 'RUTE PULANG', ambil: (p: UmrohPackage) => p.kepulangan },
         ]).map(baris => (
-          <Baris key={baris.label} label={baris.label}>
-            {sides.map((side, i) => {
-              const f = baris.ambil(side.pkg);
-              return (
-                <Sel key={i} kanan={i === 1}>
-                  <Text style={s.tglUtama}>{fmtTanggal(f.tgl)}</Text>
-                  <View style={s.cellLine}>
-                    <Text style={s.jam}>{fmtJam(f.jam)} WIB</Text>
-                    <Text style={s.kode}>{f.kodePenerbangan}</Text>
-                  </View>
-                  <View style={s.cellLine}>
-                    <Text style={s.ruteKota}>{ruteKota(f.rute)}</Text>
-                    {tanpaTransit(f.rute) && <Text style={s.langsung}>langsung</Text>}
-                  </View>
-                  <Text style={s.rute}>{rapikanRute(f.rute)}</Text>
-                </Sel>
-              );
-            })}
-          </Baris>
+          <Fragment key={baris.label}>
+            <Baris label={baris.label}>
+              {sides.map((side, i) => {
+                const f = baris.ambil(side.pkg);
+                return (
+                  <Sel key={i} kanan={i === 1}>
+                    <Text style={s.tglUtama}>{fmtTanggal(f.tgl)}</Text>
+                    <View style={s.cellLine}>
+                      {jamValid(f.jam) && <Text style={s.jam}>{fmtJam(f.jam)} WIB</Text>}
+                      <Text style={s.kode}>{f.kodePenerbangan}</Text>
+                    </View>
+                  </Sel>
+                );
+              })}
+            </Baris>
+            <Baris label={baris.ruteLabel}>
+              {sides.map((side, i) => {
+                const f = baris.ambil(side.pkg);
+                return (
+                  <Sel key={i} kanan={i === 1}>
+                    <View style={s.cellLine}>
+                      <Text style={s.ruteKota}>{ruteKota(f.rute)}</Text>
+                      {tanpaTransit(f.rute) && <Text style={s.langsung}>langsung</Text>}
+                    </View>
+                    <Text style={s.rute}>{rapikanRute(f.rute)}</Text>
+                  </Sel>
+                );
+              })}
+            </Baris>
+          </Fragment>
         ))}
 
         {/* ─── HOTEL ─── */}
@@ -667,16 +696,13 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
               {sides.map((side, i) => (
                 <Sel key={i} kanan={i === 1}>
                   {side.destinasi?.length ? (
-                    <>
-                      <Text style={s.destJumlah}>{side.destinasi.length} tempat</Text>
-                      <View style={s.destPills}>
-                        {side.destinasi.map((nama, k) => (
-                          <View key={k} style={s.destPill}>
-                            <Text style={s.destPillTeks}>{nama}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </>
+                    <View style={s.destPills}>
+                      {side.destinasi.map((nama, k) => (
+                        <View key={k} style={s.destPill}>
+                          <Text style={s.destPillTeks}>{nama}</Text>
+                        </View>
+                      ))}
+                    </View>
                   ) : (
                     <Text style={s.kosong}>—</Text>
                   )}
@@ -687,13 +713,13 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         )}
 
         {/* ─── KETERSEDIAAN & PERSIAPAN ─── */}
-        <Seksi judul="SISA KURSI & MANASIK" />
-        <Baris label="SISA KURSI">
+        <Seksi judul="SISA SEAT & MANASIK" />
+        <Baris label="SISA SEAT">
           {sides.map((side, i) => (
             <Sel key={i} kanan={i === 1}>
               <View style={s.cellLine}>
                 <Text style={s.seatAngka}>{side.pkg.seatSisa}</Text>
-                <Text style={s.seatKet}>dari {side.pkg.seatTotal} kursi</Text>
+                <Text style={s.seatKet}>dari {side.pkg.seatTotal} seat</Text>
               </View>
             </Sel>
           ))}
@@ -781,7 +807,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
           </View>
           <View style={s.footerKanan}>
             <Text style={s.disclaimer}>Harga & ketersediaan dapat berubah sewaktu-waktu.</Text>
-            <Text style={s.sumber}>Data per {hariIni} · {a.pkg.jadwalId} vs {b.pkg.jadwalId}</Text>
+            <Text style={s.sumber}>Data per {hariIni}</Text>
           </View>
         </View>
       </Page>
