@@ -10,7 +10,7 @@ import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay'
 import { formatCalendarMeetingPoint } from '@/lib/calendarPeople';
 import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName, airportCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
-import { destinationPhotosForDays } from '../../lib/itinerary-destinasi.js';
+import { highlightPlacesForDays } from '../../lib/itinerary-tempat.js';
 
 // ── Font Inter dari /public/fonts, sama seperti QuotationDocument ──
 // Jangan kembalikan ke fonts.gstatic.com: dokumen ini harus bisa dibuat tanpa
@@ -928,14 +928,17 @@ async function fotoAgentPng(url?: string): Promise<string | undefined> {
   }
 }
 
-/** Momen di bandara, bukan tempat wisata — disaring dari daftar destinasi. */
-const FOTO_MOMEN = new Set(['keberangkatan-di-bandara.png', 'kepulangan-di-bandara.png']);
-
 /**
  * Tempat yang dikunjungi, dari itinerary yang SUDAH ter-cache di server.
  * `pdfUrl` sengaja tidak dikirim: tanpa itu endpoint hanya membaca cache, jadi
  * pembuatan PDF tak pernah menunggu parsing PDF dari origin yang kronis lambat.
  * Gagal atau belum ter-cache berarti barisnya dilewati, bukan menahan dokumen.
+ *
+ * Memakai `highlightPlacesForDays`, BUKAN pemilih foto galeri: pemilih foto
+ * hanya kenal tempat yang punya aset gambar dan mengambil maksimal satu per
+ * aktivitas, sehingga daftarnya dulu tak lengkap dan sempat memuat "Kereta Cepat
+ * Haramain" yang bukan tempat. Yang diambil hanya sorotan — daftar penuh 40+
+ * nama terlalu ramai untuk dokumen jualan. Lihat lib/itinerary-tempat.js.
  */
 async function ambilDestinasi(jadwalId: string): Promise<string[] | undefined> {
   const batal = new AbortController();
@@ -946,10 +949,7 @@ async function ambilDestinasi(jadwalId: string): Promise<string[] | undefined> {
     const json = await resp.json();
     const days = json?.data?.days;
     if (!Array.isArray(days) || !days.length) return undefined;
-    const nama = destinationPhotosForDays(days)
-      .flat()
-      .filter((foto): foto is { file: string; label: string } => Boolean(foto) && !FOTO_MOMEN.has(foto!.file))
-      .map(foto => foto.label);
+    const nama = highlightPlacesForDays(days);
     return nama.length ? nama : undefined;
   } catch {
     return undefined;
