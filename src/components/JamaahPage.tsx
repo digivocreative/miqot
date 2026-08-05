@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Eye, EyeOff, LogIn, Loader2, User, Users, Lock, Search,
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
   SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
-  FileText, Download, Share2, ZoomIn, ZoomOut,
+  FileText, Download, Share2,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import FilterDropdown from './FilterDropdown';
@@ -15,6 +15,8 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { trackEvent } from '../utils/analytics';
 import HajiPage from './HajiPage';
 import MagicLinkButton from './dashboard/portal-jamaah-tools/MagicLinkButton';
+
+const UmrohPernyataanPdfPreview = lazy(() => import('./UmrohPernyataanPdfPreview'));
 
 // ── Animated Counter: smooth count-up between values ──
 function AnimatedCounter({ value, duration = 600 }: { value: number; duration?: number }) {
@@ -234,62 +236,17 @@ function buildPernyataanPdfFilename(jamaahName: string): string {
 
 function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jamaahName: string; onClose: () => void }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [loading, setLoading] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
-  const [scale, setScale] = useState(1);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const pinchRef = useRef({ startDist: 0, startScale: 1 });
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
-  function applyPernyataanZoom(nextScale: number) {
-    try {
-      const documentElement = iframeRef.current?.contentDocument?.documentElement;
-      if (!documentElement) return;
-      documentElement.style.setProperty('zoom', String(nextScale));
-      documentElement.style.setProperty('transform-origin', 'top center');
-    } catch {
-      // Blob previews are same-origin in normal browsers; ignore restricted fallbacks.
-    }
-  }
-
-  const getTouchDistance = (touches: React.TouchList) => {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2) {
-      pinchRef.current.startDist = getTouchDistance(e.touches);
-      pinchRef.current.startScale = scale;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2 && pinchRef.current.startDist > 0) {
-      e.preventDefault();
-      const dist = getTouchDistance(e.touches);
-      const ratio = dist / pinchRef.current.startDist;
-      setScale(Math.min(3, Math.max(1, +(pinchRef.current.startScale * ratio).toFixed(2))));
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (scale < 1.1) setScale(1);
-  };
-
-  const zoomIn = () => setScale(prev => Math.min(3, +(prev + 0.25).toFixed(2)));
-  const zoomOut = () => setScale(prev => Math.max(1, +(prev - 0.25).toFixed(2)));
-  const resetZoom = () => setScale(1);
-
   const handleDownloadPdf = useCallback(async () => {
-    const pdfUrl = resolveDocumentFormatUrl(url, 'pdf');
+    if (!pdfBlob) return;
     try {
       setExportingPdf(true);
-      const res = await fetch(pdfUrl, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
+      const blob = pdfBlob;
       const fileName = buildPernyataanPdfFilename(jamaahName);
       const file = new File([blob], fileName, { type: 'application/pdf' });
 
@@ -311,20 +268,28 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
     } finally {
       setExportingPdf(false);
     }
-  }, [url, jamaahName]);
+  }, [pdfBlob, jamaahName]);
 
   useEffect(() => {
     let cancelled = false;
+    let objectUrl = '';
     (async () => {
       try {
         setLoading(true);
         setError('');
-        setScale(1);
-        const res = await fetch(url, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
+        setBlobUrl(null);
+        setPdfBlob(null);
+        const pdfUrl = resolveDocumentFormatUrl(url, 'pdf');
+        const res = await fetch(pdfUrl, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
+        const sourceBlob = await res.blob();
+        const blob = sourceBlob.type === 'application/pdf'
+          ? sourceBlob
+          : new Blob([sourceBlob], { type: 'application/pdf' });
         if (!cancelled) {
-          setBlobUrl(URL.createObjectURL(blob));
+          objectUrl = URL.createObjectURL(blob);
+          setPdfBlob(blob);
+          setBlobUrl(objectUrl);
           setLoading(false);
         }
       } catch (err: any) {
@@ -334,16 +299,11 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [url]);
-
-  useEffect(() => {
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-  }, [blobUrl]);
-
-  useEffect(() => {
-    applyPernyataanZoom(scale);
-  }, [scale, blobUrl]);
 
   return (
     <motion.div
@@ -368,45 +328,7 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
         </button>
       </div>
 
-      <div
-        className="relative flex-1 overflow-auto bg-gray-100 dark:bg-slate-950"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        {blobUrl && !loading && !error && (
-          <div className="fixed bottom-24 right-4 z-20 flex justify-end pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
-              <button
-                type="button"
-                onClick={zoomOut}
-                disabled={scale <= 1}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Zoom out"
-              >
-                <ZoomOut size={18} />
-              </button>
-              <button
-                type="button"
-                onClick={resetZoom}
-                className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
-                aria-label="Reset zoom"
-              >
-                {Math.round(scale * 100)}%
-              </button>
-              <button
-                type="button"
-                onClick={zoomIn}
-                disabled={scale >= 3}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Zoom in"
-              >
-                <ZoomIn size={18} />
-              </button>
-            </div>
-          </div>
-        )}
-
+      <div className="relative flex-1 min-h-0 overflow-y-auto bg-gray-100 px-4 py-4 dark:bg-slate-950">
         {loading ? (
           <div className="min-h-full flex items-center justify-center">
             <Loader2 size={28} className="animate-spin text-emerald-500" />
@@ -416,23 +338,27 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
             <p className="text-sm text-red-500 font-medium text-center">{error}</p>
             <button type="button" onClick={onClose} className="text-xs text-gray-500 underline">Tutup</button>
           </div>
+        ) : blobUrl ? (
+          <Suspense
+            fallback={(
+              <div className="min-h-full flex items-center justify-center">
+                <Loader2 size={28} className="animate-spin text-emerald-500" />
+              </div>
+            )}
+          >
+            <UmrohPernyataanPdfPreview fileUrl={blobUrl} title={`Surat Pernyataan ${jamaahName}`} />
+          </Suspense>
         ) : (
-          <iframe
-            ref={iframeRef}
-            src={blobUrl || ''}
-            onLoad={() => applyPernyataanZoom(scale)}
-            className="block h-full min-h-full w-full border-0 bg-gray-100 dark:bg-slate-950"
-            title={`Surat Pernyataan ${jamaahName}`}
-          />
+          <div className="min-h-full" />
         )}
       </div>
 
-      {blobUrl && (
+      {blobUrl && pdfBlob && (
         <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <button
             type="button"
             onClick={handleDownloadPdf}
-            disabled={exportingPdf}
+            disabled={exportingPdf || !pdfBlob}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
           >
             {exportingPdf ? (

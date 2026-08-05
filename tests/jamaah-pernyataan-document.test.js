@@ -64,9 +64,14 @@ test('jamaah card renders surat pernyataan button above perlengkapan and opens v
   assert.match(page, /item\.dokumen\?\.pernyataan/);
   assert.match(page, /hasPernyataanDocument\(item\)/);
   assert.match(page, /resolveUmrohPernyataanUrl\(pernyataanDocumentUrl,\s*item\.jm_id\)/);
-  assert.match(page, /fetch\(url,\s*\{\s*headers:\s*\{\s*\.\.\.getAuthHeaders\(\)\s*\},\s*cache:\s*'no-store'\s*\}\)/);
   assert.match(page, /const pdfUrl = resolveDocumentFormatUrl\(url,\s*'pdf'\)/);
   assert.match(page, /fetch\(pdfUrl,\s*\{\s*headers:\s*\{\s*\.\.\.getAuthHeaders\(\)\s*\},\s*cache:\s*'no-store'\s*\}\)/);
+  assert.match(page, /const \[pdfBlob,\s*setPdfBlob\] = useState<Blob \| null>\(null\)/);
+  assert.match(page, /new Blob\(\[sourceBlob\],\s*\{ type:\s*'application\/pdf' \}\)/);
+  assert.match(page, /const UmrohPernyataanPdfPreview = lazy\(\(\) => import\('\.\/UmrohPernyataanPdfPreview'\)\)/);
+  assert.match(page, /<UmrohPernyataanPdfPreview fileUrl=\{blobUrl\} title=\{`Surat Pernyataan \$\{jamaahName\}`\} \/>/);
+  assert.doesNotMatch(page, /<iframe[\s\S]*Surat Pernyataan \$\{jamaahName\}/);
+  assert.doesNotMatch(page, /const res = await fetch\(url,\s*\{\s*headers:\s*\{\s*\.\.\.getAuthHeaders\(\)\s*\},\s*cache:\s*'no-store'\s*\}\)/);
   assert.match(page, /Unduh PDF/);
   assert.match(page, /Bagikan PDF/);
   assert.doesNotMatch(page, /Buka Dokumen/);
@@ -85,32 +90,25 @@ test('jamaah card renders surat pernyataan button above perlengkapan and opens v
   assert.ok(buttonIndex < equipmentIndex, 'surat pernyataan button should be above perlengkapan');
 });
 
-test('surat pernyataan viewer supports zoom controls and mobile PDF sharing', () => {
+test('surat pernyataan viewer previews the PDF directly and supports mobile sharing', () => {
   const page = readFileSync(new URL('../src/components/JamaahPage.tsx', import.meta.url), 'utf8');
+  const preview = readFileSync(new URL('../src/components/UmrohPernyataanPdfPreview.tsx', import.meta.url), 'utf8');
 
-  assert.match(page, /ZoomIn,\s*ZoomOut/);
   assert.match(page, /Share2/);
   assert.match(page, /canShareFiles,\s*downloadBlob,\s*isTouchPrimary/);
-  assert.match(page, /const \[scale,\s*setScale\] = useState\(1\)/);
-  assert.match(page, /const iframeRef = useRef<HTMLIFrameElement>\(null\)/);
-  assert.match(page, /pinchRef = useRef\(\{ startDist: 0,\s*startScale: 1 \}\)/);
-  assert.match(page, /function applyPernyataanZoom\(nextScale: number\)/);
-  assert.match(page, /documentElement\.style\.setProperty\('zoom',\s*String\(nextScale\)\)/);
-  assert.match(page, /const zoomIn = \(\) => setScale\(prev => Math\.min\(3,/);
-  assert.match(page, /const zoomOut = \(\) => setScale\(prev => Math\.max\(1,/);
-  assert.match(page, /const resetZoom = \(\) => setScale\(1\)/);
-  assert.match(page, /aria-label="Zoom out"/);
-  assert.match(page, /aria-label="Reset zoom"/);
-  assert.match(page, /aria-label="Zoom in"/);
-  assert.match(page, /onTouchStart=\{handleTouchStart\}/);
-  assert.match(page, /onTouchMove=\{handleTouchMove\}/);
-  assert.match(page, /onTouchEnd=\{handleTouchEnd\}/);
+  assert.doesNotMatch(page, /function applyPernyataanZoom\(nextScale: number\)/);
+  assert.doesNotMatch(page, /aria-label="Zoom (?:in|out)"/);
 
   assert.match(page, /const useShareLabel = isTouchPrimary\(\) && typeof navigator !== 'undefined' && typeof navigator\.share === 'function'/);
+  assert.match(page, /if \(!pdfBlob\) return/);
   assert.match(page, /const file = new File\(\[blob\],\s*fileName,\s*\{ type: 'application\/pdf' \}\)/);
   assert.match(page, /if \(canShareFiles\(\[file\]\)\)/);
   assert.match(page, /await navigator\.share\(\{[\s\S]*title:\s*'Surat Pernyataan'[\s\S]*files:\s*\[file\]/);
   assert.match(page, /downloadBlob\(blob,\s*fileName\)/);
+  assert.match(preview, /import \{ Document, Page, pdfjs \} from 'react-pdf'/);
+  assert.match(preview, /pdfWorkerUrl from 'pdfjs-dist\/build\/pdf\.worker\.min\.mjs\?url'/);
+  assert.match(preview, /Array\.from\(\{ length: numPages \}/);
+  assert.match(preview, /renderTextLayer=\{false\}/);
 });
 
 test('server preserves durable surat pernyataan markers during later jamaah syncs', () => {

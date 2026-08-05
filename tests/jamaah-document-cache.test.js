@@ -120,6 +120,11 @@ test('buildPrintableJamaahDocumentHtml puts the Jadwal header logo above the pag
   assert.equal(pageTwoLogo.attr('width'), '170');
   assert.match(pageTwoLogo.closest('table').attr('class') || '', /alhijaz-pernyataan-agreement-logo-block/);
   assert.equal($('img[src="/assets/logoTandaTerima.png"]').length, 1, 'the page-one logo must be left unchanged');
+  assert.match(
+    $('style').text(),
+    /@media print\s*\{[\s\S]*\.a4-content \.alhijaz-pernyataan-agreement-logo\s*\{[\s\S]*margin-top:\s*15mm/,
+    'the page-two logo should keep a print-safe distance from the top edge',
+  );
 
   const logoBlockIndex = pageTwoLogo.closest('table').index();
   const agreementBlockIndex = $('td').filter((_, cell) => $(cell).text().includes('PERJANJIAN ANTARA JAMAAH')).closest('table').index();
