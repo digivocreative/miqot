@@ -7,7 +7,7 @@ import { tierRoomPrice, tierHotelInfo, packageCityHotels } from '@/lib/packageTi
 import { buildCompareVerdict } from '@/lib/compareVerdict';
 import type { CompareVerdict } from '@/lib/compareVerdict';
 import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
-import { getPackageJourneySteps } from '@/utils/journey';
+import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
 
 // ── Font Inter dari /public/fonts, sama seperti QuotationDocument ──
@@ -29,8 +29,8 @@ Font.registerHyphenationCallback((word) => [word]);
 // Dokumen yang seluruhnya merah terasa berat dan boros tinta.
 const C = {
   burgundy: '#b40200',
-  navy: '#1f2937',
-  navySoft: '#374151',
+  navy: '#0f172a',
+  navyLine: '#334155',
   gold: '#c18f1f',
   goldSoft: '#fbf3e2',
   ink: '#1f2937',
@@ -42,7 +42,13 @@ const C = {
   white: '#ffffff',
   onDark: '#ffffffcc',
   onDarkDim: '#ffffff99',
-  onDarkFaint: '#ffffff3d',
+  /**
+   * Warna padat, BUKAN hex 8-digit. react-pdf menangani alpha-hex dengan benar
+   * di `backgroundColor` dan `color` teks, tapi merusaknya di `borderColor` dan
+   * `fill` SVG — keluarnya hijau terang. Sudah menggigit dua kali: garis
+   * pemisah pita paket dan ikon pesawat penanda landing.
+   */
+  onDarkSolid: '#94a3b8',
   onDarkFill: '#ffffff1f',
 };
 
@@ -74,9 +80,9 @@ const s = StyleSheet.create({
   poinTeks: { flex: 1, fontSize: 8, lineHeight: 1.4, color: C.gray },
   poinTebal: { ...b, fontSize: 8, color: C.ink },
 
-  band: { flexDirection: 'row', backgroundColor: C.navySoft },
+  band: { flexDirection: 'row', backgroundColor: C.navy },
   bandCol: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
-  bandColRight: { borderLeftWidth: 0.5, borderLeftColor: C.onDarkFaint },
+  bandColRight: { borderLeftWidth: 0.5, borderLeftColor: C.navyLine },
   bandTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   bandSisi: { ...b, fontSize: 6.5, letterSpacing: 1.4, color: '#ffffffaa' },
   tierBadge: { paddingVertical: 2.5, paddingHorizontal: 8, borderRadius: 9, backgroundColor: '#ffffff2e' },
@@ -88,8 +94,11 @@ const s = StyleSheet.create({
   bandDurasi: { fontSize: 7.5, color: C.onDark },
   rantai: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   panah: { fontSize: 9, color: '#ffffff66' },
-  simpul: { paddingVertical: 2.5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: C.onDarkFill },
+  simpul: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2.5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: C.onDarkFill },
   simpulText: { ...b, fontSize: 7, color: C.white },
+  simpulIkon: { width: 9, height: 9, objectFit: 'contain' as const },
+  landingTanda: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
+  landingTeks: { fontSize: 6.5, color: C.onDarkDim },
 
   seksi: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 20, backgroundColor: C.bgSoft, borderTopWidth: 0.5, borderTopColor: C.line },
   seksiTick: { width: 2.5, height: 2.5, backgroundColor: C.gold },
@@ -100,12 +109,9 @@ const s = StyleSheet.create({
   labelText: { ...b, fontSize: 6.8, letterSpacing: 0.8, lineHeight: 1.35, color: C.gray },
   cell: { flex: 1, paddingVertical: 8, paddingHorizontal: 14 },
   cellRight: { borderLeftWidth: 0.5, borderLeftColor: C.line },
-  cellWin: { backgroundColor: C.goldSoft },
   cellLine: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2.5 },
 
   hargaUtama: { ...b, fontSize: 12, color: C.ink },
-  hargaMenang: { ...b, fontSize: 12, color: C.burgundy },
-  hemat: { ...b, fontSize: 7, color: C.gold },
   tglUtama: { ...b, fontSize: 9.5, color: C.ink },
   jam: { fontSize: 7.5, color: C.gray },
   kode: { ...b, fontSize: 7.5, color: C.gold },
@@ -115,7 +121,6 @@ const s = StyleSheet.create({
   jarak: { fontSize: 7, color: C.gray },
   kosong: { fontSize: 9, color: C.grayLight },
   seatAngka: { ...b, fontSize: 13, color: C.ink },
-  seatAngkaMenang: { ...b, fontSize: 13, color: C.burgundy },
   seatKet: { fontSize: 7.5, color: C.gray },
   suhuKota: { fontSize: 7, color: C.gray },
   suhuNilai: { ...b, fontSize: 8, color: C.ink },
@@ -185,6 +190,21 @@ function Bintang({ jumlah }: { jumlah: number }) {
   );
 }
 
+/**
+ * Nama dari hulu sering membawa spasi ganda dan tanda kurung yang renggang —
+ * "PLUS TURKEY 15HR ( KERETA  CEPAT)", "AL RITZ AL MADINAH /SETARAF". Di layar
+ * tak terlalu terlihat, di PDF cetak jadi mencolok.
+ */
+const rapikanNama = (teks: string) =>
+  String(teks || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\s*\/\s*/g, '/')
+    .trim();
+
+const rapikanRute = (teks: string) => String(teks || '').replace(/\s+/g, ' ').trim();
+
 const fmtRupiah = (v: number) => 'Rp ' + v.toLocaleString('id-ID');
 const fmtTanggal = (d: string) =>
   new Date(d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
@@ -239,13 +259,41 @@ function kotaSuhu(pkg: UmrohPackage) {
     .filter((c): c is { label: string; temp: NonNullable<ReturnType<typeof getTemperature>> } => Boolean(c.temp));
 }
 
-function rantaiPerjalanan(pkg: UmrohPackage): string[] {
+function rantaiPerjalanan(pkg: UmrohPackage) {
   const cities = packageCityHotels(pkg);
   const extra = COMPARE_CITIES.filter(c => !c.always && cities[`${c.key}_hotel`]).map(c => c.key);
-  return getPackageJourneySteps(pkg, extra).map(step => step.label);
+  const steps = getPackageJourneySteps(pkg, extra);
+  return {
+    steps,
+    landingIndex: getLandingStepIndex(steps),
+    landingCity: getLandingCityName(pkg),
+  };
+}
+
+/**
+ * react-pdf hanya bisa memasang PNG/JPG lewat <Image>; `/flags/palestine.svg`
+ * akan gagal diam-diam, jadi simpul tanpa gambar yang layak tampil tanpa ikon.
+ */
+const ikonBisaDipakai = (src: string) => /\.(png|jpe?g)$/i.test(src || '');
+
+/** Pesawat mendarat, penanda kota tempat rombongan turun dari penerbangan. */
+const PLANE_PATH = 'M2.5 19h19v2h-19v-2zm19.57-9.36c-.21-.8-1.04-1.27-1.84-1.06L14.92 10l-6.9-6.43-1.93.51 4.14 7.17-4.97 1.33-1.97-1.54-1.45.39 2.59 4.49L21.01 11.5c.81-.23 1.28-1.05 1.06-1.86z';
+
+function Landing({ kota }: { kota: string }) {
+  if (!kota) return null;
+  return (
+    <View style={s.landingTanda}>
+      <Svg width={7.5} height={7.5} viewBox="0 0 24 24">
+        <Path d={PLANE_PATH} fill={C.onDarkSolid} />
+      </Svg>
+      <Text style={s.landingTeks}>Mendarat di {kota}</Text>
+    </View>
+  );
 }
 
 const SISI_LABEL: Record<'a' | 'b', string> = { a: 'PAKET A', b: 'PAKET B' };
+/** Di kalimat, huruf kapital penuh terbaca seperti berteriak. */
+const NAMA_SISI: Record<'a' | 'b', string> = { a: 'Paket A', b: 'Paket B' };
 
 /**
  * Tiga poin kesimpulan, dirakit dari verdict. Poin yang verdict-nya `null`
@@ -262,11 +310,11 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
     const hariLain = durasiHari(pkg[sisi === 'a' ? 'b' : 'a']);
     const bedaHari = hariIni - hariLain;
     const ekor = bedaHari > 0
-      ? `, dan ${bedaHari} hari lebih lama`
-      : bedaHari < 0 ? `, tapi ${-bedaHari} hari lebih singkat` : '';
+      ? `, dan perjalanannya ${bedaHari} hari lebih lama`
+      : bedaHari < 0 ? `, meski perjalanannya ${-bedaHari} hari lebih singkat` : '';
     poin.push({
-      tebal: `${SISI_LABEL[sisi]} lebih hemat`,
-      sisa: `${fmtRupiah(verdict.gap.diff)} per jamaah (kamar ${ROOM_LABEL[verdict.gap.room]})${ekor}.`,
+      tebal: `${NAMA_SISI[sisi]} lebih hemat ${fmtRupiah(verdict.gap.diff)} per jamaah`,
+      sisa: `untuk kamar ${ROOM_LABEL[verdict.gap.room]}${ekor}.`,
     });
   } else if (verdict.gap) {
     // `price` masih terisi berarti ada tipe kamar LAIN yang berbeda. Kalau null,
@@ -275,8 +323,8 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
     poin.push({
       tebal: `Harga kamar ${ROOM_LABEL[verdict.gap.room]} sama`,
       sisa: verdict.price
-        ? 'selisihnya ada di tipe kamar lain, bukan di harga dasar.'
-        : `${fmtRupiah(tierRoomPrice(a.pkg, a.tier, verdict.gap.room))} per jamaah di kedua paket.`,
+        ? '— selisihnya ada di tipe kamar lain, bukan di harga dasarnya.'
+        : `— ${fmtRupiah(tierRoomPrice(a.pkg, a.tier, verdict.gap.room))} per jamaah di kedua paket.`,
     });
   }
 
@@ -292,12 +340,18 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
       const kiri = ringkas(menang);
       const kanan = ringkas(kalah);
       if (!kiri || !kanan) return '';
-      return `${kota === 'mekkah' ? 'Mekkah' : 'Madinah'} ${kiri} vs ${kanan}`;
+      // Kota yang bintang dan jaraknya persis sama bukan bukti keunggulan —
+      // mencantumkannya membuat kalimatnya berbunyi "4★ ±150m berbanding
+      // 4★ ±150m", yang justru melemahkan poinnya.
+      if (kiri === kanan) return '';
+      return `${kota === 'mekkah' ? 'Mekkah' : 'Madinah'} ${kiri} berbanding ${kanan}`;
     };
     const rincian = ['mekkah', 'madinah'].map(banding).filter(Boolean).join('; ');
     poin.push({
-      tebal: `${SISI_LABEL[sisi]} unggul di hotel`,
-      sisa: rincian ? `${rincian}.` : (verdict.hotel.reason === 'bintang' ? 'bintangnya lebih tinggi.' : 'jaraknya lebih dekat.'),
+      tebal: `Hotel ${NAMA_SISI[sisi]} lebih baik`,
+      sisa: rincian
+        ? `— ${rincian}.`
+        : (verdict.hotel.reason === 'bintang' ? '— bintangnya lebih tinggi.' : '— jaraknya lebih dekat.'),
     });
   }
 
@@ -305,15 +359,15 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
     const sisi = verdict.seat.side;
     const lawan = sisi === 'a' ? 'b' : 'a';
     poin.push({
-      tebal: `Sisa seat ${SISI_LABEL[sisi]} lebih longgar`,
-      sisa: `${verdict.seat[sisi]} dari ${pkg[sisi].seatTotal} kursi, sedangkan ${SISI_LABEL[lawan]} ${verdict.seat[lawan]} dari ${pkg[lawan].seatTotal}.`,
+      tebal: `Sisa seat ${NAMA_SISI[sisi]} lebih banyak`,
+      sisa: `— ${verdict.seat[sisi]} dari ${pkg[sisi].seatTotal} kursi, berbanding ${verdict.seat[lawan]} dari ${pkg[lawan].seatTotal} kursi di ${NAMA_SISI[lawan]}.`,
     });
   }
 
   if (!poin.length) {
     poin.push({
       tebal: 'Kedua paket sebanding',
-      sisa: 'harga, hotel, dan ketersediaannya tidak berbeda berarti.',
+      sisa: '— harga, hotel, dan ketersediaannya tidak berbeda berarti.',
     });
   }
   return poin;
@@ -326,6 +380,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const sides = [a, b];
   const verdict = buildCompareVerdict(verdictSide(a), verdictSide(b));
   const poin = poinKesimpulan(verdict, a, b);
+  const rantai = sides.map(side => rantaiPerjalanan(side.pkg));
 
   const hargaA: Record<string, number> = {};
   const hargaB: Record<string, number> = {};
@@ -366,7 +421,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
     0,
   );
   h += 22 + 12 + poin.length * 3 + Math.ceil(barisPoin * 11.5); // pita kesimpulan
-  h += 79 + 17 * barisNama;                 // pita paket
+  h += 79 + 17 * barisNama + 13;            // pita paket + penanda landing
   h += 20 + barisHarga.length * 42;         // seksi harga + baris
   h += 20 + 2 * 44;                         // seksi penerbangan + 2 baris
   h += 20 + kotaHotel.length * 23 + barisHotel * 17;
@@ -387,8 +442,11 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const hariIni = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
-  const Sel = ({ children, menang, kanan }: { children: ReactNode; menang?: boolean; kanan?: boolean }) => (
-    <View style={[s.cell, menang ? s.cellWin : {}, kanan ? s.cellRight : {}]}>{children}</View>
+  // Tabel sengaja tak menandai pemenang: lebih murah atau lebih dekat belum
+  // tentu yang paling cocok buat jamaah. Penilaian tinggal di pita Kesimpulan,
+  // tabel cukup menyajikan angkanya apa adanya.
+  const Sel = ({ children, kanan }: { children: ReactNode; kanan?: boolean }) => (
+    <View style={[s.cell, kanan ? s.cellRight : {}]}>{children}</View>
   );
 
   const Baris = ({ label, children }: { label: string; children: ReactNode }) => (
@@ -452,47 +510,39 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                   <View style={s.tierBadge}><Text style={s.tierText}>{side.tier}</Text></View>
                 )}
               </View>
-              <Text style={s.bandNama}>{side.pkg.nama}</Text>
+              <Text style={s.bandNama}>{rapikanNama(side.pkg.nama)}</Text>
               <View style={s.bandMeta}>
                 <Text style={s.bandMaskapai}>{side.pkg.maskapai}</Text>
                 <Text style={s.bandDot}>•</Text>
                 <Text style={s.bandDurasi}>{durasiHari(side.pkg)} HARI</Text>
               </View>
               <View style={s.rantai}>
-                {rantaiPerjalanan(side.pkg).flatMap((kota, k) => [
+                {rantai[i].steps.flatMap((step, k) => [
                   ...(k > 0 ? [<Text key={`panah-${k}`} style={s.panah}>›</Text>] : []),
                   <View key={`simpul-${k}`} style={s.simpul}>
-                    <Text style={s.simpulText}>{kota}</Text>
+                    {ikonBisaDipakai(step.imageSrc) && (
+                      <Image style={s.simpulIkon} src={`${origin}${step.imageSrc}`} />
+                    )}
+                    <Text style={s.simpulText}>{step.label}</Text>
                   </View>,
                 ])}
               </View>
+              <Landing kota={rantai[i].landingCity} />
             </View>
           ))}
         </View>
 
         {/* ─── HARGA ─── */}
         <Seksi judul="HARGA PER JAMAAH" />
-        {barisHarga.map(room => {
-          const pa = hargaA[room];
-          const pb = hargaB[room];
-          const menangA = pa > 0 && pb > 0 && pa < pb;
-          const menangB = pa > 0 && pb > 0 && pb < pa;
-          const selisih = pa > 0 && pb > 0 ? Math.abs(pa - pb) : 0;
-          return (
-            <Baris key={room} label={`KAMAR ${ROOM_LABEL[room].toUpperCase()}`}>
-              {[{ nilai: pa, menang: menangA }, { nilai: pb, menang: menangB }].map((sisi, i) => (
-                <Sel key={i} menang={sisi.menang} kanan={i === 1}>
-                  <Text style={sisi.menang ? s.hargaMenang : s.hargaUtama}>
-                    {sisi.nilai > 0 ? fmtRupiah(sisi.nilai) : '—'}
-                  </Text>
-                  {sisi.menang && selisih > 0 && (
-                    <Text style={s.hemat}>hemat {fmtRupiah(selisih)}</Text>
-                  )}
-                </Sel>
-              ))}
-            </Baris>
-          );
-        })}
+        {barisHarga.map(room => (
+          <Baris key={room} label={`KAMAR ${ROOM_LABEL[room].toUpperCase()}`}>
+            {[hargaA[room], hargaB[room]].map((nilai, i) => (
+              <Sel key={i} kanan={i === 1}>
+                <Text style={s.hargaUtama}>{nilai > 0 ? fmtRupiah(nilai) : '—'}</Text>
+              </Sel>
+            ))}
+          </Baris>
+        ))}
 
         {/* ─── PENERBANGAN ─── */}
         <Seksi judul="PENERBANGAN" />
@@ -510,7 +560,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                     <Text style={s.jam}>{fmtJam(f.jam)} WIB</Text>
                     <Text style={s.kode}>{f.kodePenerbangan}</Text>
                   </View>
-                  <Text style={s.rute}>{f.rute}</Text>
+                  <Text style={s.rute}>{rapikanRute(f.rute)}</Text>
                 </Sel>
               );
             })}
@@ -522,16 +572,13 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         {kotaHotel.map(kota => {
           const hA = hotelDiKota(a.pkg, a.tier, kota.key);
           const hB = hotelDiKota(b.pkg, b.tier, kota.key);
-          const menang = verdict.hotel && (kota.key === 'mekkah' || kota.key === 'madinah')
-            ? verdict.hotel.side
-            : null;
           return (
             <Baris key={kota.key} label={kota.label.toUpperCase()}>
               {[hA, hB].map((hotel, i) => (
-                <Sel key={i} kanan={i === 1} menang={Boolean(hotel) && menang === (i === 0 ? 'a' : 'b')}>
+                <Sel key={i} kanan={i === 1}>
                   {hotel ? (
                     <>
-                      <Text style={s.hotelNama}>{hotel.nama}</Text>
+                      <Text style={s.hotelNama}>{rapikanNama(hotel.nama)}</Text>
                       <View style={s.cellLine}>
                         <Bintang jumlah={hotel.stars} />
                         {Boolean(hotel.jarak) && <Text style={s.jarak}>{hotel.jarak}</Text>}
@@ -549,17 +596,14 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         {/* ─── KETERSEDIAAN & PERSIAPAN ─── */}
         <Seksi judul="KETERSEDIAAN & PERSIAPAN" />
         <Baris label="SISA SEAT">
-          {sides.map((side, i) => {
-            const menang = verdict.seat?.side === (i === 0 ? 'a' : 'b');
-            return (
-              <Sel key={i} kanan={i === 1} menang={menang}>
-                <View style={s.cellLine}>
-                  <Text style={menang ? s.seatAngkaMenang : s.seatAngka}>{side.pkg.seatSisa}</Text>
-                  <Text style={s.seatKet}>dari {side.pkg.seatTotal} kursi</Text>
-                </View>
-              </Sel>
-            );
-          })}
+          {sides.map((side, i) => (
+            <Sel key={i} kanan={i === 1}>
+              <View style={s.cellLine}>
+                <Text style={s.seatAngka}>{side.pkg.seatSisa}</Text>
+                <Text style={s.seatKet}>dari {side.pkg.seatTotal} kursi</Text>
+              </View>
+            </Sel>
+          ))}
         </Baris>
         <Baris label="MANASIK">
           {sides.map((side, i) => (
