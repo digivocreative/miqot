@@ -17,14 +17,24 @@ import {
   FileText,
   Share2,
   ArrowLeftRight,
+  CheckCircle2,
   X,
   Download,
 } from 'lucide-react';
 import { getPackages } from '@/services';
-import type { UmrohPackage, HotelInfo } from '@/types';
+import type { UmrohPackage } from '@/types';
 import { getDistance } from '@/data/hotelService';
 import { lookupHotelMetadata } from '@/data/hotelMetadata';
 import { getTemperature } from '@/data/temperatureData';
+import {
+  listPackageTiers,
+  cheapestPackageTier,
+  resolvePackageTier,
+  tierHotelInfo,
+  packageCityHotels,
+  tierRoomPrice,
+  tierStartingPrice,
+} from '@/lib/packageTiers';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
@@ -208,6 +218,106 @@ function SearchableSelect({
 }
 
 // ============================================
+// Tier Picker (adapted from KalkulasiPage "Tipe Paket")
+// ============================================
+function TierPicker({
+  pkg,
+  value,
+  onChange,
+}: {
+  pkg: UmrohPackage | null;
+  value: string;
+  onChange: (tier: string) => void;
+}) {
+  const tiers = pkg ? listPackageTiers(pkg) : [];
+  // Satu tier berarti tak ada yang bisa dipilih; namanya tetap terbaca sebagai
+  // lencana di modal dan di gambar unduhan.
+  if (!pkg || tiers.length <= 1) return null;
+
+  return (
+    <div className="mt-3">
+      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Tipe Paket</p>
+      <div className="grid grid-cols-2 gap-2">
+        {tiers.map((tier) => {
+          const hotel = tierHotelInfo(pkg, tier);
+          const mekkahStar = hotel?.mekkah_hotel ? hotelStars(hotel.mekkah_hotel, hotel.mekkah_bintang) : 0;
+          const madinahStar = hotel?.madinah_hotel ? hotelStars(hotel.madinah_hotel, hotel.madinah_bintang) : 0;
+          const startingFrom = tierStartingPrice(pkg, tier);
+          const isSelected = value === tier;
+          return (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => onChange(tier)}
+              className={`relative text-left rounded-2xl border-2 p-3 transition-all duration-300 active:scale-[0.98] ${
+                isSelected
+                  ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-900/25 shadow-sm'
+                  : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500'
+              }`}
+            >
+              {isSelected && <CheckCircle2 size={15} className="absolute top-2.5 right-2.5 text-emerald-600" />}
+              <p className={`text-sm font-bold tracking-tight ${
+                isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'
+              }`}>
+                {tier}
+              </p>
+              {(mekkahStar > 0 || madinahStar > 0) && (
+                <div className="mt-2 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  {mekkahStar > 0 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Mekkah</span>
+                      <span className="flex tracking-tight">
+                        {Array.from({ length: mekkahStar }).map((_, i) => (
+                          <span key={i} className="text-amber-400 leading-none">★</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                  {madinahStar > 0 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Madinah</span>
+                      <span className="flex tracking-tight">
+                        {Array.from({ length: madinahStar }).map((_, i) => (
+                          <span key={i} className="text-amber-400 leading-none">★</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {startingFrom > 0 && (
+                <div className={`mt-2 pt-2 border-t border-dashed ${
+                  isSelected ? 'border-emerald-200 dark:border-emerald-800/50' : 'border-slate-200 dark:border-slate-700'
+                }`}>
+                  <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-0.5">Mulai dari</p>
+                  <p className={`text-[12px] font-bold tabular-nums leading-tight ${
+                    isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'
+                  }`}>
+                    {formatRupiah(startingFrom)}
+                  </p>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// Tier Badge — dipakai di modal supaya angka tak pernah tampil tanpa tiernya
+// ============================================
+function TierBadge({ tier, className = '' }: { tier: string; className?: string }) {
+  if (!tier) return null;
+  return (
+    <span className={`px-2 py-0.5 text-[8px] font-black rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 uppercase tracking-wide ${className}`}>
+      {tier}
+    </span>
+  );
+}
+
+// ============================================
 // Comparison Row Component
 // ============================================
 function CompareRow({
@@ -249,6 +359,8 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
   const [isGoingBack, setIsGoingBack] = useState(false);
   const [paketA, setPaketA] = useState('');
   const [paketB, setPaketB] = useState('');
+  const [tierA, setTierA] = useState('');
+  const [tierB, setTierB] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [comparing, setComparing] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -283,11 +395,17 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     const params = new URLSearchParams(window.location.search);
     const a = params.get('paketA');
     const b = params.get('paketB');
-    if (a && packages.find(p => p.jadwalId === a)) setPaketA(a);
-    if (b && packages.find(p => p.jadwalId === b)) setPaketB(b);
+    // Tier ikut di tautan share; yang tak dikenal atau tak ada jatuh ke termurah,
+    // jadi tautan lama tanpa tierA/tierB tetap membuka paket yang benar.
+    const pkgFromA = a ? packages.find(p => p.jadwalId === a) : undefined;
+    const pkgFromB = b ? packages.find(p => p.jadwalId === b) : undefined;
+    if (pkgFromA) { setPaketA(a as string); setTierA(resolvePackageTier(pkgFromA, params.get('tierA'))); }
+    if (pkgFromB) { setPaketB(b as string); setTierB(resolvePackageTier(pkgFromB, params.get('tierB'))); }
     if (a || b) {
       params.delete('paketA');
       params.delete('paketB');
+      params.delete('tierA');
+      params.delete('tierB');
       const cleanUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
       window.history.replaceState(null, '', cleanUrl);
     }
@@ -298,18 +416,15 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     return packages.map((pkg) => {
       const depDate = new Date(pkg.keberangkatan.tgl);
       const dateStr = depDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      // Bendera & teks pencarian memakai gabungan semua tier: negara tujuan itu
+      // urusan jadwal, dan paket yang hotel Cairo-nya cuma ada di satu tier tetap
+      // harus ketemu saat agent mengetik nama hotel itu.
+      const cities = packageCityHotels(pkg);
       const flags: string[] = ['🇸🇦'];
-      const firstTier = Object.keys(pkg.hotel)[0];
-      if (firstTier) {
-        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
-        if (h.cairo_hotel) flags.push('🇪🇬');
-        if (h.istanbul_hotel || h.bursa_hotel || h.cappadocia_hotel || h.ankara_hotel) flags.push('🇹🇷');
-      }
-      const searchParts: string[] = [pkg.maskapai];
-      if (firstTier) {
-        const h = pkg.hotel[firstTier] as unknown as Record<string, string>;
-        ['mekkah_hotel', 'madinah_hotel', 'cairo_hotel', 'istanbul_hotel'].forEach(k => { if (h[k]) searchParts.push(h[k]); });
-      }
+      if (cities.cairo_hotel) flags.push('🇪🇬');
+      if (cities.istanbul_hotel || cities.bursa_hotel || cities.cappadocia_hotel || cities.ankara_hotel) flags.push('🇹🇷');
+      const searchParts: string[] = [pkg.maskapai, ...listPackageTiers(pkg)];
+      ['mekkah_hotel', 'madinah_hotel', 'cairo_hotel', 'istanbul_hotel'].forEach(k => { if (cities[k]) searchParts.push(cities[k]); });
       return { id: pkg.jadwalId, label: `${dateStr} — ${pkg.nama}`, flags, searchText: searchParts.join(' ') };
     });
   }, [packages]);
@@ -317,40 +432,33 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
   const pkgA = useMemo(() => packages.find(p => p.jadwalId === paketA) || null, [packages, paketA]);
   const pkgB = useMemo(() => packages.find(p => p.jadwalId === paketB) || null, [packages, paketB]);
 
+  // Satu pilihan = paket + tier. resolvePackageTier jadi jaring pengaman: nilai
+  // basi atau tier yang tak dijual paket ini selalu jatuh ke yang termurah.
+  const activeTierA = useMemo(() => (pkgA ? resolvePackageTier(pkgA, tierA) : ''), [pkgA, tierA]);
+  const activeTierB = useMemo(() => (pkgB ? resolvePackageTier(pkgB, tierB) : ''), [pkgB, tierB]);
+
+  // Ganti paket berarti tiernya balik ke termurah milik paket baru. Dikerjakan di
+  // handler, bukan effect, supaya tidak balapan dengan pemulihan tier dari URL.
+  const selectPaket = (
+    id: string,
+    setPaket: (v: string) => void,
+    setTier: (v: string) => void,
+  ) => {
+    setPaket(id);
+    const pkg = packages.find(p => p.jadwalId === id) || null;
+    setTier(pkg ? cheapestPackageTier(pkg) : '');
+  };
+
   // ── Helpers ──
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
   const fmtTime = (t: string) => t.replace('.', ':');
 
-  const getMinPrice = (pkg: UmrohPackage) => {
-    let min = Infinity;
-    for (const tp of Object.values(pkg.harga)) {
-      for (const p of [tp.Quard, tp.Triple, tp.Double]) {
-        if (p) { const v = parseInt(p, 10); if (v > 0 && v < min) min = v; }
-      }
-    }
-    return min === Infinity ? 0 : min;
-  };
+  // Hotel yang ditampilkan selalu milik tier terpilih. Menggabung tier akan
+  // memasangkan hotel satu tier dengan harga tier lain — lihat packageTiers.js.
+  const getHotelInfo = (pkg: UmrohPackage, tier: string) => tierHotelInfo(pkg, tier);
 
-  const getHotelInfo = (pkg: UmrohPackage): Record<string, string> | null => {
-    const tiers = Object.keys(pkg.hotel);
-    if (!tiers.length) return null;
-    // Merge all tiers so we capture every city's hotel data
-    const merged: Record<string, string> = {};
-    for (const tier of tiers) {
-      const h = pkg.hotel[tier] as unknown as Record<string, string>;
-      if (!h) continue;
-      for (const [k, v] of Object.entries(h)) {
-        if (v && !merged[k]) merged[k] = v;
-      }
-    }
-    return merged;
-  };
-
-  const getPriceForType = (pkg: UmrohPackage, type: 'Quard' | 'Triple' | 'Double') => {
-    const firstTier = Object.keys(pkg.harga)[0];
-    if (!firstTier) return 0;
-    return parseInt(pkg.harga[firstTier][type] || '0', 10);
-  };
+  const getPriceForType = (pkg: UmrohPackage, tier: string, type: 'Quard' | 'Triple' | 'Double') =>
+    tierRoomPrice(pkg, tier, type);
 
   const priceHighlight = (a: number, b: number): 'a' | 'b' | null => {
     if (a > 0 && b > 0) { if (a < b) return 'a'; if (b < a) return 'b'; }
@@ -361,8 +469,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     if (a > b) return 'a'; if (b > a) return 'b'; return null;
   };
 
+  // Jadwal yang sama dengan tier berbeda justru perbandingan yang paling sering
+  // ditanya jamaah — pesawat & tanggal sama, hotelnya beda berapa.
+  const sameSelection = Boolean(paketA) && paketA === paketB && activeTierA === activeTierB;
+
   const handleCompare = () => {
-    if (!paketA || !paketB || paketA === paketB) return;
+    if (!paketA || !paketB || sameSelection) return;
     setComparing(true);
     setTimeout(() => {
       setComparing(false);
@@ -371,7 +483,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
   };
 
   // Reset modal when selection changes
-  useEffect(() => { setShowModal(false); }, [paketA, paketB]);
+  useEffect(() => { setShowModal(false); }, [paketA, paketB, tierA, tierB]);
 
   // ── Screenshot Export ──
   const handleExportPDF = useCallback(async () => {
@@ -380,13 +492,11 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     try {
 
       // ── Helpers ──
-      const hA = getHotelInfo(pkgA) as Record<string, string> | null;
-      const hB = getHotelInfo(pkgB) as Record<string, string> | null;
-      const tierA = Object.keys(pkgA.harga)[0] || '';
-      const tierB = Object.keys(pkgB.harga)[0] || '';
-      const starsA = hA ? parseInt(hA['mekkah_bintang'] || '0') : 0;
-      const starsB = hB ? parseInt(hB['mekkah_bintang'] || '0') : 0;
-      const starStr = (n: number) => n > 0 ? '★'.repeat(n) : '';
+      // Hotel & harga dari tier terpilih; kota untuk suhu dari seluruh tier.
+      const hA = getHotelInfo(pkgA, activeTierA);
+      const hB = getHotelInfo(pkgB, activeTierB);
+      const citiesA = packageCityHotels(pkgA);
+      const citiesB = packageCityHotels(pkgB);
       const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
       const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
       const getDuration = (pkg: UmrohPackage): number => {
@@ -419,12 +529,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       const rows: Array<{ label: string; a: string; b: string }> = [];
 
       // Harga
-      const pQ_A = getPriceForType(pkgA, 'Quard');
-      const pT_A = getPriceForType(pkgA, 'Triple');
-      const pD_A = getPriceForType(pkgA, 'Double');
-      const pQ_B = getPriceForType(pkgB, 'Quard');
-      const pT_B = getPriceForType(pkgB, 'Triple');
-      const pD_B = getPriceForType(pkgB, 'Double');
+      const pQ_A = getPriceForType(pkgA, activeTierA, 'Quard');
+      const pT_A = getPriceForType(pkgA, activeTierA, 'Triple');
+      const pD_A = getPriceForType(pkgA, activeTierA, 'Double');
+      const pQ_B = getPriceForType(pkgB, activeTierB, 'Quard');
+      const pT_B = getPriceForType(pkgB, activeTierB, 'Triple');
+      const pD_B = getPriceForType(pkgB, activeTierB, 'Double');
 
       const fmtP = (q: number, t: number, d: number) => {
         const parts: string[] = [];
@@ -503,7 +613,10 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
         }).filter(Boolean).join('');
         return lines || '<div>—</div>';
       };
-      rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(hA, depMonthA), b: fmtTempPkg(hB, depMonthB) });
+      // Kota untuk suhu diambil dari SEMUA tier: itinerary satu jadwal sama untuk
+      // setiap tiernya, jadi jamaah HEMAT tetap ke Cairo walau hotel Cairo-nya
+      // hanya terdaftar di tier UHUD.
+      rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(citiesA, depMonthA), b: fmtTempPkg(citiesB, depMonthB) });
 
       // Seat
       rows.push({ label: 'SISA SEAT', a: `<div style="white-space:nowrap">${pkgA.seatSisa} / ${pkgA.seatTotal}</div>`, b: `<div style="white-space:nowrap">${pkgB.seatSisa} / ${pkgB.seatTotal}</div>` });
@@ -612,22 +725,29 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
       }
       card.appendChild(agentHeader);
 
-      // Package names header row (no title banner, no tier, no stars)
+      // Package names header row. Nama tier WAJIB ikut: gambar ini dikirim agent
+      // ke jamaah, dan tanpa tiernya harga RAHMAH terbaca seolah satu-satunya
+      // harga paket itu.
       const tierRow = document.createElement('div');
       Object.assign(tierRow.style, {
         display: 'grid', gridTemplateColumns: '1fr 120px 1fr',
         background: 'linear-gradient(135deg, #065F46 0%, #047857 50%, #059669 100%)',
         color: '#ffffff',
       });
+      const tierPill = (tier: string) => tier
+        ? `<div style="margin-top:8px"><span style="display:inline-block;padding:3px 12px;border-radius:999px;background:rgba(255,255,255,0.18);font-size:11px;font-weight:800;letter-spacing:1.2px;color:#ffffff">${tier}</span></div>`
+        : '';
       tierRow.innerHTML = `
         <div style="padding:24px 20px;text-align:center">
           <div style="font-size:18px;font-weight:800;color:#ffffff;line-height:1.4;letter-spacing:0.3px">${pkgA.nama}</div>
+          ${tierPill(activeTierA)}
         </div>
         <div style="display:flex;align-items:center;justify-content:center">
           <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:rgba(255,255,255,0.7)">VS</div>
         </div>
         <div style="padding:24px 20px;text-align:center">
           <div style="font-size:18px;font-weight:800;color:#ffffff;line-height:1.4;letter-spacing:0.3px">${pkgB.nama}</div>
+          ${tierPill(activeTierB)}
         </div>
       `;
       card.appendChild(tierRow);
@@ -713,7 +833,7 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     } finally {
       setPdfLoading(false);
     }
-  }, [pkgA, pkgB, agent]);
+  }, [pkgA, pkgB, activeTierA, activeTierB, agent]);
 
   // ============================================
   // Render
@@ -765,11 +885,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
           <SearchableSelect
             options={packageOptions}
             value={paketA}
-            onChange={setPaketA}
+            onChange={(id) => selectPaket(id, setPaketA, setTierA)}
             placeholder="Pilih Paket A..."
             loading={loadingPackages}
             label="Paket A"
           />
+          <TierPicker pkg={pkgA} value={activeTierA} onChange={setTierA} />
 
           {/* VS Divider */}
           <div className="flex items-center gap-3 my-4">
@@ -783,17 +904,18 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
           <SearchableSelect
             options={packageOptions}
             value={paketB}
-            onChange={setPaketB}
+            onChange={(id) => selectPaket(id, setPaketB, setTierB)}
             placeholder="Pilih Paket B..."
             loading={loadingPackages}
             label="Paket B"
           />
+          <TierPicker pkg={pkgB} value={activeTierB} onChange={setTierB} />
 
           {/* Compare Button */}
           <button
             type="button"
             onClick={handleCompare}
-            disabled={!paketA || !paketB || paketA === paketB || comparing}
+            disabled={!paketA || !paketB || sameSelection || comparing}
             className="w-full mt-5 flex items-center justify-center gap-2.5 py-4 rounded-2xl font-bold text-white text-base bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
           >
             {comparing ? (
@@ -802,8 +924,12 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
               <><ArrowLeftRight size={20} /> Bandingkan</>
             )}
           </button>
-          {paketA && paketB && paketA === paketB && (
-            <p className="text-xs text-center text-red-500 mt-2">Pilih 2 paket yang berbeda</p>
+          {sameSelection && (
+            <p className="text-xs text-center text-red-500 mt-2">
+              {listPackageTiers(pkgA).length > 1
+                ? 'Pilih tipe paket yang berbeda, atau paket lain'
+                : 'Pilih 2 paket yang berbeda'}
+            </p>
           )}
         </div>
       </div>
@@ -826,11 +952,14 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                 {/* ─── STICKY PACKAGE NAMES ─── */}
                 <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50 shadow-sm">
                   <div className="max-w-2xl mx-auto grid grid-cols-2 gap-2">
-                    {[pkgA, pkgB].map((pkg, idx) => (
+                    {[{ pkg: pkgA, tier: activeTierA }, { pkg: pkgB, tier: activeTierB }].map(({ pkg, tier }, idx) => (
                       <div key={idx} className="flex items-start gap-2 bg-gray-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 px-3 py-2.5">
                         <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${idx === 0 ? 'bg-emerald-500' : 'bg-sky-500'}`} />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Paket {idx === 0 ? 'A' : 'B'}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Paket {idx === 0 ? 'A' : 'B'}</p>
+                            <TierBadge tier={tier} />
+                          </div>
                           <p className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">{pkg.nama}</p>
                         </div>
                       </div>
@@ -909,8 +1038,10 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                       { key: 'cappadocia_hotel', starKey: 'cappadocia_bintang', label: 'Cappadocia', emoji: '🇹🇷' },
                       { key: 'ankara_hotel', starKey: 'ankara_bintang', label: 'Ankara', emoji: '🇹🇷' },
                     ];
-                    const hA = getHotelInfo(pkgA) as Record<string, string> | null;
-                    const hB = getHotelInfo(pkgB) as Record<string, string> | null;
+                    // Hotel milik tier terpilih saja. Kota yang hanya dijual di
+                    // salah satu sisi tetap ditampilkan dengan "—" di sisi lain.
+                    const hA = getHotelInfo(pkgA, activeTierA);
+                    const hB = getHotelInfo(pkgB, activeTierB);
                     const visible = hotelKeys.filter(hk => (hA && hA[hk.key]) || (hB && hB[hk.key]));
                     if (!visible.length) return null;
                     return (
@@ -965,18 +1096,19 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                     <div className="px-4 py-3 bg-gradient-to-r from-emerald-700 to-emerald-600">
                       <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">💰 Perbandingan Harga</p>
                     </div>
+                    {/* Tier yang angkanya sedang ditampilkan — bukan daftar semua
+                        tier yang dijual, yang dulu membuat harga satu tier
+                        terbaca seolah berlaku untuk ketiganya. */}
                     <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50 border-b border-slate-100 dark:border-slate-700">
-                      {[pkgA, pkgB].map((pkg, idx) => (
+                      {[activeTierA, activeTierB].map((tier, idx) => (
                         <div key={idx} className="px-4 py-2.5 flex flex-wrap gap-1">
-                          {Object.keys(pkg.harga).map(tier => (
-                            <span key={tier} className="px-2 py-0.5 text-[8px] font-black rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase tracking-wide">{tier}</span>
-                          ))}
+                          <TierBadge tier={tier} />
                         </div>
                       ))}
                     </div>
                     {(['Quard', 'Triple', 'Double'] as const).map((type) => {
-                      const pA = getPriceForType(pkgA, type);
-                      const pB = getPriceForType(pkgB, type);
+                      const pA = getPriceForType(pkgA, activeTierA, type);
+                      const pB = getPriceForType(pkgB, activeTierB, type);
                       if (pA === 0 && pB === 0) return null;
                       const label = type === 'Quard' ? 'Quad' : type;
                       const hl = priceHighlight(pA, pB);
@@ -1011,8 +1143,10 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
                       { key: 'cappadocia', hotelKey: 'cappadocia_hotel', label: 'Cappadocia' },
                       { key: 'ankara', hotelKey: 'ankara_hotel', label: 'Ankara' },
                     ];
-                    const hA2 = getHotelInfo(pkgA) as Record<string, string> | null;
-                    const hB2 = getHotelInfo(pkgB) as Record<string, string> | null;
+                    // Kota tujuan ikut jadwal, bukan tier: satu itinerary berlaku
+                    // untuk semua tiernya, jadi kota diambil dari gabungan tier.
+                    const hA2 = packageCityHotels(pkgA);
+                    const hB2 = packageCityHotels(pkgB);
                     const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
                     const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
 
