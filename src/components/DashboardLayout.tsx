@@ -1094,7 +1094,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'compare') return <ComparePage agent={{
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
-            }} hideHeader />;
+            }} agentSlug={agentData.slug} hideHeader />;
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;

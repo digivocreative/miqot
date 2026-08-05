@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { trackEvent } from '../utils/analytics';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import logoAlhijaz from '@/logo-alhijaz.webp';
+import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
 import type { AgentData } from '@/data/agents';
 import {
   ArrowLeft,
@@ -10,34 +10,38 @@ import {
   ChevronDown,
   Loader2,
   Plane,
-  PlaneTakeoff,
-  PlaneLanding,
   Sun,
   Moon,
   FileText,
-  Share2,
+  AlertCircle,
   ArrowLeftRight,
   CheckCircle2,
-  X,
   Download,
+  X,
+  Share2,
 } from 'lucide-react';
 import { getPackages } from '@/services';
 import type { UmrohPackage } from '@/types';
-import { getDistance } from '@/data/hotelService';
-import { lookupHotelMetadata } from '@/data/hotelMetadata';
-import { getTemperature } from '@/data/temperatureData';
 import {
   listPackageTiers,
   cheapestPackageTier,
   resolvePackageTier,
   tierHotelInfo,
-  packageCityHotels,
-  tierRoomPrice,
   tierStartingPrice,
+  packageCityHotels,
 } from '@/lib/packageTiers';
+import { hotelStars } from '@/utils/hotelDisplay';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { generateComparePdfBlob } from './CompareDocument';
 
-// Cache for base64-encoded Inter font CSS (populated on first screenshot)
-let cachedInterFontCSS: string | null = null;
+// Worker pdf.js untuk pratinjau. Halaman ini bisa dibuka tanpa pernah menyentuh
+// modal Kalkulasi, jadi worker-nya diatur di sini juga — jangan mengandalkan
+// KalkulasiResultModal kebetulan sudah dimuat.
+try {
+  pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+} catch {
+  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+}
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -53,16 +57,6 @@ function setLocalStorageItem(key: string, value: string): void {
   } catch {
     // unavailable storage should not block compare page rendering
   }
-}
-
-function hotelStars(name: string, stars?: string): number {
-  const raw = String(stars || '').trim();
-  const value = raw && raw !== '0' ? raw : (lookupHotelMetadata(name).stars || '0');
-  return parseInt(value) || 0;
-}
-
-function hotelDistance(name: string, distance?: string): string {
-  return String(distance || '').trim() || lookupHotelMetadata(name).distance || getDistance(name);
 }
 
 // ============================================
@@ -306,54 +300,14 @@ function TierPicker({
 }
 
 // ============================================
-// Tier Badge — dipakai di modal supaya angka tak pernah tampil tanpa tiernya
-// ============================================
-function TierBadge({ tier, className = '' }: { tier: string; className?: string }) {
-  if (!tier) return null;
-  return (
-    <span className={`px-2 py-0.5 text-[8px] font-black rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 uppercase tracking-wide ${className}`}>
-      {tier}
-    </span>
-  );
-}
-
-// ============================================
-// Comparison Row Component
-// ============================================
-function CompareRow({
-  label,
-  valueA,
-  valueB,
-  highlight,
-}: {
-  label: string;
-  valueA: string;
-  valueB: string;
-  highlight?: 'a' | 'b' | null;
-}) {
-  return (
-    <div className="grid grid-cols-[1fr_2fr_2fr] items-center border-b border-slate-100 dark:border-slate-700/50">
-      <div className="px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-        {label}
-      </div>
-      <div className={`px-3 py-3 text-sm font-medium text-center ${
-        highlight === 'a' ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' : 'text-slate-800 dark:text-slate-100'
-      }`}>
-        {valueA || '—'}
-      </div>
-      <div className={`px-3 py-3 text-sm font-medium text-center ${
-        highlight === 'b' ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/20' : 'text-slate-800 dark:text-slate-100'
-      }`}>
-        {valueB || '—'}
-      </div>
-    </div>
-  );
-}
-
-// ============================================
 // Main Page Component
 // ============================================
-export default function ComparePage({ agent, hideHeader = false }: { agent?: AgentData | null; hideHeader?: boolean }) {
+export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
+  agent?: AgentData | null;
+  /** Slug agent untuk membangun tautan itinerary di QR. Tanpa ini, QR dilewati. */
+  agentSlug?: string;
+  hideHeader?: boolean;
+}) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
   const [isGoingBack, setIsGoingBack] = useState(false);
@@ -364,7 +318,13 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
   const [showModal, setShowModal] = useState(false);
   const [comparing, setComparing] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
-  const tableRef = useRef<HTMLDivElement>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfNumPages, setPdfNumPages] = useState<number | null>(null);
+  const [pdfPageWidth, setPdfPageWidth] = useState(0);
+  const [pdfSharing, setPdfSharing] = useState(false);
+  const [pdfError, setPdfError] = useState(false);
+  const pdfBlobRef = useRef<Blob | null>(null);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_compare'); mountTracked.current = true; } }, []);
 
@@ -449,391 +409,99 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
     setTier(pkg ? cheapestPackageTier(pkg) : '');
   };
 
-  // ── Helpers ──
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-  const fmtTime = (t: string) => t.replace('.', ':');
-
-  // Hotel yang ditampilkan selalu milik tier terpilih. Menggabung tier akan
-  // memasangkan hotel satu tier dengan harga tier lain — lihat packageTiers.js.
-  const getHotelInfo = (pkg: UmrohPackage, tier: string) => tierHotelInfo(pkg, tier);
-
-  const getPriceForType = (pkg: UmrohPackage, tier: string, type: 'Quard' | 'Triple' | 'Double') =>
-    tierRoomPrice(pkg, tier, type);
-
-  const priceHighlight = (a: number, b: number): 'a' | 'b' | null => {
-    if (a > 0 && b > 0) { if (a < b) return 'a'; if (b < a) return 'b'; }
-    return null;
-  };
-
-  const seatHighlight = (a: number, b: number): 'a' | 'b' | null => {
-    if (a > b) return 'a'; if (b > a) return 'b'; return null;
-  };
-
   // Jadwal yang sama dengan tier berbeda justru perbandingan yang paling sering
   // ditanya jamaah — pesawat & tanggal sama, hotelnya beda berapa.
   const sameSelection = Boolean(paketA) && paketA === paketB && activeTierA === activeTierB;
 
-  const handleCompare = () => {
-    if (!paketA || !paketB || sameSelection) return;
+  // Tautan itinerary web yang sudah live; QR dilewati kalau paketnya belum punya
+  // itinerary atau slug agent tak diketahui — halaman kosong lebih buruk daripada
+  // tanpa QR sama sekali.
+  const itineraryUrlFor = useCallback((pkg: UmrohPackage | null) => {
+    if (!pkg || !agentSlug || !pkg.itineraryUrl) return undefined;
+    return `${window.location.origin}/${agentSlug}/${pkg.jadwalId}/itinerary`;
+  }, [agentSlug]);
+
+  const releasePdf = useCallback(() => {
+    setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    pdfBlobRef.current = null;
+    setPdfNumPages(null);
+    setPdfError(false);
+  }, []);
+
+  const handleCompare = useCallback(async () => {
+    if (!pkgA || !pkgB || sameSelection || comparing) return;
     setComparing(true);
-    setTimeout(() => {
-      setComparing(false);
-      setShowModal(true);
-    }, 1000);
-  };
-
-  // Reset modal when selection changes
-  useEffect(() => { setShowModal(false); }, [paketA, paketB, tierA, tierB]);
-
-  // ── Screenshot Export ──
-  const handleExportPDF = useCallback(async () => {
-    if (!pkgA || !pkgB) return;
+    setPdfError(false);
+    setShowModal(true);
     setPdfLoading(true);
+    trackEvent('action', 'generate_pdf', { paket: `${pkgA.jadwalId} vs ${pkgB.jadwalId}` });
     try {
-
-      // ── Helpers ──
-      // Hotel & harga dari tier terpilih; kota untuk suhu dari seluruh tier.
-      const hA = getHotelInfo(pkgA, activeTierA);
-      const hB = getHotelInfo(pkgB, activeTierB);
-      const citiesA = packageCityHotels(pkgA);
-      const citiesB = packageCityHotels(pkgB);
-      const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
-      const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
-      const getDuration = (pkg: UmrohPackage): number => {
-        // Extract from package name (e.g. "15HR") — most reliable source
-        const match = pkg.nama.match(/(\d+)\s*HR\b/i);
-        if (match) return parseInt(match[1], 10);
-        // Fallback: date-based calculation
-        const dep = new Date(pkg.keberangkatan.tgl);
-        const ret = new Date(pkg.kepulangan.tgl);
-        return Math.round((ret.getTime() - dep.getTime()) / 86400000) + 1;
-      };
-      const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-      const fmtFull = (d: string) => new Date(d).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-
-      // Colors
-      const C = {
-        headerBg: '#0F4C3A',
-        titleBg: '#D4AF37',
-        titleText: '#ffffff',
-        rowBg1: '#ffffff',
-        rowBg2: '#F8F9FA',
-        labelBg: '#1B5E3B',
-        labelText: '#ffffff',
-        cellText: '#1F2937',
-        starColor: '#F59E0B',
-        border: '#E5E7EB',
-      };
-
-      // ── Build Table HTML ──
-      const rows: Array<{ label: string; a: string; b: string }> = [];
-
-      // Harga
-      const pQ_A = getPriceForType(pkgA, activeTierA, 'Quard');
-      const pT_A = getPriceForType(pkgA, activeTierA, 'Triple');
-      const pD_A = getPriceForType(pkgA, activeTierA, 'Double');
-      const pQ_B = getPriceForType(pkgB, activeTierB, 'Quard');
-      const pT_B = getPriceForType(pkgB, activeTierB, 'Triple');
-      const pD_B = getPriceForType(pkgB, activeTierB, 'Double');
-
-      const fmtP = (q: number, t: number, d: number) => {
-        const parts: string[] = [];
-        if (q > 0) parts.push(`<div style="margin-bottom:4px;white-space:nowrap">Quad: ${formatRupiah(q)}</div>`);
-        if (t > 0) parts.push(`<div style="margin-bottom:4px;white-space:nowrap">Triple: ${formatRupiah(t)}</div>`);
-        if (d > 0) parts.push(`<div style="white-space:nowrap">Double: ${formatRupiah(d)}</div>`);
-        return parts.join('');
-      };
-      rows.push({ label: 'HARGA', a: fmtP(pQ_A, pT_A, pD_A), b: fmtP(pQ_B, pT_B, pD_B) });
-
-      // Lama Perjalanan
-      rows.push({ label: 'LAMA<br/>PERJALANAN', a: `<div>${getDuration(pkgA)} HARI</div>`, b: `<div>${getDuration(pkgB)} HARI</div>` });
-
-      // Keberangkatan
-      rows.push({ label: 'KEBERANGKATAN', a: `<div>${fmtFull(pkgA.keberangkatan.tgl)}</div>`, b: `<div>${fmtFull(pkgB.keberangkatan.tgl)}</div>` });
-
-      // Kepulangan
-      rows.push({ label: 'KEPULANGAN', a: `<div>${fmtFull(pkgA.kepulangan.tgl)}</div>`, b: `<div>${fmtFull(pkgB.kepulangan.tgl)}</div>` });
-
-      // Maskapai
-      rows.push({ label: 'MASKAPAI', a: `<div>${pkgA.maskapai}</div>`, b: `<div>${pkgB.maskapai}</div>` });
-
-      // Hotel Mekkah (with stars + distance)
-      const mekA = hA?.mekkah_hotel || '—';
-      const mekB = hB?.mekkah_hotel || '—';
-      const jMekA = mekA !== '—' ? hotelDistance(mekA, hA?.mekkah_jarak) : '';
-      const jMekB = mekB !== '—' ? hotelDistance(mekB, hB?.mekkah_jarak) : '';
-      const sMekA = mekA !== '—' ? hotelStars(mekA, hA?.mekkah_bintang) : 0;
-      const sMekB = mekB !== '—' ? hotelStars(mekB, hB?.mekkah_bintang) : 0;
-      const hotelCell = (name: string, stars: number, dist: string) => {
-        const starStr = stars > 0 ? `<span style="color:#F59E0B">${'★'.repeat(stars)}</span>` : '';
-        const distStr = dist ? `<span style="color:#6B7280">${dist}</span>` : '';
-        const right = [starStr, distStr].filter(Boolean).join(' ');
-        return `<div style="text-align:center;font-size:14px;font-weight:700;color:#1F2937">${name}</div>${right ? `<div style="text-align:center;font-size:12px;margin-top:4px">${right}</div>` : ''}`;
-      };
-      rows.push({
-        label: 'HOTEL<br/>MEKKAH',
-        a: hotelCell(mekA, sMekA, jMekA),
-        b: hotelCell(mekB, sMekB, jMekB),
+      const blob = await generateComparePdfBlob({
+        a: { pkg: pkgA, tier: activeTierA, itineraryUrl: itineraryUrlFor(pkgA) },
+        b: { pkg: pkgB, tier: activeTierB, itineraryUrl: itineraryUrlFor(pkgB) },
+        agent,
       });
-
-      // Hotel Madinah (with stars + distance)
-      const madA = hA?.madinah_hotel || '—';
-      const madB = hB?.madinah_hotel || '—';
-      const jMadA = madA !== '—' ? hotelDistance(madA, hA?.madinah_jarak) : '';
-      const jMadB = madB !== '—' ? hotelDistance(madB, hB?.madinah_jarak) : '';
-      const sMadA = madA !== '—' ? hotelStars(madA, hA?.madinah_bintang) : 0;
-      const sMadB = madB !== '—' ? hotelStars(madB, hB?.madinah_bintang) : 0;
-      rows.push({
-        label: 'HOTEL<br/>MADINAH',
-        a: hotelCell(madA, sMadA, jMadA),
-        b: hotelCell(madB, sMadB, jMadB),
-      });
-
-      // Suhu — dynamic per-package cities
-      const tempCityKeys = [
-        { key: 'mekkah', label: 'Mekkah', hotelKey: '' },
-        { key: 'madinah', label: 'Madinah', hotelKey: '' },
-        { key: 'cairo', label: 'Cairo', hotelKey: 'cairo_hotel' },
-        { key: 'istanbul', label: 'Istanbul', hotelKey: 'istanbul_hotel' },
-        { key: 'bursa', label: 'Bursa', hotelKey: 'bursa_hotel' },
-        { key: 'cappadocia', label: 'Cappadocia', hotelKey: 'cappadocia_hotel' },
-        { key: 'ankara', label: 'Ankara', hotelKey: 'ankara_hotel' },
-      ];
-      const getTempCities = (hi: Record<string, string> | null, month: number) =>
-        tempCityKeys.filter(c => {
-          if (c.key === 'mekkah' || c.key === 'madinah') return true;
-          return hi && c.hotelKey && hi[c.hotelKey];
-        }).filter(c => getTemperature(c.key, month));
-
-      const fmtTempPkg = (hi: Record<string, string> | null, month: number) => {
-        const cities = getTempCities(hi, month);
-        const lines = cities.map(c => {
-          const t = getTemperature(c.key, month);
-          return t ? `<div style="margin-bottom:3px;white-space:nowrap">${c.label}: ${t.low}–${t.high}°C</div>` : '';
-        }).filter(Boolean).join('');
-        return lines || '<div>—</div>';
-      };
-      // Kota untuk suhu diambil dari SEMUA tier: itinerary satu jadwal sama untuk
-      // setiap tiernya, jadi jamaah HEMAT tetap ke Cairo walau hotel Cairo-nya
-      // hanya terdaftar di tier UHUD.
-      rows.push({ label: 'SUHU SAAT<br/>KEBERANGKATAN', a: fmtTempPkg(citiesA, depMonthA), b: fmtTempPkg(citiesB, depMonthB) });
-
-      // Seat
-      rows.push({ label: 'SISA SEAT', a: `<div style="white-space:nowrap">${pkgA.seatSisa} / ${pkgA.seatTotal}</div>`, b: `<div style="white-space:nowrap">${pkgB.seatSisa} / ${pkgB.seatTotal}</div>` });
-
-      // Manasik
-      rows.push({
-        label: 'MANASIK',
-        a: pkgA.manasikTanggal ? `<div style="margin-bottom:3px">${fmtFull(pkgA.manasikTanggal)}</div>${pkgA.manasikJam ? '<div style="white-space:nowrap">' + pkgA.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
-        b: pkgB.manasikTanggal ? `<div style="margin-bottom:3px">${fmtFull(pkgB.manasikTanggal)}</div>${pkgB.manasikJam ? '<div style="white-space:nowrap">' + pkgB.manasikJam.slice(0, 5) + ' WIB</div>' : ''}` : '<div>—</div>',
-      });
-
-      // ── Embed Inter font for cross-device consistency ──
-      if (!cachedInterFontCSS) {
-        const fontUrls = [
-          { weight: 400, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2' },
-          { weight: 600, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2' },
-          { weight: 700, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2' },
-          { weight: 800, url: 'https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuDyYAZ9hiA.woff2' },
-        ];
-        const fontFaces = await Promise.all(
-          fontUrls.map(async ({ weight, url }) => {
-            try {
-              const resp = await fetch(url);
-              const blob = await resp.blob();
-              const dataUri = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(blob);
-              });
-              return `@font-face { font-family: 'Inter'; font-style: normal; font-weight: ${weight}; src: url(${dataUri}) format('woff2'); }`;
-            } catch {
-              return '';
-            }
-          })
-        );
-        cachedInterFontCSS = fontFaces.filter(Boolean).join('\n');
-      }
-
-      // ── Build DOM ──
-      const wrapper = document.createElement('div');
-
-      // Inject embedded font + force light color-scheme
-      const fontStyle = document.createElement('style');
-      fontStyle.textContent = `
-        ${cachedInterFontCSS}
-        .compare-screenshot, .compare-screenshot * {
-          font-family: 'Inter', Arial, Helvetica, sans-serif !important;
-          color-scheme: light !important;
-        }
-      `;
-      wrapper.appendChild(fontStyle);
-      wrapper.classList.add('compare-screenshot');
-
-      Object.assign(wrapper.style, {
-        position: 'fixed', top: '0', left: '0', width: '800px',
-        zIndex: '-9999', opacity: '1', pointerEvents: 'none',
-        background: 'linear-gradient(180deg, #F0FAF4 0%, #E8F5EC 100%)',
-        fontFamily: "'Inter', Arial, Helvetica, sans-serif",
-        boxSizing: 'border-box', padding: '24px',
-        colorScheme: 'light',
-      });
-
-      // Outer card container with rounded corners
-      const card = document.createElement('div');
-      Object.assign(card.style, {
-        borderRadius: '20px', overflow: 'hidden',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-        background: '#ffffff',
-      });
-
-      // Agent header
-      const agentHeader = document.createElement('div');
-      Object.assign(agentHeader.style, {
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '24px', background: '#ffffff',
-      });
-      const logoEl = document.createElement('img');
-      logoEl.src = logoAlhijaz;
-      Object.assign(logoEl.style, { height: '38px', width: 'auto' });
-      agentHeader.appendChild(logoEl);
-      if (agent) {
-        const agInfo = document.createElement('div');
-        Object.assign(agInfo.style, { display: 'flex', alignItems: 'center', gap: '12px' });
-        const agText = document.createElement('div');
-        Object.assign(agText.style, { textAlign: 'right' });
-        // Format phone: 62xxx -> 0xxx-xxxx-xxxx
-        const rawPh = agent.phone.replace(/\D/g, '');
-        const localPh = rawPh.startsWith('62') ? '0' + rawPh.slice(2) : rawPh;
-        const fmtPh = localPh.replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3');
-        agText.innerHTML = `<div style="font-weight:700;font-size:15px;color:#111827">${agent.name}</div><div style="font-size:12px;color:#6B7280;margin-top:2px">${agent.website}</div><div style="font-size:12px;font-weight:600;color:#059669;margin-top:2px">${fmtPh}</div>`;
-        // Avatar with verified badge
-        const avatarWrap = document.createElement('div');
-        Object.assign(avatarWrap.style, { position: 'relative', width: '52px', height: '52px', flexShrink: '0' });
-        const agAvatar = document.createElement('img');
-        agAvatar.src = agent.photo;
-        Object.assign(agAvatar.style, { width: '52px', height: '52px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #D1FAE5' });
-        avatarWrap.appendChild(agAvatar);
-        // Blue checkmark badge
-        const badge = document.createElement('div');
-        Object.assign(badge.style, { position: 'absolute', bottom: '-1px', right: '-1px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        badge.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path d="M9.5 12.5L11 14L15 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-        avatarWrap.appendChild(badge);
-        agInfo.appendChild(agText);
-        agInfo.appendChild(avatarWrap);
-        agentHeader.appendChild(agInfo);
-      }
-      card.appendChild(agentHeader);
-
-      // Package names header row. Nama tier WAJIB ikut: gambar ini dikirim agent
-      // ke jamaah, dan tanpa tiernya harga RAHMAH terbaca seolah satu-satunya
-      // harga paket itu.
-      const tierRow = document.createElement('div');
-      Object.assign(tierRow.style, {
-        display: 'grid', gridTemplateColumns: '1fr 120px 1fr',
-        background: 'linear-gradient(135deg, #065F46 0%, #047857 50%, #059669 100%)',
-        color: '#ffffff',
-      });
-      const tierPill = (tier: string) => tier
-        ? `<div style="margin-top:8px"><span style="display:inline-block;padding:3px 12px;border-radius:999px;background:rgba(255,255,255,0.18);font-size:11px;font-weight:800;letter-spacing:1.2px;color:#ffffff">${tier}</span></div>`
-        : '';
-      tierRow.innerHTML = `
-        <div style="padding:24px 20px;text-align:center">
-          <div style="font-size:18px;font-weight:800;color:#ffffff;line-height:1.4;letter-spacing:0.3px">${pkgA.nama}</div>
-          ${tierPill(activeTierA)}
-        </div>
-        <div style="display:flex;align-items:center;justify-content:center">
-          <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:rgba(255,255,255,0.7)">VS</div>
-        </div>
-        <div style="padding:24px 20px;text-align:center">
-          <div style="font-size:18px;font-weight:800;color:#ffffff;line-height:1.4;letter-spacing:0.3px">${pkgB.nama}</div>
-          ${tierPill(activeTierB)}
-        </div>
-      `;
-      card.appendChild(tierRow);
-
-      // Data rows with premium styling
-      const rowIcons = ['💰', '📅', '🛫', '🛬', '✈️', '🕋', '🕌', '🌡️', '💺', '📖'];
-      rows.forEach((row, idx) => {
-        const rowEl = document.createElement('div');
-        const isEven = idx % 2 === 0;
-        Object.assign(rowEl.style, {
-          display: 'grid', gridTemplateColumns: '1fr 120px 1fr',
-          background: isEven ? '#ffffff' : '#F8FAF9',
-          borderBottom: '1px solid #E5E7EB',
-        });
-
-        const cellStyle = `padding:14px 16px;font-size:13px;font-weight:600;color:#1F2937;text-align:center;line-height:1.8;word-break:break-word;overflow-wrap:break-word;`;
-        const icon = rowIcons[idx] || '📋';
-        const labelHtml = `
-          <div style="padding:12px 10px;min-width:100px;background:linear-gradient(135deg,#065F46,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
-            <div style="font-size:16px">${icon}</div>
-            <div style="font-size:10px;font-weight:800;color:#ffffff;text-transform:uppercase;letter-spacing:1.5px;line-height:1.4;text-align:center">${row.label}</div>
-          </div>
-        `;
-
-        rowEl.innerHTML = `
-          <div style="${cellStyle}">${row.a}</div>
-          ${labelHtml}
-          <div style="${cellStyle}">${row.b}</div>
-        `;
-        card.appendChild(rowEl);
-      });
-
-      // Footer with agent info
-      const footer = document.createElement('div');
-      Object.assign(footer.style, {
-        background: 'linear-gradient(135deg, #065F46, #059669)',
-        padding: '16px 24px', textAlign: 'center',
-      });
-      if (agent) {
-        const rawPh2 = agent.phone.replace(/\D/g, '');
-        const localPh2 = rawPh2.startsWith('62') ? '0' + rawPh2.slice(2) : rawPh2;
-        const fmtPh2 = localPh2.replace(/(\d{4})(\d{4})(\d+)/, '$1-$2-$3');
-        footer.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;color:#ffffff;font-weight:600;text-align:center">
-          <div style="white-space:nowrap">👤 ${agent.name}</div>
-          <div style="white-space:nowrap">🌐 ${agent.website}</div>
-          <div style="white-space:nowrap">📞 ${fmtPh2}</div>
-        </div>`;
-      } else {
-        footer.innerHTML = `<div style="font-size:12px;color:#ffffff;font-weight:500">🌐 alhijazindonesia.com</div>`;
-      }
-      card.appendChild(footer);
-
-      wrapper.appendChild(card);
-
-      document.body.appendChild(wrapper);
-      await document.fonts.ready;
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      const { domToBlob } = await import('modern-screenshot');
-      const blob = await domToBlob(wrapper, {
-        scale: 2,
-      });
-
-      document.body.removeChild(wrapper);
-
-      if (!blob) throw new Error('Screenshot blob is null');
-
-      // Share or download
-      const file = new File([blob], 'Perbandingan_Paket.png', { type: 'image/png' });
-      const shareData = { files: [file] };
-      if (navigator.canShare && navigator.canShare(shareData)) {
-        try { await navigator.share(shareData); } catch { /* cancelled */ }
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'Perbandingan_Paket.png';
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      pdfBlobRef.current = blob;
+      setPdfNumPages(null);
+      setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
     } catch (err) {
-      console.error('Screenshot export failed:', err);
+      console.error('Gagal membuat PDF perbandingan:', err);
+      setPdfError(true);
     } finally {
       setPdfLoading(false);
+      setComparing(false);
     }
-  }, [pkgA, pkgB, activeTierA, activeTierB, agent]);
+  }, [pkgA, pkgB, activeTierA, activeTierB, sameSelection, comparing, agent, itineraryUrlFor]);
+
+  // Pilihan berubah berarti PDF lama sudah tidak mewakili apa pun.
+  useEffect(() => {
+    setShowModal(false);
+    releasePdf();
+  }, [paketA, paketB, tierA, tierB, releasePdf]);
+
+  // Lebar halaman untuk viewer react-pdf, sama seperti modal Kalkulasi.
+  useEffect(() => {
+    const el = pdfContentRef.current;
+    if (!el || !showModal) return;
+    const measure = () => setPdfPageWidth(Math.max(el.clientWidth - 32, 280));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showModal, pdfUrl]);
+
+  useEffect(() => () => { if (pdfBlobRef.current) pdfBlobRef.current = null; }, []);
+
+  const handleSharePdf = useCallback(async () => {
+    if (!pdfBlobRef.current || !pkgA || !pkgB) return;
+    setPdfSharing(true);
+    try {
+      const fileName = `PERBANDINGAN_${pkgA.jadwalId}_vs_${pkgB.jadwalId}.pdf`;
+      const file = new File([pdfBlobRef.current], fileName, { type: 'application/pdf' });
+      if (canShareFiles([file])) {
+        try {
+          await navigator.share({
+            title: 'Perbandingan Paket Umroh',
+            text: `Perbandingan ${pkgA.nama} dengan ${pkgB.nama}`,
+            files: [file],
+          });
+        } catch (err) {
+          if ((err as { name?: string })?.name !== 'AbortError') {
+            downloadBlob(pdfBlobRef.current, fileName);
+          }
+        }
+      } else {
+        downloadBlob(pdfBlobRef.current, fileName);
+      }
+    } catch (err) {
+      console.error('Gagal membagikan PDF:', err);
+    } finally {
+      setPdfSharing(false);
+    }
+  }, [pkgA, pkgB]);
+
+  const shareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
 
   // ============================================
   // Render
@@ -947,302 +615,100 @@ export default function ComparePage({ agent, hideHeader = false }: { agent?: Age
               exit={{ opacity: 0, y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             >
-              {/* ── Modal Body (scrollable) ── */}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-gray-50 to-gray-100/50 dark:from-slate-950 dark:to-slate-900 px-4 pb-6">
-                {/* ─── STICKY PACKAGE NAMES ─── */}
-                <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50 shadow-sm">
-                  <div className="max-w-2xl mx-auto grid grid-cols-2 gap-2">
-                    {[{ pkg: pkgA, tier: activeTierA }, { pkg: pkgB, tier: activeTierB }].map(({ pkg, tier }, idx) => (
-                      <div key={idx} className="flex items-start gap-2 bg-gray-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 px-3 py-2.5">
-                        <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${idx === 0 ? 'bg-emerald-500' : 'bg-sky-500'}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Paket {idx === 0 ? 'A' : 'B'}</p>
-                            <TierBadge tier={tier} />
-                          </div>
-                          <p className="text-[11px] font-bold text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">{pkg.nama}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              {/* ── Kepala Modal ── */}
+              <div className="flex-none flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                  <FileText size={17} className="text-emerald-600 dark:text-emerald-400" />
                 </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">Perbandingan Paket</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                    {pkgA.nama} {activeTierA ? `(${activeTierA})` : ''} vs {pkgB.nama} {activeTierB ? `(${activeTierB})` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-all duration-200 active:scale-95 shrink-0"
+                  aria-label="Tutup"
+                >
+                  <X size={17} />
+                </button>
+              </div>
 
-                <div ref={tableRef} className="max-w-2xl mx-auto pt-2 space-y-3">
-
-                  {/* ─── PENERBANGAN ─── */}
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-                    <div className="px-4 py-3 bg-gradient-to-r from-slate-800 to-slate-700 dark:from-slate-700 dark:to-slate-600">
-                      <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest flex items-center gap-1.5">
-                        <PlaneTakeoff size={12} /> Penerbangan
-                      </p>
+              {/* ── Pratinjau PDF ── */}
+              <div ref={pdfContentRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-gray-100 to-gray-200/60 dark:from-slate-950 dark:to-slate-900 px-4 py-4">
+                {pdfLoading ? (
+                  <div className="flex flex-col items-center gap-4 py-24">
+                    <div className="relative">
+                      <div className="w-16 h-16 rounded-full border-4 border-emerald-100 dark:border-emerald-900/40 border-t-emerald-500 animate-spin" />
+                      <FileText className="absolute inset-0 m-auto w-6 h-6 text-emerald-600" />
                     </div>
-                    <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                      {[pkgA, pkgB].map((pkg, idx) => {
-                        const dep = new Date(pkg.keberangkatan.tgl);
-                        const ret = new Date(pkg.kepulangan.tgl);
-                        // Extract duration from package name (e.g. "15HR") — most reliable
-                        const nameMatch = pkg.nama.match(/(\d+)\s*HR\b/i);
-                        const days = nameMatch ? parseInt(nameMatch[1], 10) : Math.round((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                        const depParts = pkg.keberangkatan.rute.split(' - ');
-                        const retParts = pkg.kepulangan.rute.split(' - ');
-                        return (
-                          <div key={idx} className="p-4 space-y-4">
-                            <div className="flex items-center gap-2">
-                              <span className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">{pkg.maskapai}</span>
-                              <span className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">{days} Hari</span>
-                            </div>
-                            <div>
-                              <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Berangkat</p>
-                              <p className="text-[13px] font-bold text-slate-900 dark:text-white">{fmtDate(pkg.keberangkatan.tgl)}</p>
-                              <div className="flex items-center gap-1.5 mt-2">
-                                <div className="text-center"><p className="text-xs font-black text-slate-800 dark:text-slate-100">{depParts[0]?.trim()}</p><p className="text-[10px] text-slate-400">{fmtTime(pkg.keberangkatan.jam)}</p></div>
-                                <div className="flex-1 flex items-center px-1">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                  <div className="flex-1 border-t border-dashed border-slate-300 dark:border-slate-600 mx-0.5 relative">
-                                    <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-[8px] text-slate-400">{pkg.keberangkatan.kodePenerbangan}</span>
-                                  </div>
-                                  <PlaneTakeoff size={10} className="text-emerald-500 shrink-0" />
-                                </div>
-                                <div className="text-center"><p className="text-xs font-black text-slate-800 dark:text-slate-100">{depParts[1]?.trim() || depParts[0]?.trim()}</p></div>
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-1">Pulang</p>
-                              <p className="text-[13px] font-bold text-slate-900 dark:text-white">{fmtDate(pkg.kepulangan.tgl)}</p>
-                              <div className="flex items-center gap-1.5 mt-2">
-                                <div className="text-center"><p className="text-xs font-black text-slate-800 dark:text-slate-100">{retParts[0]?.trim()}</p><p className="text-[10px] text-slate-400">{fmtTime(pkg.kepulangan.jam)}</p></div>
-                                <div className="flex-1 flex items-center px-1">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                  <div className="flex-1 border-t border-dashed border-slate-300 dark:border-slate-600 mx-0.5 relative">
-                                    <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-[8px] text-slate-400">{pkg.kepulangan.kodePenerbangan}</span>
-                                  </div>
-                                  <PlaneLanding size={10} className="text-amber-500 shrink-0" />
-                                </div>
-                                <div className="text-center"><p className="text-xs font-black text-slate-800 dark:text-slate-100">{retParts[1]?.trim() || retParts[0]?.trim()}</p></div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Menyusun perbandingan...</p>
+                      <p className="text-xs text-slate-400 mt-1">Mohon tunggu sebentar</p>
                     </div>
                   </div>
-
-                  {/* ─── HOTEL ─── */}
-                  {(() => {
-                    const hotelKeys = [
-                      { key: 'mekkah_hotel', starKey: 'mekkah_bintang', label: 'Mekkah', emoji: '🕋' },
-                      { key: 'madinah_hotel', starKey: 'madinah_bintang', label: 'Madinah', emoji: '🕌' },
-                      { key: 'cairo_hotel', starKey: 'cairo_bintang', label: 'Cairo', emoji: '🇪🇬' },
-                      { key: 'istanbul_hotel', starKey: 'istanbul_bintang', label: 'Istanbul', emoji: '🇹🇷' },
-                      { key: 'bursa_hotel', starKey: 'bursa_bintang', label: 'Bursa', emoji: '🇹🇷' },
-                      { key: 'cappadocia_hotel', starKey: 'cappadocia_bintang', label: 'Cappadocia', emoji: '🇹🇷' },
-                      { key: 'ankara_hotel', starKey: 'ankara_bintang', label: 'Ankara', emoji: '🇹🇷' },
-                    ];
-                    // Hotel milik tier terpilih saja. Kota yang hanya dijual di
-                    // salah satu sisi tetap ditampilkan dengan "—" di sisi lain.
-                    const hA = getHotelInfo(pkgA, activeTierA);
-                    const hB = getHotelInfo(pkgB, activeTierB);
-                    const visible = hotelKeys.filter(hk => (hA && hA[hk.key]) || (hB && hB[hk.key]));
-                    if (!visible.length) return null;
-                    return (
-                      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-                        <div className="px-4 py-3 bg-gradient-to-r from-amber-600 to-amber-500">
-                          <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">🏨 Hotel & Akomodasi</p>
+                ) : pdfError || !pdfUrl ? (
+                  <div className="flex flex-col items-center gap-3 py-24 text-red-500">
+                    <AlertCircle className="w-8 h-8" />
+                    <span className="text-sm font-semibold">Gagal membuat PDF.</span>
+                    <button
+                      type="button"
+                      onClick={handleCompare}
+                      className="mt-1 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                    >
+                      Coba lagi
+                    </button>
+                  </div>
+                ) : (
+                  <div className="max-w-2xl mx-auto">
+                    <PdfDoc
+                      file={pdfUrl}
+                      onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
+                      onLoadError={(err) => { console.error('react-pdf error:', err); setPdfError(true); }}
+                      loading={
+                        <div className="flex flex-col items-center gap-3 py-16">
+                          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                          <span className="text-sm text-gray-500">Memuat dokumen...</span>
                         </div>
-                        {visible.map((hk) => (
-                          <div key={hk.key} className="border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                            <div className="px-4 py-1.5 bg-slate-50/80 dark:bg-slate-900/30">
-                              <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">{hk.emoji} {hk.label}</span>
-                            </div>
-                            <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                              {[hA, hB].map((h, idx) => {
-                                const name = h?.[hk.key] || '';
-                                const stars = name ? hotelStars(name, h?.[hk.starKey]) : 0;
-                                const jarak = name ? hotelDistance(name, h?.[`${hk.key.replace(/_hotel$/, '')}_jarak`]) : '';
-                                return (
-                                  <div key={idx} className="px-4 py-2.5">
-                                    {name ? (
-                                      <>
-                                        <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100 leading-snug">{name}</p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                          {stars > 0 && (
-                                            <div className="flex items-center gap-0.5">
-                                              {Array.from({ length: stars }).map((_, i) => (
-                                                <span key={i} className="text-amber-400 text-xs">★</span>
-                                              ))}
-                                            </div>
-                                          )}
-                                          {jarak && (
-                                            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">📍 {jarak}</span>
-                                          )}
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <p className="text-[11px] text-slate-300 dark:text-slate-600">—</p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
-
-                  {/* ─── HARGA ─── */}
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-                    <div className="px-4 py-3 bg-gradient-to-r from-emerald-700 to-emerald-600">
-                      <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">💰 Perbandingan Harga</p>
-                    </div>
-                    {/* Tier yang angkanya sedang ditampilkan — bukan daftar semua
-                        tier yang dijual, yang dulu membuat harga satu tier
-                        terbaca seolah berlaku untuk ketiganya. */}
-                    <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50 border-b border-slate-100 dark:border-slate-700">
-                      {[activeTierA, activeTierB].map((tier, idx) => (
-                        <div key={idx} className="px-4 py-2.5 flex flex-wrap gap-1">
-                          <TierBadge tier={tier} />
+                      }
+                      error={
+                        <div className="flex flex-col items-center gap-2 py-16 text-red-500">
+                          <AlertCircle className="w-8 h-8" />
+                          <span className="text-sm">Gagal memuat PDF.</span>
                         </div>
+                      }
+                      className="w-full flex flex-col items-center gap-4"
+                    >
+                      {pdfNumPages && Array.from(new Array(pdfNumPages), (_, i) => (
+                        <PdfPage
+                          key={`cpage_${i + 1}`}
+                          pageNumber={i + 1}
+                          renderTextLayer={false}
+                          renderAnnotationLayer={false}
+                          className="shadow-lg rounded-lg overflow-hidden w-full max-w-full"
+                          width={pdfPageWidth || 400}
+                        />
                       ))}
-                    </div>
-                    {(['Quard', 'Triple', 'Double'] as const).map((type) => {
-                      const pA = getPriceForType(pkgA, activeTierA, type);
-                      const pB = getPriceForType(pkgB, activeTierB, type);
-                      if (pA === 0 && pB === 0) return null;
-                      const label = type === 'Quard' ? 'Quad' : type;
-                      const hl = priceHighlight(pA, pB);
-                      const diff = pA > 0 && pB > 0 ? Math.abs(pA - pB) : 0;
-                      return (
-                        <div key={type} className="border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                          <div className="px-4 py-1.5 bg-slate-50/80 dark:bg-slate-900/30">
-                            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Kamar {label}</span>
-                          </div>
-                          <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                            {[pA, pB].map((price, idx) => (
-                              <div key={idx} className="px-4 py-3">
-                                <p className="text-base font-black tabular-nums text-slate-800 dark:text-slate-100">
-                                  {price > 0 ? formatRupiah(price) : '—'}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+                    </PdfDoc>
                   </div>
-
-                  {/* ─── SUHU SAAT KEBERANGKATAN ─── */}
-                  {(() => {
-                    const cityKeys = [
-                      { key: 'mekkah', label: 'Mekkah', hotelKey: '' },
-                      { key: 'madinah', label: 'Madinah', hotelKey: '' },
-                      { key: 'cairo', hotelKey: 'cairo_hotel', label: 'Cairo' },
-                      { key: 'istanbul', hotelKey: 'istanbul_hotel', label: 'Istanbul' },
-                      { key: 'bursa', hotelKey: 'bursa_hotel', label: 'Bursa' },
-                      { key: 'cappadocia', hotelKey: 'cappadocia_hotel', label: 'Cappadocia' },
-                      { key: 'ankara', hotelKey: 'ankara_hotel', label: 'Ankara' },
-                    ];
-                    // Kota tujuan ikut jadwal, bukan tier: satu itinerary berlaku
-                    // untuk semua tiernya, jadi kota diambil dari gabungan tier.
-                    const hA2 = packageCityHotels(pkgA);
-                    const hB2 = packageCityHotels(pkgB);
-                    const depMonthA = new Date(pkgA.keberangkatan.tgl).getMonth() + 1;
-                    const depMonthB = new Date(pkgB.keberangkatan.tgl).getMonth() + 1;
-
-                    // Filter cities per package: Mekkah/Madinah always, others only if that package has the hotel
-                    const getCitiesForPkg = (hotelInfo: Record<string, string> | null, month: number) =>
-                      cityKeys.filter(c => {
-                        if (c.key === 'mekkah' || c.key === 'madinah') return true;
-                        return hotelInfo && c.hotelKey && hotelInfo[c.hotelKey];
-                      }).filter(c => getTemperature(c.key, month));
-
-                    const citiesA = getCitiesForPkg(hA2, depMonthA);
-                    const citiesB = getCitiesForPkg(hB2, depMonthB);
-                    if (!citiesA.length && !citiesB.length) return null;
-
-                    return (
-                      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-                        <div className="px-4 py-3 bg-gradient-to-r from-orange-600 to-amber-500">
-                          <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">🌡️ Suhu Saat Keberangkatan</p>
-                        </div>
-                        <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                          {[{ cities: citiesA, month: depMonthA }, { cities: citiesB, month: depMonthB }].map((item, idx) => (
-                            <div key={idx} className="p-4 space-y-2.5">
-                              {item.cities.map(city => {
-                                const temp = getTemperature(city.key, item.month);
-                                return (
-                                  <div key={city.key} className="flex items-baseline justify-between">
-                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">{city.label}</span>
-                                    {temp ? (
-                                      <span className="text-[13px] font-bold text-slate-800 dark:text-slate-100 tabular-nums">
-                                        {temp.low}<span className="text-slate-400 font-normal mx-0.5">–</span>{temp.high}<span className="text-[10px] ml-0.5 text-slate-400">°C</span>
-                                      </span>
-                                    ) : (
-                                      <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* ─── SEAT & MANASIK ─── */}
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-                    <div className="px-4 py-3 bg-gradient-to-r from-teal-700 to-cyan-600">
-                      <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">📋 Ketersediaan & Manasik</p>
-                    </div>
-                    <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700/50">
-                      {[pkgA, pkgB].map((pkg, idx) => {
-                        const pct = pkg.seatTotal > 0 ? Math.round((pkg.seatSisa / pkg.seatTotal) * 100) : 0;
-                        const strokeColor = pct > 50 ? '#10b981' : pct > 20 ? '#f59e0b' : '#ef4444';
-                        const r = 28, c = 2 * Math.PI * r;
-                        return (
-                          <div key={idx} className="p-4 text-center">
-                            {/* Gauge */}
-                            <div className="relative w-20 h-20 mx-auto mb-3">
-                              <svg viewBox="0 0 64 64" className="w-full h-full -rotate-90">
-                                <circle cx="32" cy="32" r={r} fill="none" strokeWidth="5" className="stroke-slate-100 dark:stroke-slate-700" />
-                                <circle cx="32" cy="32" r={r} fill="none" strokeWidth="5" strokeLinecap="round" stroke={strokeColor} strokeDasharray={`${(pct / 100) * c} ${c}`} />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-base font-black text-slate-800 dark:text-slate-100">{pct}%</span>
-                              </div>
-                            </div>
-                            {/* Seat count */}
-                            <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">{pkg.seatSisa}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">dari {pkg.seatTotal} seat</p>
-
-                            {/* Manasik */}
-                            {pkg.manasikTanggal && (
-                              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
-                                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">📖 Manasik</p>
-                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{new Date(pkg.manasikTanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                                {pkg.manasikJam && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{pkg.manasikJam.slice(0, 5)} WIB</p>}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                </div>
+                )}
               </div>
 
               {/* ── Modal Footer ── */}
               <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                 <div className="flex gap-3 max-w-2xl mx-auto">
                   <button
-                    onClick={handleExportPDF}
-                    disabled={pdfLoading}
-                    className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                    onClick={handleSharePdf}
+                    disabled={pdfLoading || pdfSharing || !pdfUrl}
+                    className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                   >
-                    {pdfLoading ? <><Loader2 size={18} className="animate-spin" /> Memproses...</> : <><Download size={18} /> Unduh</>}
+                    {pdfSharing
+                      ? <><Loader2 size={18} className="animate-spin" /> Menyiapkan...</>
+                      : shareLabel
+                        ? <><Share2 size={18} /> Bagikan PDF</>
+                        : <><Download size={18} /> Unduh PDF</>}
                   </button>
                   <button
                     onClick={() => setShowModal(false)}

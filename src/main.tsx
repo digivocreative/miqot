@@ -401,11 +401,10 @@ if (isPwaHost && isSsrLandingPath) {
           ? AGENTS_DATA[ctxSlug] || null
           : AGENTS_DATA[firstSlug] || null)
       : null
-    const agentSlugForCompare = isCompare
-      ? (segments.length === 1 && ctxSlug
-          ? AGENTS_DATA[ctxSlug] || null
-          : (segments.length >= 2 ? AGENTS_DATA[firstSlug] || null : null))
-      : null
+    const compareSlug = isCompare
+      ? (segments.length === 1 && ctxSlug ? ctxSlug : (segments.length >= 2 ? firstSlug : ''))
+      : ''
+    const agentSlugForCompare = isCompare ? AGENTS_DATA[compareSlug] || null : null
 
     // Case 1: /:agent/:jadwalId (2 segments, first is agent)
     const isSinglePackageWithAgent = !isKalkulasi && !isCompare
@@ -447,7 +446,7 @@ if (isPwaHost && isSsrLandingPath) {
         return null
       }
       if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
-      if (isCompare) return <ComparePage agent={agentSlugForCompare} />
+      if (isCompare) return <ComparePage agent={agentSlugForCompare} agentSlug={compareSlug || undefined} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
       if (isRahmahJuliLanding) return <RahmahJuliLandingPage />
