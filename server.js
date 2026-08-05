@@ -26,6 +26,10 @@ import { buildBerangkatMendatang, computeUmrohKomisi, BERANGKAT_MENDATANG_WINDOW
 import { loadEnrichedBerangkatRows } from './lib/berangkat-enrich.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
+import {
+  resolveTelegramWebhookSecret,
+  telegramWebhookSecretMatches,
+} from './lib/telegram-bot-config.js';
 import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } from './email-alias.js';
 import { isReservedAgentSlug } from './lib/agent-slug.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
@@ -3939,9 +3943,19 @@ app.put('/api/telegram/prefs', authMiddleware, async (req, res) => {
   }
 });
 
-// Telegram Bot Webhook (public — no JWT auth, called by Telegram)
+const telegramWebhookSecret = resolveTelegramWebhookSecret({
+  explicitSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
+  botToken: process.env.TELEGRAM_BOT_TOKEN,
+});
+
+// Telegram Bot Webhook (public — authenticated by Telegram secret header)
 app.post('/api/telegram/webhook', async (req, res) => {
   try {
+    const providedSecret = req.get('x-telegram-bot-api-secret-token');
+    if (!telegramWebhookSecretMatches(telegramWebhookSecret, providedSecret)) {
+      return res.sendStatus(401);
+    }
+
     res.sendStatus(200); // Always respond 200
 
     const update = req.body;
