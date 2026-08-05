@@ -9,6 +9,7 @@ import type { CompareVerdict } from '@/lib/compareVerdict';
 import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
 import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName, airportCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
+import { destinationPhotosForDays } from '../../lib/itinerary-destinasi.js';
 
 // ── Font Inter dari /public/fonts, sama seperti QuotationDocument ──
 // Jangan kembalikan ke fonts.gstatic.com: dokumen ini harus bisa dibuat tanpa
@@ -132,6 +133,9 @@ const s = StyleSheet.create({
   qrJudul: { ...b, fontSize: 7.5, lineHeight: 1.3, color: C.ink, marginBottom: 2 },
   qrUrl: { fontSize: 6.5, lineHeight: 1.3, color: C.grayLight },
 
+  destJumlah: { ...b, fontSize: 8.5, color: C.ink, marginBottom: 2 },
+  destDaftar: { fontSize: 7.5, lineHeight: 1.45, color: C.gray },
+
   footerAccent: { height: 3, backgroundColor: C.burgundy },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 20, backgroundColor: C.navy },
   footerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
@@ -153,6 +157,8 @@ export interface ComparePdfSide {
   /** URL itinerary web publik; QR hanya dirender bila ini terisi. */
   itineraryUrl?: string;
   qrDataUrl?: string;
+  /** Tempat yang dikunjungi, hasil parsing itinerary. Kosong = baris dilewati. */
+  destinasi?: string[];
 }
 
 export interface CompareDocumentProps {
@@ -415,6 +421,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   );
   const suhu = sides.map(side => kotaSuhu(side.pkg));
   const adaQr = sides.some(side => side.qrDataUrl);
+  const adaDestinasi = sides.some(side => side.destinasi?.length);
   const barisHarga = BARIS_HARGA.filter(
     baris => tierRoomPrice(a.pkg, a.tier, baris.key) > 0 || tierRoomPrice(b.pkg, b.tier, baris.key) > 0,
   );
@@ -450,6 +457,12 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   h += 20 + kotaHotel.length * 24 + (barisHotel - kotaHotel.length) * 11;
   h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
   h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
+  if (adaDestinasi) {
+    const barisDest = Math.max(
+      ...sides.map(side => perkiraanBaris((side.destinasi || []).join(' · '), 52)),
+    );
+    h += 20 + 30 + barisDest * 11;          // seksi + jumlah tempat + daftarnya
+  }
   if (adaQr) h += 65;                       // baris itinerary
   h += 3 + 50;                              // aksen + footer
   // Sisa aman 24pt. Taksiran yang KURANG membuat dokumen tumpah ke halaman
@@ -614,6 +627,27 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
           );
         })}
 
+        {/* ─── TEMPAT YANG DIKUNJUNGI ─── */}
+        {adaDestinasi && (
+          <>
+            <Seksi judul="TEMPAT YANG DIKUNJUNGI" />
+            <Baris label="ZIARAH & WISATA">
+              {sides.map((side, i) => (
+                <Sel key={i} kanan={i === 1}>
+                  {side.destinasi?.length ? (
+                    <>
+                      <Text style={s.destJumlah}>{side.destinasi.length} tempat</Text>
+                      <Text style={s.destDaftar}>{side.destinasi.join(' · ')}</Text>
+                    </>
+                  ) : (
+                    <Text style={s.kosong}>—</Text>
+                  )}
+                </Sel>
+              ))}
+            </Baris>
+          </>
+        )}
+
         {/* ─── KETERSEDIAAN & PERSIAPAN ─── */}
         <Seksi judul="SISA KURSI & MANASIK" />
         <Baris label="SISA KURSI">
@@ -749,6 +783,36 @@ async function fotoAgentPng(url?: string): Promise<string | undefined> {
   }
 }
 
+/** Momen di bandara, bukan tempat wisata — disaring dari daftar destinasi. */
+const FOTO_MOMEN = new Set(['keberangkatan-di-bandara.png', 'kepulangan-di-bandara.png']);
+
+/**
+ * Tempat yang dikunjungi, dari itinerary yang SUDAH ter-cache di server.
+ * `pdfUrl` sengaja tidak dikirim: tanpa itu endpoint hanya membaca cache, jadi
+ * pembuatan PDF tak pernah menunggu parsing PDF dari origin yang kronis lambat.
+ * Gagal atau belum ter-cache berarti barisnya dilewati, bukan menahan dokumen.
+ */
+async function ambilDestinasi(jadwalId: string): Promise<string[] | undefined> {
+  const batal = new AbortController();
+  const jam = setTimeout(() => batal.abort(), 6000);
+  try {
+    const resp = await fetch(`/api/itinerary/${encodeURIComponent(jadwalId)}`, { signal: batal.signal });
+    if (!resp.ok) return undefined;
+    const json = await resp.json();
+    const days = json?.data?.days;
+    if (!Array.isArray(days) || !days.length) return undefined;
+    const nama = destinationPhotosForDays(days)
+      .flat()
+      .filter((foto): foto is { file: string; label: string } => Boolean(foto) && !FOTO_MOMEN.has(foto!.file))
+      .map(foto => foto.label);
+    return nama.length ? nama : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(jam);
+  }
+}
+
 async function qrPng(url?: string): Promise<string | undefined> {
   if (!url) return undefined;
   try {
@@ -768,15 +832,17 @@ export async function generateComparePdfBlob({
   b: ComparePdfSide;
   agent?: AgentData | null;
 }): Promise<Blob> {
-  const [agentPhotoBase64, qrA, qrB] = await Promise.all([
+  const [agentPhotoBase64, qrA, qrB, destA, destB] = await Promise.all([
     fotoAgentPng(agent?.photo),
     qrPng(a.itineraryUrl),
     qrPng(b.itineraryUrl),
+    ambilDestinasi(a.pkg.jadwalId),
+    ambilDestinasi(b.pkg.jadwalId),
   ]);
   return pdf(
     <CompareDocument
-      a={{ ...a, qrDataUrl: qrA }}
-      b={{ ...b, qrDataUrl: qrB }}
+      a={{ ...a, qrDataUrl: qrA, destinasi: a.destinasi ?? destA }}
+      b={{ ...b, qrDataUrl: qrB, destinasi: b.destinasi ?? destB }}
       agent={agent}
       agentPhotoBase64={agentPhotoBase64}
     />
