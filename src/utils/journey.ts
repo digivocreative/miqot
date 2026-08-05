@@ -34,11 +34,22 @@ const LANDING_AIRPORT_MAP: Record<string, string> = {
   IST: 'Istanbul',
   SAW: 'Istanbul',
   DXB: 'Dubai',
+  AUH: 'Abu Dhabi',
   AMM: 'Amman',
   HAK: 'Haikou',
   PEK: 'Beijing',
   SHA: 'Shanghai',
   CAN: 'Guangzhou',
+};
+
+/**
+ * Nama kota dari kode bandara, untuk pembaca yang tak hafal kode IATA. Kode yang
+ * tak dikenal dikembalikan apa adanya — lebih baik menampilkan "XYZ" daripada
+ * menghilangkan satu simpul dari rute.
+ */
+export const airportCityName = (code: string): string => {
+  const key = String(code || '').trim().toUpperCase();
+  return LANDING_AIRPORT_MAP[key] || key;
 };
 
 const TOUR_CONFIGS: TourConfig[] = [

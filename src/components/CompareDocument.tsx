@@ -7,7 +7,7 @@ import { tierRoomPrice, tierHotelInfo, packageCityHotels } from '@/lib/packageTi
 import { buildCompareVerdict } from '@/lib/compareVerdict';
 import type { CompareVerdict } from '@/lib/compareVerdict';
 import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
-import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName } from '@/utils/journey';
+import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName, airportCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
 
 // ── Font Inter dari /public/fonts, sama seperti QuotationDocument ──
@@ -63,7 +63,7 @@ const s = StyleSheet.create({
   accentBar: { height: 4, backgroundColor: C.burgundy },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 13, paddingHorizontal: 20 },
   headerKiri: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  headerLogo: { width: 30, height: 30, borderRadius: 5 },
+  headerLogo: { width: 73, height: 22, objectFit: 'contain' as const },
   company: { ...b, fontSize: 12, color: C.burgundy, marginBottom: 2 },
   address: { fontSize: 6.5, color: C.gray },
   docBadge: { backgroundColor: C.burgundy, borderRadius: 2, paddingVertical: 3, paddingHorizontal: 9, marginBottom: 3 },
@@ -115,7 +115,9 @@ const s = StyleSheet.create({
   tglUtama: { ...b, fontSize: 9.5, color: C.ink },
   jam: { fontSize: 7.5, color: C.gray },
   kode: { ...b, fontSize: 7.5, color: C.gold },
-  rute: { fontSize: 7, color: C.grayLight },
+  ruteKota: { ...b, fontSize: 7.5, color: C.ink },
+  langsung: { ...b, fontSize: 6.3, color: C.gold },
+  rute: { fontSize: 6.5, color: C.grayLight },
   hotelNama: { ...b, fontSize: 8.5, color: C.ink },
   bintangRow: { flexDirection: 'row', gap: 1 },
   jarak: { fontSize: 7, color: C.gray },
@@ -164,9 +166,33 @@ export interface CompareDocumentProps {
 // Helpers
 // ============================================
 const ROOMS = ['Quard', 'Triple', 'Double'] as const;
+
+/** Rute sebagai nama kota: "CGK-DXB / DXB-MED" → "Jakarta → Dubai → Madinah". */
+function ruteKota(rute: string): string {
+  const kode = String(rute || '').split(/[/\-]/).map(x => x.trim()).filter(Boolean);
+  const nama = kode.map(airportCityName);
+  return nama.filter((n, i) => i === 0 || n !== nama[i - 1]).join(' → ');
+}
+
+/** Satu ruas berarti tanpa ganti pesawat. Lebih dari itu TIDAK disebut
+ *  "transit": pada paket PLUS, kota di tengah justru tujuan yang diinapi. */
+const tanpaTransit = (rute: string) => String(rute || '').split('/').filter(Boolean).length === 1;
 // Istilah kamar dalam bahasa sehari-hari. Pembaca dokumen ini calon jamaah,
 // bukan staf travel — "Quad/Triple/Double" itu kosakata kantor.
-const ROOM_LABEL: Record<string, string> = { Quard: 'Berempat', Triple: 'Bertiga', Double: 'Berdua' };
+const ROOM_LABEL: Record<string, string> = { Quard: 'Berempat', Triple: 'Bertiga', Double: 'Berdua', Single: 'Sendiri' };
+/**
+ * Baris harga, urut dari yang paling banyak dipakai. Kamar sendiri hanya dijual
+ * di 11 dari 101 kombinasi paket-tier dan harga bayi hampir selalu ada, jadi
+ * keduanya dirender hanya bila datanya memang ada — baris "—" kembar cuma
+ * memanjangkan dokumen tanpa menambah keterangan.
+ */
+const BARIS_HARGA = [
+  { key: 'Quard' as const, label: 'KAMAR BEREMPAT' },
+  { key: 'Triple' as const, label: 'KAMAR BERTIGA' },
+  { key: 'Double' as const, label: 'KAMAR BERDUA' },
+  { key: 'Single' as const, label: 'KAMAR SENDIRI' },
+  { key: 'Infant' as const, label: 'BAYI (0–2 TH)' },
+];
 const KIBLAT_KOTA: Record<string, string> = { mekkah: 'Masjidil Haram', madinah: 'Masjid Nabawi' };
 /** "±400m" → "±400 m"; angka dan satuan yang berdempetan susah dibaca di cetak. */
 const renggangkanJarak = (teks: string) =>
@@ -205,6 +231,7 @@ const rapikanNama = (teks: string) =>
   String(teks || '')
     .replace(/\s+/g, ' ')
     .replace(/\(\s+/g, '(')
+    .replace(/(\S)\(/g, '$1 (')
     .replace(/\s+\)/g, ')')
     .replace(/\s*\/\s*/g, '/')
     .trim();
@@ -383,19 +410,14 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   const poin = poinKesimpulan(verdict, a, b);
   const rantai = sides.map(side => rantaiPerjalanan(side.pkg));
 
-  const hargaA: Record<string, number> = {};
-  const hargaB: Record<string, number> = {};
-  for (const room of ROOMS) {
-    hargaA[room] = tierRoomPrice(a.pkg, a.tier, room);
-    hargaB[room] = tierRoomPrice(b.pkg, b.tier, room);
-  }
-
   const kotaHotel = COMPARE_CITIES.filter(
     c => hotelDiKota(a.pkg, a.tier, c.key) || hotelDiKota(b.pkg, b.tier, c.key),
   );
   const suhu = sides.map(side => kotaSuhu(side.pkg));
   const adaQr = sides.some(side => side.qrDataUrl);
-  const barisHarga = ROOMS.filter(room => hargaA[room] > 0 || hargaB[room] > 0);
+  const barisHarga = BARIS_HARGA.filter(
+    baris => tierRoomPrice(a.pkg, a.tier, baris.key) > 0 || tierRoomPrice(b.pkg, b.tier, baris.key) > 0,
+  );
 
   // ── Tinggi halaman ──
   // react-pdf tidak bisa mengukur sebelum merender, jadi tingginya ditaksir per
@@ -424,13 +446,17 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
   h += 22 + 12 + poin.length * 3 + Math.ceil(barisPoin * 11.5); // pita kesimpulan
   h += 79 + 17 * barisNama + 13;            // pita paket + penanda landing
   h += 20 + barisHarga.length * 42;         // seksi harga + baris
-  h += 20 + 2 * 44;                         // seksi penerbangan + 2 baris
-  h += 20 + kotaHotel.length * 23 + barisHotel * 17;
+  h += 20 + 2 * 50;                         // seksi penerbangan + 2 baris (kota + kode + rute)
+  h += 20 + kotaHotel.length * 24 + (barisHotel - kotaHotel.length) * 11;
   h += 20 + 36 + 39;                        // seksi ketersediaan: seat + manasik
   h += 16 + Math.ceil(maxKotaSuhu * 11.5);  // baris suhu
   if (adaQr) h += 65;                       // baris itinerary
   h += 3 + 50;                              // aksen + footer
-  h += 8;                                   // sisa aman
+  // Sisa aman 24pt. Taksiran yang KURANG membuat dokumen tumpah ke halaman
+  // kedua — sudah terbukti saat sisa aman masih 8pt. Kelebihan 24pt cuma pita
+  // putih tipis di bawah, jauh lebih murah daripada halaman kedua yang isinya
+  // beberapa baris.
+  h += 24;
   const pageH = Math.max(420, h);
 
   const namaAgent = agent?.name || '';
@@ -471,7 +497,7 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
         <View style={s.accentBar} />
         <View style={s.header}>
           <View style={s.headerKiri}>
-            <Image style={s.headerLogo} src={`${origin}/icon-192x192.png`} />
+            <Image style={s.headerLogo} src={`${origin}/logo-alhijaz.png`} />
             <View>
               <Text style={s.company}>PT ALHIJAZ INDOWISATA</Text>
               <Text style={s.address}>Graha Alhijaz, Jl. Dewi Sartika No. 239A, Cawang — Jakarta Timur</Text>
@@ -518,13 +544,16 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
 
         {/* ─── HARGA ─── */}
         <Seksi judul="HARGA PER JAMAAH" />
-        {barisHarga.map(room => (
-          <Baris key={room} label={`KAMAR ${ROOM_LABEL[room].toUpperCase()}`}>
-            {[hargaA[room], hargaB[room]].map((nilai, i) => (
-              <Sel key={i} kanan={i === 1}>
-                <Text style={s.hargaUtama}>{nilai > 0 ? fmtRupiah(nilai) : '—'}</Text>
-              </Sel>
-            ))}
+        {barisHarga.map(baris => (
+          <Baris key={baris.key} label={baris.label}>
+            {sides.map((side, i) => {
+              const nilai = tierRoomPrice(side.pkg, side.tier, baris.key);
+              return (
+                <Sel key={i} kanan={i === 1}>
+                  <Text style={s.hargaUtama}>{nilai > 0 ? fmtRupiah(nilai) : '—'}</Text>
+                </Sel>
+              );
+            })}
           </Baris>
         ))}
 
@@ -543,6 +572,10 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                   <View style={s.cellLine}>
                     <Text style={s.jam}>{fmtJam(f.jam)} WIB</Text>
                     <Text style={s.kode}>{f.kodePenerbangan}</Text>
+                  </View>
+                  <View style={s.cellLine}>
+                    <Text style={s.ruteKota}>{ruteKota(f.rute)}</Text>
+                    {tanpaTransit(f.rute) && <Text style={s.langsung}>langsung</Text>}
                   </View>
                   <Text style={s.rute}>{rapikanRute(f.rute)}</Text>
                 </Sel>
