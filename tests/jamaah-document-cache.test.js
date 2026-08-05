@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { load } from 'cheerio';
 
 import {
   buildPrintableJamaahDocumentHtml,
@@ -85,6 +87,43 @@ test('buildPrintableJamaahDocumentHtml wraps source body in an A4 print shell', 
   assert.doesNotMatch(html, /\.a4-content table\s*\{[\s\S]*width:\s*100%/);
   assert.doesNotMatch(html, /@media screen and \(max-width: 840px\)/);
   assert.doesNotMatch(html, /window\.bad/);
+});
+
+test('buildPrintableJamaahDocumentHtml puts the Jadwal header logo above the page-two agreement', () => {
+  const html = buildPrintableJamaahDocumentHtml(`
+    <html>
+      <head>
+        <style>
+          @media print { .page-break { display: block; page-break-before: always; } }
+        </style>
+      </head>
+      <body>
+        <table><tbody><tr><td><img src="/assets/logoTandaTerima.png" width="100px"></td></tr></tbody></table>
+        <p>FORMULIR PENDAFTARAN UMROH</p>
+        <div class="page-break"></div>
+        <table width="100%"><tbody><tr><td style="text-align:center"><img src="/assets/logoTandaTerima.png" width="100px"></td></tr></tbody></table>
+        <table width="100%"><tbody><tr><td>PERJANJIAN ANTARA JAMAAH UMRAH DENGAN PPIU PT ALHIJAZ INDOWISATA</td></tr></tbody></table>
+      </body>
+    </html>
+  `);
+
+  const $ = load(html);
+  const pageBreak = $('.page-break').first();
+  const pageTwoLogo = pageBreak.nextAll().find('img.alhijaz-pernyataan-agreement-logo').first();
+  const expectedLogoBase64 = readFileSync(
+    new URL('../public/new-logo-alhijaz-colored.png', import.meta.url),
+  ).toString('base64');
+
+  assert.equal(pageTwoLogo.length, 1);
+  assert.equal(pageTwoLogo.attr('src'), `data:image/png;base64,${expectedLogoBase64}`);
+  assert.equal(pageTwoLogo.attr('alt'), 'Alhijaz Indowisata');
+  assert.equal(pageTwoLogo.attr('width'), '170');
+  assert.match(pageTwoLogo.closest('table').attr('class') || '', /alhijaz-pernyataan-agreement-logo-block/);
+  assert.equal($('img[src="/assets/logoTandaTerima.png"]').length, 1, 'the page-one logo must be left unchanged');
+
+  const logoBlockIndex = pageTwoLogo.closest('table').index();
+  const agreementBlockIndex = $('td').filter((_, cell) => $(cell).text().includes('PERJANJIAN ANTARA JAMAAH')).closest('table').index();
+  assert.ok(logoBlockIndex < agreementBlockIndex, 'the logo block should stay above the agreement heading');
 });
 
 test('buildPrintableJamaahDocumentHtml uses a white page background in print media', async () => {
