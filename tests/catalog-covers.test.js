@@ -79,3 +79,11 @@ test('catalog download follows the active brochure filter without a scope switch
   assert.match(src, /pages: activeImagePages/, 'catalog pages come from the active filter');
   assert.doesNotMatch(src, /Filter Ini|all-ready/, 'legacy catalog scope choices are removed');
 });
+
+test('package catalog uses lightweight images and a same-origin agent photo', () => {
+  const src = readFileSync(join(root, 'src/components/BrochureSchedulePage.tsx'), 'utf8');
+  assert.match(src, /\[pkg\.brosurThumb, pkg\.brosur\]/, 'tries the thumbnail before the print-resolution brochure');
+  assert.match(src, /Promise\.allSettled\(batch\.map\(fetchPackageBrochureBlob\)\)/, 'loads each bounded batch concurrently');
+  assert.match(src, /`\/agents\/\$\{encodeURIComponent\(slug\)\}\.jpg`/, 'uses the same-origin agent photo endpoint');
+  assert.match(src, /<BrochureCatalogCover agent=\{catalogAgent\}/, 'passes the resolved agent photo to the PDF cover');
+});

@@ -184,12 +184,34 @@ function brochureFetchUrl(imageUrl: string): string {
   return imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '');
 }
 
-/** Muat brosur resmi ke halaman katalog 2:3 tanpa crop. Brosur AWAPI umumnya
- * 3:4, sehingga sisa ruang ditempatkan merata di atas/bawah. */
-async function loadPackageBrochureCanvas(imageUrl: string): Promise<HTMLCanvasElement> {
-  const response = await fetch(brochureFetchUrl(imageUrl));
-  if (!response.ok) throw new Error(`Gagal mengambil brosur (${response.status})`);
-  const blobUrl = URL.createObjectURL(await response.blob());
+type PackageWithBrochure = BrochurePackage & { brosur: string };
+
+const PACKAGE_CATALOG_FETCH_BATCH = 4;
+
+/** Thumbnail 400px sudah cukup untuk katalog yang dibaca/dibagikan lewat HP
+ * dan ukurannya puluhan kali lebih kecil dari sumber cetak. File penuh tetap
+ * menjadi fallback bila thumbnail belum tersedia atau gagal diambil. */
+async function fetchPackageBrochureBlob(pkg: PackageWithBrochure): Promise<Blob> {
+  const candidates = [pkg.brosurThumb, pkg.brosur]
+    .filter((url): url is string => !!url)
+    .filter((url, index, urls) => urls.indexOf(url) === index);
+  let lastStatus: number | null = null;
+  for (const imageUrl of candidates) {
+    try {
+      const response = await fetch(brochureFetchUrl(imageUrl), { cache: 'force-cache' });
+      lastStatus = response.status;
+      if (response.ok) return await response.blob();
+    } catch {
+      // Coba kandidat berikutnya (biasanya brosur penuh).
+    }
+  }
+  throw new Error(lastStatus ? `Gagal mengambil brosur (${lastStatus})` : 'Gagal mengambil brosur');
+}
+
+/** Pasang brosur resmi ke halaman katalog 2:3 tanpa crop. Brosur AWAPI
+ * umumnya 3:4, sehingga sisa ruang ditempatkan merata di atas/bawah. */
+async function renderPackageBrochureCanvas(blob: Blob): Promise<HTMLCanvasElement> {
+  const blobUrl = URL.createObjectURL(blob);
 
   try {
     const image = new Image();
@@ -219,6 +241,12 @@ async function loadPackageBrochureCanvas(imageUrl: string): Promise<HTMLCanvasEl
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
+}
+
+function catalogAgentPhotoUrl(agent: BrochureAgent): string {
+  const slug = String(agent.slug || '').trim().toLowerCase();
+  if (/^[a-z0-9-]{1,64}$/.test(slug)) return `/agents/${encodeURIComponent(slug)}.jpg`;
+  return agent.photo || '';
 }
 
 const FILTER_DIM_LABELS: Record<FilterDim, string> = {
@@ -675,8 +703,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     [filteredPackages, filterDim, filterValue, filterLabel, availableOnly],
   );
   const packageCatalogPackages = useMemo(
-    () => filteredPackages.filter((pkg): pkg is BrochurePackage & { brosur: string } => !!pkg.brosur),
+    () => filteredPackages.filter((pkg): pkg is PackageWithBrochure => !!pkg.brosur),
     [filteredPackages],
+  );
+  const catalogAgent = useMemo<BrochureAgent>(
+    () => ({ ...agent, photo: catalogAgentPhotoUrl(agent) }),
+    [agent],
   );
   const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -845,18 +877,30 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       }
       setCatalogProgress({ done: 1, total });
 
-      for (let i = 0; i < packageCatalogPackages.length; i++) {
-        const pkg = packageCatalogPackages[i];
-        try {
-          flushSync(() => setCatalogStage({ kind: 'package', label: pkg.nama }));
-          await waitForNextPaint();
-          addCanvas(await loadPackageBrochureCanvas(pkg.brosur));
-          addedPackages += 1;
-        } catch (e) {
-          failed += 1;
-          console.error(`[katalog-paket] ${pkg.id} failed:`, e);
+      for (let offset = 0; offset < packageCatalogPackages.length; offset += PACKAGE_CATALOG_FETCH_BATCH) {
+        const batch = packageCatalogPackages.slice(offset, offset + PACKAGE_CATALOG_FETCH_BATCH);
+        flushSync(() => setCatalogStage({
+          kind: 'package',
+          label: batch.length === 1 ? batch[0].nama : `${batch.length} brosur`,
+        }));
+        await waitForNextPaint();
+
+        // Paralel terbatas: memangkas waktu tunggu jaringan tanpa menahan
+        // puluhan gambar/canvas sekaligus di memori ponsel.
+        const fetched = await Promise.allSettled(batch.map(fetchPackageBrochureBlob));
+        for (let index = 0; index < batch.length; index++) {
+          const pkg = batch[index];
+          try {
+            const result = fetched[index];
+            if (result.status === 'rejected') throw result.reason;
+            addCanvas(await renderPackageBrochureCanvas(result.value));
+            addedPackages += 1;
+          } catch (e) {
+            failed += 1;
+            console.error(`[katalog-paket] ${pkg.id} failed:`, e);
+          }
+          setCatalogProgress({ done: offset + index + 2, total });
         }
-        setCatalogProgress({ done: i + 2, total });
       }
 
       if (addedPackages === 0) throw new Error('semua gambar brosur gagal dimuat');
@@ -1529,7 +1573,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       >
         <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
           {catalogStage?.kind === 'cover' && (
-            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
+            <BrochureCatalogCover agent={catalogAgent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
           )}
           {catalogStage?.kind === 'page' && (
             /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
@@ -1537,7 +1581,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
             <BrochureScheduleTemplate
               month={catalogStage.page}
-              agent={agent}
+              agent={catalogAgent}
               showFullDate={catalogStage.showFullDate}
               variant={catalogStage.variant}
               rasterSafe

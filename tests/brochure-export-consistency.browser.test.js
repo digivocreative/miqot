@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { createServer } from 'vite';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
+const packageBrochureFixture = fileURLToPath(new URL('../public/img-brosur/cover-katalog.png', import.meta.url));
 const designLabels = ['Klasik', 'Boarding Pass', 'Serambi Nabawi', 'Tasbih Hijau'];
 const browserType = process.env.BROCHURE_TEST_BROWSER === 'webkit' ? webkit : chromium;
 
@@ -401,15 +402,50 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
         ...month,
         packages: month.packages.map(pkg => ({
           ...pkg,
-          brosur: '/img-brosur/cover-katalog.png',
+          brosur: `/test-brosur-full-${pkg.id}.png`,
+          brosurThumb: `/test-brosur-thumb-${pkg.id}.png`,
         })),
       })),
     };
+    let activeThumbnailRequests = 0;
+    let maxConcurrentThumbnailRequests = 0;
+    let thumbnailRequests = 0;
+    let fullBrochureRequests = 0;
+    let agentPhotoRequests = 0;
+    let catalogDownloadStarted = false;
+    const agentPhotoBody = await sharp({
+      create: { width: 120, height: 120, channels: 3, background: { r: 240, g: 20, b: 180 } },
+    }).jpeg().toBuffer();
+
     await page.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
       body: JSON.stringify(packagePayload),
     }));
+    await page.route('**/test-brosur-thumb-*.png', async route => {
+      const tracked = catalogDownloadStarted;
+      if (tracked) {
+        thumbnailRequests += 1;
+        activeThumbnailRequests += 1;
+        maxConcurrentThumbnailRequests = Math.max(maxConcurrentThumbnailRequests, activeThumbnailRequests);
+      }
+      try {
+        // Menahan respons sebentar membuat test bisa membedakan unduhan paralel
+        // dari implementasi lama yang selalu menunggu satu brosur selesai.
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await route.fulfill({ path: packageBrochureFixture, contentType: 'image/png' });
+      } finally {
+        if (tracked) activeThumbnailRequests -= 1;
+      }
+    });
+    await page.route('**/test-brosur-full-*.png', route => {
+      if (catalogDownloadStarted) fullBrochureRequests += 1;
+      return route.fulfill({ path: packageBrochureFixture, contentType: 'image/png' });
+    });
+    await page.route('**/agents/agen-uji.jpg', route => {
+      agentPhotoRequests += 1;
+      return route.fulfill({ body: agentPhotoBody, contentType: 'image/jpeg' });
+    });
 
     try {
       await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
@@ -425,6 +461,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
       await coverDialog.waitFor();
       await coverDialog.getByText('Filter: September 2026 · 2 brosur', { exact: true }).waitFor();
+      catalogDownloadStarted = true;
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 60_000 }),
         coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
@@ -438,9 +475,40 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
         await parser.load();
         const info = await parser.getInfo();
         assert.equal(info.total, 3, 'PDF harus berisi satu cover + dua brosur paket Ready');
+        const screenshot = await parser.getScreenshot({
+          partial: [1],
+          desiredWidth: 540,
+          imageDataUrl: false,
+          imageBuffer: true,
+        });
+        const coverMetadata = await sharp(screenshot.pages[0].data).metadata();
+        const photoCrop = await sharp(screenshot.pages[0].data)
+          // Foto agen 100×100 berada pada ribbon terbawah; koordinat ini
+          // mengambil bagian tengahnya pada render cover setengah ukuran.
+          .extract({ left: 40, top: 760, width: 20, height: 20 })
+          .removeAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        const channelTotals = [0, 0, 0];
+        for (let offset = 0; offset < photoCrop.data.length; offset += photoCrop.info.channels) {
+          channelTotals[0] += photoCrop.data[offset];
+          channelTotals[1] += photoCrop.data[offset + 1];
+          channelTotals[2] += photoCrop.data[offset + 2];
+        }
+        const pixelCount = photoCrop.info.width * photoCrop.info.height;
+        const [red, green, blue] = channelTotals.map(total => total / pixelCount);
+        assert.ok(
+          red > 180 && green < 80 && blue > 100,
+          `foto agen berwarna magenta harus benar-benar ikut diraster ke cover PDF `
+            + `(cover ${coverMetadata.width}x${coverMetadata.height}; rgb ${red.toFixed(1)}, ${green.toFixed(1)}, ${blue.toFixed(1)})`,
+        );
       } finally {
         await parser.destroy();
       }
+      assert.equal(thumbnailRequests, 2, 'setiap brosur terpilih memakai thumbnail ringan');
+      assert.equal(maxConcurrentThumbnailRequests, 2, 'thumbnail dalam batch harus dimuat paralel');
+      assert.equal(fullBrochureRequests, 0, 'file cetak penuh tidak diambil bila thumbnail berhasil');
+      assert.ok(agentPhotoRequests >= 1, 'cover PDF harus memuat foto agen melalui URL same-origin');
     } finally {
       await context.close();
     }
