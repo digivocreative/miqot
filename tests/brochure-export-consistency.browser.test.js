@@ -407,8 +407,8 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
         })),
       })),
     };
-    let activeThumbnailRequests = 0;
-    let maxConcurrentThumbnailRequests = 0;
+    let activeFullBrochureRequests = 0;
+    let maxConcurrentFullBrochureRequests = 0;
     let thumbnailRequests = 0;
     let fullBrochureRequests = 0;
     let agentPhotoRequests = 0;
@@ -422,12 +422,19 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       contentType: 'application/json; charset=utf-8',
       body: JSON.stringify(packagePayload),
     }));
-    await page.route('**/test-brosur-thumb-*.png', async route => {
+    await page.route('**/test-brosur-thumb-*.png', route => {
+      if (catalogDownloadStarted) thumbnailRequests += 1;
+      return route.fulfill({ path: packageBrochureFixture, contentType: 'image/png' });
+    });
+    await page.route('**/test-brosur-full-*.png', async route => {
       const tracked = catalogDownloadStarted;
       if (tracked) {
-        thumbnailRequests += 1;
-        activeThumbnailRequests += 1;
-        maxConcurrentThumbnailRequests = Math.max(maxConcurrentThumbnailRequests, activeThumbnailRequests);
+        fullBrochureRequests += 1;
+        activeFullBrochureRequests += 1;
+        maxConcurrentFullBrochureRequests = Math.max(
+          maxConcurrentFullBrochureRequests,
+          activeFullBrochureRequests,
+        );
       }
       try {
         // Menahan respons sebentar membuat test bisa membedakan unduhan paralel
@@ -435,12 +442,8 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
         await new Promise(resolve => setTimeout(resolve, 200));
         await route.fulfill({ path: packageBrochureFixture, contentType: 'image/png' });
       } finally {
-        if (tracked) activeThumbnailRequests -= 1;
+        if (tracked) activeFullBrochureRequests -= 1;
       }
-    });
-    await page.route('**/test-brosur-full-*.png', route => {
-      if (catalogDownloadStarted) fullBrochureRequests += 1;
-      return route.fulfill({ path: packageBrochureFixture, contentType: 'image/png' });
     });
     await page.route('**/agents/agen-uji.jpg', route => {
       agentPhotoRequests += 1;
@@ -505,9 +508,9 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       } finally {
         await parser.destroy();
       }
-      assert.equal(thumbnailRequests, 2, 'setiap brosur terpilih memakai thumbnail ringan');
-      assert.equal(maxConcurrentThumbnailRequests, 2, 'thumbnail dalam batch harus dimuat paralel');
-      assert.equal(fullBrochureRequests, 0, 'file cetak penuh tidak diambil bila thumbnail berhasil');
+      assert.equal(fullBrochureRequests, 2, 'setiap halaman PDF memakai brosur resolusi penuh');
+      assert.equal(maxConcurrentFullBrochureRequests, 2, 'brosur penuh dalam batch harus dimuat paralel');
+      assert.equal(thumbnailRequests, 0, 'thumbnail 400px tidak boleh dipakai bila brosur penuh berhasil');
       assert.ok(agentPhotoRequests >= 1, 'cover PDF harus memuat foto agen melalui URL same-origin');
     } finally {
       await context.close();

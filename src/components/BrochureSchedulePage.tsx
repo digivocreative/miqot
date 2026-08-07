@@ -188,11 +188,11 @@ type PackageWithBrochure = BrochurePackage & { brosur: string };
 
 const PACKAGE_CATALOG_FETCH_BATCH = 4;
 
-/** Thumbnail 400px sudah cukup untuk katalog yang dibaca/dibagikan lewat HP
- * dan ukurannya puluhan kali lebih kecil dari sumber cetak. File penuh tetap
- * menjadi fallback bila thumbnail belum tersedia atau gagal diambil. */
+/** PDF diraster pada lebar 1080px, jadi selalu utamakan brosur resolusi penuh.
+ * Thumbnail 400px hanya fallback bila sumber penuh gagal; memakainya sebagai
+ * sumber utama membuat teks dan foto pecah saat PDF dibuka atau diperbesar. */
 async function fetchPackageBrochureBlob(pkg: PackageWithBrochure): Promise<Blob> {
-  const candidates = [pkg.brosurThumb, pkg.brosur]
+  const candidates = [pkg.brosur, pkg.brosurThumb]
     .filter((url): url is string => !!url)
     .filter((url, index, urls) => urls.indexOf(url) === index);
   let lastStatus: number | null = null;
@@ -202,7 +202,7 @@ async function fetchPackageBrochureBlob(pkg: PackageWithBrochure): Promise<Blob>
       lastStatus = response.status;
       if (response.ok) return await response.blob();
     } catch {
-      // Coba kandidat berikutnya (biasanya brosur penuh).
+      // Coba thumbnail sebagai fallback agar halaman tidak hilang seluruhnya.
     }
   }
   throw new Error(lastStatus ? `Gagal mengambil brosur (${lastStatus})` : 'Gagal mengambil brosur');
