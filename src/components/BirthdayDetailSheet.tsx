@@ -5,7 +5,16 @@ import { X, Download } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
 import { getBirthdayMessage } from '../utils/birthdayMessage';
-import { SEBUTAN_OPTIONS, isSebutan, type Sebutan } from '../utils/sebutan';
+import {
+  SEBUTAN_OPTIONS,
+  GELAR_OPTIONS,
+  isSebutan,
+  isGelar,
+  formatSapaan,
+  splitGelarFromNama,
+  type Sebutan,
+  type Gelar,
+} from '../utils/sebutan';
 import FilterDropdown from './FilterDropdown';
 import type { Birthday } from './BirthdayWidget';
 import {
@@ -13,6 +22,7 @@ import {
   BirthdayCardThumb,
   TEMPLATE_LABELS,
   type CardTemplate,
+  type BirthdayCardJamaah,
 } from './BirthdayCardTemplates';
 
 interface Props {
@@ -69,7 +79,12 @@ export default function BirthdayDetailSheet({
   agentSlug,
 }: Props) {
   const [sebutan, setSebutan] = useState<Sebutan>(jamaah.salutation);
-  const [message, setMessage] = useState(() => getBirthdayMessage(jamaah, agentName, jamaah.salutation));
+  const [gelar, setGelar] = useState<Gelar>(() => splitGelarFromNama(jamaah.nama).gelar);
+  const [message, setMessage] = useState(() => getBirthdayMessage(
+    jamaah,
+    agentName,
+    formatSapaan(jamaah.salutation, splitGelarFromNama(jamaah.nama).gelar),
+  ));
   const [includeKartu, setIncludeKartu] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<CardTemplate>('classic');
   const [isExporting, setIsExporting] = useState(false);
@@ -88,7 +103,13 @@ export default function BirthdayDetailSheet({
   const handleSebutanChange = (next: string) => {
     if (!isSebutan(next)) return;
     setSebutan(next);
-    setMessage(getBirthdayMessage(jamaah, agentName, next));
+    setMessage(getBirthdayMessage(jamaah, agentName, formatSapaan(next, gelar)));
+  };
+
+  const handleGelarChange = (next: string) => {
+    if (!isGelar(next)) return;
+    setGelar(next);
+    setMessage(getBirthdayMessage(jamaah, agentName, formatSapaan(sebutan, next)));
   };
 
   useEffect(() => {
@@ -116,7 +137,11 @@ export default function BirthdayDetailSheet({
     [jamaah.nama],
   );
   const normalizedWa = useMemo(() => normalizeWaNumber(jamaah.wa), [jamaah.wa]);
-  const jamaahDisplay = useMemo(() => ({ ...jamaah, salutation: sebutan }), [jamaah, sebutan]);
+  const jamaahDisplay = useMemo(() => ({
+    ...jamaah,
+    salutation: formatSapaan(sebutan, gelar),
+    nama: splitGelarFromNama(jamaah.nama).nama,
+  }), [jamaah, sebutan, gelar]);
 
   const captureCardBlob = async (): Promise<Blob | null> => {
     const target = selectedTemplate === 'classic' ? classicRef.current : islamicRef.current;
@@ -168,6 +193,7 @@ export default function BirthdayDetailSheet({
         has_kartu: includeKartu,
         day_offset: jamaah.day_offset,
         sebutan,
+        gelar,
       });
 
       const phone = normalizedWa;
@@ -240,22 +266,39 @@ export default function BirthdayDetailSheet({
         </div>
 
         <div className="px-4 pb-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
-              Sebutan
+          <div className="flex items-end gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2">
+                Sebutan
+              </div>
+              <FilterDropdown
+                value={sebutan}
+                onChange={handleSebutanChange}
+                options={SEBUTAN_OPTIONS}
+                ariaLabel="Sebutan jamaah"
+                variant="compact"
+                inputSkin
+                portal
+                portalZClass="z-[10000]"
+                showAllOptions
+              />
             </div>
-            <FilterDropdown
-              value={sebutan}
-              onChange={handleSebutanChange}
-              options={SEBUTAN_OPTIONS}
-              ariaLabel="Sebutan jamaah"
-              variant="compact"
-              widthClass="w-36"
-              inputSkin
-              portal
-              portalZClass="z-[10000]"
-              showAllOptions
-            />
+            <div className="w-24 flex-shrink-0">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2">
+                Gelar
+              </div>
+              <FilterDropdown
+                value={gelar}
+                onChange={handleGelarChange}
+                options={GELAR_OPTIONS}
+                ariaLabel="Gelar haji jamaah"
+                variant="compact"
+                inputSkin
+                portal
+                portalZClass="z-[10000]"
+                showAllOptions
+              />
+            </div>
           </div>
 
           <div>
@@ -386,7 +429,7 @@ function ThumbBox({
   agentPhoto,
   agentPhone,
 }: {
-  jamaah: Birthday;
+  jamaah: BirthdayCardJamaah;
   template: CardTemplate;
   agentName: string;
   agentSlug: string;

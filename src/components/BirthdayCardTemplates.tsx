@@ -5,9 +5,13 @@ export type CardTemplate = 'classic' | 'islamic';
 export const CARD_W = 1080;
 export const CARD_H = 1080;
 
+/** Jamaah sebagaimana dirender di kartu: `salutation` sudah berupa teks sapaan
+ *  siap-pakai ("Bapak H."), bukan nilai `Sebutan` mentah dari API. */
+export type BirthdayCardJamaah = Omit<Birthday, 'salutation'> & { salutation: string };
+
 export interface CardProps {
   template: CardTemplate;
-  jamaah: Birthday;
+  jamaah: BirthdayCardJamaah;
   agentName: string;
   agentSlug: string;
   agentPhoto?: string;
