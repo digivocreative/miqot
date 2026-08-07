@@ -5,6 +5,8 @@ import { X, Download } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
 import { getBirthdayMessage } from '../utils/birthdayMessage';
+import { SEBUTAN_OPTIONS, isSebutan, type Sebutan } from '../utils/sebutan';
+import FilterDropdown from './FilterDropdown';
 import type { Birthday } from './BirthdayWidget';
 import {
   BirthdayCard,
@@ -66,6 +68,7 @@ export default function BirthdayDetailSheet({
   agentPhoto,
   agentSlug,
 }: Props) {
+  const [sebutan, setSebutan] = useState<Sebutan>(jamaah.salutation);
   const [message, setMessage] = useState(() => getBirthdayMessage(jamaah, agentName, jamaah.salutation));
   const [includeKartu, setIncludeKartu] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<CardTemplate>('classic');
@@ -78,6 +81,14 @@ export default function BirthdayDetailSheet({
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
+  };
+
+  // Ditulis ulang di handler, BUKAN di useEffect: effect ikut menembak saat
+  // mount dan akan menimpa state pesan yang baru saja diinisialisasi.
+  const handleSebutanChange = (next: string) => {
+    if (!isSebutan(next)) return;
+    setSebutan(next);
+    setMessage(getBirthdayMessage(jamaah, agentName, next));
   };
 
   useEffect(() => {
@@ -105,6 +116,7 @@ export default function BirthdayDetailSheet({
     [jamaah.nama],
   );
   const normalizedWa = useMemo(() => normalizeWaNumber(jamaah.wa), [jamaah.wa]);
+  const jamaahDisplay = useMemo(() => ({ ...jamaah, salutation: sebutan }), [jamaah, sebutan]);
 
   const captureCardBlob = async (): Promise<Blob | null> => {
     const target = selectedTemplate === 'classic' ? classicRef.current : islamicRef.current;
@@ -155,6 +167,7 @@ export default function BirthdayDetailSheet({
         template: selectedTemplate,
         has_kartu: includeKartu,
         day_offset: jamaah.day_offset,
+        sebutan,
       });
 
       const phone = normalizedWa;
@@ -201,7 +214,7 @@ export default function BirthdayDetailSheet({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-base font-bold text-gray-900 dark:text-white truncate">
-              {jamaah.salutation} {jamaah.nama}
+              {jamaahDisplay.salutation} {jamaahDisplay.nama}
             </div>
             <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">
               {dayLabel(jamaah.day_offset)} · {jamaah.age} tahun
@@ -227,6 +240,24 @@ export default function BirthdayDetailSheet({
         </div>
 
         <div className="px-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+              Sebutan
+            </div>
+            <FilterDropdown
+              value={sebutan}
+              onChange={handleSebutanChange}
+              options={SEBUTAN_OPTIONS}
+              ariaLabel="Sebutan jamaah"
+              variant="compact"
+              widthClass="w-36"
+              inputSkin
+              portal
+              portalZClass="z-[10000]"
+              showAllOptions
+            />
+          </div>
+
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2">
               Pesan WhatsApp · bisa diedit
@@ -287,7 +318,7 @@ export default function BirthdayDetailSheet({
                       aria-label={`Template ${TEMPLATE_LABELS[tpl]}`}
                     >
                       <ThumbBox
-                        jamaah={jamaah}
+                        jamaah={jamaahDisplay}
                         template={tpl}
                         agentName={agentName}
                         agentSlug={agentSlug}
@@ -329,10 +360,10 @@ export default function BirthdayDetailSheet({
           aria-hidden
         >
           <div ref={classicRef}>
-            <BirthdayCard template="classic" jamaah={jamaah} agentName={agentName} agentSlug={agentSlug} agentPhoto={agentPhoto} agentPhone={agentPhone} />
+            <BirthdayCard template="classic" jamaah={jamaahDisplay} agentName={agentName} agentSlug={agentSlug} agentPhoto={agentPhoto} agentPhone={agentPhone} />
           </div>
           <div ref={islamicRef}>
-            <BirthdayCard template="islamic" jamaah={jamaah} agentName={agentName} agentSlug={agentSlug} agentPhoto={agentPhoto} agentPhone={agentPhone} />
+            <BirthdayCard template="islamic" jamaah={jamaahDisplay} agentName={agentName} agentSlug={agentSlug} agentPhoto={agentPhoto} agentPhone={agentPhone} />
           </div>
         </div>
 

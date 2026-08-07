@@ -1,6 +1,7 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { Gift } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import type { Sebutan } from '../utils/sebutan';
 
 const BirthdayListSheet = lazy(() => import('./BirthdayListSheet'));
 
@@ -10,7 +11,7 @@ export interface Birthday {
   id_umroh: string;
   nama: string;
   jk: 'L' | 'P';
-  salutation: 'Ibu' | 'Bapak';
+  salutation: Sebutan;
   wa: string;
   paket: string;
   tgl_lahir: string;
