@@ -72,3 +72,10 @@ test('BrochureSchedulePage wires the cover picker + persistence', () => {
   assert.match(src, /<CatalogCoverPicker/, 'renders CatalogCoverPicker');
   assert.match(src, /cover=\{getCatalogCover\(coverId\)\}/, 'passes selected cover to BrochureCatalogCover');
 });
+
+test('catalog download follows the active brochure filter without a scope switch', () => {
+  const src = readFileSync(join(root, 'src/components/BrochureSchedulePage.tsx'), 'utf8');
+  assert.match(src, /<span>Unduh Katalog PDF<\/span>/, 'uses the requested catalog label');
+  assert.match(src, /pages: activeImagePages/, 'catalog pages come from the active filter');
+  assert.doesNotMatch(src, /Filter Ini|all-ready/, 'legacy catalog scope choices are removed');
+});

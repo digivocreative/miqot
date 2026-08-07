@@ -5,6 +5,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, webkit } from 'playwright';
+import { PDFParse } from 'pdf-parse';
 import sharp from 'sharp';
 import { createServer } from 'vite';
 
@@ -226,12 +227,12 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
 
       // The catalog has no on-screen page preview, but it shares the same
       // convergent renderer. Exercise its 1.5x capture path as well.
-      await page.getByRole('button', { name: 'Unduh PDF', exact: true }).click();
+      await page.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click();
       const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
       await coverDialog.waitFor();
       const [pdfDownload] = await Promise.all([
         page.waitForEvent('download', { timeout: 60_000 }),
-        coverDialog.getByRole('button', { name: 'Unduh PDF', exact: true }).click(),
+        coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
       ]);
       const pdfPath = await pdfDownload.path();
       assert.ok(pdfPath, 'browser harus menyimpan katalog PDF sementara');
@@ -293,6 +294,153 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       assert.equal(result.metadata.width, 1080);
       assert.equal(result.metadata.height, 1620);
       assert.ok(result.maxDeviation > 10, 'hasil setelah rapid switch tidak boleh kanvas polos');
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('catalog PDF action is full-width and follows the active month filter', { timeout: 90_000 }, async () => {
+    const context = await browser.newContext({
+      acceptDownloads: true,
+      viewport: { width: 520, height: 900 },
+    });
+    const page = await context.newPage();
+    const octoberPayload = {
+      ...apiPayload,
+      months: [
+        ...apiPayload.months,
+        {
+          key: '2026-10',
+          label: 'Oktober 2026',
+          monthIndexId: 9,
+          year: 2026,
+          truncatedCount: 0,
+          packages: [{
+            ...apiPayload.months[0].packages[0],
+            id: 'schedule-october',
+            berangkat_tgl: '2026-10-08',
+            pulang_tgl: '2026-10-16',
+          }],
+        },
+        {
+          key: '2027-08',
+          label: 'Agustus 2027',
+          monthIndexId: 7,
+          year: 2027,
+          truncatedCount: 0,
+          packages: [{
+            id: 'JBU0679',
+            nama: 'WAITINGLIST',
+            maskapai: '',
+            berangkat_tgl: '2027-08-01',
+            pulang_tgl: '',
+            seatSisa: 33,
+            harga: null,
+            soldOut: false,
+          }],
+        },
+      ],
+    };
+    await page.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(octoberPayload),
+    }));
+
+    try {
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      const catalogButton = page.getByRole('button', { name: 'Unduh Katalog PDF', exact: true });
+      await catalogButton.waitFor();
+      const buttonBox = await catalogButton.boundingBox();
+      assert.ok(buttonBox && buttonBox.width >= 480, 'tombol katalog harus memenuhi lebar konten');
+
+      await page.getByRole('button', { name: 'Pilih Bulan' }).click();
+      assert.equal(
+        await page.getByRole('option', { name: 'Agustus 2027', exact: true }).count(),
+        0,
+        'bulan yang hanya berisi WAITINGLIST tidak boleh menjadi opsi filter',
+      );
+      await page.getByRole('option', { name: 'Oktober 2026', exact: true }).click();
+      await catalogButton.click();
+
+      const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
+      await coverDialog.waitFor();
+      await coverDialog.getByText('Filter: Oktober 2026', { exact: true }).waitFor();
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 60_000 }),
+        coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
+      ]);
+      assert.match(download.suggestedFilename(), /oktober-2026/);
+
+      const pdfPath = await download.path();
+      assert.ok(pdfPath);
+      const parser = new PDFParse({ data: await readFile(pdfPath) });
+      try {
+        await parser.load();
+        const info = await parser.getInfo();
+        // Satu cover + satu halaman Oktober. Jalur lama "Semua" akan membuat
+        // tiga halaman karena September ikut terangkut.
+        assert.equal(info.total, 2);
+      } finally {
+        await parser.destroy();
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('Brosur Paket catalog contains the filtered official brochure images', { timeout: 90_000 }, async () => {
+    const context = await browser.newContext({
+      acceptDownloads: true,
+      viewport: { width: 520, height: 900 },
+    });
+    const page = await context.newPage();
+    const packagePayload = {
+      ...apiPayload,
+      months: apiPayload.months.map(month => ({
+        ...month,
+        packages: month.packages.map(pkg => ({
+          ...pkg,
+          brosur: '/img-brosur/cover-katalog.png',
+        })),
+      })),
+    };
+    await page.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(packagePayload),
+    }));
+
+    try {
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      await page.getByRole('button', { name: 'Brosur Paket', exact: true }).click();
+
+      const catalogButton = page.getByRole('button', { name: 'Unduh Katalog PDF', exact: true });
+      await catalogButton.waitFor();
+      assert.equal(await catalogButton.isEnabled(), true);
+      // Tombol duduk tepat setelah sticky filter; klik DOM menghindari auto-
+      // scroll Playwright yang justru menaruhnya di belakang header sticky.
+      await catalogButton.evaluate(button => button.click());
+
+      const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
+      await coverDialog.waitFor();
+      await coverDialog.getByText('Filter: September 2026 · 2 brosur', { exact: true }).waitFor();
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 60_000 }),
+        coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
+      ]);
+      assert.match(download.suggestedFilename(), /^katalog-brosur-paket-.*september-2026.*\.pdf$/);
+
+      const pdfPath = await download.path();
+      assert.ok(pdfPath);
+      const parser = new PDFParse({ data: await readFile(pdfPath) });
+      try {
+        await parser.load();
+        const info = await parser.getInfo();
+        assert.equal(info.total, 3, 'PDF harus berisi satu cover + dua brosur paket Ready');
+      } finally {
+        await parser.destroy();
+      }
     } finally {
       await context.close();
     }

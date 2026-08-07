@@ -168,7 +168,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
-import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
+import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildItineraryParseCandidates, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
@@ -18825,7 +18825,15 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     // Resolve brochure price per row; drop rows with no price
     const priced = [];
     let droppedNoPrice = 0;
+    let droppedWaitingList = 0;
     for (const r of (rows || [])) {
+      // WAITING LIST hanya placeholder peminat, bukan jadwal jual. Jangan
+      // biarkan ia membuat bulan kosong-semu (mis. Agustus 2027) muncul di
+      // filter atau ikut masuk katalog lewat dimensi filter lain.
+      if (isWaitingListPackageName(r.jadwal_nama)) {
+        droppedWaitingList++;
+        continue;
+      }
       const details = pickBrochurePackageDetails(r.paket_harga, r.paket_hotel);
       const seatSisa = parseSeatSisa(r.seat_sisa);
       const soldOut = seatSisa !== null && seatSisa <= 0;
@@ -18873,6 +18881,9 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
     }
     if (droppedNoPrice > 0) {
       console.log(`[brosur-jadwal] dropped ${droppedNoPrice} packages with no resolvable price or available seat`);
+    }
+    if (droppedWaitingList > 0) {
+      console.log(`[brosur-jadwal] dropped ${droppedWaitingList} waiting-list placeholders`);
     }
 
     // Schedules are Indonesian business data; use Jakarta's calendar day as

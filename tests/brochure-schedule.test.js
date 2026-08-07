@@ -4,6 +4,7 @@ import {
   brochurePackageSellsTier,
   cleanBrochurePackageName,
   countBrochureTripDays,
+  isWaitingListPackageName,
   isUmrohFirstRoute,
   listBrochureTiers,
   parseSeatSisa,
@@ -12,6 +13,15 @@ import {
   pickBrochurePriceRoom,
   projectBrochurePackageToTier,
 } from '../lib/brochure-schedule.js';
+
+test('isWaitingListPackageName: recognizes waiting-list placeholders only', () => {
+  for (const name of ['WAITINGLIST', 'WAITING LIST AGUSTUS 2027', 'Paket Waiting-List']) {
+    assert.equal(isWaitingListPackageName(name), true, name);
+  }
+  for (const name of ['REGULER 9HR', 'LIST PAKET AGUSTUS', '', null]) {
+    assert.equal(isWaitingListPackageName(name), false, String(name));
+  }
+});
 
 test('pickBrochurePrice: single hotel tier with Quard', () => {
   const harga = { 'Hotel Bintang 5': { Quard: 33900000, Triple: 35000000, Double: 38000000, Infant: 5000000 } };

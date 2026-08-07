@@ -24,7 +24,7 @@ import {
   type BrochureAgent,
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
-import { brochurePackageSellsTier, projectBrochurePackageToTier } from '../../lib/brochure-schedule.js';
+import { brochurePackageSellsTier, isWaitingListPackageName, projectBrochurePackageToTier } from '../../lib/brochure-schedule.js';
 import { BrochurePromptModal } from './BrochurePromptModal';
 import BrochurePaketGrid, { BrochurePaketGridSkeleton } from './BrochurePaketGrid';
 import SegmentedControl from './common/SegmentedControl';
@@ -92,6 +92,14 @@ interface ApiResponse {
   agent: BrochureAgent;
 }
 
+function withoutWaitingListMonths(months: BrochureMonth[]): BrochureMonth[] {
+  return months.reduce<BrochureMonth[]>((visible, month) => {
+    const packages = month.packages.filter(pkg => !isWaitingListPackageName(pkg.nama));
+    if (packages.length > 0) visible.push({ ...month, packages });
+    return visible;
+  }, []);
+}
+
 function mergeAgentProfile(base: BrochureAgent, incoming?: BrochureAgent | null): BrochureAgent {
   const merged = { ...base, ...(incoming || {}) };
   return {
@@ -138,17 +146,8 @@ function BrochureSkeleton() {
   );
 }
 
-function catalogFilename(agent: BrochureAgent): string {
-  const who = (agent.slug || agent.name || 'alhijaz')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
-  const d = new Date();
-  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  return `katalog-umroh-${who}-${ym}.pdf`;
-}
-
 type FilterDim = 'bulan' | 'tipe' | 'maskapai' | 'landing';
 type BrochureMode = BrosurMode;
-type CatalogMode = 'active-filter' | 'all-ready';
 
 const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
   { value: 'jadwal', label: 'Brosur Jadwal' },
@@ -157,10 +156,10 @@ const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
 
 type CatalogStage =
   | { kind: 'cover' }
-  | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' };
+  | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' }
+  | { kind: 'package'; label: string };
 
-function catalogFilenameWithLabel(agent: BrochureAgent, label?: string | null): string {
-  if (!label) return catalogFilename(agent);
+function catalogFilenameWithLabel(agent: BrochureAgent, label: string): string {
   const who = (agent.slug || agent.name || 'alhijaz')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
   const slug = label
@@ -168,6 +167,58 @@ function catalogFilenameWithLabel(agent: BrochureAgent, label?: string | null): 
   const d = new Date();
   const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   return `katalog-umroh-${who}-${slug}-${ym}.pdf`;
+}
+
+function packageCatalogFilename(agent: BrochureAgent, label: string): string {
+  const who = (agent.slug || agent.name || 'alhijaz')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'alhijaz';
+  const slug = label
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'filter';
+  const d = new Date();
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `katalog-brosur-paket-${who}-${slug}-${ym}.pdf`;
+}
+
+function brochureFetchUrl(imageUrl: string): string {
+  if (imageUrl.includes('.b-cdn.net') || imageUrl.includes('bunnycdn')) return imageUrl;
+  return imageUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '');
+}
+
+/** Muat brosur resmi ke halaman katalog 2:3 tanpa crop. Brosur AWAPI umumnya
+ * 3:4, sehingga sisa ruang ditempatkan merata di atas/bawah. */
+async function loadPackageBrochureCanvas(imageUrl: string): Promise<HTMLCanvasElement> {
+  const response = await fetch(brochureFetchUrl(imageUrl));
+  if (!response.ok) throw new Error(`Gagal mengambil brosur (${response.status})`);
+  const blobUrl = URL.createObjectURL(await response.blob());
+
+  try {
+    const image = new Image();
+    image.decoding = 'async';
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Gambar brosur tidak dapat dibaca'));
+      image.src = blobUrl;
+    });
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error('Ukuran brosur tidak valid');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = BROCHURE_W;
+    canvas.height = BROCHURE_H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas katalog tidak tersedia');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
 }
 
 const FILTER_DIM_LABELS: Record<FilterDim, string> = {
@@ -377,12 +428,11 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_brosur'); mountTracked.current = true; } }, []);
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
-  // Catalog export can use either the active on-screen filter or the legacy
-  // "all ready packages" source. Pages are rendered one at a time into a
-  // dedicated off-screen stage to cap memory; catalogStage drives that stage.
+  // Catalog export always follows the active on-screen filter. Pages are
+  // rendered one at a time into a dedicated off-screen stage to cap memory;
+  // catalogStage drives that stage.
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
-  const [catalogMode, setCatalogMode] = useState<CatalogMode>('all-ready');
   const [catalogStage, setCatalogStage] = useState<CatalogStage | null>(null);
   const [coverId, setCoverId] = useState<string>(() => {
     try { return getCatalogCover(localStorage.getItem('catalogCoverId')).id; }
@@ -393,10 +443,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     setCoverId(id);
     try { localStorage.setItem('catalogCoverId', id); } catch { /* private mode: ignore */ }
   };
-  const openCatalogPicker = (mode: CatalogMode) => {
-    setCatalogMode(mode);
-    setCoverPickerOpen(true);
-  };
+  const openCatalogPicker = () => setCoverPickerOpen(true);
 
   // ── Desain brosur: klasik default + 3 desain alternatif (opsi, dipilih via
   // chip picker). Berlaku untuk preview & export gambar bulanan; katalog PDF
@@ -442,11 +489,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   // Flatten all months into a single list — used for tipe/maskapai filtering.
   const allPackages = useMemo<BrochurePackage[]>(
     () => months.flatMap(m => m.packages),
-    [months],
-  );
-  // Catalog is only meaningful when at least one month has a non-sold-out package.
-  const hasAnyAvailable = useMemo(
-    () => months.some(m => m.packages.some(p => !p.soldOut)),
     [months],
   );
   // Catalog export (PDF) is available to all agents.
@@ -551,15 +593,19 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         }
         const json: ApiResponse = await res.json();
         if (!alive) return;
-        setMonths(json.months || []);
+        // Defensive client-side filter: production/API processes can briefly
+        // lag behind the SPA during a rolling deploy. A WAITINGLIST placeholder
+        // must never keep an otherwise empty month visible in the dashboard.
+        const visibleMonths = withoutWaitingListMonths(json.months || []);
+        setMonths(visibleMonths);
         setAgent(mergeAgentProfile(agentProp, json.agent));
         // Default selection: first (= nearest upcoming) month that still has
         // available (non-sold-out) packages — fully sold-out months are hidden
         // from the dropdown. The auto-select effect normalizes if needed.
-        if (json.months?.length) {
+        if (visibleMonths.length) {
           setFilterDim('bulan');
-          const firstAvailable = json.months.find(m => m.packages.some(p => !p.soldOut));
-          setFilterValue((firstAvailable ?? json.months[0]).key);
+          const firstAvailable = visibleMonths.find(m => m.packages.some(p => !p.soldOut));
+          setFilterValue((firstAvailable ?? visibleMonths[0]).key);
         }
       } catch (e: any) {
         if (!alive) return;
@@ -627,6 +673,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   const activeImagePages = useMemo(
     () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}${availableOnly ? '-available' : ''}`, filterLabel),
     [filteredPackages, filterDim, filterValue, filterLabel, availableOnly],
+  );
+  const packageCatalogPackages = useMemo(
+    () => filteredPackages.filter((pkg): pkg is BrochurePackage & { brosur: string } => !!pkg.brosur),
+    [filteredPackages],
   );
   const showShareButton = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -734,52 +784,106 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return new File([image.blob], filename, { type: image.mime });
   }
 
-  function buildCatalogPlan(mode: CatalogMode): {
+  function buildCatalogPlan(): {
     summary: Array<{ label: string; count: number }>;
     pages: BrochureMonth[];
     showFullDate: boolean;
     variant: 'default' | 'winter';
     emptyMessage: string;
-    filenameLabel?: string | null;
+    filenameLabel: string;
   } {
-    if (mode === 'active-filter') {
-      const label = catalogFilterLabel;
-      return {
-        summary: [{ label, count: filteredPackages.length }],
-        pages: activeImagePages,
-        showFullDate,
-        variant: brochureVariant,
-        emptyMessage: availableOnly
-          ? 'Tidak ada paket tersedia untuk filter ini'
-          : 'Tidak ada paket untuk filter ini',
-        filenameLabel: label,
-      };
+    const label = catalogFilterLabel;
+    return {
+      summary: [{ label, count: filteredPackages.length }],
+      pages: activeImagePages,
+      showFullDate,
+      variant: brochureVariant,
+      emptyMessage: availableOnly
+        ? 'Tidak ada paket tersedia untuk filter ini'
+        : 'Tidak ada paket untuk filter ini',
+      filenameLabel: label,
+    };
+  }
+
+  async function handleDownloadPackageCatalog() {
+    if (packageCatalogPackages.length === 0) {
+      showToast('Belum ada brosur paket untuk filter ini');
+      return;
     }
 
-    const summary: Array<{ label: string; count: number }> = [];
-    const pages: BrochureMonth[] = [];
-    for (const m of months) {
-      const available = m.packages.filter(p => !p.soldOut);
-      if (available.length === 0) continue;
-      summary.push({ label: m.label, count: available.length });
-      for (const pg of splitPackagesIntoPages(available, `catalog-${m.key}`, m.label)) pages.push(pg);
+    const dateLabel = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+    const total = packageCatalogPackages.length + 1; // + cover
+    setCatalogBusy(true);
+    setCatalogResult(null);
+    setCatalogProgress({ done: 0, total });
+
+    let added = 0;
+    let addedPackages = 0;
+    let failed = 0;
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [BROCHURE_W, BROCHURE_H], compress: true });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const addCanvas = (canvas: HTMLCanvasElement) => {
+        if (added > 0) pdf.addPage([BROCHURE_W, BROCHURE_H], 'portrait');
+        pdf.addImage(canvas.toDataURL(EXPORT_MIME, CATALOG_JPEG_QUALITY), 'JPEG', 0, 0, pw, ph);
+        added += 1;
+      };
+
+      try {
+        flushSync(() => {
+          setCatalogMeta({ summary: [{ label: catalogFilterLabel, count: packageCatalogPackages.length }], dateLabel });
+          setCatalogStage({ kind: 'cover' });
+        });
+        const el = catalogStageRef.current;
+        if (!el) throw new Error('catalog-stage-missing');
+        addCanvas(await captureCanvasFromElement(el, CATALOG_SCALE));
+      } catch (e) {
+        failed += 1;
+        console.error('[katalog-paket] cover failed:', e);
+      }
+      setCatalogProgress({ done: 1, total });
+
+      for (let i = 0; i < packageCatalogPackages.length; i++) {
+        const pkg = packageCatalogPackages[i];
+        try {
+          flushSync(() => setCatalogStage({ kind: 'package', label: pkg.nama }));
+          await waitForNextPaint();
+          addCanvas(await loadPackageBrochureCanvas(pkg.brosur));
+          addedPackages += 1;
+        } catch (e) {
+          failed += 1;
+          console.error(`[katalog-paket] ${pkg.id} failed:`, e);
+        }
+        setCatalogProgress({ done: i + 2, total });
+      }
+
+      if (addedPackages === 0) throw new Error('semua gambar brosur gagal dimuat');
+      pdf.save(packageCatalogFilename(agent, catalogFilterLabel));
+      showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
+      setCatalogResult({ status: 'success' });
+    } catch (e) {
+      console.error('[katalog-paket] failed:', e);
+      showToast(`Gagal membuat katalog: ${errMsg(e)}`);
+      setCatalogResult({ status: 'error', message: errMsg(e) });
+    } finally {
+      setCatalogBusy(false);
+      setCatalogProgress(null);
+      setCatalogStage(null);
     }
-    return {
-      summary,
-      pages,
-      showFullDate: false,
-      variant: 'default',
-      emptyMessage: 'Tidak ada paket tersedia untuk katalog',
-      filenameLabel: null,
-    };
   }
 
   // Build the catalog PDF: cover page + selected package pages (10/page)
   // rendered sequentially off-screen and stitched with jsPDF.
-  async function handleDownloadCatalog(mode: CatalogMode = catalogMode) {
+  async function handleDownloadCatalog() {
     if (!catalogAllowed || catalogBusy || busy !== null) return;
+    if (mode === 'paket') {
+      await handleDownloadPackageCatalog();
+      return;
+    }
 
-    const plan = buildCatalogPlan(mode);
+    const plan = buildCatalogPlan();
     if (plan.pages.length === 0) {
       showToast(plan.emptyMessage);
       return;
@@ -842,9 +946,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       }
 
       if (added === 0) throw new Error('semua halaman gagal dibuat');
-      pdf.save(mode === 'active-filter'
-        ? catalogFilenameWithLabel(agent, plan.filenameLabel)
-        : catalogFilename(agent));
+      pdf.save(catalogFilenameWithLabel(agent, plan.filenameLabel));
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -1065,9 +1167,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   }
 
   const hasResults = filteredPackages.length > 0;
-  const activeFilterCatalogBusy = catalogBusy && catalogMode === 'active-filter';
-  const allReadyCatalogBusy = catalogBusy && catalogMode === 'all-ready';
-  const canDownloadSelectedCatalog = catalogMode === 'active-filter' ? hasResults : hasAnyAvailable;
 
   return (
     <div style={{ paddingBottom: '2rem' }}>
@@ -1134,50 +1233,33 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       </div>
 
+      {/* Kedua mode memakai aksi katalog yang sama, tetapi sumber halamannya
+          mengikuti mode + filter aktif: template jadwal atau brosur resmi. */}
+      <div className="px-4 pt-3">
+        <button
+          type="button"
+          onClick={openCatalogPicker}
+          disabled={
+            !catalogAllowed
+            || (mode === 'paket' ? packageCatalogPackages.length === 0 : !hasResults)
+            || catalogBusy
+            || busy !== null
+          }
+          className="h-10 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-[0.99] disabled:opacity-70"
+        >
+          {catalogBusy
+            ? <Loader2 size={16} className="animate-spin" />
+            : <FileDown size={16} />}
+          <span>Unduh Katalog PDF</span>
+        </button>
+      </div>
+
       {mode === 'paket' ? (
         /* Mode Brosur Paket: grid brosur resmi per paket. Filter row di atas
            tetap dipakai apa adanya — grid hanya menerima hasilnya. */
         <BrochurePaketGrid packages={filteredPackages} filterLabel={filterLabel} agent={agent} />
       ) : (
         <>
-        {/* Katalog PDF: compact mode switch + one download action. */}
-        <div className="px-4 pt-3">
-          <div className="flex items-center gap-2">
-            <div className="flex flex-1 min-w-0 h-10 rounded-xl bg-gray-100 dark:bg-slate-800 p-1">
-              {([
-                ['active-filter', 'Filter Ini'],
-                ['all-ready', 'Semua'],
-              ] as const).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setCatalogMode(mode)}
-                  aria-pressed={catalogMode === mode}
-                  disabled={catalogBusy || busy !== null}
-                  className={`flex-1 min-w-0 inline-flex items-center justify-center rounded-lg px-2 text-[11px] font-bold transition-all duration-200 disabled:opacity-60 ${
-                    catalogMode === mode
-                      ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                      : 'text-gray-500 dark:text-slate-400'
-                  }`}
-                >
-                  <span className="truncate">{label}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => openCatalogPicker(catalogMode)}
-              disabled={!catalogAllowed || !canDownloadSelectedCatalog || catalogBusy || busy !== null}
-              className="h-10 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95 disabled:opacity-70"
-            >
-              {activeFilterCatalogBusy || allReadyCatalogBusy
-                ? <Loader2 size={16} className="animate-spin" />
-                : <FileDown size={16} />}
-              <span>Unduh PDF</span>
-            </button>
-          </div>
-        </div>
-
         {/* Picker desain brosur — Klasik default + 3 desain alternatif (opsi).
             Pilihan tersimpan di localStorage dan berlaku utk preview + export
             gambar; katalog PDF tetap klasik. */}
@@ -1205,35 +1287,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             </div>
           </div>
         </div>
-
-        <CatalogLoadingModal
-          open={catalogBusy || catalogResult !== null}
-          status={catalogResult ? catalogResult.status : 'loading'}
-          stageLabel={
-            catalogStage?.kind === 'cover'
-              ? 'Menyusun sampul…'
-              : catalogStage?.kind === 'page'
-                ? `Menyiapkan ${catalogStage.page.label}…`
-                : 'Menyiapkan halaman…'
-          }
-          done={catalogProgress?.done ?? 0}
-          total={catalogProgress?.total ?? 0}
-          message={catalogResult?.message}
-          onClose={() => setCatalogResult(null)}
-        />
-        <CatalogCoverPicker
-          open={coverPickerOpen}
-          selectedId={coverId}
-          onSelect={selectCover}
-          onClose={() => setCoverPickerOpen(false)}
-          description={
-            catalogMode === 'active-filter'
-              ? `Filter: ${catalogFilterLabel}`
-              : 'Semua paket ready'
-          }
-          downloadLabel="Unduh PDF"
-          onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(catalogMode); }}
-        />
 
         {/* Brochure previews + per-image actions */}
         <div className="flex justify-center px-4 pt-5">
@@ -1413,6 +1466,33 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </>
       )}
 
+      <CatalogLoadingModal
+        open={catalogBusy || catalogResult !== null}
+        status={catalogResult ? catalogResult.status : 'loading'}
+        stageLabel={
+          catalogStage?.kind === 'cover'
+            ? 'Menyusun sampul…'
+            : catalogStage?.kind === 'page'
+              ? `Menyiapkan ${catalogStage.page.label}…`
+              : catalogStage?.kind === 'package'
+                ? `Menyiapkan ${catalogStage.label}…`
+                : 'Menyiapkan halaman…'
+        }
+        done={catalogProgress?.done ?? 0}
+        total={catalogProgress?.total ?? 0}
+        message={catalogResult?.message}
+        onClose={() => setCatalogResult(null)}
+      />
+      <CatalogCoverPicker
+        open={coverPickerOpen}
+        selectedId={coverId}
+        onSelect={selectCover}
+        onClose={() => setCoverPickerOpen(false)}
+        description={`Filter: ${catalogFilterLabel}${mode === 'paket' ? ` · ${packageCatalogPackages.length} brosur` : ''}`}
+        downloadLabel="Unduh Katalog PDF"
+        onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(); }}
+      />
+
       {toast && (
         <div
           className="fixed left-1/2 -translate-x-1/2 z-30 bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl max-w-[90vw] whitespace-nowrap"
@@ -1423,7 +1503,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       )}
 
       {mode === 'jadwal' && (
-        <>
         <BrochurePromptModal
           isOpen={promptPageIndex !== null && !!promptPage}
           onClose={() => setPromptPageIndex(null)}
@@ -1434,40 +1513,39 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
           context="schedule"
           title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
         />
-
-        {/* Off-screen catalog stage — exactly one page (cover or month) is mounted
-            here at a time during PDF export, keeping peak memory to a single canvas. */}
-        <div
-          aria-hidden="true"
-          style={{
-            position: 'fixed',
-            left: -(BROCHURE_W + 80),
-            top: BROCHURE_H + 80,
-            width: BROCHURE_W,
-            pointerEvents: 'none',
-          }}
-        >
-          <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
-            {catalogStage?.kind === 'cover' && (
-              <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
-            )}
-            {catalogStage?.kind === 'page' && (
-              /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
-                 menjamin hasil identik antar engine; desain alternatif memakai
-                 efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
-              <BrochureScheduleTemplate
-                month={catalogStage.page}
-                agent={agent}
-                showFullDate={catalogStage.showFullDate}
-                variant={catalogStage.variant}
-                rasterSafe
-                displayMode={displayMode}
-              />
-            )}
-          </div>
-        </div>
-        </>
       )}
+
+      {/* Off-screen catalog stage — cover dipakai kedua mode; halaman template
+          hanya dipasang untuk katalog Brosur Jadwal. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: -(BROCHURE_W + 80),
+          top: BROCHURE_H + 80,
+          width: BROCHURE_W,
+          pointerEvents: 'none',
+        }}
+      >
+        <div ref={catalogStageRef} style={{ width: BROCHURE_W, height: BROCHURE_H }}>
+          {catalogStage?.kind === 'cover' && (
+            <BrochureCatalogCover agent={agent} months={catalogMeta.summary} cover={getCatalogCover(coverId)} />
+          )}
+          {catalogStage?.kind === 'page' && (
+            /* Katalog PDF selalu memakai template klasik: mode rasterSafe-nya
+               menjamin hasil identik antar engine; desain alternatif memakai
+               efek (clip-text, mask, backdrop-filter) yang tidak raster-safe. */
+            <BrochureScheduleTemplate
+              month={catalogStage.page}
+              agent={agent}
+              showFullDate={catalogStage.showFullDate}
+              variant={catalogStage.variant}
+              rasterSafe
+              displayMode={displayMode}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

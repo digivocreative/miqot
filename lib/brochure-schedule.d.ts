@@ -47,6 +47,7 @@ export function projectBrochurePackageToTier<T extends { tiers?: BrochureTierInf
 ): T;
 
 export function cleanBrochurePackageName(name: string | null | undefined): string;
+export function isWaitingListPackageName(name: string | null | undefined): boolean;
 export function countBrochureTripDays(berangkat_tgl: string | null | undefined, pulang_tgl: string | null | undefined): number | null;
 export function extractDurationFromName(rawName: string | null | undefined): number | null;
 export function isUmrohFirstRoute(berangkatRute: string | null | undefined, pulangRute?: string | null): boolean;
