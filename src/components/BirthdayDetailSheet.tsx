@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { X, Download } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
+import { getBirthdayMessage } from '../utils/birthdayMessage';
 import type { Birthday } from './BirthdayWidget';
 import {
   BirthdayCard,
@@ -19,30 +20,6 @@ interface Props {
   agentPhone?: string;
   agentPhoto?: string;
   agentSlug: string;
-}
-
-function getFirstName(nama: string): string {
-  const first = (nama || '').trim().split(/\s+/)[0] || '';
-  if (!first) return '';
-  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
-}
-
-function getDefaultMessage(jamaah: Birthday, agentName: string): string {
-  const jamaahFirst = getFirstName(jamaah.nama);
-  const agentFirst = getFirstName(agentName) || 'Saya';
-  const sapaan = jamaah.jk === 'P' ? 'Bu' : 'Pak';
-
-  const upcomingWord = jamaah.day_offset === 1
-    ? 'besok'
-    : `${jamaah.day_offset} hari lagi`;
-
-  const doa = `Allah panjangkan umur ${sapaan} ${jamaahFirst} dengan keberkahan, dilimpahkan kesehatan, dilapangkan rezekinya, dan dimudahkan langkah menuju Baitullah`;
-
-  const body = jamaah.day_offset === 0
-    ? `*Barakallahu fii umrik, ${sapaan} ${jamaahFirst}!*\n\nDi hari yang penuh berkah ini, ${agentFirst} ikut mendoakan — semoga di usia ke-${jamaah.age} ini, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_`
-    : `*${sapaan} ${jamaahFirst}*, _${upcomingWord}_ ulang tahun ya.\n\nSebelum harinya, ${agentFirst} ingin doakan dulu — semoga di usia ke-${jamaah.age} nanti, ${doa}.\n\n_Aamiin Yaa Rabbal 'Alamiin_`;
-
-  return `Assalamu'alaikum\n\n${body}\n\n— *${agentName}*\n_Alhijaz Indowisata_`;
 }
 
 function slugify(s: string): string {
@@ -89,7 +66,7 @@ export default function BirthdayDetailSheet({
   agentPhoto,
   agentSlug,
 }: Props) {
-  const [message, setMessage] = useState(() => getDefaultMessage(jamaah, agentName));
+  const [message, setMessage] = useState(() => getBirthdayMessage(jamaah, agentName, jamaah.salutation));
   const [includeKartu, setIncludeKartu] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<CardTemplate>('classic');
   const [isExporting, setIsExporting] = useState(false);
