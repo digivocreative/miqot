@@ -1,12 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Buffer } from 'node:buffer';
-import { transformSync } from 'esbuild';
+import { buildSync } from 'esbuild';
 
+// Bundling, bukan transform: birthdayMessage.ts mengimpor ./sebutan saat
+// runtime, dan impor relatif tidak bisa di-resolve dari data: URL.
 async function importTsModule(path) {
-  const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-  const { code } = transformSync(source, { loader: 'ts', format: 'esm', sourcemap: false });
+  const { outputFiles } = buildSync({
+    entryPoints: [fileURLToPath(new URL(`../${path}`, import.meta.url))],
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    write: false,
+  });
+  const code = outputFiles[0].text;
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
@@ -67,4 +75,52 @@ test('nama agen kosong jatuh ke kata "Saya", tanda tangan tetap dirender', async
   const msg = getBirthdayMessage({ nama: 'Budi', age: 50, day_offset: 0 }, '', 'Mas');
   assert.match(msg, /Saya ikut mendoakan/);
   assert.match(msg, /_Alhijaz Indowisata_$/);
+});
+
+test('daftar gelar berisi tiga pilihan, kosong berlabel em-dash', async () => {
+  const { GELAR_LIST, GELAR_OPTIONS, isGelar } = await importTsModule('src/utils/sebutan.ts');
+  assert.deepEqual([...GELAR_LIST], ['', 'H.', 'Hj.']);
+  assert.deepEqual(GELAR_OPTIONS[0], { value: '', label: '—' });
+  assert.deepEqual(GELAR_OPTIONS[1], { value: 'H.', label: 'H.' });
+  assert.deepEqual(GELAR_OPTIONS[2], { value: 'Hj.', label: 'Hj.' });
+  assert.equal(isGelar('Hj.'), true);
+  assert.equal(isGelar(''), true);
+  assert.equal(isGelar('Dr.'), false);
+});
+
+test('formatSapaan menyisipkan gelar hanya bila ada', async () => {
+  const { formatSapaan } = await importTsModule('src/utils/sebutan.ts');
+  assert.equal(formatSapaan('Bapak', 'H.'), 'Bapak H.');
+  assert.equal(formatSapaan('Bunda', 'Hj.'), 'Bunda Hj.');
+  assert.equal(formatSapaan('Bapak', ''), 'Bapak');
+});
+
+test('gelar yang menempel di nama dipisahkan dan dinormalkan', async () => {
+  const { splitGelarFromNama } = await importTsModule('src/utils/sebutan.ts');
+  // Keempat bentuk ini nyata ada di tabel jamaah (probe 2026-08-07, 5.397 baris).
+  assert.deepEqual(splitGelarFromNama('H. KHAERUL, IR  . .'), { gelar: 'H.', nama: 'KHAERUL, IR  . .' });
+  assert.deepEqual(splitGelarFromNama('HJ. SITTI MARWAH HAMID, IR . .'), { gelar: 'Hj.', nama: 'SITTI MARWAH HAMID, IR . .' });
+  assert.deepEqual(splitGelarFromNama('H.M.IQBAL ALAMSYAH'), { gelar: 'H.', nama: 'M.IQBAL ALAMSYAH' });
+  assert.deepEqual(splitGelarFromNama('HJ TITIN'), { gelar: 'Hj.', nama: 'TITIN' });
+  assert.deepEqual(splitGelarFromNama('Haji Sulaeman'), { gelar: 'H.', nama: 'Sulaeman' });
+  assert.deepEqual(splitGelarFromNama('HAJAH ROHIMAH'), { gelar: 'Hj.', nama: 'ROHIMAH' });
+});
+
+test('nama biasa yang kebetulan berawalan H tidak boleh terpotong', async () => {
+  const { splitGelarFromNama } = await importTsModule('src/utils/sebutan.ts');
+  for (const nama of ['HASAN BASRI', 'HENDRA', 'Hj', 'HAJIJAH SARI', 'FULAN BIN FULAN', '']) {
+    assert.deepEqual(splitGelarFromNama(nama), { gelar: '', nama }, `tidak boleh dipotong: ${nama}`);
+  }
+});
+
+test('hanya satu awalan gelar yang dibuang', async () => {
+  const { splitGelarFromNama } = await importTsModule('src/utils/sebutan.ts');
+  assert.deepEqual(splitGelarFromNama('H. H. KHAERUL'), { gelar: 'H.', nama: 'H. KHAERUL' });
+});
+
+test('pesan untuk jamaah bergelar tidak lagi berbunyi "Bapak H."', async () => {
+  const { getBirthdayMessage } = await importTsModule('src/utils/birthdayMessage.ts');
+  const msg = getBirthdayMessage({ nama: 'HJ TITIN', age: 60, day_offset: 0 }, 'Bagas', 'Ibu Hj.');
+  assert.equal(msg.match(/Ibu Hj\. Titin/g).length, 2);
+  assert.ok(!/Hj\.\s*Hj\./.test(msg), 'gelar tidak boleh dobel');
 });
