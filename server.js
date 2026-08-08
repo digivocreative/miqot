@@ -43,6 +43,7 @@ import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
+import { createMaintenanceGate } from './lib/maintenance-gate.js';
 import {
   UMRAH_UPSTREAM_FAILURE_STATUS,
   buildUmrahSubmitFailure,
@@ -593,6 +594,10 @@ async function isCustomDomainDnsHealthyForRedirect(domain) {
   });
   return healthy;
 }
+
+// 0) Gerbang maintenance sementara (env MAINTENANCE_UNTIL + MAINTENANCE_ALLOW_IPS);
+// no-op setelah deadline lewat. Landing umroh/haji/bio + custom domain tetap lolos.
+app.use(createMaintenanceGate({ isPrimaryHost, isSharedStaticRequestPath }));
 
 // 1) Host detection — set req.customDomainAgent when accessing via custom domain
 app.use(async (req, res, next) => {
