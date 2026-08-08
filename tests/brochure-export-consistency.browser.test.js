@@ -300,7 +300,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }
   });
 
-  test('catalog PDF action is full-width and follows the active month filter', { timeout: 90_000 }, async () => {
+  test('catalog PDF action is full-width and spans every available month', { timeout: 90_000 }, async () => {
     const context = await browser.newContext({
       acceptDownloads: true,
       viewport: { width: 520, height: 900 },
@@ -366,12 +366,12 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
 
       const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
       await coverDialog.waitFor();
-      await coverDialog.getByText('Filter: Oktober 2026', { exact: true }).waitFor();
+      await coverDialog.getByText('Filter: Semua Bulan', { exact: true }).waitFor();
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 60_000 }),
         coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
       ]);
-      assert.match(download.suggestedFilename(), /oktober-2026/);
+      assert.match(download.suggestedFilename(), /semua-bulan/);
 
       const pdfPath = await download.path();
       assert.ok(pdfPath);
@@ -379,9 +379,10 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       try {
         await parser.load();
         const info = await parser.getInfo();
-        // Satu cover + satu halaman Oktober. Jalur lama "Semua" akan membuat
-        // tiga halaman karena September ikut terangkut.
-        assert.equal(info.total, 2);
+        // Satu cover + halaman September + halaman Oktober: memilih Oktober di
+        // dropdown hanya mengganti pratinjau, katalog tetap memuat semua bulan
+        // available. Agustus 2027 (WAITINGLIST saja) tidak boleh ikut.
+        assert.equal(info.total, 3);
       } finally {
         await parser.destroy();
       }
@@ -463,13 +464,13 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
 
       const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
       await coverDialog.waitFor();
-      await coverDialog.getByText('Filter: September 2026 · 2 brosur', { exact: true }).waitFor();
+      await coverDialog.getByText('Filter: Semua Bulan · 2 brosur', { exact: true }).waitFor();
       catalogDownloadStarted = true;
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 60_000 }),
         coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
       ]);
-      assert.match(download.suggestedFilename(), /^katalog-brosur-paket-.*september-2026.*\.pdf$/);
+      assert.match(download.suggestedFilename(), /^katalog-brosur-paket-.*semua-bulan.*\.pdf$/);
 
       const pdfPath = await download.path();
       assert.ok(pdfPath);

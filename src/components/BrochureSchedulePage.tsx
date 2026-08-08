@@ -456,9 +456,11 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_brosur'); mountTracked.current = true; } }, []);
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
-  // Catalog export always follows the active on-screen filter. Pages are
-  // rendered one at a time into a dedicated off-screen stage to cap memory;
-  // catalogStage drives that stage.
+  // Catalog export follows the active on-screen filter, EXCEPT the Bulan
+  // dimension: there the catalog always spans every available month (the month
+  // dropdown only picks the on-screen preview). Pages are rendered one at a
+  // time into a dedicated off-screen stage to cap memory; catalogStage drives
+  // that stage.
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
   const [catalogStage, setCatalogStage] = useState<CatalogStage | null>(null);
@@ -702,9 +704,20 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}${availableOnly ? '-available' : ''}`, filterLabel),
     [filteredPackages, filterDim, filterValue, filterLabel, availableOnly],
   );
+  // Filter Bulan: katalog PDF memuat SEMUA bulan yang masih punya paket
+  // tersedia (aturan visibilitas yang sama dengan dropdown bulan) — dropdown
+  // bulan hanya memilih pratinjau di layar, bukan cakupan katalog. Dimensi
+  // lain (tipe/maskapai/landing) tetap memotong katalog sesuai pilihannya.
+  const catalogMonthEntries = useMemo(
+    () => months
+      .filter(m => m.packages.some(p => !p.soldOut))
+      .map(m => ({ month: m, packages: availableOnly ? m.packages.filter(p => !p.soldOut) : m.packages })),
+    [months, availableOnly],
+  );
   const packageCatalogPackages = useMemo(
-    () => filteredPackages.filter((pkg): pkg is PackageWithBrochure => !!pkg.brosur),
-    [filteredPackages],
+    () => (filterDim === 'bulan' ? catalogMonthEntries.flatMap(e => e.packages) : filteredPackages)
+      .filter((pkg): pkg is PackageWithBrochure => !!pkg.brosur),
+    [filterDim, catalogMonthEntries, filteredPackages],
   );
   const catalogAgent = useMemo<BrochureAgent>(
     () => ({ ...agent, photo: catalogAgentPhotoUrl(agent) }),
@@ -718,7 +731,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
   const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
-  const catalogFilterLabel = filterLabel || 'Filter aktif';
+  const catalogFilterLabel = filterDim === 'bulan' ? 'Semua Bulan' : (filterLabel || 'Filter aktif');
 
   useEffect(() => {
     if (promptPageIndex !== null && !activeImagePages[promptPageIndex]) {
@@ -824,6 +837,22 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     emptyMessage: string;
     filenameLabel: string;
   } {
+    if (filterDim === 'bulan') {
+      const summary: Array<{ label: string; count: number }> = [];
+      const pages: BrochureMonth[] = [];
+      for (const { month, packages } of catalogMonthEntries) {
+        summary.push({ label: month.label, count: packages.length });
+        pages.push(...splitPackagesIntoPages(packages, `catalog-${month.key}`, month.label));
+      }
+      return {
+        summary,
+        pages,
+        showFullDate: false,
+        variant: 'default',
+        emptyMessage: 'Tidak ada paket tersedia untuk katalog',
+        filenameLabel: catalogFilterLabel,
+      };
+    }
     const label = catalogFilterLabel;
     return {
       summary: [{ label, count: filteredPackages.length }],
@@ -835,6 +864,17 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         : 'Tidak ada paket untuk filter ini',
       filenameLabel: label,
     };
+  }
+
+  // Ringkasan cover utk katalog Brosur Paket — per bulan saat filter Bulan
+  // (cover menampilkan rentang bulan), satu baris filter utk dimensi lain.
+  function buildPackageCatalogSummary(): Array<{ label: string; count: number }> {
+    if (filterDim === 'bulan') {
+      return catalogMonthEntries
+        .map(({ month, packages }) => ({ label: month.label, count: packages.filter(p => !!p.brosur).length }))
+        .filter(s => s.count > 0);
+    }
+    return [{ label: catalogFilterLabel, count: packageCatalogPackages.length }];
   }
 
   async function handleDownloadPackageCatalog() {
@@ -865,7 +905,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       try {
         flushSync(() => {
-          setCatalogMeta({ summary: [{ label: catalogFilterLabel, count: packageCatalogPackages.length }], dateLabel });
+          setCatalogMeta({ summary: buildPackageCatalogSummary(), dateLabel });
           setCatalogStage({ kind: 'cover' });
         });
         const el = catalogStageRef.current;
