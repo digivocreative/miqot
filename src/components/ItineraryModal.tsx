@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText } from 'lucide-react';
+import { X, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText } from 'lucide-react';
 import { motion, AnimatePresence, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
-import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { canShareFiles, downloadBlob } from '../utils/share';
 import { getPackageById } from '@/services/data-service';
 import SegmentedControl, { type SegmentedOption } from './common/SegmentedControl';
 import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
@@ -109,7 +109,6 @@ export function ItineraryModal({
   const [resolvedPaket, setResolvedPaket] = useState<UmrohPackage | null>(null);
   const effectivePaket = paket ?? resolvedPaket ?? null;
   const [isSharing, setIsSharing] = useState(false);
-  const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
@@ -765,9 +764,9 @@ export function ItineraryModal({
       )}
 
       {/* ─── FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">
+      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">
         {shareUrl && (
-          <div className="relative">
+          <div className="relative flex-1">
             {/* Konfirmasi in-place (konvensi repo: label jadi "Tersalin"), bukan tooltip */}
             <span role="status" aria-live="polite" className="sr-only">
               {linkCopied ? 'Link itinerary tersalin' : ''}
@@ -776,7 +775,7 @@ export function ItineraryModal({
               onClick={copyShareLink}
               animate={copyPop}
               whileTap={{ scale: 0.97 }}
-              className={`relative flex h-full items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold border transition-colors duration-300 ${
+              className={`relative flex h-full w-full items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-bold border transition-colors duration-300 ${
                 linkCopied
                   ? 'border-emerald-300 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300'
                   : 'border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
@@ -827,7 +826,7 @@ export function ItineraryModal({
               </span>
               {/* Label bertukar di atas sizer tersembunyi → lebar tombol tetap */}
               <span className="relative grid place-items-center text-sm">
-                <span aria-hidden className="invisible col-start-1 row-start-1">Tersalin</span>
+                <span aria-hidden className="invisible col-start-1 row-start-1">Copy Link</span>
                 <AnimatePresence initial={false}>
                   <motion.span
                     key={linkCopied ? 'copied' : 'idle'}
@@ -837,19 +836,21 @@ export function ItineraryModal({
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.16, ease: 'easeOut' }}
                   >
-                    {linkCopied ? 'Tersalin' : 'Link'}
+                    {linkCopied ? 'Tersalin' : 'Copy Link'}
                   </motion.span>
                 </AnimatePresence>
               </span>
             </motion.button>
           </div>
         )}
+        {/* Wording SERAGAM mobile/desktop (pola JourneyStrip 2026-07-31): label
+            "Unduh PDF", fungsinya tetap share-sheet dulu di perangkat sentuh. */}
         <button
           onClick={handleShareItinerary}
           disabled={isSharing || !proxyUrl}
           className="
-            flex-1 flex items-center justify-center gap-2 py-3.5 px-4
-            rounded-xl font-bold text-white
+            flex-1 flex items-center justify-center gap-2 py-2.5 px-3
+            rounded-xl text-sm font-bold text-white
             bg-emerald-600 hover:bg-emerald-700
             shadow-lg shadow-emerald-500/20
             transition-all duration-200 active:scale-[0.98] disabled:opacity-70
@@ -859,11 +860,6 @@ export function ItineraryModal({
             <>
               <Loader2 size={20} className="animate-spin" />
               <span>Menyiapkan File...</span>
-            </>
-          ) : useShareLabel ? (
-            <>
-              <Share2 size={20} />
-              <span>Bagikan PDF</span>
             </>
           ) : (
             <>

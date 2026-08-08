@@ -111,6 +111,7 @@ Tidak ada file baru, tidak ada perubahan di 4 call-site, `JourneyStrip.tsx` tida
 
 - Judul "Detail Itinerary" + subtitle dihapus di mode tab: tab bar pindah ke header menggantikannya (hemat satu baris — area konten lebih lega). Jalur tanpa `jadwalId` tetap menampilkan judul lama (tab tak ada).
 - Label tab kedua: "Preview PDF" → **"Versi PDF"**.
+- Footer dikecilkan (`p-4`→`px-4 py-3`, tombol `py-3.5`→`py-2.5` + `text-sm`), lebar tombol 50:50 (`flex-1` keduanya), label "Link" → **"Copy Link"**, "Bagikan PDF" → **"Unduh PDF"** seragam mobile/desktop (fungsinya tetap share-sheet dulu di perangkat sentuh — pola JourneyStrip 2026-07-31).
 
 ## Risiko yang diterima secara sadar
 
