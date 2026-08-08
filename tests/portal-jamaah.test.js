@@ -90,7 +90,7 @@ test('magic link generation reuses active booking links before applying rate lim
   assert.doesNotMatch(server, /magic-link\/generate[\s\S]*\.is\('consumed_at',\s*null\)[\s\S]*reused:\s*true/);
   assert.match(server, /\.gt\('expires_at',\s*new Date\(\)\.toISOString\(\)\)/);
   assert.match(server, /\.limit\(10\)/);
-  assert.match(server, /find\(\(row\) => isPortalStoredMagicToken\(row\.token\)\)/);
+  assert.match(server, /find\(\s*\(row\) => isPortalStoredMagicToken\(row\.token\) && isPortalGlobalMagicCode/);
   assert.match(server, /const hasIncompatibleShortToken\s*=/);
   assert.match(server, /reused:\s*true/);
   assert.match(server, /if \(!hasIncompatibleShortToken\) \{[\s\S]*checkPortalRateLimit\(portalGenerateRateLimits/);
@@ -117,13 +117,13 @@ test('portal magic links are reusable booking links that expire fourteen days af
   assert.match(server, /Math\.min\([\s\S]*Date\.parse\(portalToken\.expires_at\)/);
 });
 
-test('magic link generation returns short mixed alphanumeric jamaah URLs scoped by slug', () => {
+test('magic link generation returns short mixed alphanumeric jamaah URLs', () => {
   const server = read('server.js');
 
   assert.match(server, /const PORTAL_MAGIC_CODE_LETTERS/);
   assert.match(server, /const PORTAL_MAGIC_CODE_DIGITS/);
-  assert.match(server, /const PORTAL_MAGIC_CODE_REGEX\s*=\s*\/\^\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5\}\$\/i/);
-  assert.match(server, /const PORTAL_SHORT_CODE_REGEX\s*=\s*\/\^\[a-z0-9\]\{5\}\$\/i/);
+  assert.match(server, /const PORTAL_MAGIC_CODE_REGEX\s*=\s*\/\^\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5,6\}\$\/i/);
+  assert.match(server, /const PORTAL_SHORT_CODE_REGEX\s*=\s*\/\^\[a-z0-9\]\{5,6\}\$\/i/);
   assert.match(server, /shufflePortalMagicCode/);
   assert.match(server, /function generatePortalMagicCode/);
   assert.match(server, /PORTAL_MAGIC_CODE_LETTERS/);
@@ -135,9 +135,66 @@ test('magic link generation returns short mixed alphanumeric jamaah URLs scoped 
   assert.match(server, /function parsePortalMagicCode[\s\S]*PORTAL_SHORT_CODE_REGEX\.test\(parts\[1\]\)[\s\S]*return parts\[1\]\.toLowerCase\(\)/);
   assert.match(server, /function isPortalStoredMagicToken[\s\S]*isPortalMagicCode\(parts\[1\]\)/);
   assert.match(server, /buildPortalStoredToken\(slug,\s*code\)/);
-  assert.match(server, /formatPortalMagicUrl\(slug,\s*existingToken\.token\)/);
-  assert.match(server, /formatPortalMagicUrl\(slug,\s*token\)/);
+  assert.match(server, /function resolvePortalBaseUrl[\s\S]*x-forwarded-host[\s\S]*return PORTAL_BASE_URL/);
+  assert.match(server, /formatPortalMagicUrl\(existingToken\.token,\s*req\)/);
+  assert.match(server, /formatPortalMagicUrl\(token,\s*req\)/);
   assert.doesNotMatch(server, /url:\s*`\$\{PORTAL_BASE_URL\}\/\$\{slug\}\/jamaah\/auth\//);
+});
+
+test('link pendek portal /j/{kode}: kode 6-char unik global, consume tanpa slug, rute frontend terdaftar', () => {
+  const server = read('server.js');
+  const main = read('src/main.tsx');
+  const api = read('src/components/portal-jamaah/lib/portalApi.ts');
+  const consumePage = read('src/components/portal-jamaah/pages/AuthConsumePage.tsx');
+  const shortPage = read('src/components/portal-jamaah/pages/ShortLinkConsumePage.tsx');
+  const router = read('src/components/portal-jamaah/PortalJamaahRouter.tsx');
+  const agentSlug = read('lib/agent-slug.js');
+
+  // URL magic link memakai format pendek /j/{kode}
+  assert.match(server, /function formatPortalMagicUrl\(token,\s*req\)/);
+  assert.match(server, /\/j\/\$\{parsePortalMagicCode\(token\)\}/);
+
+  // Kode baru 6-char; regex validasi tetap menerima 5-char legacy
+  assert.match(server, /while \(chars\.length < 6\)/);
+  assert.match(server, /function isPortalGlobalMagicCode[\s\S]*?text\.length === 6/);
+
+  // Keunikan kode lintas agent dijaga saat insert (pra-index) dan saat lookup
+  assert.match(server, /function insertPortalMagicToken[\s\S]*?\.like\('token', `%:\$\{code\}`\)/);
+  assert.match(server, /function findPortalTokenRowByCode[\s\S]*?\.like\('token', `%:\$\{normalized\}`\)[\s\S]*?\.limit\(2\)/);
+  assert.match(server, /function handlePortalMagicConsume[\s\S]*?findPortalTokenRowByCode/);
+
+  // Generate hanya me-reuse token berkode 6-char (legacy 5-char diganti baru)
+  assert.match(server, /isPortalStoredMagicToken\(row\.token\) && isPortalGlobalMagicCode\(parsePortalMagicCode\(row\.token\)\)/);
+
+  // Segmen 'j' terpesan di server & frontend supaya tak dianggap slug agent
+  assert.match(server, /RESERVED_SPA_SLUGS = new Set\(\[[^\]]*'j'/);
+  assert.match(agentSlug, /'j',/);
+  assert.match(main, /knownFirstSegments = \[[^\]]*'j'/);
+  assert.match(main, /isPortalShortLink[\s\S]*?segments\[0\]\?\.toLowerCase\(\) === 'j'/);
+  assert.match(main, /if \(isPortalShortLink\) return <PortalShortLinkPage token=\{segments\[1\]\}/);
+
+  // Klien bisa consume tanpa slug; halaman short link memasang tema portal
+  assert.match(api, /slug: string \| undefined/);
+  assert.match(api, /`\$\{API_BASE\}\/auth\/consume\/\$\{encodeURIComponent\(token\)\}`/);
+  assert.match(consumePage, /slug\?: string/);
+  assert.match(shortPage, /usePortalTheme\(\)/);
+  assert.match(shortPage, /<AuthConsumePage token=\{token\}/);
+
+  // OG share link pendek tetap kartu jamaah (kode dikenali dari path /j/)
+  assert.match(server, /function getPortalCodeFromPath[\s\S]*?segs\[0\] === 'j'/);
+
+  // Index unik parsial kode 6-char tersedia sebagai migrasi
+  const migrationsDir = join(rootPath, 'migrations');
+  const migrationFile = readdirSync(migrationsDir).find((name) => /portal_global_code_unique\.sql$/.test(name));
+  assert.ok(migrationFile, 'migrasi index unik kode global harus ada');
+  const sql = read(join('migrations', migrationFile));
+  assert.match(sql, /create unique index[\s\S]*split_part\(token, ':', 2\)/);
+  assert.match(sql, /where length\(split_part\(token, ':', 2\)\) = 6/);
+
+  // Ketiga salinan regex kode di frontend menerima 5 & 6 char
+  for (const src of [api, consumePage, router]) {
+    assert.match(src, /\[a-z2-9\]\{5,6\}\$\/i/);
+  }
 });
 
 test('server computes portal persiapan progress across 5 documents and 7 perlengkapan items', () => {

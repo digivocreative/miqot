@@ -11,7 +11,7 @@ import {
   formatHHMM,
   getRiyadhNow,
 } from '../../../../lib/prayer-times.js';
-import { Card, IconTile } from '../ui';
+import { Card, IconTile, cn } from '../ui';
 
 const CITY_TABS: { id: PrayerCityId; label: string }[] = [
   { id: 'mekkah', label: 'Mekkah' },
@@ -32,9 +32,14 @@ function useRiyadhMinutes(): number {
 export default function PrayerTimesCard({
   schedule,
   booking,
+  secondary = false,
 }: {
   schedule: PortalSchedule | null;
   booking: PortalBooking;
+  // secondary = tampil di bawah menu (fase jauh dari keberangkatan). Kartu selalu
+  // terbuka; bedanya hanya saat jadwal gagal dimuat ia tidak dirender sama sekali
+  // supaya kartu galat tidak memakan tempat di beranda.
+  secondary?: boolean;
 }) {
   const { primaryCity, cities } = usePrayerTimes(schedule, booking);
   const [activeCity, setActiveCity] = useState<PrayerCityId>(primaryCity);
@@ -45,6 +50,9 @@ export default function PrayerTimesCard({
     () => (active.data ? computeNextPrayer(active.data.timings, nowMinutes) : null),
     [active.data, nowMinutes],
   );
+
+  const primary = cities[primaryCity];
+  if (secondary && !primary.data && primary.status === 'error') return null;
 
   return (
     <Card className="overflow-hidden">
@@ -69,7 +77,7 @@ export default function PrayerTimesCard({
               type="button"
               onClick={() => setActiveCity(tab.id)}
               aria-pressed={on}
-              className={`min-h-9 flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+              className={`min-h-11 flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
                 on
                   ? 'bg-gradient-burgundy text-white shadow-accent'
                   : 'bg-burgundy-700/5 text-burgundy-800/70 hover:bg-burgundy-700/10'
@@ -109,13 +117,12 @@ export default function PrayerTimesCard({
                 return (
                   <div
                     key={name}
-                    className={`rounded-lg px-1 py-2 text-center ${
-                      isNext
-                        ? 'bg-gradient-burgundy text-white shadow-accent'
-                        : 'bg-burgundy-700/5 text-burgundy-950/60'
-                    }`}
+                    className={cn(
+                      'rounded-lg px-1 py-2 text-center',
+                      isNext ? 'bg-gradient-burgundy text-white shadow-accent' : 'bg-burgundy-700/5 text-burgundy-950/60',
+                    )}
                   >
-                    <p className="text-[10px] font-semibold">{PRAYER_LABELS[name]}</p>
+                    <p className="text-[11px] font-semibold">{PRAYER_LABELS[name]}</p>
                     <p className={`mt-0.5 font-mono text-xs font-bold tabular-nums ${isNext ? 'text-white' : 'text-ink'}`}>
                       {formatHHMM(active.data!.timings[name])}
                     </p>

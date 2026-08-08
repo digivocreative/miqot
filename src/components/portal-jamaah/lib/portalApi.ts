@@ -1,7 +1,7 @@
 import { clearPortalSession, getPortalSession } from './portalSession';
 
 const API_BASE = '/api/portal/jamaah';
-const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
 
 export type PersiapanKind = 'tahapan' | 'spiritual';
 
@@ -57,8 +57,13 @@ function normalizeConsumeError(error: { error?: string; message?: string }) {
 }
 
 export const portalApi = {
-  async consumeMagicLink(slug: string, token: string): Promise<ConsumeMagicLinkResult> {
-    const res = await fetch(`${API_BASE}/${encodeURIComponent(slug)}/auth/consume/${encodeURIComponent(token)}`, {
+  // Tanpa slug = link pendek /j/{kode}: server mencari token dari kode 6-char
+  // yang unik global, lalu mengembalikan agent_slug pemiliknya.
+  async consumeMagicLink(slug: string | undefined, token: string): Promise<ConsumeMagicLinkResult> {
+    const path = slug
+      ? `${API_BASE}/${encodeURIComponent(slug)}/auth/consume/${encodeURIComponent(token)}`
+      : `${API_BASE}/auth/consume/${encodeURIComponent(token)}`;
+    const res = await fetch(path, {
       credentials: 'include',
     });
     if (!res.ok) {

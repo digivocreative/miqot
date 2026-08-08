@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type PortalRoute =
   | 'beranda'
-  | 'perjalanan'
+  | 'itinerary'
   | 'pembayaran'
   | 'dokumen'
   | 'al-quran'
@@ -11,7 +11,7 @@ export type PortalRoute =
 
 const PORTAL_ROUTES: PortalRoute[] = [
   'beranda',
-  'perjalanan',
+  'itinerary',
   'pembayaran',
   'dokumen',
   'al-quran',

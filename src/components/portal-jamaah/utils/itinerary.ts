@@ -1,7 +1,16 @@
 import { addDays, formatShortDate } from './formatDate';
-import type { ItineraryDay } from '../components/ItineraryList';
 
-export type { ItineraryDay };
+/**
+ * Bentuk hari itinerary yang diringkas untuk keperluan portal (dipakai
+ * usePrayerTimes untuk menebak kota aktif). Dulu tinggal di ItineraryList —
+ * komponen itu ikut terhapus saat halaman Perjalanan dilebur ke Itinerary.
+ */
+export interface ItineraryDay {
+  dayNumber: string;
+  title: string;
+  date?: string | null;
+  location?: string | null;
+}
 
 // Normalisasi itinerary mentah (schedule.itinerary bertipe unknown / bisa {days:[]})
 // menjadi daftar hari terstruktur. Dipindah dari PerjalananPage agar dipakai ulang.

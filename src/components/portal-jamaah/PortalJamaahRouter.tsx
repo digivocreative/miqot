@@ -11,10 +11,10 @@ interface Props {
   subPath: string[];
 }
 
-const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
 const PORTAL_DASHBOARD_ROUTES: PortalRoute[] = [
   'beranda',
-  'perjalanan',
+  'itinerary',
   'pembayaran',
   'dokumen',
   'al-quran',

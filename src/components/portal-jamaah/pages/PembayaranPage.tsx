@@ -106,13 +106,13 @@ Mohon dicek ya. Terima kasih 🙏`,
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
             <div className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/50">Dibayar</p>
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/50">Dibayar</p>
               <p title={formatRupiahFull(totals.totalBayar)} className="mt-1 truncate font-mono text-base font-bold tabular-nums text-emerald-200">
                 {formatRupiah(totals.totalBayar)}
               </p>
             </div>
             <div className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/50">Sisa</p>
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/50">Sisa</p>
               <p title={formatRupiahFull(totals.totalSisa)} className="mt-1 truncate font-mono text-base font-bold tabular-nums text-amber-200">
                 {formatRupiah(totals.totalSisa)}
               </p>

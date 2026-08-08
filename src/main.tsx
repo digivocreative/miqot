@@ -61,6 +61,7 @@ const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
 const RahmahJuliLandingPage = lazy(() => import('./components/RahmahJuliLandingPage.tsx'))
 const ItinerarySharePage = lazy(() => import('./components/itinerary/SharePage.tsx'))
+const PortalShortLinkPage = lazy(() => import('./components/portal-jamaah/pages/ShortLinkConsumePage.tsx'))
 const LocalAgentation = import.meta.env.DEV && getBrowserStorage('local')
   ? lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))
   : null
@@ -217,12 +218,14 @@ const isCustomDomainBio = isCustomDomainHost && segments.length === 1 && segment
 const isBio = (segments.length >= 2 && segments[1] === 'bio') || isCustomDomainBio
 const bioSlug = isBio ? (isCustomDomainBio ? customDomainSlug : segments[0]?.toLowerCase()) : null
 const isTopPartner = segments.length === 1 && segments[0] === 'top-partner'
+// Link pendek Portal Jamaah: /j/{kode} (kode consume magic link tanpa slug)
+const isPortalShortLink = segments.length === 2 && segments[0]?.toLowerCase() === 'j'
 const isRahmahJuliLanding = segments.length === 1 && segments[0] === 'rahmah-1-juli-2026'
 const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || segments[1] === 'haji')
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
-const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'teras', 'top-partner', 'rahmah-1-juli-2026']
+const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner', 'rahmah-1-juli-2026']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
@@ -450,6 +453,7 @@ if (isPwaHost && isSsrLandingPath) {
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
       if (isRahmahJuliLanding) return <RahmahJuliLandingPage />
+      if (isPortalShortLink) return <PortalShortLinkPage token={segments[1]} />
       // Halaman share itinerary: /:slug/:jadwalId/itinerary (publik, dilihat jamaah)
       if (isSinglePackageWithAgent && segments[2]?.toLowerCase() === 'itinerary') {
         return <ItinerarySharePage slug={firstSlug} packageId={segments[1]} />

@@ -23,7 +23,7 @@ export const PORTAL_FAQ: FaqEntry[] = [
   {
     id: 'manasik-wajib',
     question: 'Apakah manasik wajib dihadiri?',
-    answer: 'Sangat dianjurkan. Manasik adalah pembekalan tata cara umroh yang berguna terutama untuk jamaah yang belum pernah umroh. Jadwal manasik tersedia di menu Manasik.',
+    answer: 'Sangat dianjurkan. Manasik adalah pembekalan tata cara umroh yang berguna terutama untuk jamaah yang belum pernah umroh. Jadwal manasik dapat dilihat di menu Perjalanan; lokasi & detailnya diinfokan agent.',
   },
   {
     id: 'sakit-menjelang-berangkat',

@@ -31,7 +31,7 @@ export default function StatusChip({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.05em]',
+        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.05em]',
         STYLES[status],
         className,
       )}

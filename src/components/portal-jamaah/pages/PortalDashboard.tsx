@@ -13,7 +13,7 @@ import { PortalPageShell, Card, Button } from '../ui';
 
 // Portal sub-pages are code-split — only the active route's chunk loads.
 const BerandaPage = lazy(() => import('./BerandaPage'));
-const PerjalananPage = lazy(() => import('./PerjalananPage'));
+const ItineraryPage = lazy(() => import('./ItineraryPage'));
 const PembayaranPage = lazy(() => import('./PembayaranPage'));
 const DokumenPage = lazy(() => import('./DokumenPage'));
 const AlQuranPage = lazy(() => import('./AlQuranPage'));
@@ -23,7 +23,7 @@ const FaqPage = lazy(() => import('./FaqPage'));
 // Each portal tab maps to a whitelisted public "open" event, fired on route change.
 const TAB_OPEN_EVENTS: Record<PortalRoute, string> = {
   beranda: 'open_portal_beranda',
-  perjalanan: 'open_portal_perjalanan',
+  itinerary: 'open_portal_itinerary',
   pembayaran: 'open_portal_pembayaran',
   dokumen: 'open_portal_dokumen',
   'al-quran': 'open_portal_alquran',
@@ -124,8 +124,8 @@ export default function PortalDashboard({
   return (
     <div data-agent-slug={slug} data-booking-id={session.id_umroh}>
       <Suspense fallback={<LoadingScreen />}>
-        {route === 'beranda' && <BerandaPage data={data} onNavigate={navigate} onLogout={handleLogout} />}
-        {route === 'perjalanan' && <PerjalananPage slug={slug} data={data} onBack={goBack} />}
+        {route === 'beranda' && <BerandaPage slug={slug} data={data} onNavigate={navigate} onLogout={handleLogout} />}
+        {route === 'itinerary' && <ItineraryPage data={data} onBack={goBack} />}
         {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
         {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
         {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}

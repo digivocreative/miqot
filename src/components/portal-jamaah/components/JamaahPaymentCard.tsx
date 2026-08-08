@@ -23,10 +23,10 @@ export default function JamaahPaymentCard({ jamaah }: { jamaah: PortalJamaah }) 
   const lunas = status === 'lunas';
   const overpayment = remaining < 0;
   const pct = Number.isFinite(rawPct) ? Math.max(0, Math.min(100, rawPct)) : 0;
-  // Gender ring encodes jk (data) with brand tokens — matches RosterItem's GENDER_RING.
+  // Gender ring encodes jk (data) with brand tokens.
   const ring = jamaah.jk === 'P' ? 'ring-gold/60' : jamaah.jk === 'L' ? 'ring-burgundy-300' : 'ring-burgundy-200';
   const statusLabel = status === 'lunas' ? 'Lunas' : status === 'dp' ? 'Sudah DP' : 'Belum Bayar';
-  // Functional payment semantics, unified with RosterItem: lunas = success (green),
+  // Functional payment semantics: lunas = success (green),
   // dp = warning (amber, partial), belum = danger (red). Burgundy is brand, never a status.
   const chipStatus: ChipStatus = status === 'lunas' ? 'success' : status === 'dp' ? 'warning' : 'danger';
   const dotColor = status === 'lunas' ? 'bg-emerald-500' : status === 'dp' ? 'bg-amber-500' : 'bg-red-500';
@@ -57,11 +57,11 @@ export default function JamaahPaymentCard({ jamaah }: { jamaah: PortalJamaah }) 
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-burgundy-50 px-3 py-2">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink/40">Sudah Bayar</p>
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink/40">Sudah Bayar</p>
           <p className="mt-1 font-mono text-sm font-bold tabular-nums text-ink">{formatRupiah(amountPaid)}</p>
         </div>
         <div className="rounded-xl bg-burgundy-50 px-3 py-2">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink/40">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-ink/40">
             {overpayment ? 'Lebih Bayar' : 'Sisa'}
           </p>
           <p className={`mt-1 font-mono text-sm font-bold tabular-nums ${remainingColor}`}>

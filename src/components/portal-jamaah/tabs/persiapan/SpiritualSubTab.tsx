@@ -58,7 +58,7 @@ export default function SpiritualSubTab({
                       href={item.resourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="absolute bottom-4 right-4 rounded-lg bg-burgundy-700/8 px-2.5 py-1.5 text-[10px] font-semibold text-burgundy-800"
+                      className="absolute bottom-4 right-4 rounded-lg bg-burgundy-700/8 px-2.5 py-1.5 text-[11px] font-semibold text-burgundy-800"
                     >
                       Pelajari
                     </a>

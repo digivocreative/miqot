@@ -11,43 +11,47 @@ type ConsumeState = 'loading' | 'success' | 'error';
 type ErrorKind = 'expired' | 'consumed' | 'invalid';
 
 const consumePromises = new Map<string, Promise<ConsumeMagicLinkResult>>();
-const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
 
 function getPortalDashboardPath(slug: string, token: string) {
   return PORTAL_MAGIC_CODE_REGEX.test(token) ? `/${slug}/jamaah/${token}/dashboard` : `/${slug}/jamaah/dashboard`;
 }
 
-export default function AuthConsumePage({ slug, token }: { slug: string; token: string }) {
+// Tanpa slug = dibuka dari link pendek /j/{kode}; slug agent baru diketahui
+// dari respons consume (agent_slug), dipakai untuk sesi + redirect kanonik.
+export default function AuthConsumePage({ slug, token }: { slug?: string; token: string }) {
   const [state, setState] = useState<ConsumeState>('loading');
   const [result, setResult] = useState<ConsumeMagicLinkResult | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind>('invalid');
   const [agent, setAgent] = useState<PortalAgent | null>(null);
 
   useEffect(() => {
+    if (!slug) return;
     fetchAgentBySlug(slug).then(setAgent).catch(() => setAgent(null));
   }, [slug]);
 
   useEffect(() => {
     let cancelled = false;
-    const consumeKey = `${slug}:${token}`;
+    const consumeKey = `${slug || 'j'}:${token}`;
     const promise = consumePromises.get(consumeKey) || portalApi.consumeMagicLink(slug, token);
     consumePromises.set(consumeKey, promise);
 
     promise
       .then((data) => {
         if (cancelled) return;
+        const resolvedSlug = data.agent_slug || slug || '';
         savePortalSession({
           session_token: data.session_token,
           id_umroh: data.id_umroh,
-          slug: data.agent_slug || slug,
+          slug: resolvedSlug,
           expires_at: data.expires_at,
           access_code: PORTAL_MAGIC_CODE_REGEX.test(token) ? token : undefined,
         });
         setResult(data);
         setState('success');
-        trackPublicEvent(data.agent_slug || slug, 'portal_login_success');
+        trackPublicEvent(resolvedSlug, 'portal_login_success');
         window.setTimeout(() => {
-          window.location.replace(getPortalDashboardPath(slug, token));
+          window.location.replace(getPortalDashboardPath(resolvedSlug, token));
         }, 900);
       })
       .catch((err) => {
@@ -87,7 +91,7 @@ export default function AuthConsumePage({ slug, token }: { slug: string; token: 
               size="lg"
               fullWidth
               className="mt-5"
-              onClick={() => window.location.replace(getPortalDashboardPath(slug, token))}
+              onClick={() => window.location.replace(getPortalDashboardPath(result.agent_slug || slug || '', token))}
             >
               Masuk ke Portal
             </Button>

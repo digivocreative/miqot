@@ -252,7 +252,7 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'top-partner', 'rahmah-1-juli-2026', 'teras']);
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'rahmah-1-juli-2026', 'teras']);
 const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
 const RAHMAH_JULI_PUBLIC_SLUG = 'rahmah-1-juli-2026';
 const RAHMAH_JULI_META_TITLE = 'Kloter 9 | Rahmah 1-9 Juli 2026 | Alhijaz Indowisata';
@@ -18089,7 +18089,9 @@ const VALID_PUBLIC_EVENTS = [
   // Portal Jamaah is jamaah-authenticated (magic-link session, NOT the agent
   // session), so it reports via the public endpoint keyed by agent slug. These
   // are 'public'-typed events; labels resolve via ALL_EVENT_LABELS.
-  'open_portal', 'open_portal_beranda', 'open_portal_perjalanan', 'open_portal_pembayaran',
+  // 'open_portal_perjalanan' dipertahankan agar data historis tetap berlabel;
+  // halaman Perjalanan sudah dilebur ke Itinerary (2026-08-08).
+  'open_portal', 'open_portal_beranda', 'open_portal_itinerary', 'open_portal_perjalanan', 'open_portal_pembayaran',
   'open_portal_dokumen', 'open_portal_alquran', 'open_portal_doa_dzikir', 'open_portal_faq',
   'portal_login_request', 'portal_login_success', 'wa_click_portal',
   'view_portal_doc', 'open_quran_surah',
@@ -18122,7 +18124,8 @@ const FEATURE_LABELS = {
   open_teras_profile: 'Profil Agen Teras',
   // Portal Jamaah subtree
   open_portal: 'Portal Jamaah', open_portal_beranda: 'Portal: Beranda',
-  open_portal_perjalanan: 'Portal: Perjalanan', open_portal_pembayaran: 'Portal: Pembayaran',
+  open_portal_itinerary: 'Portal: Itinerary',
+  open_portal_perjalanan: 'Portal: Perjalanan (lama)', open_portal_pembayaran: 'Portal: Pembayaran',
   open_portal_dokumen: 'Portal: Dokumen', open_portal_alquran: 'Portal: Al-Quran',
   open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
   // Itinerary web/share
@@ -19469,8 +19472,10 @@ const portalRequestBookingRateLimits = new Map();
 const PORTAL_MAGIC_CODE_LETTERS = 'abcdefghjkmnpqrstuvwxyz';
 const PORTAL_MAGIC_CODE_DIGITS = '23456789';
 const PORTAL_MAGIC_CODE_CHARS = `${PORTAL_MAGIC_CODE_LETTERS}${PORTAL_MAGIC_CODE_DIGITS}`;
-const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5}$/i;
-const PORTAL_SHORT_CODE_REGEX = /^[a-z0-9]{5}$/i;
+// Kode 5-char = legacy (unik per agent); kode 6-char = baru (unik global,
+// syarat link pendek /j/{kode} yang mencari token tanpa slug).
+const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
+const PORTAL_SHORT_CODE_REGEX = /^[a-z0-9]{5,6}$/i;
 
 function normalizePortalSlug(slug) {
   return String(slug || '').toLowerCase().trim();
@@ -19494,7 +19499,7 @@ function generatePortalMagicCode() {
     pickPortalMagicChar(PORTAL_MAGIC_CODE_LETTERS),
     pickPortalMagicChar(PORTAL_MAGIC_CODE_DIGITS),
   ];
-  while (chars.length < 5) {
+  while (chars.length < 6) {
     chars.push(pickPortalMagicChar(PORTAL_MAGIC_CODE_CHARS));
   }
   return shufflePortalMagicCode(chars);
@@ -19502,6 +19507,11 @@ function generatePortalMagicCode() {
 
 function isPortalMagicCode(value) {
   return PORTAL_MAGIC_CODE_REGEX.test(String(value || '').trim());
+}
+
+function isPortalGlobalMagicCode(value) {
+  const text = String(value || '').trim();
+  return text.length === 6 && isPortalMagicCode(text);
 }
 
 function buildPortalStoredToken(slug, code) {
@@ -19520,8 +19530,24 @@ function isPortalStoredMagicToken(token) {
   return parts.length === 2 && isPortalMagicCode(parts[1]);
 }
 
-function formatPortalMagicUrl(slug, token) {
-  return `${PORTAL_BASE_URL}/${normalizePortalSlug(slug)}/jamaah/${parsePortalMagicCode(token)}`;
+function resolvePortalBaseUrl(req) {
+  const protocol = req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https';
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host;
+  if (!host) return PORTAL_BASE_URL;
+  return `${protocol}://${host}`;
+}
+
+function formatPortalMagicUrl(token, req) {
+  return `${resolvePortalBaseUrl(req)}/j/${parsePortalMagicCode(token)}`;
+}
+
+// Dua bentuk path portal yang membawa kode: /:slug/jamaah/:kode[/dashboard]
+// (legacy + kanonik) dan link pendek /j/:kode.
+function getPortalCodeFromPath(path) {
+  const segs = String(path || '').replace(/^\/+/, '').split('/').filter(Boolean);
+  if (segs[1] === 'jamaah' && segs[2] && isPortalMagicCode(segs[2])) return segs[2].toLowerCase();
+  if (segs[0] === 'j' && segs[1] && isPortalGlobalMagicCode(segs[1])) return segs[1].toLowerCase();
+  return null;
 }
 
 function resolvePortalConsumeToken(slug, token) {
@@ -19545,6 +19571,16 @@ function portalBookingHasDp(row) {
 async function insertPortalMagicToken({ slug, jamaah_id, id_umroh, agent_id, expires_at }) {
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = generatePortalMagicCode();
+    // Kode wajib unik lintas agent (bukan cuma per token utuh) karena link
+    // pendek /j/{kode} mencari token tanpa slug. Unique index parsial di DB
+    // (migrations/*portal_global_code*) tetap penjaga utama saat race.
+    const { data: clash, error: clashError } = await supabase
+      .from('jamaah_portal_tokens')
+      .select('token')
+      .like('token', `%:${code}`)
+      .limit(1);
+    if (clashError) return { error: clashError };
+    if ((clash || []).length > 0) continue;
     const token = buildPortalStoredToken(slug, code);
     const { error } = await supabase.from('jamaah_portal_tokens').insert({
       token,
@@ -20289,7 +20325,13 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
       if (portalSchemaMissingResponse(res, existingTokenError)) return;
       return res.status(500).json({ error: existingTokenError.message });
     }
-    const existingToken = (activeTokens || []).find((row) => isPortalStoredMagicToken(row.token));
+    // Hanya token berkode 6-char yang boleh dipakai ulang — kode 5-char legacy
+    // tidak unik global sehingga tak bisa dibagikan sebagai link pendek /j/{kode}.
+    // Token legacy dibiarkan aktif (link lama di chat WA tetap jalan) dan jamaah
+    // mendapat token baru tanpa terkena rate limit.
+    const existingToken = (activeTokens || []).find(
+      (row) => isPortalStoredMagicToken(row.token) && isPortalGlobalMagicCode(parsePortalMagicCode(row.token))
+    );
     const hasIncompatibleShortToken = (activeTokens || []).length > 0 && !existingToken;
 
     const { count } = await supabase
@@ -20307,7 +20349,7 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
           .then(() => {});
       }
       return res.json({
-        url: formatPortalMagicUrl(slug, existingToken.token),
+        url: formatPortalMagicUrl(existingToken.token, req),
         expires_at: expiresAt,
         jamaah_name: jamaah.nama,
         id_umroh: jamaah.id_umroh,
@@ -20342,7 +20384,7 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
     }
 
     res.json({
-      url: formatPortalMagicUrl(slug, token),
+      url: formatPortalMagicUrl(token, req),
       expires_at: expiresAt,
       jamaah_name: jamaah.nama,
       id_umroh: jamaah.id_umroh,
@@ -20354,17 +20396,40 @@ app.post('/api/portal/jamaah/:slug/magic-link/generate', authMiddleware, async (
   }
 });
 
+// Kode 6-char unik global → baris token bisa ditemukan tanpa slug (link pendek
+// /j/{kode}). limit(2) untuk mendeteksi duplikat: kalau index unik belum/tidak
+// menjaga dan ada 2 baris, fail-closed daripada salah kirim data jamaah lain.
+async function findPortalTokenRowByCode(code) {
+  const normalized = String(code || '').trim().toLowerCase();
+  if (!isPortalGlobalMagicCode(normalized)) return { row: null };
+  const { data: rows, error } = await supabase
+    .from('jamaah_portal_tokens')
+    .select('*')
+    .like('token', `%:${normalized}`)
+    .limit(2);
+  if (error) return { error };
+  return { row: (rows || []).length === 1 ? rows[0] : null };
+}
+
 async function handlePortalMagicConsume(req, res) {
   try {
-    const token = resolvePortalConsumeToken(req.params.slug, req.params.token);
-    if (!token) return res.status(404).json({ error: 'not_found' });
+    let portalToken = null;
+    if (!req.params.slug && isPortalGlobalMagicCode(String(req.params.token || '').trim())) {
+      const { row, error } = await findPortalTokenRowByCode(req.params.token);
+      if (error) return res.status(500).json({ error: error.message });
+      portalToken = row;
+    } else {
+      const token = resolvePortalConsumeToken(req.params.slug, req.params.token);
+      if (!token) return res.status(404).json({ error: 'not_found' });
 
-    const { data: portalToken, error } = await supabase
-      .from('jamaah_portal_tokens')
-      .select('*')
-      .eq('token', token)
-      .maybeSingle();
-    if (error) return res.status(500).json({ error: error.message });
+      const { data, error } = await supabase
+        .from('jamaah_portal_tokens')
+        .select('*')
+        .eq('token', token)
+        .maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      portalToken = data;
+    }
     if (!portalToken) return res.status(404).json({ error: 'not_found' });
     if (new Date(portalToken.expires_at) < new Date()) {
       return res.status(410).json({ error: 'expired', message: 'Link sudah expired, minta link baru ke agent' });
@@ -20390,7 +20455,7 @@ async function handlePortalMagicConsume(req, res) {
         consumed_ip: ip,
         consumed_user_agent: userAgent,
       })
-      .eq('token', token);
+      .eq('token', portalToken.token);
     if (consumeError) return res.status(500).json({ error: consumeError.message });
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
@@ -22675,6 +22740,13 @@ app.get('{*path}', async (req, res) => {
       }
     }
 
+    // Link pendek portal /j/{kode}: agent tidak ada di path, resolve dari baris
+    // token supaya share WA tetap menampilkan kartu OG milik jamaah.
+    if (!agent && slug === 'j') {
+      const { row } = await findPortalTokenRowByCode(req.path.replace(/^\/+/, '').split('/')[1] || '');
+      if (row) agent = await getAgentBySlug(String(row.token).split(':')[0]);
+    }
+
     if (agent) {
       pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
       ogImageOrigin = `${req.protocol}://${req.get('host')}`;
@@ -22686,14 +22758,12 @@ app.get('{*path}', async (req, res) => {
     // need their own title + og:image so WhatsApp shares show the booking owner
     // instead of the agent's generic umroh-schedule card.
     let portalMeta = null;
-    if (!req.customDomain) {
-      const segs = req.path.replace(/^\/+/, '').split('/').filter(Boolean);
-      if (segs[1] === 'jamaah' && segs[2] && isPortalMagicCode(segs[2])) {
-        try {
-          portalMeta = await lookupPortalTokenMeta(agent.slug, segs[2]);
-        } catch (err) {
-          console.warn('[spa-fallback] portal meta lookup failed:', err.message);
-        }
+    const portalCode = req.customDomain ? null : getPortalCodeFromPath(req.path);
+    if (portalCode) {
+      try {
+        portalMeta = await lookupPortalTokenMeta(agent.slug, portalCode);
+      } catch (err) {
+        console.warn('[spa-fallback] portal meta lookup failed:', err.message);
       }
     }
 
@@ -22707,8 +22777,7 @@ app.get('{*path}', async (req, res) => {
       if (portalMeta.paketName) descParts.push(`paket ${portalMeta.paketName}`);
       if (agent.name) descParts.push(`bersama ${agent.name}`);
       newDescription = `${descParts.join(' — ')}.`;
-      const segs = req.path.replace(/^\/+/, '').split('/').filter(Boolean);
-      ogImageUrl = `${ogImageOrigin}/og/jamaah/${agent.slug}/${segs[2].toLowerCase()}.png`;
+      ogImageUrl = `${ogImageOrigin}/og/jamaah/${agent.slug}/${portalCode}.png`;
     } else {
       newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
       newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;

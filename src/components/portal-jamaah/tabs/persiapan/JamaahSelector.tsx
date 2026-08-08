@@ -50,7 +50,7 @@ export default function JamaahSelector({
                   </span>
                 )}
               </div>
-              <span className={cn('max-w-full truncate text-[10px]', selected ? 'font-semibold text-burgundy-800' : 'font-medium text-ink/60')}>
+              <span className={cn('max-w-full truncate text-[11px]', selected ? 'font-semibold text-burgundy-800' : 'font-medium text-ink/60')}>
                 {firstName(item.nama)}
               </span>
             </button>

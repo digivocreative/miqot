@@ -20,7 +20,7 @@ export default function PortalTopBar({
           />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-ink">Portal Jamaah</p>
-            <p className="truncate text-[10px] font-medium text-ink/60">{agent?.name || 'Alhijaz Indowisata'}</p>
+            <p className="truncate text-[11px] font-medium text-ink/60">{agent?.name || 'Alhijaz Indowisata'}</p>
           </div>
         </div>
         {rightSlot ? <div className="flex flex-none items-center gap-1.5">{rightSlot}</div> : null}

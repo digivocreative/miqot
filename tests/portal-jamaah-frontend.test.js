@@ -31,30 +31,26 @@ test('portal jamaah frontend files exist', () => {
     'src/components/portal-jamaah/tabs/persiapan/ChecklistItem.tsx',
     'src/components/portal-jamaah/tabs/persiapan/PerlengkapanItem.tsx',
     'src/components/portal-jamaah/components/PortalTopBar.tsx',
-    'src/components/portal-jamaah/components/RosterItem.tsx',
     'src/components/portal-jamaah/components/JamaahPaymentCard.tsx',
-    'src/components/portal-jamaah/components/HotelCard.tsx',
-    'src/components/portal-jamaah/components/FlightCard.tsx',
-    'src/components/portal-jamaah/components/ItineraryList.tsx',
     'src/components/portal-jamaah/hooks/usePortalMe.ts',
     'src/components/portal-jamaah/hooks/usePortalPersiapan.ts',
     'src/components/portal-jamaah/hooks/usePortalTheme.ts',
     'src/components/portal-jamaah/hooks/usePortalRoute.ts',
     'src/components/portal-jamaah/lib/faq.ts',
     'src/components/portal-jamaah/lib/portalMenu.ts',
-    'src/components/portal-jamaah/lib/portalAlerts.ts',
-    'src/components/portal-jamaah/lib/portalTasks.ts',
+    'src/components/portal-jamaah/lib/portalActions.ts',
+    'src/components/portal-jamaah/lib/dokumenChecklist.ts',
     'src/components/portal-jamaah/utils/formatDate.ts',
     'src/components/portal-jamaah/utils/formatRupiah.ts',
+    'src/components/portal-jamaah/utils/tripPhase.ts',
     'src/components/portal-jamaah/components/PortalBackBar.tsx',
     'src/components/portal-jamaah/components/StickyWhatsAppCta.tsx',
     'src/components/portal-jamaah/components/HeroCountdown.tsx',
     'src/components/portal-jamaah/components/PortalMenuCard.tsx',
     'src/components/portal-jamaah/components/PortalMenuGrid.tsx',
-    'src/components/portal-jamaah/components/SmartAlertsStrip.tsx',
-    'src/components/portal-jamaah/components/TaskListWidget.tsx',
+    'src/components/portal-jamaah/components/ActionListWidget.tsx',
     'src/components/portal-jamaah/pages/BerandaPage.tsx',
-    'src/components/portal-jamaah/pages/PerjalananPage.tsx',
+    'src/components/portal-jamaah/pages/ItineraryPage.tsx',
     'src/components/portal-jamaah/pages/PembayaranPage.tsx',
     'src/components/portal-jamaah/pages/DokumenPage.tsx',
     'src/components/portal-jamaah/pages/AlQuranPage.tsx',
@@ -69,6 +65,18 @@ test('portal jamaah frontend files exist', () => {
     assert.equal(existsSync(join(rootPath, file)), true, `${file} should exist`);
   }
   assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/tabs/PersiapanTabPlaceholder.tsx')), false);
+  // Dilebur ke ActionListWidget + portalActions (audit beranda 2026-08-08).
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/SmartAlertsStrip.tsx')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/TaskListWidget.tsx')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/lib/portalAlerts.ts')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/lib/portalTasks.ts')), false);
+  // Roster "Anggota Booking" dihapus dari beranda (feedback 2026-08-08).
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/RosterItem.tsx')), false);
+  // Halaman Perjalanan dilebur ke Itinerary yang memakai model Jadwal (2026-08-08).
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/pages/PerjalananPage.tsx')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/ItineraryList.tsx')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/FlightCard.tsx')), false);
+  assert.equal(existsSync(join(rootPath, 'src/components/portal-jamaah/components/HotelCard.tsx')), false);
   assert.equal(existsSync(join(rootPath, 'src/components/dashboard/portal-jamaah-tools/PortalSessionsPage.tsx')), false);
   assert.equal(existsSync(join(rootPath, 'src/components/dashboard/portal-jamaah-tools/PortalSessionRow.tsx')), false);
   assert.equal(existsSync(join(rootPath, 'src/components/dashboard/portal-jamaah-tools/JamaahMoreActionsButton.tsx')), false);
@@ -84,12 +92,12 @@ test('PortalJamaahRouter wires /dashboard to the authenticated dashboard page', 
   assert.match(router, /import\s+PortalDashboard\s+from\s+['"]\.\/pages\/PortalDashboard['"]/);
   assert.match(router, /<PortalDashboard\s+slug=\{slug\}\s+session=\{session\}/);
   assert.match(router, /PORTAL_MAGIC_CODE_REGEX/);
-  assert.match(router, /\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5\}/);
+  assert.match(router, /\(\?=\.\*\[a-z\]\)\(\?=\.\*\[2-9\]\)\[a-z2-9\]\{5,6\}/);
   assert.match(router, /<AuthConsumePage\s+slug=\{slug\}\s+token=\{subPath\[0\]\}/);
   assert.match(router, /subPath\[1\]\s*===\s*'dashboard'/);
   assert.match(router, /\/\$\{slug\}\/jamaah\/\$\{subPath\[0\]\}\/dashboard/);
   assert.match(router, /\/\$\{slug\}\/jamaah\/\$\{subPath\[0\]\}/);
-  assert.match(consume, /getPortalDashboardPath\(slug,\s*token\)/);
+  assert.match(consume, /getPortalDashboardPath\(resolvedSlug,\s*token\)/);
   assert.match(consume, /access_code:\s*PORTAL_MAGIC_CODE_REGEX\.test\(token\)\s*\?\s*token\s*:\s*undefined/);
   assert.match(session, /access_code\?:\s*string/);
   assert.match(api, /PORTAL_MAGIC_CODE_REGEX/);
@@ -132,12 +140,12 @@ test('portal dashboard shell uses pages and manages routing', () => {
 
 test('portal pages include required payment, journey, and formatting helpers', () => {
   const pembayaran = read('src/components/portal-jamaah/pages/PembayaranPage.tsx');
-  const perjalanan = read('src/components/portal-jamaah/pages/PerjalananPage.tsx');
+  const itinerary = read('src/components/portal-jamaah/pages/ItineraryPage.tsx');
   const rupiah = read('src/components/portal-jamaah/utils/formatRupiah.ts');
   const date = read('src/components/portal-jamaah/utils/formatDate.ts');
 
   assert.match(pembayaran, /paket|pembayaran/i);
-  assert.match(perjalanan, /paket|perjalanan/i);
+  assert.match(itinerary, /paket|itinerary/i);
   assert.match(rupiah, /toLocaleString\('id-ID'\)/);
   assert.match(date, /Intl\.DateTimeFormat\('id-ID'/);
 });
