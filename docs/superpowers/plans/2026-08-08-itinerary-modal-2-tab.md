@@ -107,6 +107,11 @@ Tidak ada file baru, tidak ada perubahan di 4 call-site, `JourneyStrip.tsx` tida
 - [ ] Dark mode: pane Itinerary tampil sebagai dokumen terang; sambungan visual tab bar gelap → pane terang wajar.
 - [ ] Commit FE + server utuh satu commit; push = auto-deploy.
 
+## Revisi pasca-rilis (8 Agt 2026, feedback user)
+
+- Judul "Detail Itinerary" + subtitle dihapus di mode tab: tab bar pindah ke header menggantikannya (hemat satu baris — area konten lebih lega). Jalur tanpa `jadwalId` tetap menampilkan judul lama (tab tak ada).
+- Label tab kedua: "Preview PDF" → **"Versi PDF"**.
+
 ## Risiko yang diterima secara sadar
 
 - Paket baru di antara dua siklus sync 12 jam → tab Itinerary "belum tersedia" (fallback PDF) sampai sync berikutnya. Trade-off keputusan cache-only.

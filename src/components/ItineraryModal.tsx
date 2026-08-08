@@ -44,7 +44,7 @@ type ItineraryTab = 'itinerary' | 'pdf';
 
 const TAB_OPTIONS: SegmentedOption<ItineraryTab>[] = [
   { value: 'itinerary', label: 'Itinerary', icon: Route },
-  { value: 'pdf', label: 'Preview PDF', icon: FileText },
+  { value: 'pdf', label: 'Versi PDF', icon: FileText },
 ];
 
 function clampItineraryScale(nextScale: number) {
@@ -576,21 +576,31 @@ export function ItineraryModal({
           onClick={(e) => e.stopPropagation()}
         >
 
-      {/* ─── HEADER ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
-        <div className="flex flex-col">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
-          <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-            {activeTab === 'itinerary' ? (
-              webContent?.days?.length ? `${webContent.days.length} hari perjalanan` : 'Tampilan web'
-            ) : (
-              <>
-                {fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar'}
-                {numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
-              </>
-            )}
-          </span>
-        </div>
+      {/* ─── HEADER ───
+          Dengan tab: judul+subtitle diganti tab bar langsung di header — hemat satu
+          baris supaya area konten lebih lega. Tanpa jadwalId: PDF-only spt semula. */}
+      <div className={`flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 flex justify-between items-center gap-3 shadow-sm ${hasTabs ? 'px-4 py-3' : 'px-5 py-4'}`}>
+        {hasTabs ? (
+          <div className="flex-1 min-w-0">
+            <SegmentedControl
+              options={TAB_OPTIONS}
+              value={activeTab}
+              onChange={(tab) => {
+                userTouchedTabRef.current = true;
+                setActiveTab(tab);
+                trackEvent('action', 'itinerary_tab_switch', { tab, paket: title });
+              }}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
+            <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+              {fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar'}
+              {numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
+            </span>
+          </div>
+        )}
         <button
           onClick={onClose}
           className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
@@ -598,21 +608,6 @@ export function ItineraryModal({
           <X className="w-6 h-6" />
         </button>
       </div>
-
-      {/* ─── TAB BAR (hanya bila jadwalId ada — tanpa itu modal PDF-only spt semula) ─── */}
-      {hasTabs && (
-        <div className="flex-none bg-white dark:bg-slate-900 border-b border-gray-200/60 dark:border-slate-700/60 px-4 py-2">
-          <SegmentedControl
-            options={TAB_OPTIONS}
-            value={activeTab}
-            onChange={(tab) => {
-              userTouchedTabRef.current = true;
-              setActiveTab(tab);
-              trackEvent('action', 'itinerary_tab_switch', { tab, paket: title });
-            }}
-          />
-        </div>
-      )}
 
       {/* ─── PANE ITINERARY (tampilan web hasil parsing) ───
           Light-only by design (token itin-*): diperlakukan sebagai dokumen terang
