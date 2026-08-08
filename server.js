@@ -64,6 +64,10 @@ import {
   resolveCalendarArrivalTerminal,
 } from './lib/itinerary-terminal.js';
 import {
+  extractDepartureMeetingInfoFromItinerary,
+  resolveCalendarDepartureMeetingInfo,
+} from './lib/calendar-meeting-point.js';
+import {
   calendarDayOffsetForEvent,
   calendarJamForEvent,
   normalizeCalendarJam,
@@ -12746,8 +12750,11 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
     }
 
     const scheduleById = await loadFlightScheduleMap(events || []);
-    const flightStatusById = await loadCalendarFlightStatusMap(events || [], scheduleById);
-    const itineraryTerminalById = await loadCalendarItineraryTerminalMap(events || []);
+    const [flightStatusById, itineraryTerminalById, itineraryMeetingById] = await Promise.all([
+      loadCalendarFlightStatusMap(events || [], scheduleById),
+      loadCalendarItineraryTerminalMap(events || []),
+      loadCalendarItineraryMeetingMap(events || []),
+    ]);
 
     // Group by date + type
     const grouped = {};
@@ -12762,6 +12769,12 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
       }
       const airportInfo = calendarAirportInfoForEvent(ev, scheduleById, flightStatusById, itineraryTerminalById);
       const schedule = ev.jadwal_id ? scheduleById.get(String(ev.jadwal_id)) : null;
+      const meetingInfo = resolveCalendarDepartureMeetingInfo(
+        ev,
+        ev.event_type === 'keberangkatan' && ev.jadwal_id
+          ? itineraryMeetingById.get(String(ev.jadwal_id))
+          : null,
+      );
       const itineraryUrl = schedule?.itinerary_cdn
         ? appendUrlVersion(schedule.itinerary_cdn, schedule.itinerary_source_sha256)
         : schedule?.itinerary || null;
@@ -12779,8 +12792,8 @@ app.get('/api/calendar/events', dbLoadShedGuard, authMiddleware, async (req, res
         staff: ev.staff,
         mutawif: ev.mutawif || ev.raw_data?.mutawif || null,
         tour_leader: ev.tour_leader,
-        jam_kumpul: ev.jam_kumpul || null,
-        titik_kumpul: ev.titik_kumpul || null,
+        jam_kumpul: meetingInfo.jamKumpul,
+        titik_kumpul: meetingInfo.titikKumpul,
         itinerary_url: itineraryUrl,
         ...airportInfo,
       });
@@ -14253,6 +14266,32 @@ async function loadCalendarItineraryTerminalMap(events) {
   const pdfTerminals = await loadCalendarPdfReturnTerminalMap(missingArrivalIds);
   for (const [id, terminal] of pdfTerminals) {
     if (terminal?.arrivalTerminal || terminal?.departureTerminal) out.set(id, terminal);
+  }
+  return out;
+}
+
+async function loadCalendarItineraryMeetingMap(events) {
+  const jadwalIds = [...new Set((events || [])
+    .filter(event => event.event_type === 'keberangkatan')
+    .map(event => event.jadwal_id)
+    .filter(Boolean)
+    .map(String))];
+  if (jadwalIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('itineraries')
+    .select('jadwal_id, content')
+    .in('jadwal_id', jadwalIds);
+
+  if (error) {
+    console.warn('[Calendar API] Itinerary meeting lookup skipped:', error.message);
+    return new Map();
+  }
+
+  const out = new Map();
+  for (const row of data || []) {
+    const meetingInfo = extractDepartureMeetingInfoFromItinerary(row.content);
+    if (meetingInfo) out.set(String(row.jadwal_id), meetingInfo);
   }
   return out;
 }

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 const schedulePage = readFileSync(new URL('../src/components/UpcomingSchedule.tsx', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+const calendarApi = readFileSync(new URL('../calendar-api.js', import.meta.url), 'utf8');
 
 test('calendar API returns the matched schedule itinerary using the versioned CDN URL', () => {
   assert.match(server, /'itinerary_cdn'/);
@@ -11,6 +12,20 @@ test('calendar API returns the matched schedule itinerary using the versioned CD
   assert.match(server, /appendUrlVersion\(schedule\.itinerary_cdn, schedule\.itinerary_source_sha256\)/);
   assert.match(server, /jadwal_id: ev\.jadwal_id \|\| null/);
   assert.match(server, /itinerary_url: itineraryUrl/);
+});
+
+test('calendar API prefers current structured itinerary meeting info over stale event columns', () => {
+  assert.match(server, /loadCalendarItineraryMeetingMap\(events \|\| \[\]\)/);
+  assert.match(server, /resolveCalendarDepartureMeetingInfo\([\s\S]*?itineraryMeetingById\.get/);
+  assert.match(server, /jam_kumpul: meetingInfo\.jamKumpul/);
+  assert.match(server, /titik_kumpul: meetingInfo\.titikKumpul/);
+});
+
+test('calendar enrichment repairs stale stored meeting info from structured itinerary cache', () => {
+  assert.match(calendarApi, /extractDepartureMeetingInfoFromItinerary\(row\.content\)/);
+  assert.match(calendarApi, /stale rows refreshed from structured itinerary cache/);
+  assert.match(calendarApi, /jam_kumpul: current\.jamKumpul/);
+  assert.match(calendarApi, /titik_kumpul: current\.titikKumpul/);
 });
 
 test('upcoming departure card places ITINERARY above PAX and opens the shared modal', () => {

@@ -32,6 +32,11 @@ export function formatCalendarMeetingPoint(value: string | null | undefined): st
   const terminal = text.match(/\bTerminal\s+[A-Z0-9]+\b/i)?.[0]
     ?.replace(/^terminal/i, 'Terminal') || '';
 
+  // Gate adalah bagian operasional dari titik kumpul. Jangan dibuang: itinerary
+  // dapat menulis "berkumpul di Gate 5 Terminal 2F" tanpa nama lounge/café.
+  const gate = text.match(/\bGate\s+[A-Z0-9]+(?:\s+tiang\s+[A-Z0-9]+)?\b/i)?.[0]
+    ?.replace(/^gate/i, 'Gate') || '';
+
   // Named venue (café/lounge/hotel/…) up to the next gate/terminal/airport token.
   const namedPlace = text.match(
     /\b(?:caf[eé]|lounge|hotel|resto|restaurant|lobby)\s+.+?(?=\s+(?:gate|terminal|bandara|airport)\b|,|$)/i,
@@ -52,7 +57,6 @@ export function formatCalendarMeetingPoint(value: string | null | undefined): st
     .map(word => (word ? word[0].toUpperCase() + word.slice(1) : word))
     .join(' ');
 
-  // Venue → terminal. Gate is intentionally omitted — the named venue is the
-  // meaningful gathering spot; the terminal keeps it oriented.
-  return [venue, terminal].filter(Boolean).join(', ');
+  // Venue → gate → terminal, mengikuti tingkat detail operasional itinerary.
+  return [venue, gate, terminal].filter(Boolean).join(', ');
 }

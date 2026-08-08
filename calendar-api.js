@@ -21,6 +21,7 @@ import {
 } from './lib/calendar-public-source.js';
 import { validatePublicCalendarSnapshot } from './lib/calendar-public-snapshot.js';
 import {
+  extractDepartureMeetingInfoFromItinerary,
   extractDepartureMeetingInfoFromText,
   needsDepartureMeetingEnrichment,
 } from './lib/calendar-meeting-point.js';
@@ -758,8 +759,9 @@ async function extractKumpulFromPdf(itineraryUrl) {
 export async function enrichKeberangkatanWithKumpul(supabase) {
   console.log('[KumpulParser] Starting enrichment...');
 
-  // 1. Retry when either field is incomplete. Previously, a row with a known
-  // time but a missing location was permanently skipped.
+  // 1. Load all departure rows. Besides filling incomplete legacy rows, the
+  // structured itinerary cache below also repairs complete-but-stale values
+  // after a source PDF changes.
   const { data: eventRows, error } = await supabase
     .from('calendar_events')
     .select('id, event_date, paket, jam, jam_kumpul, titik_kumpul, jadwal_id')
@@ -770,7 +772,59 @@ export async function enrichKeberangkatanWithKumpul(supabase) {
     console.error('[KumpulParser] Query error:', error.message);
     return;
   }
-  const events = (eventRows || []).filter(needsDepartureMeetingEnrichment);
+  const allEvents = eventRows || [];
+  const mappedEventIds = [...new Set(allEvents
+    .map(event => event.jadwal_id)
+    .filter(Boolean)
+    .map(String))];
+  const cachedMeetingById = new Map();
+  if (mappedEventIds.length > 0) {
+    const { data: itineraryRows, error: itineraryError } = await supabase
+      .from('itineraries')
+      .select('jadwal_id, content')
+      .in('jadwal_id', mappedEventIds);
+    if (itineraryError) {
+      console.warn('[KumpulParser] Structured itinerary lookup failed:', itineraryError.message);
+    } else {
+      for (const row of itineraryRows || []) {
+        const meetingInfo = extractDepartureMeetingInfoFromItinerary(row.content);
+        if (meetingInfo) cachedMeetingById.set(String(row.jadwal_id), meetingInfo);
+      }
+    }
+  }
+
+  let refreshed = 0;
+  const events = [];
+  for (const event of allEvents) {
+    const current = event.jadwal_id
+      ? cachedMeetingById.get(String(event.jadwal_id))
+      : null;
+    if (current) {
+      const timeChanged = String(event.jam_kumpul || '').trim() !== current.jamKumpul;
+      const pointChanged = String(event.titik_kumpul || '').trim() !== current.titikKumpul;
+      if (timeChanged || pointChanged) {
+        const { error: updateError } = await supabase
+          .from('calendar_events')
+          .update({
+            jam_kumpul: current.jamKumpul,
+            titik_kumpul: current.titikKumpul,
+          })
+          .eq('id', event.id);
+        if (updateError) {
+          console.error(`[KumpulParser] Structured refresh error ${event.id}:`, updateError.message);
+        } else {
+          refreshed++;
+        }
+      }
+      continue;
+    }
+
+    if (needsDepartureMeetingEnrichment(event)) events.push(event);
+  }
+
+  if (refreshed > 0) {
+    console.log(`[KumpulParser] ${refreshed} stale rows refreshed from structured itinerary cache`);
+  }
   if (!events.length) {
     console.log('[KumpulParser] No events need enrichment');
     return;

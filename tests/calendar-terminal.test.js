@@ -55,23 +55,27 @@ test('airportTerminalLabel avoids duplicate departure terminal already in titik 
   );
 });
 
-test('meeting point display keeps only place name and terminal', async () => {
+test('meeting point display keeps venue, gate, and terminal from itinerary', async () => {
   const { formatCalendarMeetingPoint } = await importTsModule('src/lib/calendarPeople.ts');
 
   assert.equal(
     formatCalendarMeetingPoint('Café Zukavia Gate 5 Terminal 2F Bandara Internasional Soekarno-Hatta'),
-    'Café Zukavia, Terminal 2F',
+    'Café Zukavia, Gate 5, Terminal 2F',
   );
   assert.equal(
     formatCalendarMeetingPoint('Lounge Palmerra Gate 6 Terminal 2F Bandara Soekarno-Hatta'),
-    'Lounge Palmerra, Terminal 2F',
+    'Lounge Palmerra, Gate 6, Terminal 2F',
   );
   assert.equal(
     formatCalendarMeetingPoint('Gate 2 tiang A Terminal 3 Bandara Soekarno-Hatta'),
-    'Terminal 3',
+    'Gate 2 tiang A, Terminal 3',
   );
   assert.equal(
     formatCalendarMeetingPoint('café Zukavia gate 5 Terminal 2F Bandara Soekarno-Hatta'),
-    'Café Zukavia, Terminal 2F',
+    'Café Zukavia, Gate 5, Terminal 2F',
+  );
+  assert.equal(
+    formatCalendarMeetingPoint('Gate 5 Terminal 2F Bandara Soekarno-Hatta'),
+    'Gate 5, Terminal 2F',
   );
 });

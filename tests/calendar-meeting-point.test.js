@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  extractDepartureMeetingInfoFromItinerary,
   extractDepartureMeetingInfoFromText,
   needsDepartureMeetingEnrichment,
+  resolveCalendarDepartureMeetingInfo,
 } from '../lib/calendar-meeting-point.js';
 
 test('extracts Kloter 15 meeting point from first-day arrival wording', () => {
@@ -108,6 +110,188 @@ test('never mistakes a later hotel gathering for the departure meeting point', (
   `);
 
   assert.equal(result, null);
+});
+
+test('extracts meeting info from the structured itinerary shown by the web view', () => {
+  const result = extractDepartureMeetingInfoFromItinerary({
+    days: [
+      {
+        dayNumber: '1',
+        title: 'Jakarta – Madinah',
+        activities: [
+          {
+            time: '10:50',
+            text: 'Rombongan tiba dan berkumpul di Gate 5 Terminal 2F Bandara Soekarno-Hatta, menyerahkan koper dan menerima ID Card.',
+          },
+          { time: '11:50', text: 'Pengarahan dan pembagian paspor.' },
+          { time: '15:50', text: 'Berangkat menuju Madinah dengan pesawat Saudia Airlines SV 821.' },
+        ],
+      },
+      {
+        dayNumber: '2',
+        title: 'Madinah',
+        activities: [
+          { time: '07:00', text: 'Jamaah berkumpul di lobby untuk ziarah.' },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(result, {
+    jamKumpul: '10.50',
+    titikKumpul: 'Gate 5 Terminal 2F Bandara Soekarno-Hatta',
+  });
+});
+
+test('combines Cafe Zukavia with the explicit gate and terminal in today itinerary', () => {
+  const content = {
+    days: [{
+      dayNumber: '1',
+      activities: [
+        {
+          time: '10:50',
+          text: 'Rombongan tiba dan berkumpul di Gate 5 Terminal 2F Bandara Soekarno-Hatta, menyerahkan koper, menerima ID Card, beristirahat, dan makan pagi di Cafe Zukavia.',
+        },
+        { time: '15:50', text: 'Berangkat menuju Madinah dengan pesawat Saudia Airlines SV 821.' },
+      ],
+    }],
+  };
+
+  assert.deepEqual(extractDepartureMeetingInfoFromItinerary(content), {
+    jamKumpul: '10.50',
+    titikKumpul: 'Cafe Zukavia, Gate 5 Terminal 2F Bandara Soekarno-Hatta',
+  });
+
+  assert.deepEqual(extractDepartureMeetingInfoFromText(`
+    Jakarta – Madinah (Hari 1)
+    10.50 : Rombongan tiba dan berkumpul di gate 5 Terminal 2F Bandara
+    Soekarno – Hatta, menyerahkan koper dan menerima ide card setelah itu jamaah
+    istirahat dan makan pagi di cafe Zukavia.
+    15.50 : Berangkat menuju Madinah dengan pesawat Saudia Airlines SV 821.
+    Madinah (Hari 2)
+  `), {
+    jamKumpul: '10.50',
+    titikKumpul: 'cafe Zukavia, Gate 5 Terminal 2F Bandara Soekarno-Hatta',
+  });
+});
+
+test('structured itinerary includes Hari 0 but never reads gathering activities after Hari 1', () => {
+  const result = extractDepartureMeetingInfoFromItinerary(JSON.stringify({
+    days: [
+      {
+        dayNumber: 'Hari 0',
+        activities: [
+          { time: '19:40', text: 'Kumpul di Hotel Anara Terminal 3 Bandara Soekarno-Hatta.' },
+        ],
+      },
+      {
+        dayNumber: 'Hari 1',
+        activities: [
+          { time: '00:40', text: 'Berangkat menuju Jeddah dengan pesawat Saudi Airlines.' },
+        ],
+      },
+      {
+        dayNumber: 'Hari 2',
+        activities: [
+          { time: '06:00', text: 'Berkumpul di lobby hotel.' },
+        ],
+      },
+    ],
+  }));
+
+  assert.deepEqual(result, {
+    jamKumpul: '19.40',
+    titikKumpul: 'Hotel Anara Terminal 3 Bandara Soekarno-Hatta',
+  });
+});
+
+test('current itinerary meeting time overrides stale calendar enrichment', () => {
+  assert.deepEqual(
+    resolveCalendarDepartureMeetingInfo(
+      { jam_kumpul: '07.00', titik_kumpul: 'Hotel Anara, Terminal 3' },
+      { jamKumpul: '10.50', titikKumpul: 'Gate 5 Terminal 2F Bandara Soekarno-Hatta' },
+    ),
+    {
+      jamKumpul: '10.50',
+      titikKumpul: 'Gate 5 Terminal 2F Bandara Soekarno-Hatta',
+    },
+  );
+});
+
+test('background enrichment repairs a complete but stale calendar row without refetching its PDF', async () => {
+  const { enrichKeberangkatanWithKumpul } = await import('../calendar-api.js');
+  const event = {
+    id: '2026-08-08_keberangkatan_22',
+    event_date: '2026-08-08',
+    jadwal_id: 'JBU1535',
+    paket: 'UMRAH PLUS REDSEA 9HR',
+    jam: '15.50',
+    jam_kumpul: '07.00',
+    titik_kumpul: 'Hotel Anara, Terminal 3',
+  };
+  const itinerary = {
+    jadwal_id: 'JBU1535',
+    content: {
+      days: [{
+        dayNumber: '1',
+        activities: [
+          { time: '10:50', text: 'Rombongan berkumpul di Gate 5 Terminal 2F Bandara Soekarno-Hatta.' },
+          { time: '15:50', text: 'Berangkat menuju Madinah dengan pesawat Saudia Airlines.' },
+        ],
+      }],
+    },
+  };
+  const updates = [];
+  const supabase = {
+    from(table) {
+      const builder = {
+        operation: 'select',
+        patch: null,
+        id: null,
+        select() { return this; },
+        eq(column, value) {
+          if (this.operation === 'update' && column === 'id') this.id = value;
+          return this;
+        },
+        gt() { return this; },
+        in() { return this; },
+        update(patch) {
+          this.operation = 'update';
+          this.patch = patch;
+          return this;
+        },
+        then(resolve) {
+          if (table === 'calendar_events' && this.operation === 'update') {
+            updates.push({ id: this.id, patch: this.patch });
+            resolve({ error: null });
+          } else if (table === 'calendar_events') {
+            resolve({ data: [event], error: null });
+          } else if (table === 'itineraries') {
+            resolve({ data: [itinerary], error: null });
+          } else {
+            resolve({ data: [], error: null });
+          }
+        },
+      };
+      return builder;
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('PDF must not be fetched'); };
+  try {
+    await enrichKeberangkatanWithKumpul(supabase);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(updates, [{
+    id: event.id,
+    patch: {
+      jam_kumpul: '10.50',
+      titik_kumpul: 'Gate 5 Terminal 2F Bandara Soekarno-Hatta',
+    },
+  }]);
 });
 
 test('retries enrichment when either time or meeting point is missing', () => {
