@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck } from 'lucide-react';
+import { X, Share2, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText } from 'lucide-react';
 import { motion, AnimatePresence, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -10,6 +10,9 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { getPackageById } from '@/services/data-service';
+import SegmentedControl, { type SegmentedOption } from './common/SegmentedControl';
+import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
 
 // Setup PDF.js Worker — primary CDN with fallback
 try {
@@ -36,6 +39,13 @@ interface ItineraryModalProps {
   /** Fallback bila `paket` tak tersedia (AskAI attachment, UpcomingSchedule) */
   jadwalId?: string | null;
 }
+
+type ItineraryTab = 'itinerary' | 'pdf';
+
+const TAB_OPTIONS: SegmentedOption<ItineraryTab>[] = [
+  { value: 'itinerary', label: 'Itinerary', icon: Route },
+  { value: 'pdf', label: 'Preview PDF', icon: FileText },
+];
 
 function clampItineraryScale(nextScale: number) {
   return Math.min(3, Math.max(1, +nextScale.toFixed(2)));
@@ -82,6 +92,22 @@ export function ItineraryModal({
   const prefersReducedMotion = useReducedMotion();
   const copyPop = useAnimationControls();
   const effectiveJadwalId = paket?.jadwalId ?? jadwalId ?? null;
+  // ── Tab: "Itinerary" (tampilan web hasil parsing, default) | "Preview PDF" ──
+  // Tanpa jadwalId (sebagian attachment AskAI) tab bar disembunyikan → PDF-only spt semula.
+  const hasTabs = Boolean(effectiveJadwalId);
+  const [activeTab, setActiveTab] = useState<ItineraryTab>(hasTabs ? 'itinerary' : 'pdf');
+  // Auto-fallback ke PDF hanya boleh terjadi sebelum user memilih tab sendiri —
+  // fetch yang selesai belakangan tidak boleh membajak pilihan manual.
+  const userTouchedTabRef = useRef(false);
+  // Pane PDF di-mount saat pertama kali tab-nya aktif lalu keep-mounted (hidden):
+  // sesi yang hanya membaca tampilan web tidak mengunduh/merender PDF sama sekali,
+  // dan pindah tab bolak-balik tidak me-render ulang halaman PDF.
+  const [pdfEverActive, setPdfEverActive] = useState(!hasTabs);
+  const [webContent, setWebContent] = useState<ItineraryContent | null>(null);
+  const [webStatus, setWebStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [webSha, setWebSha] = useState<string | null>(null);
+  const [resolvedPaket, setResolvedPaket] = useState<UmrohPackage | null>(null);
+  const effectivePaket = paket ?? resolvedPaket ?? null;
   const [isSharing, setIsSharing] = useState(false);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const [isPdfLoading, setIsPdfLoading] = useState(true);
@@ -126,6 +152,15 @@ export function ItineraryModal({
     : originalUrl
       ? originalUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
       : '';
+
+  // Deteksi hasil parse milik PDF lama (kasus JBU1513): banding sha16 versi CDN
+  // (?v= dari appendUrlVersion) dengan source_sha256 hasil parse. Guard server
+  // TIDAK menyaring konten mentah endpoint ini — banner adalah satu-satunya sinyal.
+  // URL tanpa ?v= (jalur proxy non-CDN) atau respons tanpa sha → fail-open tanpa banner.
+  const fileSha16 = /[?&]v=([0-9a-f]{8,})/i.exec(fileUrl || '')?.[1]?.toLowerCase() ?? null;
+  const parsedStale = Boolean(
+    webStatus === 'ready' && fileSha16 && webSha && !webSha.toLowerCase().startsWith(fileSha16),
+  );
 
   // ── Link share publik (halaman /:slug/:jadwalId/itinerary) ──
   const shareUrl = agentSlug && effectiveJadwalId
@@ -172,8 +207,54 @@ export function ItineraryModal({
       pendingScaleRef.current = 1;
       setContentSize({ width: 0, height: 0 });
       setLinkCopied(false);
+      userTouchedTabRef.current = false;
+      setActiveTab(effectiveJadwalId ? 'itinerary' : 'pdf');
+      setPdfEverActive(!effectiveJadwalId);
     }
   }, [isOpen, fileUrl]);
+
+  // Mount-on-first-activate pane PDF (lalu keep-mounted via `hidden`)
+  useEffect(() => {
+    if (activeTab === 'pdf') setPdfEverActive(true);
+  }, [activeTab]);
+
+  // Data tab Itinerary: cache-only (pola SharePage) — sengaja TANPA ?pdfUrl.
+  // Paket baru yang belum ter-cache background sync 12 jam → 400 → fallback tab PDF;
+  // jangan buka jalur parse on-demand (±165 dtk, vektor cache-poisoning endpoint publik).
+  useEffect(() => {
+    if (!isOpen || !effectiveJadwalId) return;
+    let cancelled = false;
+    setWebStatus('loading');
+    setWebContent(null);
+    setWebSha(null);
+    fetch(`/api/itinerary/${encodeURIComponent(effectiveJadwalId)}`)
+      .then(r => r.json())
+      .then(body => {
+        if (cancelled) return;
+        const data: ItineraryContent | null = body?.success ? body.data : null;
+        if (data?.days?.length) {
+          setWebContent(data);
+          setWebSha(typeof body.source_sha256 === 'string' ? body.source_sha256 : null);
+          setWebStatus('ready');
+        } else {
+          setWebStatus('error');
+          if (!userTouchedTabRef.current) setActiveTab('pdf');
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWebStatus('error');
+        if (!userTouchedTabRef.current) setActiveTab('pdf');
+      });
+    // Call-site tanpa objek paket (AskAI/UpcomingSchedule/Bani) → resolve dari cache
+    // getPackages supaya FlightCard/HotelCard/tanggal-per-hari muncul; gagal = days-only.
+    if (!paket) {
+      getPackageById(effectiveJadwalId)
+        .then(p => { if (!cancelled && p) setResolvedPaket(p); })
+        .catch(() => {});
+    }
+    return () => { cancelled = true; };
+  }, [isOpen, effectiveJadwalId]);
 
   useEffect(() => {
     scaleRef.current = clampedScale;
@@ -185,6 +266,10 @@ export function ItineraryModal({
     if (!el || !isOpen) return;
 
     const measure = () => {
+      // Pane PDF disembunyikan via display:none saat tab Itinerary aktif → clientWidth 0.
+      // Tanpa guard ini pdfWidth kolaps ke minimum 280 dan react-pdf me-render ulang
+      // semua halaman 2× tiap pindah tab.
+      if (el.clientWidth <= 0) return;
       // container padding (p-4 = 16px each side) + card padding (p-2 = 8px each side) = 48px total
       const availableWidth = el.clientWidth - 48;
       setPdfWidth(Math.max(availableWidth, 280));
@@ -194,7 +279,7 @@ export function ItineraryModal({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isOpen]);
+  }, [isOpen, pdfEverActive]);
 
   useEffect(() => {
     const el = zoomContentRef.current;
@@ -216,7 +301,7 @@ export function ItineraryModal({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isOpen, fileType, numPages, pdfWidth]);
+  }, [isOpen, fileType, numPages, pdfWidth, pdfEverActive]);
 
   useEffect(() => () => {
     if (scaleRafRef.current !== null) cancelAnimationFrame(scaleRafRef.current);
@@ -414,7 +499,7 @@ export function ItineraryModal({
       el.removeEventListener('gesturechange', handleGestureChange);
       el.removeEventListener('gestureend', handleTouchEnd);
     };
-  }, [isOpen]);
+  }, [isOpen, pdfEverActive]);
 
   const zoomFromCenter = (nextScale: number) => {
     const el = contentRef.current;
@@ -486,6 +571,9 @@ export function ItineraryModal({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+          // Portal tetap bubble lewat pohon React — tahan klik di sini supaya tidak
+          // sampai ke onClick pemanggil (mis. toggle expand PackageCard).
+          onClick={(e) => e.stopPropagation()}
         >
 
       {/* ─── HEADER ─── */}
@@ -493,8 +581,14 @@ export function ItineraryModal({
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Detail Itinerary</h2>
           <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-            {fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar'}
-            {numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
+            {activeTab === 'itinerary' ? (
+              webContent?.days?.length ? `${webContent.days.length} hari perjalanan` : 'Tampilan web'
+            ) : (
+              <>
+                {fileType === 'pdf' ? 'Dokumen PDF' : 'Gambar'}
+                {numPages && fileType === 'pdf' ? ` · ${numPages} halaman` : ''}
+              </>
+            )}
           </span>
         </div>
         <button
@@ -505,10 +599,58 @@ export function ItineraryModal({
         </button>
       </div>
 
-      {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ─── */}
+      {/* ─── TAB BAR (hanya bila jadwalId ada — tanpa itu modal PDF-only spt semula) ─── */}
+      {hasTabs && (
+        <div className="flex-none bg-white dark:bg-slate-900 border-b border-gray-200/60 dark:border-slate-700/60 px-4 py-2">
+          <SegmentedControl
+            options={TAB_OPTIONS}
+            value={activeTab}
+            onChange={(tab) => {
+              userTouchedTabRef.current = true;
+              setActiveTab(tab);
+              trackEvent('action', 'itinerary_tab_switch', { tab, paket: title });
+            }}
+          />
+        </div>
+      )}
+
+      {/* ─── PANE ITINERARY (tampilan web hasil parsing) ───
+          Light-only by design (token itin-*): diperlakukan sebagai dokumen terang
+          di atas modal gelap, sama seperti kertas PDF putih. JANGAN hapus kelas
+          `dark` dari <html> ala SharePage — itu mengubah tema seluruh app. */}
+      {hasTabs && (
+        <div className={`flex-1 min-h-0 overflow-y-auto overscroll-contain bg-[#F6F1EA] ${activeTab === 'itinerary' ? '' : 'hidden'}`}>
+          {parsedStale && (
+            <div className="mx-auto w-full max-w-md px-3 pt-3">
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11.5px] leading-5 text-amber-800">
+                <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                <span>PDF itinerary baru diperbarui — tampilan web sedang disinkronkan otomatis. Versi terbaru ada di tab Preview PDF.</span>
+              </div>
+            </div>
+          )}
+          <div className="mx-auto w-full max-w-md">
+            <WebItineraryView
+              content={webContent}
+              loading={webStatus === 'loading'}
+              error={webStatus === 'error' ? 'Itinerary belum bisa dimuat.' : null}
+              paket={effectivePaket}
+              hideDocActions
+              onRetryPdf={() => {
+                userTouchedTabRef.current = true;
+                setActiveTab('pdf');
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ─── SCROLLABLE CONTENT (PDF/IMAGE VIEWER) ───
+          Mount saat pertama kali tab PDF aktif, lalu keep-mounted via `hidden` —
+          pinch/zoom state & halaman ter-render bertahan saat bolak-balik tab. */}
+      {pdfEverActive && (
       <div
         ref={contentRef}
-        className="flex-1 min-h-0 min-w-0 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative"
+        className={`flex-1 min-h-0 min-w-0 overflow-auto bg-gray-100 dark:bg-slate-950 px-4 pb-6 relative ${!hasTabs || activeTab === 'pdf' ? '' : 'hidden'}`}
         style={{
           touchAction: 'pan-x pan-y',
           overscrollBehavior: 'contain',
@@ -616,6 +758,8 @@ export function ItineraryModal({
               alt={`Itinerary ${title}`}
               className="w-full h-auto rounded-lg"
               onLoad={() => setIsPdfLoading(false)}
+              // Tanpa ini gambar gagal muat membuat isPdfLoading macet true
+              onError={() => setIsPdfLoading(false)}
             />
           </div>
         )}
@@ -623,6 +767,7 @@ export function ItineraryModal({
           </div>
         </div>
       </div>
+      )}
 
       {/* ─── FOOTER ─── */}
       <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">

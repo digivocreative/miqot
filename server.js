@@ -2884,12 +2884,14 @@ app.get('/api/itinerary/:jadwalId', async (req, res) => {
     // 1. Check Supabase cache
     const { data: cached } = await supabase
       .from('itineraries')
-      .select('content, generated_at')
+      .select('content, generated_at, source_sha256')
       .eq('jadwal_id', jadwalId)
       .single();
 
     if (cached) {
-      return res.json({ success: true, data: cached.content, cached: true });
+      // source_sha256 ikut dikirim supaya FE bisa banding dengan ?v=sha16 di URL
+      // CDN — deteksi hasil parse milik PDF lama (kasus JBU1513)
+      return res.json({ success: true, data: cached.content, cached: true, source_sha256: cached.source_sha256 || null });
     }
 
     // 2. Cache miss — parse from PDF
@@ -2904,10 +2906,17 @@ app.get('/api/itinerary/:jadwalId', async (req, res) => {
     console.log(`[Itinerary] On-demand parse: ${jadwalId}`);
     const { content, sourceSha256 } = await parseItineraryFromPdf(pdfUrl, meta);
 
-    // 3. Cache in Supabase
-    await supabase.from('itineraries').insert({ jadwal_id: jadwalId, content, source_sha256: sourceSha256 });
+    // 3. Cache in Supabase — upsert: dua request miss paralel tidak boleh membuat
+    // insert kedua gagal diam-diam (dulu insert biasa tanpa cek error)
+    const { error: cacheErr } = await supabase.from('itineraries').upsert({
+      jadwal_id: jadwalId,
+      content,
+      source_sha256: sourceSha256,
+      generated_at: new Date().toISOString(),
+    }, { onConflict: 'jadwal_id' });
+    if (cacheErr) console.error('[Itinerary] Cache write failed:', cacheErr.message);
 
-    return res.json({ success: true, data: content, cached: false });
+    return res.json({ success: true, data: content, cached: false, source_sha256: sourceSha256 || null });
   } catch (err) {
     console.error('[Itinerary] Error:', err.message);
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {

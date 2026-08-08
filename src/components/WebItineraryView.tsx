@@ -20,6 +20,9 @@ interface Props {
   error: string | null;
   paket?: UmrohPackage | null;
   onRetryPdf?: () => void;
+  /** Sembunyikan tombol "Itinerary PDF"/"Brosur" JourneyStrip — di dalam
+   *  ItineraryModal keduanya duplikat footer & BrochureModal nested bentrok z-index. */
+  hideDocActions?: boolean;
 }
 
 // Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
@@ -48,7 +51,7 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 }
 
 export default function WebItineraryView({
-  content, loading, error, paket, onRetryPdf,
+  content, loading, error, paket, onRetryPdf, hideDocActions,
 }: Props) {
   if (loading) {
     return (
@@ -108,8 +111,8 @@ export default function WebItineraryView({
       <div className="pt-3">
         <JourneyStrip
           days={days}
-          pdfUrl={paket?.itineraryUrl}
-          brosurUrl={paket?.brosurUrl}
+          pdfUrl={hideDocActions ? undefined : paket?.itineraryUrl}
+          brosurUrl={hideDocActions ? undefined : paket?.brosurUrl}
           departISO={paket?.keberangkatan?.tgl}
           paketNama={paket?.nama}
         />
