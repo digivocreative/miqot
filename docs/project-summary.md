@@ -577,6 +577,8 @@ DB and cache tunables:
 - `/api/version` helps frontend detect stale service-worker shells.
 - After frontend changes in production, run build and restart service.
 - Existing PWA clients may need one reload; `src/main.tsx` contains stale-build guard and SW cache cleanup.
+- Edge: `alhijaz.co` lewat Cloudflare → Caddy `:443` → node `:3000`; sedangkan `sb.alhijaz.co` (Supabase self-hosted) dan custom domain agent (on-demand TLS) langsung ke Caddy tanpa Cloudflare.
+- HTTP/3/QUIC sengaja **dimatikan** di Caddy (9 Agt 2026, global options `servers { protocols h1 h2 }` di `/etc/caddy/Caddyfile`): carrier seluler Indonesia men-throttle/blackhole UDP sehingga ~28% transfer foto agent & aset landing putus mid-stream (`H3_REQUEST_CANCELLED` / QUIC idle timeout di `journalctl -u caddy`) padahal upstream menjawab <10ms. Buffer UDP sysctl sudah pernah dinaikkan (Jun 2026) dan terbukti bukan solusinya — jangan re-enable h3 tanpa data baru.
 
 ## Audit & Risiko Operasional
 
