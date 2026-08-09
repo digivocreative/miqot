@@ -629,6 +629,7 @@ export function ItineraryModal({
               error={webStatus === 'error' ? 'Itinerary belum bisa dimuat.' : null}
               paket={effectivePaket}
               hideDocActions
+              summaryAtBottom
               onRetryPdf={() => {
                 userTouchedTabRef.current = true;
                 setActiveTab('pdf');

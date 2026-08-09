@@ -23,6 +23,9 @@ interface Props {
   /** Sembunyikan tombol "Itinerary PDF"/"Brosur" JourneyStrip — di dalam
    *  ItineraryModal keduanya duplikat footer & BrochureModal nested bentrok z-index. */
   hideDocActions?: boolean;
+  /** Pindahkan kartu "Ringkasan Perjalanan" ke bawah, tepat di atas kartu
+   *  Penerbangan — dipakai popup Jadwal; share link & portal jamaah tetap di atas. */
+  summaryAtBottom?: boolean;
 }
 
 // Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
@@ -51,7 +54,7 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 }
 
 export default function WebItineraryView({
-  content, loading, error, paket, onRetryPdf, hideDocActions,
+  content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom,
 }: Props) {
   if (loading) {
     return (
@@ -106,22 +109,27 @@ export default function WebItineraryView({
   // karena dedup-nya global: tiap foto hanya tampil di kemunculan pertamanya.
   const photosByDay = destinationPhotosForDays(days) as Array<Array<{ file: string; label: string } | null>>;
 
+  // JourneyStrip punya mx-3 sendiri — jangan taruh di dalam container px-3
+  // (indent dobel); posisi bawah dirender sebagai sibling di atas container itu.
+  const journeyStrip = (
+    <JourneyStrip
+      days={days}
+      pdfUrl={hideDocActions ? undefined : paket?.itineraryUrl}
+      brosurUrl={hideDocActions ? undefined : paket?.brosurUrl}
+      departISO={paket?.keberangkatan?.tgl}
+      paketNama={paket?.nama}
+    />
+  );
+
   return (
     <div className="bg-[#F6F1EA] pb-4">
-      <div className="pt-3">
-        <JourneyStrip
-          days={days}
-          pdfUrl={hideDocActions ? undefined : paket?.itineraryUrl}
-          brosurUrl={hideDocActions ? undefined : paket?.brosurUrl}
-          departISO={paket?.keberangkatan?.tgl}
-          paketNama={paket?.nama}
-        />
-      </div>
-      <div>
+      {!summaryAtBottom && <div className="pt-3">{journeyStrip}</div>}
+      <div className={summaryAtBottom ? 'pt-0.5' : ''}>
         {dayISO.map((iso, i) => (
           <DayRail key={i} day={days[i]} dayIndex={i} dayDateISO={iso} activityPhotos={photosByDay[i]} />
         ))}
       </div>
+      {summaryAtBottom && <div className="mt-2.5">{journeyStrip}</div>}
       <div className="mt-2.5 space-y-2.5 px-3">
         {paket && <FlightCard paket={paket} arrivals={extractArrivalTimes(days)} />}
         {paket?.hotel && <HotelCard hotel={paket.hotel} />}
