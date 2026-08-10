@@ -50,6 +50,13 @@ Menaruh pencarian di tempat yang sama berarti:
   terjadi di setiap request; yang hilang hanya penyempitan payload saat ada
   pencarian.
 
+Konsekuensi yang harus dijaga: tanpa penyempitan di DB, pencarian hanya melihat
+baris yang masuk plafon `range(0, 4999)`. Probe 2026-08-10 menunjukkan agent
+terbesar punya **1.047 baris** (`hijriah_year >= 1447`), dari 61 agent dan 5.441
+baris total — masih jauh di bawah plafon. Bila suatu saat ada agent yang
+mendekati 5.000 baris, plafon itu harus dinaikkan atau pencarian dikembalikan ke
+DB, karena hasil akan terpotong diam-diam.
+
 Endpoint Haji (`GET /api/haji/jamaah`) dipaginasi di DB (`count: 'exact'` +
 `.range(from, to)`). Mengubahnya ke penyaringan memori berarti membongkar
 paginasinya — tidak sepadan, dan Haji tidak butuh enrich nama jadwal. Untuk Haji

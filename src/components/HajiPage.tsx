@@ -757,7 +757,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Cari jamaah..."
+              placeholder="Cari nama, telepon, porsi, paspor..."
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
             <button

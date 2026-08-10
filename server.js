@@ -207,6 +207,7 @@ import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-par
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
+import { buildJamaahSearchNeedle, matchesUmrohJamaahSearch, buildJamaahSearchOrFilter } from './lib/jamaah-search.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import dnsCallback from 'dns';
@@ -15188,12 +15189,6 @@ async function pollActiveFlights() {
   }
 }
 
-function escapePostgrestFilterValue(value) {
-  return String(value || '')
-    .replace(/[,()*%]/g, (c) => '\\' + c)
-    .slice(0, 100);
-}
-
 function dateOnly(date) {
   return date.toISOString().split('T')[0];
 }
@@ -15248,10 +15243,17 @@ function filterUmrohRowsInMemory(rows, {
   equipmentFilter = '',
   notesFilter = '',
   packageFilter = '',
+  searchQuery = '',
   scheduleMap = new Map(),
 } = {}) {
   const packageNeedle = String(packageFilter || '').trim().toLowerCase();
+  // Pencarian disaring di sini, bukan lewat .or() di DB, supaya nama jadwal
+  // (hasil enrich scheduleMap — bukan kolom) ikut tercari. Baris memang sudah
+  // ditarik seluruhnya di endpoint, jadi beban terburuknya tak bertambah.
+  const searchNeedle = buildJamaahSearchNeedle(searchQuery);
   return (rows || []).filter(row => {
+    if (!matchesUmrohJamaahSearch(row, searchNeedle, scheduleMap)) return false;
+
     switch (documentFilter) {
       case 'paspor_missing':
         if (!isUmrohPasporMissing(row)) return false;
@@ -15408,11 +15410,7 @@ app.get('/api/laporan/jamaah', dbLoadShedGuard, authMiddleware, async (req, res)
       break;
   }
 
-  if (search) {
-    // Escape PostgREST .or() filter metacharacters to prevent filter injection.
-    const safeSearch = escapePostgrestFilterValue(search);
-    query = query.or(`nama.ilike.%${safeSearch}%,id_umroh.ilike.%${safeSearch}%,wa.ilike.%${safeSearch}%`);
-  }
+  // Pencarian tidak diterapkan di sini: lihat filterUmrohRowsInMemory di bawah.
 
   // Supabase default row cap is 1000 — raise ceiling to 5000 for large agents.
   query = query.range(0, 4999);
@@ -15428,6 +15426,7 @@ app.get('/api/laporan/jamaah', dbLoadShedGuard, authMiddleware, async (req, res)
     equipmentFilter: equipment_filter,
     notesFilter: notes_filter,
     packageFilter: package_filter,
+    searchQuery: search,
     scheduleMap,
   });
   if (payment_status === 'belum_dp') {
@@ -17573,9 +17572,14 @@ app.get('/api/haji/jamaah', authMiddleware, async (req, res) => {
       .replace(/[,()*%]/g, (c) => '\\' + c)
       .slice(0, 100);
 
-    if (search) {
-      const safeSearch = escapePostgrestFilterValue(search);
-      query = query.or(`nama.ilike.%${safeSearch}%,id_haji.ilike.%${safeSearch}%,id_jamaah.ilike.%${safeSearch}%,nomor_porsi.ilike.%${safeSearch}%,nomor_spph.ilike.%${safeSearch}%,telp.ilike.%${safeSearch}%`);
+    // Haji dipaginasi di DB (count: 'exact' + range), jadi pencocokan harus
+    // tetap terjadi di sana — beda dari Umroh yang menyaring di memori.
+    const searchOrFilter = buildJamaahSearchOrFilter(search, {
+      textColumns: ['nama', 'id_haji', 'id_jamaah', 'nomor_porsi', 'nomor_spph', 'no_paspor', 'paket', 'paket_detail'],
+      phoneColumns: ['telp'],
+    });
+    if (searchOrFilter) {
+      query = query.or(searchOrFilter);
     }
     if (thn_hijriyah) {
       query = query.eq('thn_hijriyah', thn_hijriyah);
