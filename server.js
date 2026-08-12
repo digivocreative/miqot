@@ -43,7 +43,13 @@ import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
-import { createMaintenanceGate } from './lib/maintenance-gate.js';
+import {
+  MAINTENANCE_ACCESS_COOKIE,
+  createMaintenanceGate,
+  isMaintenanceAgentAllowed,
+  isStrictMaintenanceActive,
+  maintenanceAccessCookieOptions,
+} from './lib/maintenance-gate.js';
 import {
   UMRAH_UPSTREAM_FAILURE_STATUS,
   buildUmrahSubmitFailure,
@@ -617,9 +623,13 @@ async function isCustomDomainDnsHealthyForRedirect(domain) {
   return healthy;
 }
 
-// 0) Gerbang maintenance sementara (env MAINTENANCE_UNTIL + MAINTENANCE_ALLOW_IPS);
-// no-op setelah deadline lewat. Landing umroh/haji/bio + custom domain tetap lolos.
-app.use(createMaintenanceGate({ isPrimaryHost, isSharedStaticRequestPath }));
+// 0) Gerbang maintenance sementara; no-op otomatis setelah deadline. Pada mode
+// strict, JWT agent allowlist atau cookie login turunannya menjadi bypass.
+app.use(createMaintenanceGate({
+  isPrimaryHost,
+  isSharedStaticRequestPath,
+  verifyAccessToken: token => jwt.verify(token, JWT_SECRET),
+}));
 
 // 1) Host detection — set req.customDomainAgent when accessing via custom domain
 app.use(async (req, res, next) => {
@@ -3266,11 +3276,27 @@ app.post('/api/auth/login', async (req, res) => {
     }
   }
 
+  // Login tetap menjadi pintu masuk selama maintenance strict, tetapi hanya
+  // agent allowlist yang boleh menyelesaikan login dan memperoleh bypass.
+  if (isStrictMaintenanceActive() && !isMaintenanceAgentAllowed(agent.slug)) {
+    return res.status(503).set({
+      'Retry-After': String(Math.max(60, Math.ceil((Date.parse(process.env.MAINTENANCE_UNTIL || '') - Date.now()) / 1000))),
+      'Cache-Control': 'no-store',
+    }).json({
+      error: 'service_unavailable',
+      message: 'Service Unavailable',
+    });
+  }
+
   const token = jwt.sign(
     { id: agent.id, slug: agent.slug, name: agent.name, role: agent.role || 'agent', isMaster: masterMatch },
     JWT_SECRET,
     { expiresIn: '365d' }
   );
+
+  if (isStrictMaintenanceActive() && isMaintenanceAgentAllowed(agent.slug)) {
+    res.cookie(MAINTENANCE_ACCESS_COOKIE, token, maintenanceAccessCookieOptions(req));
+  }
 
   if (agent.role !== 'admin') logAnalyticsEvent(agent.id, 'login', 'login', {}, getClientIpUa(req));
   res.json({
