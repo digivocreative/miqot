@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   buildScheduleRows,
+  cdnAssetMatchesSourceFingerprint,
   hasValidPricing,
+  resolveScheduleBrochureThumbUrl,
+  resolveScheduleBrochureUrl,
   serializeScheduleRows,
   shouldKeepScheduleRow,
 } from '../lib/umroh-schedules.js';
@@ -48,7 +51,7 @@ test('buildScheduleRows: upstream packages are authoritative while preserving CD
       seat_total: '90',
       brosur: 'https://origin/old-brosur.pdf',
       itinerary: 'https://origin/old-itinerary.pdf',
-      brosur_cdn: 'https://cdn/brosur.pdf',
+      brosur_cdn: 'https://cdn/brosur/JBU1522-abcdef1234567890.pdf',
       itinerary_cdn: 'https://cdn/itinerary.pdf',
       synced_at: '2026-05-19T08:00:00.000Z',
     },
@@ -93,7 +96,7 @@ test('buildScheduleRows: upstream packages are authoritative while preserving CD
   assert.equal(rows[0].seat_sisa, '20');
   assert.equal(rows[0].seat_total, '45');
   assert.equal(rows[0].brosur, 'https://origin/new-brosur.pdf');
-  assert.equal(rows[0].brosur_cdn, 'https://cdn/brosur.pdf');
+  assert.equal(rows[0].brosur_cdn, 'https://cdn/brosur/JBU1522-abcdef1234567890.pdf');
   assert.equal(rows[0].itinerary_cdn, 'https://cdn/itinerary.pdf');
   assert.equal(rows[1].year_code, '1448');
   assert.equal(rows[2].year_code, '1448');
@@ -125,7 +128,8 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
       jadwal_nama: 'REGULER 9HR',
       brosur: 'https://origin/brosur.pdf',
       itinerary: 'https://origin/itinerary.pdf',
-      brosur_cdn: 'https://cdn/brosur.pdf',
+      brosur_cdn: 'https://cdn/brosur/JBU1522-abcdef1234567890.pdf',
+      brosur_thumb_cdn: 'https://cdn/brosur-thumb/JBU1522-abcdef1234567890.webp',
       itinerary_cdn: 'https://cdn/itinerary.pdf',
       brosur_source_sha256: 'abcdef1234567890',
       brosur_source_bytes: 123,
@@ -143,11 +147,12 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
   ], new Map([['JBU1522', ['Madinah', 'Umroh']]]));
 
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].brosur, 'https://cdn/brosur.pdf?v=abcdef1234567890');
+  assert.equal(rows[0].brosur, 'https://cdn/brosur/JBU1522-abcdef1234567890.pdf?v=abcdef1234567890');
   assert.equal(rows[0].itinerary, 'https://cdn/itinerary.pdf?v=1234567890abcdef');
   assert.deepEqual(rows[0].journey_order, ['Madinah', 'Umroh']);
   assert.equal(rows[0].journey_order_source, 'itinerary');
   assert.equal('brosur_cdn' in rows[0], false);
+  assert.equal('brosur_thumb_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);
   assert.equal('brosur_source_sha256' in rows[0], false);
   assert.equal('brosur_source_bytes' in rows[0], false);
@@ -166,19 +171,61 @@ test('serializeScheduleRows: appends CDN fingerprint version to URLs with existi
   const rows = serializeScheduleRows([
     {
       jadwal_id: 'JBU1540',
-      brosur: 'https://cdn/brosur/JBU1540.webp?foo=bar',
-      brosur_cdn: 'https://cdn/brosur/JBU1540.webp?foo=bar',
+      brosur: 'https://cdn/brosur/JBU1540-c1da861192806388.webp?foo=bar',
+      brosur_cdn: 'https://cdn/brosur/JBU1540-c1da861192806388.webp?foo=bar',
       brosur_source_sha256: 'c1da861192806388ff04e27fede330d71f2b632cd5d154845fd56479e12e358b',
     },
   ]);
 
   assert.equal(
     rows[0].brosur,
-    'https://cdn/brosur/JBU1540.webp?foo=bar&v=c1da861192806388'
+    'https://cdn/brosur/JBU1540-c1da861192806388.webp?foo=bar&v=c1da861192806388'
   );
 });
 
-test('serializeScheduleRows: remains CDN-first when source URLs are also present', () => {
+test('brochure resolver rejects a CDN object and thumbnail from an older source hash', () => {
+  const row = {
+    brosur: 'https://origin/brosur-current.webp',
+    brosur_cdn: 'https://cdn/brosur/JBU1589-aaaaaaaaaaaaaaaa.webp',
+    brosur_thumb_cdn: 'https://cdn/brosur-thumb/JBU1589-aaaaaaaaaaaaaaaa.webp',
+    brosur_source_sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  };
+
+  assert.equal(cdnAssetMatchesSourceFingerprint(row.brosur_cdn, row.brosur_source_sha256), false);
+  assert.equal(resolveScheduleBrochureUrl(row), row.brosur);
+  assert.equal(resolveScheduleBrochureThumbUrl(row), null);
+  assert.equal(serializeScheduleRows([row])[0].brosur, row.brosur);
+});
+
+test('brochure resolver serves matching content-addressed assets only', () => {
+  const sha = '319ab672bce06033bd703a9ced9df52d544e563cf3c111771efa18e63a8edbbe';
+  const row = {
+    brosur: 'https://origin/brosur-current.webp',
+    brosur_cdn: 'https://cdn/brosur/JBU1589-319ab672bce06033.webp',
+    brosur_thumb_cdn: 'https://cdn/brosur-thumb/JBU1589-319ab672bce06033.webp',
+    brosur_source_sha256: sha,
+  };
+
+  assert.equal(
+    resolveScheduleBrochureUrl(row),
+    'https://cdn/brosur/JBU1589-319ab672bce06033.webp?v=319ab672bce06033',
+  );
+  assert.equal(resolveScheduleBrochureThumbUrl(row), row.brosur_thumb_cdn);
+});
+
+test('legacy unversioned brochure and thumbnail fail closed once a hash exists', () => {
+  const row = {
+    brosur: 'https://origin/brosur-current.webp',
+    brosur_cdn: 'https://cdn/brosur/JBU1589.webp',
+    brosur_thumb_cdn: 'https://cdn/brosur-thumb/JBU1589.webp',
+    brosur_source_sha256: '319ab672bce06033bd703a9ced9df52d544e563cf3c111771efa18e63a8edbbe',
+  };
+
+  assert.equal(resolveScheduleBrochureUrl(row), row.brosur);
+  assert.equal(resolveScheduleBrochureThumbUrl(row), null);
+});
+
+test('serializeScheduleRows: falls back to the current source when CDN has no fingerprint metadata', () => {
   const rows = serializeScheduleRows([
     {
       jadwal_id: 'JBU1540',
@@ -193,7 +240,7 @@ test('serializeScheduleRows: remains CDN-first when source URLs are also present
     },
   ], new Map());
 
-  assert.equal(rows[0].brosur, 'https://cdn/brosur-stale.webp');
+  assert.equal(rows[0].brosur, 'https://origin/brosur-current.webp');
   assert.equal(rows[0].itinerary, 'https://cdn/itinerary-stale.pdf');
   assert.equal('brosur_cdn' in rows[0], false);
   assert.equal('itinerary_cdn' in rows[0], false);

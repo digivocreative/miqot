@@ -482,16 +482,11 @@ export default defineConfig({
             },
           },
           {
-            // Itinerary & brosur files: network first with cache fallback
+            // Stable origin paths can change bytes without changing their URL.
+            // Never resurrect an old brochure/itinerary from the service worker;
+            // successful mirrors use immutable, fingerprinted CDN URLs instead.
             urlPattern: /^\/(itinerary|brosur)\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'document-files',
-              expiration: {
-                maxEntries: 30,
-                maxAgeSeconds: 24 * 60 * 60, // 1 day
-              },
-            },
+            handler: 'NetworkOnly',
           },
         ]
       }

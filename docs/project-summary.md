@@ -345,6 +345,12 @@ Itinerary AI cache (`itineraries` table, dipakai kartu "Urutan Perjalanan", view
 - Guard tambahan di endpoint jadwal: `saudiOrderContradictsRoute` (lib/journey-order.js) membuang `journey_order` hasil itinerary bila landing MED tapi itinerary bilang Umroh dulu (cache pasti basi) → frontend fallback ke inferensi rute. Sinyal landing JED sengaja tidak dipakai (pola Jum'atain Madinah–Mekkah–Madinah ambigu).
 - Teks PDF untuk prompt dipotong di 20k karakter (dulu 6k — itinerary 15 hari kehilangan hari-hari ekor).
 
+Brosur resmi (`umroh_schedules.brosur*`, dipakai halaman Paket, halaman Brosur, Bani, Ask-AI, dan bio):
+
+- Sync jadwal 30-menit langsung memindai fingerprint isi brosur. File utama dan thumbnail memakai nama objek ber-hash, sehingga perubahan byte menghasilkan URL baru dan tidak dapat tertukar dengan cache edge lama.
+- Perubahan URL sumber mengosongkan CDN, thumbnail, dan fingerprint lama dalam upsert yang sama. Bila replacement upload/metadata gagal setelah byte baru terdeteksi, CDN lama juga di-fail-closed dan pembaca jatuh ke sumber saat ini.
+- Semua pembaca memakai resolver yang mencocokkan hash pada nama objek dengan `brosur_source_sha256`; thumbnail berbeda versi tidak pernah ditampilkan bersama brosur utama. Jalur proxy sumber dan service worker tidak menyimpan URL brosur stabil yang isinya dapat berubah.
+
 ### Haji
 
 AWAPI owns frequent sync if enabled. Legacy haji scraper is scheduled enrichment and can be disabled with legacy background gates. Currency displayed on Haji rows is USD.

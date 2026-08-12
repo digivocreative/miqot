@@ -180,8 +180,24 @@ import {
   itineraryCacheFreshness,
   pickCurrentItinerarySchedule,
 } from './lib/itinerary-cache-freshness.js';
-import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
-import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildItineraryParseCandidates, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
+import {
+  appendUrlVersion,
+  buildScheduleRows,
+  resolveScheduleBrochureThumbUrl,
+  resolveScheduleBrochureUrl,
+  serializeScheduleRows,
+  shouldKeepScheduleRow,
+} from './lib/umroh-schedules.js';
+import {
+  buildBrochureCacheReset,
+  buildCdnInvalidationUpdate,
+  buildCdnMetadataUpdate,
+  buildContentAddressedCdnPath,
+  buildItineraryParseCandidates,
+  buildSourceDownloadCandidates,
+  getCdnFileDecision,
+  resolveScheduleBrochureSource,
+} from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
   isKursCacheRefreshDue,
@@ -2016,7 +2032,7 @@ async function resolveBaniMediaFiles(media) {
 
   const { data, error } = await supabase
     .from('umroh_schedules')
-    .select('jadwal_id, jadwal_nama, brosur_cdn, brosur_source_sha256, itinerary_cdn, itinerary_source_sha256')
+    .select('jadwal_id, jadwal_nama, brosur, brosur_cdn, brosur_source_sha256, itinerary, itinerary_cdn, itinerary_source_sha256')
     .in('jadwal_id', wanted.map((w) => w.id));
   if (error) {
     console.error('[Bani] gagal mengambil media untuk Telegram:', error.message);
@@ -2170,9 +2186,7 @@ function getAskAiFallback(agentName) {
 function resolveAskAiAttachment(pkg, attachmentType) {
   if (!pkg || !attachmentType) return null;
   if (attachmentType === 'brosur') {
-    const url = pkg.brosur_cdn
-      ? appendUrlVersion(pkg.brosur_cdn, pkg.brosur_source_sha256)
-      : pkg.brosur;
+    const url = resolveScheduleBrochureUrl(pkg);
     if (!url) return null;
     return { type: 'brosur', url: String(url), title: pkg.jadwal_nama || pkg.nama || 'Brosur', jadwal_id: pkg.jadwal_id || null };
   }
@@ -2340,7 +2354,7 @@ function buildPackageContext(pkg, itineraryCtx = null) {
     },
     harga_per_tier_dan_kamar: tiers,
     perlengkapan_harga: pkg.perlengkapan_harga || '',
-    brosur_tersedia: Boolean(pkg.brosur_cdn || pkg.brosur),
+    brosur_tersedia: Boolean(resolveScheduleBrochureUrl(pkg)),
     itinerary_tersedia: Boolean(pkg.itinerary_cdn || pkg.itinerary),
     urutan_perjalanan: {
       ...routeOrder,
@@ -2704,7 +2718,7 @@ FORMAT OUTPUT (JSON):
   let attachmentType = null;
   if (aiResult.attachment === 'brosur' || aiResult.attachment === 'itinerary') {
     const hasAsset = aiResult.attachment === 'brosur'
-      ? Boolean(pkg.brosur_cdn || pkg.brosur)
+      ? Boolean(resolveScheduleBrochureUrl(pkg))
       : Boolean(pkg.itinerary_cdn || pkg.itinerary);
     if (hasAsset) attachmentType = aiResult.attachment;
   }
@@ -9591,9 +9605,7 @@ app.get('/api/bio/:slug/featured-paket-preview', async (req, res) => {
       maskapai: paket.maskapai || '',
       seat_total: paket.seat_total ?? null,
       seat_sisa: paket.seat_sisa ?? null,
-      image_url: paket.brosur_cdn
-        ? appendUrlVersion(paket.brosur_cdn, paket.brosur_source_sha256)
-        : (paket.brosur || null),
+      image_url: resolveScheduleBrochureUrl(paket),
       anchor_price: anchorPrice ? Number(anchorPrice) : null,
     },
   });
@@ -19055,11 +19067,9 @@ app.get('/api/ai-tools/brosur-jadwal-bulan', authMiddleware, async (req, res) =>
         umrohDulu: isUmrohFirstRoute(r.berangkat_rute, r.pulang_rute),
         landing: landingCityFromRoute(r.berangkat_rute),
         // Brosur resmi AWAPI (webp) — CDN versioned, fallback ke URL sumber
-        brosur: r.brosur_cdn
-          ? appendUrlVersion(r.brosur_cdn, r.brosur_source_sha256)
-          : (r.brosur || null),
+        brosur: resolveScheduleBrochureUrl(r),
         // Turunan kecil (lebar 400px) untuk grid; null → frontend pakai `brosur`
-        brosurThumb: r.brosur_thumb_cdn || null,
+        brosurThumb: resolveScheduleBrochureThumbUrl(r),
         // Nama tier harga termurah (dari details) supaya FE tak mengarang tier
         tierName: details?.tier ?? null,
         // Tipe kamar (Quard/Triple/Double) yang harganya dipakai sebagai
@@ -20842,6 +20852,21 @@ async function syncUmrohSchedules() {
         continue;
       }
 
+      // Read the previous brochure locator before upsert.  If upstream points
+      // a jadwal_id at a different asset, the old CDN + thumb must be cleared
+      // in the same write as the new source URL; otherwise readers keep seeing
+      // the old artwork while (or after) the mirror refresh fails.
+      const { data: previousRows, error: previousRowsError } = await supabase
+        .from('umroh_schedules')
+        .select('jadwal_id, brosur')
+        .eq('year_code', year);
+      if (previousRowsError) {
+        throw new Error(`Gagal membaca provenance brosur ${year}: ${previousRowsError.message}`);
+      }
+      const previousById = new Map(
+        (previousRows || []).map(row => [String(row.jadwal_id), row]),
+      );
+
       const includedPackages = [];
       const rejectedPackages = [];
       for (const p of packages) {
@@ -20856,31 +20881,35 @@ async function syncUmrohSchedules() {
         console.log(`[ScheduleSync] Year ${year}: filtered ${rejectedPackages.length} paket tanpa harga valid dan tanpa seat tersedia: ${sample}${rejectedPackages.length > 5 ? ', ...' : ''}`);
       }
 
-      const rows = includedPackages.map(p => ({
-        jadwal_id: p.jadwal_id,
-        year_code: year,
-        jadwal_nama: p.jadwal_nama,
-        promo: p.promo,
-        seat_total: p.seat_total,
-        seat_sisa: p.seat_sisa,
-        maskapai: p.maskapai,
-        berangkat_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.berangkat_tgl) ? p.berangkat_tgl : null,
-        berangkat_jam: p.berangkat_jam,
-        berangkat_rute: p.berangkat_rute,
-        berangkat_kode_penerbangan: p.berangkat_kode_penerbangan,
-        pulang_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.pulang_tgl) ? p.pulang_tgl : null,
-        pulang_jam: p.pulang_jam,
-        pulang_rute: p.pulang_rute,
-        pulang_kode_penerbangan: p.pulang_kode_penerbangan,
-        manasik_tgl: p.manasik_tgl,
-        manasik_jam: p.manasik_jam,
-        brosur: resolveScheduleBrochureSource(p),
-        itinerary: p.itinerary,
-        perlengkapan_harga: p.perlengkapan_harga,
-        paket_harga: p.paket_harga,
-        paket_hotel: p.paket_hotel,
-        synced_at: new Date().toISOString(),
-      }));
+      const rows = includedPackages.map(p => {
+        const brochureSource = resolveScheduleBrochureSource(p);
+        return {
+          jadwal_id: p.jadwal_id,
+          year_code: year,
+          jadwal_nama: p.jadwal_nama,
+          promo: p.promo,
+          seat_total: p.seat_total,
+          seat_sisa: p.seat_sisa,
+          maskapai: p.maskapai,
+          berangkat_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.berangkat_tgl) ? p.berangkat_tgl : null,
+          berangkat_jam: p.berangkat_jam,
+          berangkat_rute: p.berangkat_rute,
+          berangkat_kode_penerbangan: p.berangkat_kode_penerbangan,
+          pulang_tgl: /^\d{4}-\d{2}-\d{2}$/.test(p.pulang_tgl) ? p.pulang_tgl : null,
+          pulang_jam: p.pulang_jam,
+          pulang_rute: p.pulang_rute,
+          pulang_kode_penerbangan: p.pulang_kode_penerbangan,
+          manasik_tgl: p.manasik_tgl,
+          manasik_jam: p.manasik_jam,
+          brosur: brochureSource,
+          ...buildBrochureCacheReset(previousById.get(String(p.jadwal_id)), brochureSource),
+          itinerary: p.itinerary,
+          perlengkapan_harga: p.perlengkapan_harga,
+          paket_harga: p.paket_harga,
+          paket_hotel: p.paket_hotel,
+          synced_at: new Date().toISOString(),
+        };
+      });
 
       const { error } = await supabase
         .from('umroh_schedules')
@@ -21000,6 +21029,17 @@ const BROSUR_THUMB_QUALITY = 78;
 // Nama objek di-fingerprint dengan sha256 SUMBER, sama seperti file utama, jadi
 // URL thumb otomatis berubah saat brosurnya diganti — tidak perlu kolom sha
 // terpisah dan edge cache lama tidak mungkin terpakai ulang.
+async function clearBrosurThumb(pkg) {
+  if (!pkg.brosur_thumb_cdn) return 'skip';
+  const { error } = await supabase
+    .from('umroh_schedules')
+    .update({ brosur_thumb_cdn: null })
+    .eq('jadwal_id', pkg.jadwal_id)
+    .eq('year_code', pkg.year_code);
+  if (error) throw new Error(`stale thumb clear failed: ${error.message}`);
+  return 'cleared';
+}
+
 async function ensureBrosurThumb(pkg, file) {
   const path = buildContentAddressedCdnPath(BROSUR_THUMB_FOLDER, pkg.jadwal_id, file.sha256, '.webp');
   const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
@@ -21014,26 +21054,37 @@ async function ensureBrosurThumb(pkg, file) {
   try {
     meta = await sharp(file.buffer).metadata();
   } catch {
-    return 'skip';
+    return clearBrosurThumb(pkg);
   }
-  if (!meta?.width) return 'skip';
+  if (!meta?.width) return clearBrosurThumb(pkg);
 
-  const thumb = await sharp(file.buffer)
-    .rotate()                                                   // hormati EXIF orientation
-    .resize({ width: BROSUR_THUMB_WIDTH, withoutEnlargement: true })
-    .webp({ quality: BROSUR_THUMB_QUALITY })
-    .toBuffer();
+  try {
+    const thumb = await sharp(file.buffer)
+      .rotate()                                                   // hormati EXIF orientation
+      .resize({ width: BROSUR_THUMB_WIDTH, withoutEnlargement: true })
+      .webp({ quality: BROSUR_THUMB_QUALITY })
+      .toBuffer();
 
-  await bunnyUpload(path, thumb, 'image/webp');
-  const { error } = await supabase
-    .from('umroh_schedules')
-    .update({ brosur_thumb_cdn: cdnUrl })
-    .eq('jadwal_id', pkg.jadwal_id)
-    .eq('year_code', pkg.year_code);
-  if (error) throw new Error(`thumb metadata update failed: ${error.message}`);
+    await bunnyUpload(path, thumb, 'image/webp');
+    const { error } = await supabase
+      .from('umroh_schedules')
+      .update({ brosur_thumb_cdn: cdnUrl })
+      .eq('jadwal_id', pkg.jadwal_id)
+      .eq('year_code', pkg.year_code);
+    if (error) throw new Error(`thumb metadata update failed: ${error.message}`);
 
-  console.log(`[BunnySync] Thumb ${pkg.jadwal_id}: ${(file.bytes / 1048576).toFixed(2)} MB → ${(thumb.length / 1024).toFixed(0)} KB`);
-  return 'uploaded';
+    console.log(`[BunnySync] Thumb ${pkg.jadwal_id}: ${(file.bytes / 1048576).toFixed(2)} MB → ${(thumb.length / 1024).toFixed(0)} KB`);
+    return 'uploaded';
+  } catch (err) {
+    // A failed replacement must not leave the previous brochure's thumbnail
+    // visible.  The full, fingerprint-checked brochure is the safe fallback.
+    try {
+      await clearBrosurThumb(pkg);
+    } catch (clearErr) {
+      console.error(`[BunnySync] Thumb ${pkg.jadwal_id}: ${clearErr.message}`);
+    }
+    throw err;
+  }
 }
 
 async function bunnyUpload(path, buffer, contentType) {
@@ -21278,8 +21329,21 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
   console.log(`[BunnySync] Starting (${[...requestedKinds].join(', ') || 'no file kinds'})...`);
   const startTime = Date.now();
   let uploaded = 0, metadataUpdated = 0, skipped = 0, errors = 0;
-  let thumbsUploaded = 0, thumbErrors = 0;
+  let thumbsUploaded = 0, thumbsCleared = 0, thumbErrors = 0;
   let uploadsSincePause = 0;
+
+  const syncBrochureThumb = async (pkg, file) => {
+    try {
+      const result = await ensureBrosurThumb(pkg, file);
+      if (result === 'uploaded') thumbsUploaded++;
+      if (result === 'cleared') thumbsCleared++;
+    } catch (thumbErr) {
+      // Thumb failure never blocks the canonical brochure.  Readers fall back
+      // to the full fingerprint-checked asset while this is retried.
+      console.error(`[BunnySync] Thumb ${pkg.jadwal_id}: ${thumbErr.message}`);
+      thumbErrors++;
+    }
+  };
 
   const { data: packages, error } = await supabase
     .from('umroh_schedules')
@@ -21314,6 +21378,8 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
 
   for (const pkg of packages) {
     for (const config of fileConfigs) {
+      let currentFileMeta = null;
+      let currentDecision = null;
       try {
         if (!pkg[config.sourceField]) {
           skipped++;
@@ -21326,22 +21392,13 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
           bytes: file.bytes,
           contentType: file.contentType,
         };
-        // Thumb dipastikan ada SEBELUM percabangan skip/verify: kalau brosurnya
-        // tidak berubah (action 'skip') kita tetap perlu membuat thumb yang
-        // belum pernah ada — inilah jalur backfill-nya.
-        if (config.kind === 'brosur') {
-          try {
-            if (await ensureBrosurThumb(pkg, file) === 'uploaded') thumbsUploaded++;
-          } catch (thumbErr) {
-            // Thumb gagal TIDAK boleh menggagalkan sync brosur aslinya; frontend
-            // otomatis jatuh ke URL brosur penuh saat thumb tidak ada.
-            console.error(`[BunnySync] Thumb ${pkg.jadwal_id}: ${thumbErr.message}`);
-            thumbErrors++;
-          }
-        }
+        currentFileMeta = fileMeta;
 
         const decision = getCdnFileDecision(pkg, config.kind, fileMeta);
+        currentDecision = decision;
         if (decision.action === 'skip') {
+          // Unchanged brochures still need thumbnail backfill/repair.
+          if (config.kind === 'brosur') await syncBrochureThumb(pkg, file);
           skipped++;
           continue;
         }
@@ -21349,11 +21406,15 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
           const cdnFile = await downloadFile(pkg[config.cdnField]);
           if (cdnFile.sha256 === fileMeta.sha256 && cdnFile.bytes === fileMeta.bytes) {
             const update = buildCdnMetadataUpdate(config.kind, pkg[config.cdnField], fileMeta);
-            await supabase
+            const { error: updateError } = await supabase
               .from('umroh_schedules')
               .update(update)
               .eq('jadwal_id', pkg.jadwal_id)
               .eq('year_code', pkg.year_code);
+            if (updateError) throw new Error(`metadata update failed: ${updateError.message}`);
+            if (config.kind === 'brosur') {
+              await syncBrochureThumb({ ...pkg, ...update }, file);
+            }
             metadataUpdated++;
             console.log(`[BunnySync] ${config.label} ${pkg.jadwal_id}: metadata updated (cdn unchanged)`);
             continue;
@@ -21371,16 +21432,43 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
         );
         await bunnyUpload(path, file.buffer, file.contentType);
         const cdnUrl = `https://${BUNNY_CDN_HOSTNAME}/${path}`;
-        const update = buildCdnMetadataUpdate(config.kind, cdnUrl, fileMeta);
-        await supabase
+        const update = {
+          ...buildCdnMetadataUpdate(config.kind, cdnUrl, fileMeta),
+          // Main brochure and source fingerprint become authoritative in one
+          // write.  The old thumb is hidden until its matching replacement is
+          // ready, so the grid and modal cannot disagree across versions.
+          ...(config.kind === 'brosur' ? { brosur_thumb_cdn: null } : {}),
+        };
+        const { error: updateError } = await supabase
           .from('umroh_schedules')
           .update(update)
           .eq('jadwal_id', pkg.jadwal_id)
           .eq('year_code', pkg.year_code);
+        if (updateError) throw new Error(`metadata update failed: ${updateError.message}`);
+        if (config.kind === 'brosur') {
+          await syncBrochureThumb({ ...pkg, ...update }, file);
+        }
         uploaded++;
         uploadsSincePause++;
         console.log(`[BunnySync] ${config.label} ${pkg.jadwal_id}: uploaded (${decision.reason})`);
       } catch (err) {
+        if (config.kind === 'brosur' && pkg.brosur_cdn && currentFileMeta && currentDecision?.action !== 'skip') {
+          // We have proved the source bytes need verification/replacement.  If
+          // that process fails, retain the new fingerprint for diagnostics but
+          // stop advertising the known-old main image and thumbnail.
+          const invalidation = {
+            ...buildCdnInvalidationUpdate('brosur', currentFileMeta),
+            brosur_thumb_cdn: null,
+          };
+          const { error: invalidationError } = await supabase
+            .from('umroh_schedules')
+            .update(invalidation)
+            .eq('jadwal_id', pkg.jadwal_id)
+            .eq('year_code', pkg.year_code);
+          if (invalidationError) {
+            console.error(`[BunnySync] Brosur ${pkg.jadwal_id}: stale cache invalidation failed: ${invalidationError.message}`);
+          }
+        }
         console.error(`[BunnySync] ${config.label} ${pkg.jadwal_id}: ${err.message}`);
         errors++;
       }
@@ -21394,7 +21482,7 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${thumbsUploaded} thumbs, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors, ${thumbErrors} thumb errors in ${elapsed}s`);
+  console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${thumbsUploaded} thumbs, ${thumbsCleared} stale thumbs cleared, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors, ${thumbErrors} thumb errors in ${elapsed}s`);
 }
 
 // Schedule and daily timers may land on the same minute. Serialize file scans so
@@ -21603,11 +21691,11 @@ app.all('/api/{*path}', async (req, res) => {
 // Cloudflare-nya menyerah dgn 522 di ~19.5s. Timeout di atas itu memberi
 // regen lambat-tapi-sukses kesempatan selesai, dan membuat kita menerima
 // status upstream asli alih-alih meng-abort jadi 502 palsu.
-async function fetchWithTimeout(url, timeoutMs = 25000) {
+async function fetchWithTimeout(url, timeoutMs = 25000, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timer);
     return response;
   } catch (err) {
@@ -21617,33 +21705,46 @@ async function fetchWithTimeout(url, timeoutMs = 25000) {
 }
 
 app.get(['/itinerary/{*path}', '/brosur/{*path}'], async (req, res) => {
-  const targetUrl = `https://jadwal.alhijaz.co${req.path}`;
+  const targetUrl = new URL(req.originalUrl, 'https://jadwal.alhijaz.co').toString();
+  const candidates = buildSourceDownloadCandidates(targetUrl);
+  let lastError = null;
 
-  // Try up to 2 times (initial + 1 retry)
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Direct origin first, public HTTPS as fallback — the same source ordering
+  // used by the fingerprint sync.  These stable source paths are never browser
+  // cached; immutable CDN objects handle caching after a successful mirror.
+  for (const candidate of candidates) {
     try {
-      const response = await fetchWithTimeout(targetUrl, 25000);
+      const response = await fetchWithTimeout(candidate, 25000, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+        cache: 'no-store',
+      });
       if (!response.ok) {
-        if (attempt === 0 && response.status >= 500) continue; // retry on server error
+        if (response.status >= 500) {
+          lastError = new Error(`${candidate} HTTP ${response.status}`);
+          continue;
+        }
         return res.sendStatus(response.status);
       }
 
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
       res.set('Content-Type', contentType);
       res.set('Access-Control-Allow-Origin', '*');
-      res.set('Cache-Control', 'public, max-age=3600'); // cache 1 hour
+      res.set('Cache-Control', 'no-store');
 
       const buffer = Buffer.from(await response.arrayBuffer());
       return res.send(buffer);
     } catch (error) {
-      if (attempt === 0) {
-        console.warn(`[Proxy] Attempt 1 failed for ${req.path}: ${error.message}, retrying...`);
-        continue;
-      }
-      console.error(`[Proxy] All attempts failed for ${req.path}:`, error.message);
-      return res.status(502).json({ error: 'File gagal dimuat', message: 'Server sumber tidak merespon, silakan coba lagi.' });
+      lastError = error;
+      console.warn(`[Proxy] ${candidate} failed for ${req.path}: ${error.message}`);
     }
   }
+
+  console.error(`[Proxy] All sources failed for ${req.path}:`, lastError?.message || 'no source');
+  return res.status(502).json({ error: 'File gagal dimuat', message: 'Server sumber tidak merespon, silakan coba lagi.' });
 });
 
 // ──────────────────────────────────────────────

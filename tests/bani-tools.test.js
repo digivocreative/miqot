@@ -177,6 +177,27 @@ test('list_jadwal_paket mengembalikan { ok:true, data:{ rows, total, ... } }', a
   assert.equal(supabase.calls[0][1], 'umroh_schedules');
 });
 
+test('list_jadwal_paket tidak mengekspos brosur CDN dari hash sumber lama', async () => {
+  const supabase = stubSupabase({
+    data: [{
+      jadwal_id: 'JBU1589',
+      jadwal_nama: 'UMRAH EKONOMIS PLUS AL ULA 9HR',
+      seat_sisa: '10',
+      berangkat_tgl: '2026-10-10',
+      pulang_tgl: '2026-10-18',
+      paket_harga: PAKET_HARGA,
+      brosur: 'https://origin/brosur-terbaru.webp',
+      brosur_cdn: 'https://cdn/brosur/JBU1589-aaaaaaaaaaaaaaaa.webp',
+      brosur_source_sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    }],
+    error: null,
+  });
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {});
+  assert.equal(out.ok, true);
+  assert.equal(out.data.rows[0].brosur, 'https://origin/brosur-terbaru.webp');
+});
+
 test('list_jadwal_paket available_only membuang paket sold out', async () => {
   const supabase = stubSupabase({
     data: [

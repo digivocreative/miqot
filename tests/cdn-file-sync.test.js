@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  buildBrochureCacheReset,
+  buildCdnInvalidationUpdate,
   buildCdnMetadataUpdate,
   buildContentAddressedCdnPath,
   buildItineraryParseCandidates,
   buildSourceDownloadCandidates,
+  canonicalScheduleSourceIdentity,
   getCdnFileDecision,
   resolveScheduleBrochureSource,
 } from '../lib/cdn-file-sync.js';
@@ -40,6 +43,38 @@ test('resolveScheduleBrochureSource: uses the official August brochure for JBU14
       brosur: 'https://jadwal.alhijaz.co/brosur/future-package',
     }),
     'https://jadwal.alhijaz.co/brosur/future-package',
+  );
+});
+
+test('canonicalScheduleSourceIdentity: treats public host and direct IP as the same asset', () => {
+  assert.equal(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/paket-baru?x=1'),
+    canonicalScheduleSourceIdentity('http://115.124.86.220/brosur/paket-baru?x=1'),
+  );
+});
+
+test('buildBrochureCacheReset: clears every derived asset when source locator changes', () => {
+  assert.deepEqual(
+    buildBrochureCacheReset(
+      { brosur: 'http://jadwal.alhijaz.co/brosur/versi-lama' },
+      'http://jadwal.alhijaz.co/brosur/versi-baru',
+    ),
+    {
+      brosur_cdn: null,
+      brosur_thumb_cdn: null,
+      brosur_source_sha256: null,
+      brosur_source_bytes: null,
+      brosur_source_content_type: null,
+      brosur_cdn_synced_at: null,
+    },
+  );
+
+  assert.deepEqual(
+    buildBrochureCacheReset(
+      { brosur: 'http://jadwal.alhijaz.co/brosur/paket-sama' },
+      'http://115.124.86.220/brosur/paket-sama',
+    ),
+    {},
   );
 });
 
@@ -154,6 +189,48 @@ test('buildCdnMetadataUpdate: writes CDN and fingerprint metadata for one file t
     itinerary_source_content_type: 'application/pdf',
     itinerary_cdn_synced_at: '2026-05-22T00:00:00.000Z',
   });
+});
+
+test('buildCdnInvalidationUpdate: keeps current source fingerprint but removes stale CDN', () => {
+  assert.deepEqual(
+    buildCdnInvalidationUpdate('brosur', {
+      sha256: 'new-source-sha',
+      bytes: 456,
+      contentType: 'image/webp',
+    }),
+    {
+      brosur_cdn: null,
+      brosur_source_sha256: 'new-source-sha',
+      brosur_source_bytes: 456,
+      brosur_source_content_type: 'image/webp',
+      brosur_cdn_synced_at: null,
+    },
+  );
+});
+
+test('schedule sync invalidates brochure cache in the same upsert as a changed source URL', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const sync = server.slice(
+    server.indexOf('async function syncUmrohSchedules()'),
+    server.indexOf('// Bunny CDN: Sync brosur & itinerary files'),
+  );
+
+  assert.match(sync, /\.select\('jadwal_id, brosur'\)/);
+  assert.match(sync, /buildBrochureCacheReset\(previousById\.get\(String\(p\.jadwal_id\)\), brochureSource\)/);
+});
+
+test('document source proxy bypasses browser and service-worker stale caches', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const vite = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  const proxy = server.slice(
+    server.indexOf("app.get(['/itinerary/{*path}', '/brosur/{*path}']"),
+    server.indexOf('// Landing Page: /:slug/umroh'),
+  );
+
+  assert.match(proxy, /buildSourceDownloadCandidates\(targetUrl\)/);
+  assert.match(proxy, /cache: 'no-store'/);
+  assert.match(proxy, /res\.set\('Cache-Control', 'no-store'\)/);
+  assert.match(vite, /urlPattern: \/\^\\\/\(itinerary\|brosur\)\\\/\.\*\/i,[\s\S]*?handler: 'NetworkOnly'/);
 });
 
 // Salinan CDN dulu (byte-nya yang di-fingerprint), origin sebagai jaring
