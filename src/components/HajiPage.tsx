@@ -1033,7 +1033,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                       <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{item.nama || '-'}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                          {item.nomor_porsi || item.id_haji} • {item.paket_detail || item.paket || '-'}
+                          {item.id_haji || '-'} • {item.paket_detail || item.paket || '-'}
                         </p>
                         {item.notes && (
                           <span className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-[1px] rounded">Note</span>
