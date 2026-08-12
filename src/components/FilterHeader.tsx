@@ -7,11 +7,18 @@ import type { UmrohPackage } from '@/types';
 import {
   FilterMode,
   SortOrder,
+  MODES_WITH_SORT,
   groupByMonth,
   extractUniqueDurations,
   extractUniqueLandings,
   type MonthGroup,
 } from '@/utils';
+import {
+  getMusimDinginWindow,
+  listPackageTypeOptions,
+  packageTypeLabel,
+  umrohTypeSubject,
+} from '@/lib/packageType';
 import logoAlhijazColored from '@/new-logo/new-logo-alhijaz-colored.png';
 import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home } from 'lucide-react';
@@ -31,9 +38,9 @@ export interface FilterHeaderProps {
   availableYears?: string[];
   /** Current filter mode */
   filterMode: FilterMode;
-  /** Secondary filter value (month key) */
+  /** Secondary filter value (month key, durasi, kode landing, atau tipe paket) */
   secondaryValue?: string;
-  /** Current sort order for AVAILABLE/PROMO */
+  /** Current sort order — hanya untuk mode tanpa sub-nilai sendiri (MODES_WITH_SORT) */
   sortOrder?: SortOrder | null;
   /** Callbacks */
   onYearChange: (year: string) => void;
@@ -61,7 +68,7 @@ export interface FilterHeaderProps {
 }
 
 // Trigger sizing for the filter-row dropdowns: two of them share the row (flex-1),
-// so on <sm the default variant's text-sm truncates long labels ("UMROH MUSIM DINGIN",
+// so on <sm the default variant's text-sm truncates long labels ("Umroh Musim Dingin",
 // "Madinah (12 paket)"). Shrink font + padding on mobile only; ≥sm keeps the
 // default-variant look. Passed as triggerSizeClass (replaces, not appends).
 // h-9 pins the mobile height to the search row below it (both 36px); `sm:h-auto`
@@ -74,15 +81,13 @@ const FILTER_ROW_TRIGGER_SIZE =
 // responsive sizing has to come from classes, not the prop.
 const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
 
-// Filter mode options for dropdown
+// Filter mode options for dropdown.
+// 'LIBURAN_SEKOLAH' & 'UMROH CUTI 5 HARI' sengaja tidak di sini — mode URL saja
+// (lihat FilterMode di src/utils/filter-logic.ts).
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
   { value: 'LANDING DI', label: 'LANDING DI' },
-  { value: 'UMROH CUTI 5 HARI', label: 'UMROH CUTI 5 HARI' },
-  { value: 'PROMO', label: 'UMROH PROMO' },
-  { value: 'UMROH REGULER', label: 'UMROH REGULER' },
-  { value: 'UMROH MUSIM DINGIN', label: 'UMROH MUSIM DINGIN' },
-  { value: 'BINTANG 5', label: 'UMROH BINTANG 5' },
+  { value: 'TIPE PAKET', label: 'TIPE PAKET' },
   { value: 'DURASI PERJALANAN', label: 'DURASI PERJALANAN' },
   { value: 'DATA PER-BULAN', label: 'DATA PER-BULAN' },
   { value: 'SEMUA DATA', label: 'SEMUA DATA' },
@@ -276,8 +281,38 @@ export function FilterHeader({
     return extractUniqueLandings(availablePackages);
   }, [availablePackages]);
 
+  // Jendela musim dingin dihitung sekali per sesi — sama seperti halaman Brosur;
+  // window tidak bergeser mid-day untuk use case ini.
+  const musimDinginWindow = useMemo(() => getMusimDinginWindow(new Date()), []);
+
+  // Tipe paket: roster, urutan, label, dan gerbang "hanya yang punya paket"
+  // datang dari modul bersama, jadi daftarnya identik dengan halaman Brosur.
+  const packageTypeOptions = useMemo(() => {
+    const options = listPackageTypeOptions(availablePackages.map(umrohTypeSubject), musimDinginWindow);
+    // Sub-nilai dari tautan lama (mis. /umroh-musim-dingin di tahun tanpa paket
+    // Des/Jan) tetap ditampilkan supaya trigger tidak kosong dan user tahu
+    // filter apa yang sedang aktif.
+    if (secondaryValue && !options.some(o => o.value === secondaryValue)) {
+      options.push({ value: secondaryValue, label: packageTypeLabel(secondaryValue) });
+    }
+    return options;
+  }, [availablePackages, musimDinginWindow, secondaryValue]);
+
+  // Mode URL-saja (mis. /cuti-5-hari, /liburan-sekolah) tidak ada di roster
+  // dropdown. Tanpa entri sintetis, FilterDropdown tidak menemukan labelnya dan
+  // trigger jatuh ke placeholder '—' — pengunjung yang datang dari tautan lama
+  // tidak tahu filter apa yang sedang aktif.
+  const filterModeOptions = useMemo(() => {
+    const options = FILTER_MODE_OPTIONS.map(o => ({ value: o.value as string, label: o.label }));
+    if (!options.some(o => o.value === filterMode)) {
+      options.push({ value: filterMode, label: filterMode.replace(/_/g, ' ') });
+    }
+    return options;
+  }, [filterMode]);
+
   // Check if secondary dropdown should be shown
-  const showSortDropdown = filterMode === 'AVAILABLE' || filterMode === 'LIBURAN_SEKOLAH' || filterMode === 'UMROH CUTI 5 HARI' || filterMode === 'PROMO' || filterMode === 'UMROH REGULER' || filterMode === 'UMROH MUSIM DINGIN' || filterMode === 'BINTANG 5';
+  const showSortDropdown = MODES_WITH_SORT.includes(filterMode);
+  const showTypeDropdown = filterMode === 'TIPE PAKET';
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
   const showLandingDropdown = filterMode === 'LANDING DI';
@@ -402,13 +437,30 @@ export function FilterHeader({
               onSecondaryValueChange('');
               onSortOrderChange?.(null);
             }}
-            options={FILTER_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            options={filterModeOptions}
             ariaLabel="Filter paket"
             widthClass="flex-1"
             showAllOptions
           />
 
-          {/* Secondary Dropdown: Sort Order (for AVAILABLE & PROMO) */}
+          {/* Secondary Dropdown: Package Type — roster identik halaman Brosur */}
+          {showTypeDropdown && (
+            <FilterDropdown
+              variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
+              portal
+              value={secondaryValue || ''}
+              onChange={onSecondaryValueChange}
+              options={[
+                { value: '', label: '- Pilih Tipe -' },
+                ...packageTypeOptions,
+              ]}
+              ariaLabel="Pilih Tipe Paket"
+              widthClass="flex-1"
+            />
+          )}
+
+          {/* Secondary Dropdown: Sort Order (mode tanpa sub-nilai sendiri) */}
           {showSortDropdown && (
             <FilterDropdown
               variant="default"

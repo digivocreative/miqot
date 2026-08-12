@@ -16,15 +16,27 @@ import {
   BROCHURE_OSWALD_FONT,
   BROCHURE_ROBOTO_CONDENSED_FONT,
   BROCHURE_PLAYFAIR_FONT,
-  PACKAGE_TYPES,
-  derivePackageType,
-  hasKeretaCepat,
   type BrochureMonth,
   type BrochurePackage,
   type BrochureAgent,
   type BrochureHotel,
 } from './BrochureScheduleTemplate';
-import { brochurePackageSellsTier, isWaitingListPackageName, projectBrochurePackageToTier } from '../../lib/brochure-schedule.js';
+import { isWaitingListPackageName, projectBrochurePackageToTier } from '../../lib/brochure-schedule.js';
+// Roster "Tipe Paket" dipakai bersama halaman Jadwal publik — ubah aturannya di
+// src/lib/packageType.js saja, jangan menulis predikat kedua di sini.
+import {
+  PACKAGE_TYPE_UMROH_SAJA,
+  PACKAGE_TYPE_UMROH_RAHMAH,
+  PACKAGE_TYPE_UMROH_PROMO,
+  PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
+  PACKAGE_TYPE_KERETA_CEPAT,
+  TIER_FOR_PACKAGE_TYPE,
+  brochureTypeSubject,
+  getMusimDinginWindow,
+  listPackageTypeOptions,
+  matchesPackageType,
+  type MusimDinginWindow,
+} from '@/lib/packageType';
 import { BrochurePromptModal } from './BrochurePromptModal';
 import BrochurePaketGrid, { BrochurePaketGridSkeleton } from './BrochurePaketGrid';
 import SegmentedControl from './common/SegmentedControl';
@@ -256,85 +268,22 @@ const FILTER_DIM_LABELS: Record<FilterDim, string> = {
   landing: 'Landing',
 };
 
-const TYPE_UMROH_SAJA = 'UMROH SAJA';
-const TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
-const TYPE_UMROH_PROMO = 'UMROH PROMO';
-const TYPE_UMROH_MUSIM_DINGIN = 'UMROH MUSIM DINGIN';
-const TYPE_KERETA_CEPAT = 'KERETA CEPAT';
-
-interface MusimDinginWindow {
-  yearOfDec: number;
-}
-
-// Pilih musim dingin terdekat relatif "today".
-//   - Today di bulan Des  → window = Des(year)   + Jan(year+1)
-//   - Today di bulan Jan  → window = Des(year-1) + Jan(year)        (current winter)
-//   - Today Feb–Nov       → window = Des(year)   + Jan(year+1)      (next winter)
-function getMusimDinginWindow(today: Date): MusimDinginWindow {
-  const month = today.getUTCMonth(); // 0=Jan, 11=Des
-  const year = today.getUTCFullYear();
-  if (month === 11) return { yearOfDec: year };
-  if (month === 0) return { yearOfDec: year - 1 };
-  return { yearOfDec: year };
-}
-
-function isMusimDinginPackage(pkg: BrochurePackage, dinginWindow: MusimDinginWindow): boolean {
-  const iso = pkg.berangkat_tgl;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-  const dt = new Date(`${iso}T00:00:00.000Z`);
-  if (Number.isNaN(dt.getTime())) return false;
-  // Round-trip check: reject calendar overflow like '2026-11-31' (parses to Dec 1).
-  // Same pattern as formatTglID in BrochureScheduleTemplate.tsx.
-  const [, mm, dd] = iso.split('-').map(Number);
-  if (dt.getUTCMonth() + 1 !== mm || dt.getUTCDate() !== dd) return false;
-  const y = dt.getUTCFullYear();
-  const m = dt.getUTCMonth();
-  return (y === dinginWindow.yearOfDec && m === 11) || (y === dinginWindow.yearOfDec + 1 && m === 0);
-}
+// Alias lokal supaya brochureLabelForType & tema winter di bawah tetap terbaca
+// seperti semula; nilainya datang dari roster bersama (src/lib/packageType.js).
+const TYPE_UMROH_SAJA = PACKAGE_TYPE_UMROH_SAJA;
+const TYPE_UMROH_RAHMAH = PACKAGE_TYPE_UMROH_RAHMAH;
+const TYPE_UMROH_PROMO = PACKAGE_TYPE_UMROH_PROMO;
+const TYPE_UMROH_MUSIM_DINGIN = PACKAGE_TYPE_UMROH_MUSIM_DINGIN;
+const TYPE_KERETA_CEPAT = PACKAGE_TYPE_KERETA_CEPAT;
 
 /**
- * Keanggotaan filter Tipe Paket yang menunjuk sebuah tier (lihat
- * TIER_FOR_PACKAGE_TYPE) mengikuti apa yang benar-benar DIJUAL paket, bukan
- * namanya. Nama tak bisa dipercaya: cleanBrochurePackageName membuang frasa
- * "MIX PAKET RAHMAH & UHUD" utuh, jadi paket yang menjual tier RAHMAH
- * kehilangan tokennya dan tak pernah muncul di filter "Umroh Rahmah" —
- * sementara bentuk tanpa "&" tetap lolos. Sumbernya sama dengan yang memasang
- * harga (projectBrochurePackageToTier), jadi keanggotaan dan harga tak bisa
- * berselisih: setiap paket di filter RAHMAH dijamin punya harga RAHMAH.
+ * Keanggotaan tipe paket sepenuhnya ditentukan roster bersama; halaman ini hanya
+ * memasok adapter dari BrochurePackage. Proyeksi harga ke tier (di bawah) tetap
+ * milik brosur — itu urusan TAMPILAN, bukan keanggotaan.
  */
-function packageSellsTier(pkg: BrochurePackage, tier: string): boolean {
-  const sells = brochurePackageSellsTier(pkg, tier);
-  if (sells !== null) return sells;
-  // null = backend belum mengirim `tiers` (respons API versi lama). Tidak tahu
-  // ≠ tidak punya, jadi jatuh balik ke uji nama supaya filter tidak mendadak
-  // kosong sebelum server ter-deploy.
-  return pkg.nama.toUpperCase().split(/[^A-Z0-9]+/).includes(tier.toUpperCase());
+function matchesBrochureType(pkg: BrochurePackage, type: string, musimDinginWindow: MusimDinginWindow): boolean {
+  return matchesPackageType(brochureTypeSubject(pkg), type, musimDinginWindow);
 }
-
-function isPromoPackage(pkg: BrochurePackage): boolean {
-  return pkg.isPromo === true || /\bPROMO\b/i.test(pkg.nama);
-}
-
-function matchesPackageType(pkg: BrochurePackage, type: string, musimDinginWindow: MusimDinginWindow): boolean {
-  if (type === TYPE_UMROH_MUSIM_DINGIN) return isMusimDinginPackage(pkg, musimDinginWindow);
-  if (type === TYPE_UMROH_PROMO) return isPromoPackage(pkg);
-  // Kereta Cepat itu fasilitas, bukan tier maupun destinasi: sebuah paket bisa
-  // sekaligus PLUS TURKI dan Kereta Cepat, jadi ia tidak lewat derivePackageType
-  // (yang memilih SATU tipe per paket) dan tidak menggeser harga ke tier lain.
-  if (type === TYPE_KERETA_CEPAT) return hasKeretaCepat(pkg.nama);
-  const tier = TIER_FOR_PACKAGE_TYPE[type];
-  if (tier) return packageSellsTier(pkg, tier);
-  return derivePackageType(pkg.nama) === type;
-}
-
-// Tipe paket yang sebetulnya menunjuk sebuah TIER harga di paket_harga AWAPI.
-// Paket "MIX" menjual dua tier sekaligus (mis. RAHMAH + UHUD), dan backend
-// mengirim harga tier TERMURAH sebagai "mulai dari" — di bawah filter ini itu
-// jadi harga UHUD berlabel RAHMAH, selisihnya sampai belasan juta. Filter lain
-// (Promo, Musim Dingin, Plus …) bukan tier, jadi tidak dipetakan ke sini.
-const TIER_FOR_PACKAGE_TYPE: Record<string, string> = {
-  [TYPE_UMROH_RAHMAH]: 'RAHMAH',
-};
 
 function brochureLabelForType(type: string, fallback: string): string {
   if (type === TYPE_UMROH_SAJA) return 'REGULER';
@@ -538,8 +487,8 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   // nothing left to sell there (sold-out rows still render as social proof
   // inside months that have availability). When "Tersedia saja" is active,
   // tipe/maskapai options are also based only on non-sold-out packages.
-  // Order: months ascending, types in PACKAGE_TYPES priority, airlines
-  // priority then alphabetical.
+  // Order: months ascending, types in roster order (src/lib/packageType.js),
+  // airlines priority then alphabetical.
   const availableValues = useMemo<Array<{ value: string; label: string }>>(() => {
     if (filterDim === 'bulan') {
       return months
@@ -547,25 +496,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         .map(m => ({ value: m.key, label: m.label }));
     }
     if (filterDim === 'tipe') {
-      const present = new Set(optionPackages.map(p => derivePackageType(p.nama)));
-      const ordered: Array<{ value: string; label: string }> = [];
-      if (present.has(TYPE_UMROH_SAJA)) ordered.push({ value: TYPE_UMROH_SAJA, label: 'Umroh Saja' });
-      if (optionPackages.some(p => isMusimDinginPackage(p, musimDinginWindow))) {
-        ordered.push({ value: TYPE_UMROH_MUSIM_DINGIN, label: 'Umroh Musim Dingin' });
-      }
-      // Lewat matchesPackageType, bukan predikat sendiri: daftar opsi dan isi
-      // filter wajib memakai aturan keanggotaan yang sama persis.
-      if (optionPackages.some(p => matchesPackageType(p, TYPE_UMROH_RAHMAH, musimDinginWindow))) {
-        ordered.push({ value: TYPE_UMROH_RAHMAH, label: 'Umroh Rahmah' });
-      }
-      if (optionPackages.some(isPromoPackage)) ordered.push({ value: TYPE_UMROH_PROMO, label: 'Umroh Promo' });
-      if (optionPackages.some(p => matchesPackageType(p, TYPE_KERETA_CEPAT, musimDinginWindow))) {
-        ordered.push({ value: TYPE_KERETA_CEPAT, label: 'Kereta Cepat' });
-      }
-      for (const t of PACKAGE_TYPES) {
-        if (present.has(t.value)) ordered.push({ value: t.value, label: t.value.replace(/^PLUS /, 'Plus ') });
-      }
-      return ordered;
+      // Roster, urutan, label, dan gerbang "hanya yang punya paket" semuanya dari
+      // modul bersama — halaman Jadwal publik menampilkan daftar yang sama persis.
+      return listPackageTypeOptions(optionPackages.map(brochureTypeSubject), musimDinginWindow);
     }
     if (filterDim === 'maskapai') {
       const set = new Set(optionPackages.map(p => p.maskapai).filter((m): m is string => !!m && m.trim().length > 0));
@@ -678,7 +611,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       const brochureLabel = brochureLabelForType(filterValue, opt?.label || filterValue);
       const tier = TIER_FOR_PACKAGE_TYPE[filterValue] ?? null;
       const matches = allPackages
-        .filter(p => matchesPackageType(p, filterValue, musimDinginWindow))
+        .filter(p => matchesBrochureType(p, filterValue, musimDinginWindow))
         // Harga & hotel mengikuti tier yang sedang difilter — tanpa ini paket
         // MIX tampil dengan harga tier termurahnya (UHUD/HEMAT) padahal
         // judulnya RAHMAH.

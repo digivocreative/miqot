@@ -175,7 +175,8 @@ Snapshot audit 2026-07-19:
 ### Public
 
 - Jadwal umroh dengan filter paket, maskapai, tanggal, harga, seat, hotel, dan route.
-- Semua mode filter selain `SEMUA DATA` hanya menampilkan paket dengan `seatSisa > 0`; opsi bulan, durasi, dan kota landing juga dibentuk dari paket yang masih tersedia agar pilihan sekunder tidak berujung kosong.
+- Semua mode filter selain `SEMUA DATA` hanya menampilkan paket dengan `seatSisa > 0`; opsi tipe paket, bulan, durasi, dan kota landing juga dibentuk dari paket yang masih tersedia agar pilihan sekunder tidak berujung kosong.
+- Mode `TIPE PAKET` (slug `/tipe-paket`, sub-nilai di query `?tipe=`) memakai roster yang sama persis dengan dimensi "Tipe Paket" halaman Brosur. Roster, urutan, label, dan predikat keanggotaannya tinggal di `src/lib/packageType.js` — ubah di sana saja, jangan menulis predikat kedua di halaman mana pun. Keanggotaan "Umroh Rahmah" ditentukan tier di `paket_harga`, bukan nama paket.
 - Agent-specific public page by slug and custom domain.
 - Single package deep link and OG injection.
 - Package card variants: default, split, spotlight, ticket, tiled, magazine.
@@ -666,6 +667,7 @@ Catatan audit 2026-07-12 yang masih berlaku:
 - Dashboard dan `/f/:code` kini memakai shared status presentation serta `FlightRouteLine`; perubahan status atau animasi harus dilakukan pada modul shared.
 - Header flight share tidak lagi menampilkan badge status duplikat. Status tunggal berada di hero, sementara OG image dinamis menampilkan fakta itinerary yang aman dicache.
 - Filter publik selain `SEMUA DATA` hanya memproses paket yang masih memiliki kursi; opsi filter sekunder berasal dari subset tersedia yang sama.
+- Filter jadwal "Umroh Cuti 5 Hari", "Umroh Promo", "Umroh Reguler", "Umroh Musim Dingin", dan "Umroh Bintang 5" dicabut dari dropdown dan digantikan mode `TIPE PAKET` (roster bersama dengan Brosur, `src/lib/packageType.js`). Spec/plan bertanggal 2026-04-18 soal filter cuti 5 hari karena itu arsip, bukan keadaan sekarang. Slug lama `/umroh-promo`, `/umroh-reguler`, `/umroh-musim-dingin`, `/bintang-5` TETAP dikenali sebagai alias ke tipe terdekat (`LEGACY_FILTER_SLUGS`) — jangan dihapus: `src/main.tsx` memakai `getFilterModeFromSlug` sebagai gerbang negatif, jadi slug tak dikenal dirender sebagai halaman detail paket "Paket tidak ditemukan" (HTTP 200). `/cuti-5-hari` tidak punya padanan di roster sehingga modenya dipertahankan sebagai mode URL-saja, seperti `liburan-sekolah`.
 - Rahmah July Zam-zam selection persists in `booking_persiapan` through the public tour-leader prep API.
 - `src/main.tsx` already has stale-build and stuck-SW escape hatches; preserve them.
 - `docs/project-summary.md` and `docs/DESIGN-SYSTEM.md` were refreshed from current source structure and route audit.

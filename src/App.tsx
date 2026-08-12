@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages, refreshPackages } from '@/services';
-import { filterPackages, sortPackages, getFilterSlug, getFilterModeFromSlug, type FilterMode, type SortOrder } from '@/utils';
+import { filterPackages, sortPackages, getFilterSlug, resolveFilterSlug, MODES_WITH_SORT, type FilterMode, type SortOrder } from '@/utils';
+import { packageTypeFromSlug, packageTypeLabel, packageTypeSlug } from '@/lib/packageType';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
@@ -65,6 +66,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   const [selectedYear, setSelectedYear] = useState('1448');
   const [filterMode, setFilterMode] = useState<FilterMode>('AVAILABLE');
+  // Mode aktif untuk handler yang dipanggil di event yang SAMA dengan pergantian
+  // mode (lihat handleSecondaryValueChange) — di sana state closure masih basi.
+  const filterModeRef = useRef<FilterMode>('AVAILABLE');
+  filterModeRef.current = filterMode;
   const [filterSecondaryValue, setFilterSecondaryValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -189,14 +194,21 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       setCurrentAgent(null);
     }
 
-    // Apply filter from URL slug
+    // Apply filter from URL slug. Slug lama (mis. /umroh-promo) membawa preset
+    // tipe paket — lihat LEGACY_FILTER_SLUGS di src/utils/filter-logic.ts.
     if (filterSlugFromUrl) {
-      const modeFromUrl = getFilterModeFromSlug(filterSlugFromUrl);
-      if (modeFromUrl) {
-        setFilterMode(modeFromUrl);
+      const resolved = resolveFilterSlug(filterSlugFromUrl);
+      if (resolved) {
+        setFilterMode(resolved.mode);
+        // `?tipe=` menang atas preset slug: itu yang ditulis saat user memilih
+        // tipe lain, jadi URL yang di-share tidak pernah berbohong.
+        const typeFromQuery = resolved.mode === 'TIPE PAKET'
+          ? packageTypeFromSlug(new URLSearchParams(window.location.search).get('tipe') || '')
+          : null;
+        const secondary = typeFromQuery || resolved.secondaryValue;
+        if (secondary) setFilterSecondaryValue(secondary);
         // Set default sort for modes with sort sub-dropdown
-        const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH MUSIM DINGIN', 'BINTANG 5'];
-        setSortOrder(modesWithSort.includes(modeFromUrl) ? 'TANGGAL_TERDEKAT' : null);
+        setSortOrder(MODES_WITH_SORT.includes(resolved.mode) ? 'TANGGAL_TERDEKAT' : null);
       }
     }
 
@@ -508,17 +520,29 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   };
 
   const handleFilterModeChange = (mode: FilterMode) => {
+    filterModeRef.current = mode;
     setFilterMode(mode);
     setFilterSecondaryValue('');
     // Set default sort for modes with sort sub-dropdown
-    const modesWithSort: FilterMode[] = ['AVAILABLE', 'LIBURAN_SEKOLAH', 'PROMO', 'UMROH REGULER', 'UMROH MUSIM DINGIN', 'BINTANG 5'];
-    setSortOrder(modesWithSort.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
+    setSortOrder(MODES_WITH_SORT.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
     // Sync URL slug
     window.history.replaceState(null, '', buildUrlPath(mode));
   };
 
   const handleSecondaryValueChange = (value: string) => {
     setFilterSecondaryValue(value);
+    // Tipe paket ikut ke URL sebagai `?tipe=`. Tanpa ini, pengunjung yang masuk
+    // lewat slug lama (mis. /umroh-promo) lalu memilih tipe lain akan menyalin
+    // URL yang menjanjikan filter yang sudah tidak aktif. Query, bukan segmen
+    // ketiga: segmen ketiga bisa dibaca src/main.tsx sebagai ID paket.
+    //
+    // Lewat ref, BUKAN state: dropdown mode memanggil onSecondaryValueChange('')
+    // di event yang SAMA persis setelah onFilterModeChange, dan `filterMode` di
+    // closure masih mode LAMA di titik itu — pindah dari Tipe Paket ke Landing
+    // akan menulis balik URL ke /tipe-paket padahal modenya sudah bukan itu.
+    if (filterModeRef.current !== 'TIPE PAKET') return;
+    const path = buildUrlPath('TIPE PAKET');
+    window.history.replaceState(null, '', value ? `${path}?tipe=${packageTypeSlug(value)}` : path);
   };
 
   // Saat pindah kartu (A terbuka → tap B), panel A ditutup INSTAN (prop
@@ -872,7 +896,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                 </p>
                 <p className="text-gray-400 text-sm mb-6 max-w-xs mx-auto">
                   Tidak ada paket dengan kriteria "{filterMode}"
-                  {filterSecondaryValue && ` - ${filterSecondaryValue}`}
+                  {filterSecondaryValue && ` - ${filterMode === 'TIPE PAKET' ? packageTypeLabel(filterSecondaryValue) : filterSecondaryValue}`}
                   {searchQuery && ` dan pencarian "${searchQuery}"`}
                 </p>
                 <button

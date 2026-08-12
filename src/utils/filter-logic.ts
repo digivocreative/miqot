@@ -6,20 +6,36 @@
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
 import { getLandingAirportCode, getLandingCityName } from './journey';
+import {
+  getMusimDinginWindow,
+  matchesPackageType,
+  umrohTypeSubject,
+  PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
+  PACKAGE_TYPE_UMROH_PROMO,
+  PACKAGE_TYPE_UMROH_RAHMAH,
+  PACKAGE_TYPE_UMROH_SAJA,
+} from '@/lib/packageType';
 
 // ============================================
 // Types
 // ============================================
 
+/**
+ * Mode filter halaman jadwal publik.
+ *
+ * 'LIBURAN_SEKOLAH' dan 'UMROH CUTI 5 HARI' sengaja TIDAK ada di dropdown
+ * (FILTER_MODE_OPTIONS) tapi tetap hidup di sini: slug-nya sudah tersebar di
+ * WhatsApp/iklan dan masih menyaring paket nyata. Menghapus slug-nya bukan cuma
+ * menghilangkan filter — src/main.tsx memakai getFilterModeFromSlug sebagai
+ * gerbang negatif, jadi URL yang tak dikenali dibaca sebagai ID paket dan
+ * merender "Paket tidak ditemukan".
+ */
 export type FilterMode =
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
   | 'LANDING DI'     // Filter berdasarkan kota landing (Jeddah/Madinah/dll)
-  | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026
-  | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari
-  | 'PROMO'          // Filter paket promo
-  | 'UMROH REGULER'  // Hanya Mekkah & Madinah
-  | 'UMROH MUSIM DINGIN' // Keberangkatan Desember-Januari
-  | 'BINTANG 5'      // Semua hotel bintang 5
+  | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026 (URL saja)
+  | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari (URL saja)
+  | 'TIPE PAKET'     // Filter berdasarkan tipe paket, roster sama dengan halaman Brosur
   | 'DURASI PERJALANAN' // Filter berdasarkan durasi
   | 'DATA PER-BULAN' // Filter berdasarkan bulan keberangkatan
   | 'SEMUA DATA';    // Tampilkan semua data
@@ -32,8 +48,15 @@ export type SortOrder =
 
 export interface FilterParams {
   mode: FilterMode;
-  /** Secondary value: bulan (DATA PER-BULAN), durasi (DURASI PERJALANAN), atau kode kota landing (LANDING DI) */
+  /** Secondary value: bulan (DATA PER-BULAN), durasi (DURASI PERJALANAN), kode kota landing (LANDING DI), atau tipe paket (TIPE PAKET) */
   secondaryValue?: string;
+  /**
+   * Titik acuan "sekarang" untuk tipe paket yang bergantung waktu (Umroh Musim
+   * Dingin). Produksi membiarkannya kosong; ada supaya tes bisa deterministik —
+   * jendela musim dingin bergeser tiap tahun, jadi tanpa ini tidak ada fixture
+   * tanggal yang stabil.
+   */
+  today?: Date;
 }
 
 export interface MonthGroup {
@@ -89,10 +112,7 @@ export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
   'LANDING DI': 'landing-di',
   'LIBURAN_SEKOLAH': 'liburan-sekolah',
   'UMROH CUTI 5 HARI': 'cuti-5-hari',
-  'PROMO': 'umroh-promo',
-  'UMROH REGULER': 'umroh-reguler',
-  'UMROH MUSIM DINGIN': 'umroh-musim-dingin',
-  'BINTANG 5': 'bintang-5',
+  'TIPE PAKET': 'tipe-paket',
   'DURASI PERJALANAN': 'durasi-perjalanan',
   'DATA PER-BULAN': 'data-per-bulan',
   'SEMUA DATA': 'semua-data',
@@ -105,14 +125,47 @@ export const SLUG_TO_FILTER_MODE: Record<string, FilterMode> = Object.fromEntrie
     .map(([mode, slug]) => [slug, mode as FilterMode])
 ) as Record<string, FilterMode>;
 
+/**
+ * Slug mode yang sudah dihapus → tipe paket terdekat di roster baru.
+ *
+ * JANGAN dihapus. Tautan `/umroh-promo`, `/{agent}/bintang-5`, dst. sudah
+ * tersebar, dan src/main.tsx:417,424 memakai getFilterModeFromSlug sebagai
+ * gerbang negatif: slug yang tak dikenal jatuh ke cabang detail paket dan
+ * merender "Paket tidak ditemukan" dengan HTTP 200 — bukan 404, bukan redirect.
+ *
+ * 'bintang-5' → Umroh Rahmah karena RAHMAH itulah tier hotel bintang 5 di
+ * kosakata Alhijaz (pill brosur "Hotel Bintang 5" dipicu token RAHMAH).
+ */
+export const LEGACY_FILTER_SLUGS: Record<string, { mode: FilterMode; secondaryValue?: string }> = {
+  'umroh-promo': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_PROMO },
+  'umroh-musim-dingin': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_MUSIM_DINGIN },
+  'umroh-reguler': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_SAJA },
+  'bintang-5': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_RAHMAH },
+};
+
+/** Mode yang memunculkan dropdown "Urutkan" — satu daftar untuk App & FilterHeader. */
+export const MODES_WITH_SORT: readonly FilterMode[] = [
+  'AVAILABLE',
+  'LIBURAN_SEKOLAH',
+  'UMROH CUTI 5 HARI',
+];
+
 /** Get URL slug for a FilterMode */
 export function getFilterSlug(mode: FilterMode): string {
   return FILTER_MODE_SLUGS[mode] || '';
 }
 
+/** Slug URL → mode + sub-nilai bawaannya (slug lama membawa preset tipe paket). */
+export function resolveFilterSlug(slug: string): { mode: FilterMode; secondaryValue?: string } | null {
+  const key = String(slug || '').toLowerCase();
+  const mode = SLUG_TO_FILTER_MODE[key];
+  if (mode) return { mode };
+  return LEGACY_FILTER_SLUGS[key] ?? null;
+}
+
 /** Get FilterMode from a URL slug. Returns null if not a valid filter slug. */
 export function getFilterModeFromSlug(slug: string): FilterMode | null {
-  return SLUG_TO_FILTER_MODE[slug] || null;
+  return resolveFilterSlug(slug)?.mode ?? null;
 }
 
 // ============================================
@@ -300,7 +353,7 @@ export function filterPackages(
   data: UmrohPackage[],
   params: FilterParams
 ): UmrohPackage[] {
-  const { mode, secondaryValue } = params;
+  const { mode, secondaryValue, today } = params;
 
   // "SEMUA DATA" is the only mode that may expose sold-out packages.
   // Every other schedule filter starts from packages that still have seats,
@@ -334,42 +387,17 @@ export function filterPackages(
     case 'UMROH CUTI 5 HARI':
       return availableData.filter(matchesCuti5Hari);
 
-    case 'PROMO':
-      // Filter promo packages only
-      return availableData.filter(pkg => pkg.isPromo);
-
-    case 'UMROH REGULER':
-      // Only packages with Mekkah & Madinah (no "PLUS" in name, no non-Saudi destinations)
-      return availableData.filter(pkg => {
-        // Exclude packages with "PLUS" in their name
-        if (pkg.nama.toUpperCase().includes('PLUS')) return false;
-        return Object.values(pkg.hotel).every(hotelInfo => {
-          const keys = Object.keys(hotelInfo);
-          const nonSaudiKeys = keys.filter(k =>
-            k.endsWith('_hotel') &&
-            !k.startsWith('mekkah') &&
-            !k.startsWith('madinah')
-          );
-          return nonSaudiKeys.length === 0;
-        });
-      });
-
-    case 'UMROH MUSIM DINGIN':
-      // Packages departing in December or January (winter season)
-      return availableData.filter(pkg => {
-        const month = new Date(pkg.keberangkatan.tgl).getMonth(); // 0-indexed
-        return month === 11 || month === 0; // December or January
-      });
-
-    case 'BINTANG 5':
-      // Packages where at least one tier has all bintang 5
-      return availableData.filter(pkg => {
-        return Object.values(pkg.hotel).some(hotelInfo => {
-          const info = hotelInfo as unknown as Record<string, string>;
-          const bintangKeys = Object.keys(info).filter(k => k.endsWith('_bintang'));
-          return bintangKeys.length > 0 && bintangKeys.every(k => info[k] === '5');
-        });
-      });
+    case 'TIPE PAKET': {
+      // Tipe paket & keanggotaannya milik roster bersama (src/lib/packageType.js)
+      // — halaman Brosur memakai daftar yang sama persis.
+      if (!secondaryValue) {
+        return availableData;
+      }
+      const musimDinginWindow = getMusimDinginWindow(today);
+      return availableData.filter(pkg =>
+        matchesPackageType(umrohTypeSubject(pkg), secondaryValue, musimDinginWindow)
+      );
+    }
 
     case 'DURASI PERJALANAN':
       // Filter by trip duration

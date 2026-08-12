@@ -2,6 +2,7 @@ import { Check } from 'lucide-react';
 import { normalizeWaNumber } from '../utils/phone';
 import WhatsAppIcon from './bio/WhatsAppIcon';
 import { getCatalogCover, DEFAULT_COVER_ID, type CatalogCover } from '@/lib/catalogCovers';
+import { KERETA_CEPAT_PATTERN } from '@/lib/packageType';
 import type { BrochureTierInfo } from '../../lib/brochure-schedule.js';
 
 export type { BrochureTierInfo };
@@ -90,27 +91,6 @@ export interface BrochureScheduleTemplateProps {
    * di header dashboard brosur (BrochureSchedulePage).
    */
   displayMode?: 'hari' | 'seat';
-}
-
-// Order matters: the first matching pattern wins. Foreign extensions are
-// listed before in-KSA local extensions (Taif, Badar) so a "PLUS DUBAI + TAIF"
-// package categorises as Dubai, not Taif.
-export const PACKAGE_TYPES: ReadonlyArray<{ value: string; pattern: RegExp }> = [
-  { value: 'PLUS TURKI',  pattern: /\b(TURK[IY]|TURKEY)\b/i },
-  { value: 'PLUS DUBAI',  pattern: /\bDUBAI\b/i },
-  { value: 'PLUS MESIR',  pattern: /\b(MESIR|CAIRO|ALEXANDRIA|EGYPT)\b/i },
-  { value: 'PLUS HAIKOU', pattern: /\bHAIKOU\b/i },
-  { value: 'PLUS REDSEA', pattern: /\bREDSEA\b/i },
-  { value: 'PLUS TAIF',   pattern: /\bTAIF\b/i },
-  { value: 'PLUS BADAR',  pattern: /\bBADAR\b/i },
-];
-
-export function derivePackageType(rawName: string | undefined | null): string {
-  const s = String(rawName || '');
-  for (const t of PACKAGE_TYPES) {
-    if (t.pattern.test(s)) return t.value;
-  }
-  return 'UMROH SAJA';
 }
 
 export const BROCHURE_W = 1080;
@@ -468,15 +448,6 @@ export function cleanPackageDisplayName(name: string): string {
     return `UMROH ${cleaned}`;
   }
   return cleaned;
-}
-
-// Satu-satunya pola "Kereta Cepat" di aplikasi: dipakai pill di brosur DAN
-// filter Tipe Paket (BrochureSchedulePage). Kalau dipisah, sebuah paket bisa
-// lolos filter tanpa memakai pill-nya — atau sebaliknya.
-export const KERETA_CEPAT_PATTERN = /\bKERETA\s+CEPAT\b/i;
-
-export function hasKeretaCepat(rawName: string | undefined | null): boolean {
-  return KERETA_CEPAT_PATTERN.test(String(rawName || ''));
 }
 
 // Order of definitions = display order of pills under the title.
