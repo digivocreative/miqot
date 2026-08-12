@@ -175,6 +175,11 @@ import {
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
+import {
+  canServeItineraryCache,
+  itineraryCacheFreshness,
+  pickCurrentItinerarySchedule,
+} from './lib/itinerary-cache-freshness.js';
 import { appendUrlVersion, buildScheduleRows, serializeScheduleRows, shouldKeepScheduleRow } from './lib/umroh-schedules.js';
 import { buildCdnMetadataUpdate, buildContentAddressedCdnPath, buildItineraryParseCandidates, buildSourceDownloadCandidates, getCdnFileDecision, resolveScheduleBrochureSource } from './lib/cdn-file-sync.js';
 import {
@@ -2382,14 +2387,38 @@ function buildHotelContext(pkg) {
   return out;
 }
 
+async function loadItineraryCacheSnapshot(jadwalId) {
+  const [cacheRes, scheduleRes] = await Promise.all([
+    supabase
+      .from('itineraries')
+      .select('content, generated_at, source_sha256')
+      .eq('jadwal_id', jadwalId)
+      .maybeSingle(),
+    supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, year_code, jadwal_nama, maskapai, berangkat_tgl, itinerary, itinerary_cdn, itinerary_source_sha256')
+      .eq('jadwal_id', jadwalId)
+      .in('year_code', SCHEDULE_YEAR_CODES),
+  ]);
+
+  if (cacheRes.error) throw new Error(`Gagal membaca cache itinerary: ${cacheRes.error.message}`);
+  if (scheduleRes.error) throw new Error(`Gagal membaca sumber itinerary: ${scheduleRes.error.message}`);
+
+  const cached = cacheRes.data || null;
+  const schedule = pickCurrentItinerarySchedule(scheduleRes.data || []);
+  return {
+    cached,
+    schedule,
+    freshness: itineraryCacheFreshness(cached, schedule),
+  };
+}
+
 async function getItineraryContext(jadwalId) {
   try {
-    const { data } = await supabase
-      .from('itineraries')
-      .select('content')
-      .eq('jadwal_id', jadwalId)
-      .maybeSingle();
-    return data?.content || null;
+    const { cached, schedule } = await loadItineraryCacheSnapshot(jadwalId);
+    // Ask AI, OG share, dan konsumen internal lain tidak boleh memakai hasil
+    // ekstraksi PDF lama ketika fingerprint sumber sudah berubah.
+    return canServeItineraryCache(cached, schedule) ? cached?.content || null : null;
   } catch { return null; }
 }
 
@@ -2819,7 +2848,7 @@ async function callItineraryModel(userContent, timeoutMs) {
   return content;
 }
 
-async function parseItineraryFromPdf(pdfUrl, meta = {}) {
+async function parseItineraryFromPdf(pdfUrl, meta = {}, expectedSourceSha256 = '') {
   // Download PDF
   const pdfRes = await fetch(pdfUrl, {
     headers: { 'Referer': 'https://jadwal.alhijaz.co/', 'User-Agent': 'Mozilla/5.0' },
@@ -2829,6 +2858,10 @@ async function parseItineraryFromPdf(pdfUrl, meta = {}) {
 
   const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
   const sourceSha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+  const expectedSha = String(expectedSourceSha256 || '').trim().toLowerCase();
+  if (expectedSha && sourceSha256 !== expectedSha) {
+    throw new Error(`fingerprint PDF tidak cocok (harap ${expectedSha.slice(0, 12)}, dapat ${sourceSha256.slice(0, 12)})`);
+  }
 
   // Jalur utama (murah): ekstrak teks lokal → model menstrukturkan teks.
   // pdf-parse bisa melempar pada PDF korup — jangan gugurkan seluruh parse,
@@ -2879,50 +2912,160 @@ ${itineraryTaskPrompt(meta)}`;
   return { content, sourceSha256 };
 }
 
+// Refresh on-demand hanya boleh memakai URL yang berasal dari row jadwal
+// tepercaya. Query string `pdfUrl` milik klien tidak dipakai: selain dapat
+// meracuni cache, ia memungkinkan satu jadwal_id diisi dokumen paket lain.
+const ITINERARY_REFRESH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+const itineraryRefreshInFlight = new Map();
+const itineraryRefreshFailedAt = new Map();
+
+async function parseAndCacheCurrentItinerary(schedule) {
+  const jadwalId = String(schedule?.jadwal_id || '').trim();
+  if (!jadwalId) throw new Error('jadwal_id itinerary tidak tersedia');
+
+  const expectedSha = String(schedule?.itinerary_source_sha256 || '').trim().toLowerCase();
+  const candidates = buildItineraryParseCandidates(schedule?.itinerary, {
+    url: schedule?.itinerary_cdn,
+    sha256: expectedSha,
+  });
+  if (!candidates.length) throw new Error('URL PDF itinerary tepercaya tidak tersedia');
+
+  const meta = {
+    nama_paket: schedule?.jadwal_nama || '',
+    maskapai: schedule?.maskapai || '',
+    tgl_berangkat: schedule?.berangkat_tgl || '',
+  };
+  let parsed = null;
+  let lastErr = null;
+  for (const pdfUrl of candidates) {
+    try {
+      const candidate = await parseItineraryFromPdf(pdfUrl, meta, expectedSha);
+      const parsedSha = String(candidate?.sourceSha256 || '').trim().toLowerCase();
+      // CDN yang tercantum di jadwal sudah content-addressed. Bila byte yang
+      // dibaca tidak cocok, jangan pernah menstempel hasil itu sebagai versi
+      // terbaru; coba kandidat tepercaya berikutnya atau gagal tertutup.
+      if (expectedSha && parsedSha !== expectedSha) {
+        throw new Error(`fingerprint PDF tidak cocok (harap ${expectedSha.slice(0, 12)}, dapat ${parsedSha.slice(0, 12) || '-'})`);
+      }
+      parsed = candidate;
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!parsed) throw lastErr || new Error('PDF itinerary gagal diproses');
+
+  const { content, sourceSha256 } = parsed;
+  if (expectedSha) {
+    const { data: currentRows, error: currentError } = await supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, year_code, itinerary, itinerary_cdn, itinerary_source_sha256')
+      .eq('jadwal_id', jadwalId)
+      .in('year_code', SCHEDULE_YEAR_CODES);
+    if (currentError) throw new Error(`Gagal memverifikasi versi PDF terkini: ${currentError.message}`);
+    const currentSchedule = pickCurrentItinerarySchedule(currentRows || []);
+    const currentSha = String(currentSchedule?.itinerary_source_sha256 || '').trim().toLowerCase();
+    if (currentSha !== expectedSha) {
+      throw new Error('PDF itinerary berubah lagi selama proses ekstraksi; hasil lama tidak disimpan');
+    }
+  }
+
+  const { error: cacheErr } = await supabase.from('itineraries').upsert({
+    jadwal_id: jadwalId,
+    content,
+    source_sha256: sourceSha256,
+    generated_at: new Date().toISOString(),
+  }, { onConflict: 'jadwal_id' });
+  if (cacheErr) throw new Error(`Gagal menyimpan cache itinerary: ${cacheErr.message}`);
+
+  return { content, sourceSha256 };
+}
+
+function refreshCurrentItineraryOnce(schedule, { ignoreFailureCooldown = false } = {}) {
+  const jadwalId = String(schedule?.jadwal_id || '').trim();
+  const version = String(schedule?.itinerary_source_sha256 || schedule?.itinerary_cdn || schedule?.itinerary || '').trim();
+  const failureKey = `${jadwalId}:${version}`;
+  const existing = itineraryRefreshInFlight.get(jadwalId);
+  if (existing?.version === version) return existing.promise;
+  if (existing) {
+    // Versi baru untuk jadwal yang sama menunggu parse lama selesai agar proses
+    // lama tidak mungkin menimpa cache baru setelahnya.
+    return existing.promise
+      .catch(() => null)
+      .then(() => refreshCurrentItineraryOnce(schedule, { ignoreFailureCooldown }));
+  }
+
+  const failedAt = itineraryRefreshFailedAt.get(failureKey) || 0;
+  if (!ignoreFailureCooldown && Date.now() - failedAt < ITINERARY_REFRESH_FAILURE_COOLDOWN_MS) {
+    throw new Error('Refresh itinerary masih dalam masa tunggu setelah kegagalan terakhir');
+  }
+
+  const refresh = parseAndCacheCurrentItinerary(schedule)
+    .then(result => {
+      itineraryRefreshFailedAt.delete(failureKey);
+      return result;
+    })
+    .catch(err => {
+      itineraryRefreshFailedAt.set(failureKey, Date.now());
+      throw err;
+    })
+    .finally(() => {
+      if (itineraryRefreshInFlight.get(jadwalId)?.promise === refresh) {
+        itineraryRefreshInFlight.delete(jadwalId);
+      }
+    });
+  itineraryRefreshInFlight.set(jadwalId, { version, promise: refresh });
+  return refresh;
+}
+
 // ──────────────────────────────────────────────
-// API: AI Itinerary (uses cache, falls back to parseItineraryFromPdf)
+// API: AI Itinerary (cache hanya sah bila hash-nya sama dengan PDF terbaru)
 // ──────────────────────────────────────────────
 
 app.get('/api/itinerary/:jadwalId', async (req, res) => {
   const { jadwalId } = req.params;
 
   try {
-    // 1. Check Supabase cache
-    const { data: cached } = await supabase
-      .from('itineraries')
-      .select('content, generated_at, source_sha256')
-      .eq('jadwal_id', jadwalId)
-      .single();
-
-    if (cached) {
-      // source_sha256 ikut dikirim supaya FE bisa banding dengan ?v=sha16 di URL
-      // CDN — deteksi hasil parse milik PDF lama (kasus JBU1513)
-      return res.json({ success: true, data: cached.content, cached: true, source_sha256: cached.source_sha256 || null });
+    const { cached, schedule, freshness } = await loadItineraryCacheSnapshot(jadwalId);
+    if (canServeItineraryCache(cached, schedule)) {
+      return res.json({
+        success: true,
+        data: cached.content,
+        cached: true,
+        cache_status: freshness,
+        source_sha256: cached.source_sha256 || null,
+      });
     }
 
-    // 2. Cache miss — parse from PDF
-    const pdfUrl = req.query.pdfUrl;
-    if (!pdfUrl) {
-      return res.status(400).json({ error: 'pdfUrl wajib diisi' });
+    if (!schedule?.itinerary && !schedule?.itinerary_cdn) {
+      return res.status(cached ? 503 : 404).json({
+        error: cached
+          ? 'PDF terbaru terdeteksi, tetapi sumber itinerary belum siap diproses'
+          : 'Itinerary belum tersedia',
+        stale: freshness === 'stale',
+      });
     }
 
-    let meta = {};
-    try { meta = JSON.parse(req.query.meta || '{}'); } catch { /* ignore */ }
-
-    console.log(`[Itinerary] On-demand parse: ${jadwalId}`);
-    const { content, sourceSha256 } = await parseItineraryFromPdf(pdfUrl, meta);
-
-    // 3. Cache in Supabase — upsert: dua request miss paralel tidak boleh membuat
-    // insert kedua gagal diam-diam (dulu insert biasa tanpa cek error)
-    const { error: cacheErr } = await supabase.from('itineraries').upsert({
-      jadwal_id: jadwalId,
-      content,
-      source_sha256: sourceSha256,
-      generated_at: new Date().toISOString(),
-    }, { onConflict: 'jadwal_id' });
-    if (cacheErr) console.error('[Itinerary] Cache write failed:', cacheErr.message);
-
-    return res.json({ success: true, data: content, cached: false, source_sha256: sourceSha256 || null });
+    console.log(`[Itinerary] ${freshness === 'stale' ? 'Stale cache refresh' : 'Trusted on-demand parse'}: ${jadwalId}`);
+    try {
+      const { content, sourceSha256 } = await refreshCurrentItineraryOnce(schedule);
+      return res.json({
+        success: true,
+        data: content,
+        cached: false,
+        refreshed: freshness === 'stale',
+        cache_status: 'fresh',
+        source_sha256: sourceSha256 || null,
+      });
+    } catch (refreshErr) {
+      // Jangan jatuh kembali ke cached.content: lebih baik tab web gagal dan UI
+      // membuka PDF terbaru daripada menampilkan moda/tanggal dari dokumen lama.
+      console.error(`[Itinerary] Refresh ${jadwalId} failed:`, refreshErr.message);
+      return res.status(503).json({
+        error: 'Tampilan web sedang disinkronkan. Gunakan versi PDF terbaru untuk sementara.',
+        stale: freshness === 'stale',
+      });
+    }
   } catch (err) {
     console.error('[Itinerary] Error:', err.message);
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
@@ -3023,42 +3166,21 @@ async function syncAllItineraries() {
 
   for (const pkg of uncached) {
     try {
-      const meta = {
-        nama_paket: pkg.jadwal_nama || '',
-        maskapai: pkg.maskapai || '',
-        tgl_berangkat: pkg.berangkat_tgl || '',
-      };
-
       // Salinan CDN dulu: byte-nya persis yang di-fingerprint Bunny sync jadi
       // sha hasil parse pasti konvergen dengan pembanding. Origin lewat host
       // Cloudflare kronis 522/lambat (generasi PDF on-the-fly bisa > timeout)
       // dan edge-nya bisa menyajikan byte lama di URL yang sama.
       const sched = schedById.get(pkg.jadwal_id);
-      const candidates = buildItineraryParseCandidates(pkg.itinerary, {
-        url: sched?.itinerary_cdn,
-        sha256: sched?.itinerary_source_sha256,
+      await refreshCurrentItineraryOnce({
+        ...pkg,
+        itinerary_cdn: sched?.itinerary_cdn || null,
+        itinerary_source_sha256: sched?.itinerary_source_sha256 || null,
+      }, {
+        // Siklus terjadwal adalah jalur pemulihan; ia tidak ikut cooldown
+        // request publik, tetapi tetap bergabung bila parse versi yang sama
+        // memang sedang berjalan.
+        ignoreFailureCooldown: true,
       });
-
-      console.log(`[ItinerarySync] Parsing: ${pkg.jadwal_nama} (${pkg.jadwal_id})`);
-      let parsed = null;
-      let lastErr = null;
-      for (const pdfUrl of candidates) {
-        try {
-          parsed = await parseItineraryFromPdf(pdfUrl, meta);
-          break;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-      if (!parsed) throw lastErr;
-      const { content, sourceSha256 } = parsed;
-
-      await supabase.from('itineraries').upsert({
-        jadwal_id: pkg.jadwal_id,
-        content,
-        source_sha256: sourceSha256,
-        generated_at: new Date().toISOString(),
-      }, { onConflict: 'jadwal_id' });
 
       synced++;
       console.log(`[ItinerarySync] Cached: ${pkg.jadwal_nama} (${synced}/${uncached.length})`);
@@ -3072,6 +3194,18 @@ async function syncAllItineraries() {
   }
 
   console.log(`[ItinerarySync] Complete: ${synced} synced, ${failed} failed out of ${uncached.length}`);
+}
+
+// Startup, interval 12 jam, dan sync dokumen harian dapat berimpit. Satukan
+// siklus agar versi PDF yang sama tidak diproses OpenAI dua kali.
+let itinerarySyncInFlight = null;
+function queueItinerarySync() {
+  if (!itinerarySyncInFlight) {
+    itinerarySyncInFlight = syncAllItineraries().finally(() => {
+      itinerarySyncInFlight = null;
+    });
+  }
+  return itinerarySyncInFlight;
 }
 
 // ──────────────────────────────────────────────
@@ -21380,15 +21514,17 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
       if (jadwalIds.length) {
         const { data: itineraryRows, error: itineraryError } = await supabase
           .from('itineraries')
-          .select('jadwal_id, content')
+          .select('jadwal_id, content, source_sha256')
           .in('jadwal_id', jadwalIds);
 
         if (itineraryError) {
           console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
         } else {
+          const scheduleById = new Map(scheduleRows.map(row => [row.jadwal_id, row]));
           const routeById = new Map(scheduleRows.map(row => [row.jadwal_id, row.berangkat_rute]));
           journeyOrderById = new Map(
             (itineraryRows || [])
+              .filter(row => canServeItineraryCache(row, scheduleById.get(row.jadwal_id)))
               .map(row => [row.jadwal_id, inferJourneyOrderFromItinerary(row.content)])
               .filter(([, order]) => Array.isArray(order) && order.length >= 2)
               .filter(([jadwalId, order]) => {
@@ -24396,6 +24532,9 @@ function scheduleDailyBunnySync() {
   setTimeout(async () => {
     try {
       await queueFilesToBunny();
+      // Fingerprint baru tidak boleh menunggu siklus parser 12 jam. Begitu
+      // PDF terbaru selesai dicerminkan, refresh cache terstruktur langsung.
+      await queueItinerarySync();
     } catch (err) {
       console.error('[BunnySync] Daily sync error:', err.message);
     } finally {
@@ -24697,10 +24836,10 @@ if (shouldRunBackgroundJobs()) {
 // ── Itinerary background sync: 2 min after startup, then every 12 hours ──
 if (shouldRunBackgroundJobs()) {
   setTimeout(() => {
-    syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+    queueItinerarySync().catch(err => console.error('[ItinerarySync] Error:', err.message));
   }, 2 * 60 * 1000);
   setInterval(() => {
-    syncAllItineraries().catch(err => console.error('[ItinerarySync] Error:', err.message));
+    queueItinerarySync().catch(err => console.error('[ItinerarySync] Error:', err.message));
   }, 12 * 60 * 60 * 1000);
 }
 

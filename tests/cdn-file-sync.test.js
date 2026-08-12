@@ -197,12 +197,15 @@ test('buildItineraryParseCandidates: falls back to the source alone without a CD
 
 test('itinerary sync builds its download candidates from the shared helper', () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  const syncAllItineraries = server.slice(
-    server.indexOf('async function syncAllItineraries()'),
-    server.indexOf('[ItinerarySync] Complete:'),
+  const parseAndCache = server.slice(
+    server.indexOf('async function parseAndCacheCurrentItinerary('),
+    server.indexOf('function refreshCurrentItineraryOnce('),
   );
 
-  assert.match(syncAllItineraries, /buildItineraryParseCandidates\(/);
+  assert.match(parseAndCache, /buildItineraryParseCandidates\(/);
   // Naik-paksa ke https:// mematikan origin jadwal yang hanya punya port 80.
-  assert.doesNotMatch(syncAllItineraries, /replace\(\/\^http:\\\/\\\/\/, 'https:\/\/'\)/);
+  assert.doesNotMatch(parseAndCache, /replace\(\/\^http:\\\/\\\/\/, 'https:\/\/'\)/);
+  // Hasil fallback origin tidak boleh menimpa cache bila byte-nya bukan versi
+  // yang baru saja dicatat oleh fingerprint sync.
+  assert.match(parseAndCache, /parsedSha !== expectedSha/);
 });

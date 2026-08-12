@@ -339,8 +339,9 @@ Important guards:
 
 Itinerary AI cache (`itineraries` table, dipakai kartu "Urutan Perjalanan", viewer itinerary, Ask-AI, terminal kalender):
 
-- `syncAllItineraries` (server.js, tiap 12 jam) parse PDF itinerary via gpt-4o-mini dan menyimpan `content` + `source_sha256` (sha PDF yang di-parse).
-- Re-parse terjadi bila: belum ada cache, cache legacy tanpa `source_sha256`, atau `umroh_schedules.itinerary_source_sha256` (diperbarui Bunny sync) ≠ sha cache. Sebelum Jul 2026 cache permanen — PDF diganti di sumber tidak pernah ter-re-parse (kasus JBU1513: kartu menampilkan urutan paket lain).
+- `syncAllItineraries` (server.js, startup + tiap 12 jam) menstrukturkan PDF dan menyimpan `content` + `source_sha256` (sha PDF yang diproses). Sync dokumen harian 03:30 WIB langsung memanggil siklus ini setelah fingerprint/CDN diperbarui, jadi tidak ada lagi jeda acak hingga 12 jam.
+- Re-parse terjadi bila: belum ada cache, cache legacy tanpa `source_sha256`, atau `umroh_schedules.itinerary_source_sha256` (diperbarui Bunny sync) ≠ sha cache. `GET /api/itinerary/:jadwalId` juga membandingkan kedua hash sebelum menyajikan konten dan melakukan refresh single-flight dari URL jadwal tepercaya. Bila refresh gagal, API fail-closed ke PDF terbaru dan tidak mengirim konten web lama.
+- Konsumen internal `getItineraryContext`, urutan perjalanan jadwal, dan filter itinerary Bani mengabaikan cache dengan hash berbeda. Parser menolak byte PDF yang tidak cocok dengan fingerprint jadwal sebelum memanggil model atau menulis cache.
 - Guard tambahan di endpoint jadwal: `saudiOrderContradictsRoute` (lib/journey-order.js) membuang `journey_order` hasil itinerary bila landing MED tapi itinerary bilang Umroh dulu (cache pasti basi) → frontend fallback ke inferensi rute. Sinyal landing JED sengaja tidak dipakai (pola Jum'atain Madinah–Mekkah–Madinah ambigu).
 - Teks PDF untuk prompt dipotong di 20k karakter (dulu 6k — itinerary 15 hari kehilangan hari-hari ekor).
 

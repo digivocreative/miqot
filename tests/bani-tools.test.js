@@ -359,6 +359,30 @@ test('list_jadwal_paket memfilter label tur dari cache itinerary', async () => {
   assert.equal(out.data.rows[0].itinerary_tersedia, true);
 });
 
+test('list_jadwal_paket tidak memakai itinerary lama ketika hash PDF berubah', async () => {
+  const schedules = [{
+    jadwal_id: 'STALE',
+    jadwal_nama: 'UMRAH PLUS',
+    berangkat_tgl: '2027-01-02',
+    pulang_tgl: '2027-01-10',
+    paket_harga: PAKET_HARGA,
+    itinerary_source_sha256: 'pdf-baru',
+  }];
+  const itineraries = [{
+    jadwal_id: 'STALE',
+    source_sha256: 'pdf-lama',
+    content: { days: [{ dayNumber: 'Hari 1', location: 'Dubai' }] },
+  }];
+  const supabase = filteringScheduleSupabase(schedules, itineraries);
+
+  const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
+    include_departed: true,
+  });
+
+  assert.equal(out.data.rows[0].itinerary_tersedia, false);
+  assert.deepEqual(out.data.rows[0].tur, []);
+});
+
 test('list_jadwal_paket membatasi lookup itinerary ke 60 kandidat terdekat', async () => {
   const schedules = Array.from({ length: 61 }, (_, index) => ({
     jadwal_id: `JBU${String(index).padStart(2, '0')}`,

@@ -152,10 +152,9 @@ export function ItineraryModal({
       ? originalUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
       : '';
 
-  // Deteksi hasil parse milik PDF lama (kasus JBU1513): banding sha16 versi CDN
-  // (?v= dari appendUrlVersion) dengan source_sha256 hasil parse. Guard server
-  // TIDAK menyaring konten mentah endpoint ini — banner adalah satu-satunya sinyal.
-  // URL tanpa ?v= (jalur proxy non-CDN) atau respons tanpa sha → fail-open tanpa banner.
+  // Defense-in-depth untuk rolling deploy/race: server sudah menolak atau
+  // me-refresh cache yang hash-nya berbeda, lalu klien tetap membandingkan sha16
+  // versi CDN dengan hasil parse. URL tanpa ?v= atau respons tanpa sha → fail-open.
   const fileSha16 = /[?&]v=([0-9a-f]{8,})/i.exec(fileUrl || '')?.[1]?.toLowerCase() ?? null;
   const parsedStale = Boolean(
     webStatus === 'ready' && fileSha16 && webSha && !webSha.toLowerCase().startsWith(fileSha16),
@@ -217,9 +216,9 @@ export function ItineraryModal({
     if (activeTab === 'pdf') setPdfEverActive(true);
   }, [activeTab]);
 
-  // Data tab Itinerary: cache-only (pola SharePage) — sengaja TANPA ?pdfUrl.
-  // Paket baru yang belum ter-cache background sync 12 jam → 400 → fallback tab PDF;
-  // jangan buka jalur parse on-demand (±165 dtk, vektor cache-poisoning endpoint publik).
+  // Data tab Itinerary sengaja TANPA ?pdfUrl. Bila cache belum ada/basi, server
+  // hanya boleh memproses ulang URL tepercaya dari row jadwal; ini menutup vektor
+  // cache-poisoning sekaligus menjaga tampilan web mengikuti fingerprint PDF.
   useEffect(() => {
     if (!isOpen || !effectiveJadwalId) return;
     let cancelled = false;
