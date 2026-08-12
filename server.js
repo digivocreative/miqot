@@ -180,7 +180,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
-import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute } from './lib/journey-order.js';
+import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute, shouldSuppressJourneyOrder } from './lib/journey-order.js';
 import {
   canServeItineraryCache,
   itineraryCacheFreshness,
@@ -2323,8 +2323,15 @@ function buildPackageContext(pkg, itineraryCtx = null) {
   if (!pkg) return null;
   let itineraryOrder = inferJourneyOrderFromItinerary(itineraryCtx);
   // Cache itinerary yang kontradiktif dengan rute (landing MED tapi Umroh dulu)
-  // = konten milik jadwal lain — jangan sampai Ask-AI meneruskannya ke user.
-  if (saudiOrderContradictsRoute(itineraryOrder, pkg.berangkat_rute)) itineraryOrder = null;
+  // biasanya konten milik jadwal lain — jangan sampai Ask-AI meneruskannya ke
+  // user. Kecuali kontennya bertanggal sesuai keberangkatan jadwal ini: itu
+  // bukti PDF-nya memang milik jadwal ini dan justru rutenya yang salah entri.
+  if (shouldSuppressJourneyOrder({
+    order: itineraryOrder,
+    berangkatRute: pkg.berangkat_rute,
+    content: itineraryCtx,
+    berangkatTgl: pkg.berangkat_tgl,
+  })) itineraryOrder = null;
   const itinerarySaudiOrder = itineraryOrder?.filter(label => label === 'Madinah' || label === 'Umroh') || null;
   const routeOrder = inferItineraryOrder(pkg) || {};
   const itinerarySummary = itinerarySaudiOrder?.[0] === 'Madinah'
@@ -21580,6 +21587,7 @@ async function cleanupExpiredPackages() {
 // Sekali per jadwal per proses — endpoint ini dipanggil tiap klien (TTL 30 mnt)
 // dan cache basi baru sembuh di siklus ItinerarySync berikutnya.
 const warnedContradictoryJourneyOrder = new Set();
+const warnedSuspectRouteJourneyOrder = new Set();
 
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
@@ -21635,20 +21643,33 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
           console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
         } else {
           const scheduleById = new Map(scheduleRows.map(row => [row.jadwal_id, row]));
-          const routeById = new Map(scheduleRows.map(row => [row.jadwal_id, row.berangkat_rute]));
           journeyOrderById = new Map(
             (itineraryRows || [])
               .filter(row => canServeItineraryCache(row, scheduleById.get(row.jadwal_id)))
-              .map(row => [row.jadwal_id, inferJourneyOrderFromItinerary(row.content)])
-              .filter(([, order]) => Array.isArray(order) && order.length >= 2)
-              .filter(([jadwalId, order]) => {
-                if (!saudiOrderContradictsRoute(order, routeById.get(jadwalId))) return true;
-                if (!warnedContradictoryJourneyOrder.has(jadwalId)) {
-                  warnedContradictoryJourneyOrder.add(jadwalId);
-                  console.warn(`[Schedules] Itinerary order ${jadwalId} bertentangan dengan rute (${routeById.get(jadwalId)}) — cache dicurigai basi, pakai fallback rute`);
+              .map(row => {
+                const order = inferJourneyOrderFromItinerary(row.content);
+                if (!Array.isArray(order) || order.length < 2) return null;
+                const schedule = scheduleById.get(row.jadwal_id);
+                if (shouldSuppressJourneyOrder({
+                  order,
+                  berangkatRute: schedule?.berangkat_rute,
+                  content: row.content,
+                  berangkatTgl: schedule?.berangkat_tgl,
+                })) {
+                  if (!warnedContradictoryJourneyOrder.has(row.jadwal_id)) {
+                    warnedContradictoryJourneyOrder.add(row.jadwal_id);
+                    console.warn(`[Schedules] Itinerary order ${row.jadwal_id} bertentangan dengan rute (${schedule?.berangkat_rute}) — konten tak terbukti milik jadwal ini, pakai fallback rute`);
+                  }
+                  return null;
                 }
-                return false;
+                if (saudiOrderContradictsRoute(order, schedule?.berangkat_rute)
+                  && !warnedSuspectRouteJourneyOrder.has(row.jadwal_id)) {
+                  warnedSuspectRouteJourneyOrder.add(row.jadwal_id);
+                  console.warn(`[Schedules] Rute ${row.jadwal_id} (${schedule?.berangkat_rute}) bertentangan dengan itinerary yang bertanggal cocok — curigai salah entri rute upstream, pakai urutan itinerary`);
+                }
+                return [row.jadwal_id, order];
               })
+              .filter(Boolean)
           );
         }
       }

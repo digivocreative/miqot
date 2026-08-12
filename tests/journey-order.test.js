@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   inferJourneyOrderFromItinerary,
   inferSaudiJourneyOrderFromItinerary,
+  itineraryMatchesDepartureDate,
   saudiOrderContradictsRoute,
+  shouldSuppressJourneyOrder,
 } from '../lib/journey-order.js';
 
 test('inferSaudiJourneyOrderFromItinerary: Jeddah landing can still mean Madinah first', () => {
@@ -233,4 +235,119 @@ test('saudiOrderContradictsRoute: rute kosong / order tanpa pasangan Saudi = tid
   assert.equal(saudiOrderContradictsRoute(['Umroh', 'Madinah'], undefined), false);
   assert.equal(saudiOrderContradictsRoute(['Umroh'], 'CGK - MED'), false);
   assert.equal(saudiOrderContradictsRoute(null, 'CGK - MED'), false);
+});
+
+// Replika JBU1600: PDF Jeddah-dulu bertanggal persis untuk keberangkatan ini,
+// sementara berangkat_rute upstream salah entri "CGK-MED / JED-IST".
+const JBU1600_CONTENT = {
+  days: [
+    { dayNumber: '1', title: 'Ahad, 20 Desember 2026', location: 'Jakarta - Jeddah - Mekkah' },
+    { dayNumber: '2', title: 'Senin, 21 Desember 2026', location: 'Mekkah' },
+    { dayNumber: '5', title: 'Kamis, 24 Desember 2026', location: 'Mekkah - Madinah' },
+    { dayNumber: '6', title: 'Jum\'at, 25 Desember 2026', location: 'Madinah' },
+  ],
+};
+
+test('itineraryMatchesDepartureDate: judul hari-1 bertanggal == berangkat_tgl (kasus JBU1600)', () => {
+  assert.equal(itineraryMatchesDepartureDate(JBU1600_CONTENT, '2026-12-20'), true);
+});
+
+test('itineraryMatchesDepartureDate: toleransi -1 hari untuk PDF hari kumpul (kasus JBU1565)', () => {
+  const content = {
+    days: [{ dayNumber: '1', title: 'Jakarta — Sabtu, 14 November 2026', location: 'Jakarta' }],
+  };
+  assert.equal(itineraryMatchesDepartureDate(content, '2026-11-15'), true);
+});
+
+test('itineraryMatchesDepartureDate: tanggal jadwal lain = tidak cocok (kelas kasus JBU1513)', () => {
+  const content = {
+    days: [{ dayNumber: '1', title: 'Sabtu, 04 Juli 2026', location: 'Jakarta – Madinah' }],
+  };
+  assert.equal(itineraryMatchesDepartureDate(content, '2026-12-20'), false);
+});
+
+test('itineraryMatchesDepartureDate: hari bertanggal pertama boleh bukan hari-1, offset indeks dihitung', () => {
+  const content = {
+    days: [
+      { dayNumber: '1', title: 'Jakarta – Mekkah', location: 'Jakarta – Mekkah' },
+      { dayNumber: '2', title: 'Mekkah', location: 'Mekkah' },
+      { dayNumber: '3', title: 'Selasa, 22 Desember 2026', location: 'Mekkah' },
+    ],
+  };
+  assert.equal(itineraryMatchesDepartureDate(content, '2026-12-20'), true);
+  assert.equal(itineraryMatchesDepartureDate(content, '2026-12-01'), false);
+});
+
+test('itineraryMatchesDepartureDate: format tanggal numerik dd/mm/yyyy juga dikenali', () => {
+  const content = {
+    days: [{ dayNumber: '1', title: 'Hari 1 — 20/12/2026', location: 'Jakarta - Jeddah' }],
+  };
+  assert.equal(itineraryMatchesDepartureDate(content, '2026-12-20'), true);
+});
+
+test('itineraryMatchesDepartureDate: tanpa judul bertanggal atau tanpa berangkat_tgl = tidak terbukti', () => {
+  const undated = {
+    days: [
+      { dayNumber: '1', title: 'Jakarta – Madinah', location: 'Jakarta – Madinah' },
+      { dayNumber: '2', title: 'Madinah', location: 'Madinah' },
+    ],
+  };
+  assert.equal(itineraryMatchesDepartureDate(undated, '2026-12-20'), false);
+  assert.equal(itineraryMatchesDepartureDate(JBU1600_CONTENT, ''), false);
+  assert.equal(itineraryMatchesDepartureDate(JBU1600_CONTENT, undefined), false);
+  assert.equal(itineraryMatchesDepartureDate(null, '2026-12-20'), false);
+});
+
+test('shouldSuppressJourneyOrder: kontradiksi + tanggal cocok = rute yang dicurigai, urutan itinerary dipakai (JBU1600)', () => {
+  assert.equal(
+    shouldSuppressJourneyOrder({
+      order: ['Umroh', 'Madinah', 'Tur Turki'],
+      berangkatRute: 'CGK-MED / JED-IST',
+      content: JBU1600_CONTENT,
+      berangkatTgl: '2026-12-20',
+    }),
+    false
+  );
+});
+
+test('shouldSuppressJourneyOrder: kontradiksi tanpa bukti tanggal = tetap ditekan (JBU1513)', () => {
+  const undated = {
+    days: [
+      { dayNumber: '1', title: 'Jakarta - Jeddah - Mekkah', location: 'Jakarta - Jeddah - Mekkah' },
+      { dayNumber: '5', title: 'Mekkah - Madinah', location: 'Mekkah - Madinah' },
+    ],
+  };
+  assert.equal(
+    shouldSuppressJourneyOrder({
+      order: ['Umroh', 'Madinah'],
+      berangkatRute: 'CGK - MED',
+      content: undated,
+      berangkatTgl: '2026-12-20',
+    }),
+    true
+  );
+});
+
+test('shouldSuppressJourneyOrder: kontradiksi + tanggal jadwal lain = ditekan', () => {
+  assert.equal(
+    shouldSuppressJourneyOrder({
+      order: ['Umroh', 'Madinah', 'Tur Turki'],
+      berangkatRute: 'CGK-MED / JED-IST',
+      content: JBU1600_CONTENT,
+      berangkatTgl: '2027-01-17',
+    }),
+    true
+  );
+});
+
+test('shouldSuppressJourneyOrder: tanpa kontradiksi tidak pernah menekan, apa pun tanggalnya', () => {
+  assert.equal(
+    shouldSuppressJourneyOrder({
+      order: ['Madinah', 'Umroh'],
+      berangkatRute: 'CGK - MED',
+      content: { days: [{ title: 'Jakarta – Madinah' }] },
+      berangkatTgl: '2026-12-20',
+    }),
+    false
+  );
 });

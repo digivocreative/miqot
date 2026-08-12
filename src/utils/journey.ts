@@ -77,10 +77,37 @@ export const getRouteLegs = (route?: string): Array<{ from: string; to: string }
     .filter((leg): leg is { from: string; to: string } => Boolean(leg));
 };
 
+const getSaudiLabelsFromItinerary = (pkg: UmrohPackage): Array<'Madinah' | 'Umroh'> | null => {
+  if (!Array.isArray(pkg.journeyOrder)) return null;
+  const labels = pkg.journeyOrder.filter((label): label is 'Madinah' | 'Umroh' =>
+    label === 'Madinah' || label === 'Umroh'
+  );
+  return labels.length >= 2 ? labels.slice(0, 2) : null;
+};
+
+/**
+ * Bandara tempat jamaah mendarat di Saudi.
+ *
+ * Itinerary otoritatif yang menaruh Umroh lebih dulu memastikan landing JED —
+ * field rute upstream bisa salah entri (JBU1600: "CGK-MED / JED-IST" padahal
+ * PDF-nya mendarat King Abdulaziz). Kebalikannya TIDAK berlaku: Madinah dulu
+ * tak memastikan MED (pola Jum'atain mendarat JED lalu lanjut darat), jadi di
+ * luar kasus itu rute yang menentukan — kedatangan Saudi pertama yang bukan
+ * sekadar transit (leg berikutnya berangkat dari bandara yang sama), agar leg
+ * ekor tur (mis. JED-IST / IST-JED) tidak terbaca sebagai titik landing.
+ */
 export const getLandingAirportCode = (pkg: UmrohPackage): string => {
+  if (pkg.journeyOrderSource === 'itinerary' && getSaudiLabelsFromItinerary(pkg)?.[0] === 'Umroh') {
+    return 'JED';
+  }
+
   const routeLegs = getRouteLegs(pkg.keberangkatan?.rute);
-  const code = routeLegs.length ? routeLegs[routeLegs.length - 1].to : 'JED';
-  return code || 'JED';
+  for (let i = 0; i < routeLegs.length; i += 1) {
+    if (!SAUDI_AIRPORTS.has(routeLegs[i].to)) continue;
+    if (routeLegs[i + 1]?.from === routeLegs[i].to) continue;
+    return routeLegs[i].to;
+  }
+  return (routeLegs.length ? routeLegs[routeLegs.length - 1].to : 'JED') || 'JED';
 };
 
 export const getLandingCityName = (pkg: UmrohPackage): string => {
@@ -109,14 +136,6 @@ const getSaudiLabelsFromRoute = (pkg: UmrohPackage): Array<'Madinah' | 'Umroh'> 
   }
 
   return null;
-};
-
-const getSaudiLabelsFromItinerary = (pkg: UmrohPackage): Array<'Madinah' | 'Umroh'> | null => {
-  if (!Array.isArray(pkg.journeyOrder)) return null;
-  const labels = pkg.journeyOrder.filter((label): label is 'Madinah' | 'Umroh' =>
-    label === 'Madinah' || label === 'Umroh'
-  );
-  return labels.length >= 2 ? labels.slice(0, 2) : null;
 };
 
 const makeStep = (label: string, imageSrc?: string): JourneyStep => {
@@ -150,9 +169,9 @@ const getAuthoritativeItinerarySteps = (pkg: UmrohPackage): JourneyStep[] | null
 /**
  * Simpul tempat jamaah mendarat di Saudi — indeks pertama yang bukan tur.
  *
- * `getLandingAirportCode` membaca leg TERAKHIR keberangkatan, jadi tur pra-Saudi
- * (mis. Dubai) mendahului rantai tanpa menjadi titik landing yang ditampilkan.
- * Mengembalikan -1 bila rantai kosong atau seluruhnya tur.
+ * `getLandingAirportCode` mencari kedatangan Saudi pertama yang bukan transit,
+ * jadi tur pra-Saudi (mis. Dubai) mendahului rantai tanpa menjadi titik landing
+ * yang ditampilkan. Mengembalikan -1 bila rantai kosong atau seluruhnya tur.
  */
 export function getLandingStepIndex(steps: JourneyStep[]): number {
   return steps.findIndex(step => step.tone !== 'tour');
