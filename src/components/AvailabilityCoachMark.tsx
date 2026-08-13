@@ -185,15 +185,21 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
       }}
       className={`
         transition-[opacity,transform] motion-reduce:transition-none
+        drop-shadow-[0_6px_12px_rgba(15,23,42,0.22)]
+        dark:drop-shadow-[0_6px_14px_rgba(0,0,0,0.55)]
         ${shown ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-1 scale-95'}
       `}
     >
       {/* Warnanya DIBALIK terhadap halaman: latar terang → balon gelap, latar
           gelap → balon terang. Bukan sekadar menggelapkan sedikit — slate-700 di
           atas halaman slate-900 nyaris tidak terpisah, padahal justru gelembung
-          inilah yang harus paling menonjol. */}
-      {/* Panah menunjuk tombolnya. Diposisikan relatif terhadap gelembung supaya
-          tetap menempel di tombol walau gelembungnya digeser dari tepi layar. */}
+          inilah yang harus paling menonjol.
+
+          Panah & badan HARUS polos: tanpa ring, tanpa box-shadow. Keduanya
+          digambar persis di garis tempat panah menyatu, dan itulah yang membuat
+          panah terlihat seperti stiker tertempel. Bayangannya dipindah ke
+          pembungkus sebagai drop-shadow — filter menelusuri siluet GABUNGAN
+          badan+panah, sedangkan box-shadow hanya mengenal kotak badannya. */}
       <div
         style={{ left: coords.arrow }}
         className="absolute -top-[5px] -ml-[6px] w-3 h-3 rotate-45 rounded-[2px] bg-slate-900 dark:bg-slate-50"
@@ -203,8 +209,6 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
           relative rounded-xl px-3 py-2.5 pr-8
           bg-slate-900 dark:bg-slate-50
           text-white dark:text-slate-900
-          shadow-lg shadow-slate-900/25 dark:shadow-black/50
-          ring-1 ring-black/5 dark:ring-black/20
         "
       >
         <p className="text-[12px] leading-snug">

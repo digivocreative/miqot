@@ -130,6 +130,19 @@ test('panah memakai warna yang sama persis dengan badan, di KEDUA mode', () => {
   assert.match(coachMark, /text-white dark:text-slate-900/);
 });
 
+test('badan & panah tidak boleh punya tepi atau bayangan sendiri', () => {
+  // AKAR "panahnya seperti ada garis": `ring-1` dan `shadow-lg` milik badan
+  // digambar tepat di garis tempat panah menyatu, jadi terlihat sebagai jahitan
+  // dan panahnya seperti stiker yang ditempel.
+  //
+  // Bayangan harus pindah ke PEMBUNGKUS sebagai drop-shadow: filter itu
+  // menelusuri siluet gabungan badan+panah, box-shadow hanya kotak badannya.
+  assert.doesNotMatch(coachMark, /\bring-1\b/);
+  assert.doesNotMatch(coachMark, /\bshadow-lg\b/);
+  assert.match(coachMark, /drop-shadow-\[/);
+  assert.match(coachMark, /dark:drop-shadow-\[/);
+});
+
 test('gelembung punya animasi KELUAR, bukan hilang mendadak', () => {
   // Kalau langsung unmount saat `open` jadi false, tidak ada satu frame pun
   // untuk memainkan fade-out — inilah kondisi sebelum perbaikan ini.
