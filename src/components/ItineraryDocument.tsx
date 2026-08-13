@@ -95,7 +95,18 @@ const s = StyleSheet.create({
   runLogo: { width: P(104), height: P(18), objectFit: 'contain' },
 
   cardWrap: { marginHorizontal: P(12), marginTop: P(10) },
-  card: { backgroundColor: C.paper, borderRadius: P(16), borderWidth: 1, borderColor: C.border },
+  // Blok bawah menempel ke blok atas — lihat KartuHari. Tumpang-tindih 1pt
+  // menutup celah sub-piksel di sambungan; tanpa itu kanvas halaman menembus
+  // sebagai garis rambut selebar kartu (terukur #FBF9F6 di rasterisasi 2×).
+  cardWrapBawah: { marginHorizontal: P(12), marginTop: -1 },
+  // Lebar border ditulis per sisi (bukan shorthand `borderWidth`) supaya
+  // cardAtas/cardBawah bisa mematikan sisi yang bertemu di sambungan.
+  card: {
+    backgroundColor: C.paper, borderRadius: P(16), borderColor: C.border,
+    borderTopWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderLeftWidth: 1,
+  },
+  cardAtas: { borderBottomWidth: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  cardBawah: { borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   cardHead: {
     flexDirection: 'row', alignItems: 'center', gap: P(10),
     paddingHorizontal: P(14), paddingVertical: P(10),
@@ -111,7 +122,13 @@ const s = StyleSheet.create({
   },
 
   timeline: { paddingHorizontal: P(14), paddingVertical: P(12), position: 'relative' },
+  // Timeline dipecah dua wadah (baris pertama ikut blok header). Padding dan
+  // rail dipotong di sambungan supaya gabungannya identik dengan satu wadah.
+  timelineAtas: { paddingBottom: 0 },
+  timelineBawah: { paddingTop: 0 },
   railLine: { position: 'absolute', left: P(61.5), top: P(16), bottom: P(16), width: 1, backgroundColor: C.rail },
+  railAtas: { bottom: 0 },
+  railBawah: { top: 0 },
   row: { flexDirection: 'row', marginBottom: P(14) },
   jam: { width: P(44), fontSize: P(12.5), fontWeight: 'bold', color: C.burgundy },
   dotCol: { width: P(18), alignItems: 'center', paddingTop: P(5) },
@@ -235,66 +252,104 @@ function KartuHari({
   // jamnya berubah, sama seperti DayRail.
   let lastShownTime = '';
 
-  return (
-    <View style={s.cardWrap} minPresenceAhead={P(140)}>
-      <View style={s.card}>
-        {/*
-          JANGAN beri wrap={false} pada header hari. Sebagai anak PERTAMA dari
-          kartu yang boleh terpotong, react-pdf malah membuang isi timeline yang
-          menyusul di batas halaman: uji JBU1550 kehilangan 6 aktivitas (seluruh
-          Hari 2 lenyap) dan dokumennya menyusut 10 → 8 halaman. Tanpa flag ini
-          header tetap tidak pernah terbelah karena tingginya selalu muat.
-        */}
-        <View style={s.cardHead}>
-          <View style={s.dayChip}><Text style={s.dayChipText}>{dayNum}</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.dayTitle}>{title}</Text>
-            {subtitle ? <Text style={s.daySub}>{subtitle}</Text> : null}
+  // Dirakit lebih dulu supaya baris pertama bisa ikut ke dalam blok header;
+  // urutan pemanggilan tetap menentukan lastShownTime, jadi jangan diacak.
+  const baris = day.activities.map((raw, i) => {
+    const act = typeof raw === 'string' ? { time: '-', text: raw } : raw;
+    const kind = classifyActivity(act.text, { dayIndex: index, activityIndex: i }) as string;
+    const hasTime = Boolean(act.time && act.time !== '-');
+    const showTime = hasTime && act.time !== lastShownTime;
+    if (showTime) lastShownTime = act.time;
+    const foto = photos?.[i] || null;
+
+    if (kind !== 'regular') {
+      return (
+        <View key={i} style={s.moment} wrap={false}>
+          <View style={s.momentTop}>
+            {showTime ? <Text style={s.momentJam}>{act.time}</Text> : null}
+            <Text style={s.momentBadge}>{BADGE_TEXT[kind]}</Text>
           </View>
-          {flagDataUrl ? <Image src={flagDataUrl} style={s.flag} /> : null}
+          <ActivityText text={act.text} />
+          {foto ? <Image src={foto.dataUrl} style={s.photo} /> : null}
         </View>
-        <View style={s.timeline}>
-          <View style={s.railLine} />
-          {day.activities.map((raw, i) => {
-            const act = typeof raw === 'string' ? { time: '-', text: raw } : raw;
-            const kind = classifyActivity(act.text, { dayIndex: index, activityIndex: i }) as string;
-            const hasTime = Boolean(act.time && act.time !== '-');
-            const showTime = hasTime && act.time !== lastShownTime;
-            if (showTime) lastShownTime = act.time;
-            const foto = photos?.[i] || null;
+      );
+    }
 
-            if (kind !== 'regular') {
-              return (
-                <View key={i} style={s.moment} wrap={false}>
-                  <View style={s.momentTop}>
-                    {showTime ? <Text style={s.momentJam}>{act.time}</Text> : null}
-                    <Text style={s.momentBadge}>{BADGE_TEXT[kind]}</Text>
-                  </View>
-                  <ActivityText text={act.text} />
-                  {foto ? <Image src={foto.dataUrl} style={s.photo} /> : null}
-                </View>
-              );
-            }
-
-            return (
-              <View key={i} style={s.row} wrap={false}>
-                <Text style={s.jam}>{showTime ? act.time : ''}</Text>
-                <View style={s.dotCol}><View style={s.dot} /></View>
-                <View style={s.rowBody}>
-                  <ActivityText text={act.text} />
-                  {foto ? (
-                    <View wrap={false}>
-                      <Image src={foto.dataUrl} style={s.photo} />
-                      <Text style={s.photoCap}>{foto.label}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            );
-          })}
+    return (
+      <View key={i} style={s.row} wrap={false}>
+        <Text style={s.jam}>{showTime ? act.time : ''}</Text>
+        <View style={s.dotCol}><View style={s.dot} /></View>
+        <View style={s.rowBody}>
+          <ActivityText text={act.text} />
+          {foto ? (
+            <View wrap={false}>
+              <Image src={foto.dataUrl} style={s.photo} />
+              <Text style={s.photoCap}>{foto.label}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
-    </View>
+    );
+  });
+  const [barisPertama, ...sisaBaris] = baris;
+
+  const bersambung = sisaBaris.length > 0;
+
+  /*
+    Kartu hari dipecah jadi DUA saudara di tingkat halaman, bukan satu kartu
+    dengan blok tak-terpisahkan di dalamnya:
+
+    - Blok atas (header + baris pertama) `wrap={false}` supaya header tidak
+      pernah nyangkut sendirian di kaki halaman.
+    - Blok bawah menampung sisa baris dan tetap boleh terpotong, karena hari
+      yang panjang melebihi satu halaman (spec §8).
+
+    `wrap={false}` HARUS berada di saudara tingkat halaman ini. Menaruhnya di
+    dalam kartu justru merusak: sebagai anak pertama kartu yang boleh terpotong,
+    react-pdf membuang isi timeline berikutnya (uji JBU1550 kehilangan seluruh
+    Hari 2, 10 → 8 halaman); dan bila kartunya yang tetap satu wadah, yang
+    tertinggal di kaki halaman adalah cangkang kartu kosong.
+
+    Sambungan dua blok dibuat tak terlihat lewat *Atas/*Bawah: border dan sudut
+    membulat dimatikan di sisi yang bertemu, padding timeline serta rail dipotong
+    di titik yang sama, jadi saat keduanya sehalaman hasilnya identik dengan satu
+    kartu utuh.
+
+    `minPresenceAhead` sengaja TIDAK dipakai lagi di sini: blok atas sudah tak
+    terpisahkan, jadi menuntut ruang tambahan sesudahnya hanya menambah halaman
+    (JBU1526 11 → 10, JBU1550 12 → 11) tanpa mencegah apa pun.
+  */
+  return (
+    <>
+      <View style={s.cardWrap} wrap={false}>
+        <View style={[s.card, bersambung ? s.cardAtas : {}]}>
+          <View style={s.cardHead}>
+            <View style={s.dayChip}><Text style={s.dayChipText}>{dayNum}</Text></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.dayTitle}>{title}</Text>
+              {subtitle ? <Text style={s.daySub}>{subtitle}</Text> : null}
+            </View>
+            {flagDataUrl ? <Image src={flagDataUrl} style={s.flag} /> : null}
+          </View>
+          {barisPertama ? (
+            <View style={[s.timeline, bersambung ? s.timelineAtas : {}]}>
+              <View style={[s.railLine, bersambung ? s.railAtas : {}]} />
+              {barisPertama}
+            </View>
+          ) : null}
+        </View>
+      </View>
+      {bersambung ? (
+        <View style={s.cardWrapBawah}>
+          <View style={[s.card, s.cardBawah]}>
+            <View style={[s.timeline, s.timelineBawah]}>
+              <View style={[s.railLine, s.railBawah]} />
+              {sisaBaris}
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </>
   );
 }
 
