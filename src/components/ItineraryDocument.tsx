@@ -153,7 +153,8 @@ const s = StyleSheet.create({
   railAtas: { bottom: 0 },
   railBawah: { top: 0 },
   row: { flexDirection: 'row', marginBottom: P(14) },
-  jam: { width: JAM_W, fontSize: P(12.5), fontWeight: 'bold', color: C.burgundy },
+  // 13,5px — jam ikut naik 1px bersama teks kegiatan (permintaan user).
+  jam: { width: JAM_W, fontSize: P(13.5), fontWeight: 'bold', color: C.burgundy },
   dotCol: { width: DOT_COL_W, alignItems: 'center', paddingTop: P(5) },
   dot: { width: P(8), height: P(8), borderRadius: P(4), backgroundColor: C.paper, borderWidth: P(2), borderColor: C.dot },
   rowBody: { flex: 1 },
@@ -164,7 +165,7 @@ const s = StyleSheet.create({
 
   moment: { backgroundColor: C.gold50, borderRadius: P(12), paddingHorizontal: P(12), paddingVertical: P(10), marginBottom: P(14) },
   momentTop: { flexDirection: 'row', alignItems: 'center', gap: P(8), marginBottom: P(4) },
-  momentJam: { fontSize: P(12.5), fontWeight: 'bold', color: C.burgundy },
+  momentJam: { fontSize: P(13.5), fontWeight: 'bold', color: C.burgundy },
   momentBadge: { fontSize: P(9.5), fontWeight: 'bold', letterSpacing: P(0.8), color: C.gold700 },
 
   photo: { marginTop: P(8), width: '100%', height: P(159), borderRadius: P(12), objectFit: 'cover' },
