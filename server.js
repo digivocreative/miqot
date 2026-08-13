@@ -18287,7 +18287,8 @@ const VALID_PUBLIC_EVENTS = [
   'page_view', 'wa_click_public', 'inquiry_submitted',
   // Filter halaman jadwal publik: metadata { filter, value } — filter =
   // 'mode' | 'tipe' | 'landing' | 'bulan' | 'durasi' | 'cepat' | 'berangkat' |
-  // 'pulang' | 'urut' (nama yang sama dengan param URL-nya).
+  // 'pulang' | 'urut' | 'tersedia' (nama yang sama dengan param URL-nya).
+  // 'tersedia' = tombol "hanya seat tersedia", value 'on' | 'off'.
   'jadwal_filter',
   'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked',
   'bio_view', 'bio_social_click',

@@ -66,13 +66,20 @@ test('sub-filter tipe paket: placeholder ala Jadwal, tanpa showAllOptions', () =
   assert.match(filterHeader, /const showTypeDropdown = filterMode === 'TIPE PAKET'/);
 });
 
-test('opsi tipe dibangun dari paket yang masih punya kursi, lewat roster bersama', () => {
+test('opsi tipe dibangun dari roster yang sama dengan hasilnya', () => {
   const memo = filterHeader.match(/const packageTypeOptions = useMemo\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
   assert.notEqual(memo, '', 'memo packageTypeOptions tidak ditemukan');
-  // Bukan `packages`: opsi dari seluruh data bisa berujung nol kartu (dead end).
-  assert.match(memo, /availablePackages\.map\(umrohTypeSubject\)/);
+  // `rosterPackages`, bukan `packages` mentah maupun daftar tersaring sendiri:
+  // gerbang kursinya ikut tombol "hanya seat tersedia" (lihat
+  // tests/jadwal-toggle-tersedia.test.js), jadi angka di label selalu sama
+  // dengan jumlah kartu.
+  assert.match(memo, /rosterPackages\.map\(umrohTypeSubject\)/);
   assert.match(memo, /listPackageTypeOptions/);
-  assert.doesNotMatch(memo, /\bpackages\.map\b/);
+  // Berlaku untuk SEMUA roster sub-filter (bulan, durasi, landing, tipe): tidak
+  // boleh ada yang menyaring kursi sendiri di luar rosterPackages.
+  assert.doesNotMatch(filterHeader, /availablePackages/);
+  const rogue = [...filterHeader.matchAll(/seatSisa > 0/g)];
+  assert.equal(rogue.length, 1, 'gerbang kursi di FilterHeader harus tepat satu, di rosterPackages');
 });
 
 test('daftar mode ber-sort hidup di satu tempat saja', () => {

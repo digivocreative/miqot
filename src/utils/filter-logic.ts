@@ -59,6 +59,16 @@ export interface FilterParams {
    * tanggal yang stabil.
    */
   today?: Date;
+  /**
+   * Tombol "hanya seat tersedia" di baris Cari. MENYEMPITKAN, bukan
+   * melebarkan: bawaannya mati (mode berdimensi memuat paket habis), dan nyala
+   * berarti yang habis disembunyikan.
+   *
+   * Hanya berlaku untuk MODES_WITH_AVAILABILITY_TOGGLE. Di luar itu tombolnya
+   * tidak dirender, jadi flag yang nyasar dari URL diabaikan — kalau tidak,
+   * daftar menyusut karena saringan yang tombolnya tak terlihat.
+   */
+  availableOnly?: boolean;
 }
 
 export interface MonthGroup {
@@ -175,6 +185,23 @@ export const MODES_WITH_SORT: readonly FilterMode[] = [
   'AVAILABLE',
   'LIBURAN_SEKOLAH',
   'UMROH CUTI 5 HARI',
+];
+
+/**
+ * Mode yang memunculkan tombol "hanya seat tersedia".
+ *
+ * Sengaja TANPA 'AVAILABLE' dan 'SEMUA DATA': keduanya sudah menyatakan
+ * gerbang kursinya lewat namanya sendiri, jadi tombol di sana cuma bikin dua
+ * kontrol yang bisa saling bertentangan. Satu daftar untuk App (gerbang state
+ * + reset), FilterHeader (render tombol), dan filterPackages (fail-closed).
+ */
+export const MODES_WITH_AVAILABILITY_TOGGLE: readonly FilterMode[] = [
+  'LANDING DI',
+  'LIBURAN_SEKOLAH',
+  'UMROH CUTI 5 HARI',
+  'TIPE PAKET',
+  'DURASI PERJALANAN',
+  'DATA PER-BULAN',
 ];
 
 /** Get URL slug for a FilterMode */
@@ -504,31 +531,37 @@ export function filterPackages(
   data: UmrohPackage[],
   params: FilterParams
 ): UmrohPackage[] {
-  const { mode, secondaryValue, today } = params;
+  const { mode, secondaryValue, today, availableOnly } = params;
 
-  // "SEMUA DATA" is the only mode that may expose sold-out packages.
-  // Every other schedule filter starts from packages that still have seats,
-  // including modes whose secondary option has not been selected yet.
-  if (mode === 'SEMUA DATA') {
-    return data;
-  }
-
-  const availableData = data.filter(pkg => pkg.seatSisa > 0);
+  // Gerbang kursi tidak lagi otomatis. Mode 'AVAILABLE' memang berarti "seat
+  // tersedia"; mode lain menjawab pertanyaan berbeda ("bulan Oktober ada apa?",
+  // "yang landing Madinah mana?") dan paket habis tetap jawaban yang sah —
+  // kartunya dicoret merah, jadi pengunjung tahu itu sudah penuh. Dulu SEMUA
+  // mode menyaring kursi, dan akibatnya bulan/landing yang habis total tidak
+  // pernah bisa ditampilkan sama sekali.
+  //
+  // `availableOnly` (tombol di baris Cari) memasang kembali gerbang itu atas
+  // permintaan user — hanya di mode yang benar-benar merender tombolnya.
+  const seatGated =
+    mode === 'AVAILABLE' ||
+    (!!availableOnly && MODES_WITH_AVAILABILITY_TOGGLE.includes(mode));
+  const base = seatGated ? data.filter(pkg => pkg.seatSisa > 0) : data;
 
   switch (mode) {
     case 'AVAILABLE':
-      return availableData;
+    case 'SEMUA DATA':
+      return base;
 
     case 'LANDING DI':
       // Filter by landing city (airport code of the departure flight's final leg)
       if (!secondaryValue) {
-        return availableData;
+        return base;
       }
-      return availableData.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
+      return base.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
 
     case 'LIBURAN_SEKOLAH':
       // Filter packages with departure in June or July 2026
-      return availableData.filter(pkg => {
+      return base.filter(pkg => {
         const depDate = new Date(pkg.keberangkatan.tgl);
         const month = depDate.getMonth(); // 0-indexed: 5=June, 6=July
         const year = depDate.getFullYear();
@@ -536,16 +569,16 @@ export function filterPackages(
       });
 
     case 'UMROH CUTI 5 HARI':
-      return availableData.filter(matchesCuti5Hari);
+      return base.filter(matchesCuti5Hari);
 
     case 'TIPE PAKET': {
       // Tipe paket & keanggotaannya milik roster bersama (src/lib/packageType.js)
       // — halaman Brosur memakai daftar yang sama persis.
       if (!secondaryValue) {
-        return availableData;
+        return base;
       }
       const musimDinginWindow = getMusimDinginWindow(today);
-      return availableData.filter(pkg =>
+      return base.filter(pkg =>
         matchesPackageType(umrohTypeSubject(pkg), secondaryValue, musimDinginWindow)
       );
     }
@@ -553,9 +586,9 @@ export function filterPackages(
     case 'DURASI PERJALANAN':
       // Filter by trip duration
       if (!secondaryValue) {
-        return availableData;
+        return base;
       }
-      return availableData.filter(pkg => {
+      return base.filter(pkg => {
         const days = calculateDuration(pkg);
         return days === parseInt(secondaryValue, 10);
       });
@@ -563,15 +596,15 @@ export function filterPackages(
     case 'DATA PER-BULAN':
       // Filter by departure month
       if (!secondaryValue) {
-        return availableData;
+        return base;
       }
-      return availableData.filter(pkg => {
+      return base.filter(pkg => {
         const monthKey = getMonthKey(pkg.keberangkatan.tgl);
         return monthKey === secondaryValue;
       });
 
     default:
-      return availableData;
+      return base;
   }
 }
 

@@ -13,6 +13,7 @@ import {
   parseFilterSearch,
   URGENT_SEAT_THRESHOLD,
   MODES_WITH_SORT,
+  MODES_WITH_AVAILABILITY_TOGGLE,
   type FilterMode,
   type SortOrder,
 } from '@/utils';
@@ -89,6 +90,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // bawaan dan menghapus ?landing=/?cepat= dari link yang baru saja dibuka.
   const urlSyncReadyRef = useRef(false);
   const [filterSecondaryValue, setFilterSecondaryValue] = useState('');
+  // Tombol "hanya seat tersedia" (baris Cari). Bawaannya mati: mode berdimensi
+  // memuat paket habis, dan tombol ini jalan keluar buat menyempitkannya.
+  const [availableOnly, setAvailableOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
@@ -220,12 +224,21 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setQuickFilter(parsedUrl.quickFilter);
     setDepartureTimeRanges(parsedUrl.departureRanges);
     setReturnTimeRanges(parsedUrl.returnRanges);
-
     // Slug lama (mis. /umroh-promo) membawa preset tipe paket — lihat
     // LEGACY_FILTER_SLUGS di src/utils/filter-logic.ts.
+    const resolvedFromSlug = filterSlugFromUrl ? resolveFilterSlug(filterSlugFromUrl) : null;
+
+    // Flag ?tersedia hanya sah di mode yang benar-benar merender tombolnya.
+    // Tanpa gerbang ini link `/nikita?tersedia` menghidupkan state saringan yang
+    // tombolnya tidak ada di layar — tak ada cara mematikannya.
+    setAvailableOnly(
+      parsedUrl.availableOnly &&
+      MODES_WITH_AVAILABILITY_TOGGLE.includes(resolvedFromSlug?.mode ?? 'AVAILABLE'),
+    );
+
     if (filterSlugFromUrl) {
-      const resolved = resolveFilterSlug(filterSlugFromUrl);
-      if (resolved) {
+      if (resolvedFromSlug) {
+        const resolved = resolvedFromSlug;
         filterModeRef.current = resolved.mode;
         setFilterMode(resolved.mode);
         // Sub-nilai dari query menang atas preset slug: itu yang ditulis saat
@@ -332,6 +345,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     if (singlePackageId) return;
     const path = buildUrlPath(filterMode, filterSecondaryValue);
     const search = buildFilterSearch({
+      availableOnly,
       quickFilter,
       departureRanges: departureTimeRanges,
       returnRanges: returnTimeRanges,
@@ -345,6 +359,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     singlePackageId,
     filterMode,
     filterSecondaryValue,
+    availableOnly,
     quickFilter,
     departureTimeRanges,
     returnTimeRanges,
@@ -444,6 +459,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       // `?promo=`, persis bentuk berantakan yang sudah ditinggalkan.
       const from = params.get('from');
       const search = buildFilterSearch({
+        availableOnly,
         quickFilter,
         departureRanges: departureTimeRanges,
         returnRanges: returnTimeRanges,
@@ -480,6 +496,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     let result = filterPackages(packages, {
       mode: filterMode,
       secondaryValue: filterSecondaryValue,
+      availableOnly,
     });
 
     // Apply Time Filters
@@ -572,7 +589,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     }
     
     return result;
-  }, [packages, filterMode, filterSecondaryValue, searchQuery, quickFilter, departureTimeRanges, returnTimeRanges, sortOrder]);
+  }, [packages, filterMode, filterSecondaryValue, availableOnly, searchQuery, quickFilter, departureTimeRanges, returnTimeRanges, sortOrder]);
 
   // ============================================
   // Handlers
@@ -587,6 +604,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setSortOrder('TANGGAL_TERDEKAT');
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
+    setAvailableOnly(false);
     // URL menyusul lewat efek sinkron di atas.
   };
 
@@ -596,7 +614,18 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterSecondaryValue('');
     // Set default sort for modes with sort sub-dropdown
     setSortOrder(MODES_WITH_SORT.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
+    // Toggle "hanya seat tersedia" hidup hanya selama tombolnya terlihat. Kalau
+    // nilainya disimpan diam-diam, user kembali ke mode berdimensi dan mendapati
+    // daftarnya pendek karena saringan yang tombolnya sempat hilang dari layar.
+    // Pindah antar mode yang SAMA-SAMA punya tombol tidak mereset.
+    if (!MODES_WITH_AVAILABILITY_TOGGLE.includes(mode)) setAvailableOnly(false);
     trackFilterChange('mode', mode);
+  };
+
+  const handleToggleAvailableOnly = () => {
+    const next = !availableOnly;
+    setAvailableOnly(next);
+    trackFilterChange('tersedia', next ? 'on' : 'off');
   };
 
   const handleSecondaryValueChange = (value: string) => {
@@ -746,6 +775,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setQuickFilter(null);
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
+    setAvailableOnly(false);
   };
 
 
@@ -889,6 +919,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         }}
         isCompactView={isCompactView}
         onToggleCompact={toggleCompactView}
+        availableOnly={availableOnly}
+        onToggleAvailableOnly={handleToggleAvailableOnly}
       />
 
       {/* ============================================ */}

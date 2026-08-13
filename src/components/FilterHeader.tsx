@@ -8,6 +8,7 @@ import {
   FilterMode,
   SortOrder,
   MODES_WITH_SORT,
+  MODES_WITH_AVAILABILITY_TOGGLE,
   filterModeLabel,
   groupByMonth,
   extractUniqueDurations,
@@ -22,9 +23,11 @@ import {
 } from '@/lib/packageType';
 import logoAlhijazColored from '@/new-logo/new-logo-alhijaz-colored.png';
 import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
-import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home } from 'lucide-react';
+import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home, Eye, EyeOff } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
 import FilterDropdown from './FilterDropdown';
+import AvailabilityCoachMark from './AvailabilityCoachMark';
+import { shouldShowAvailabilityHint, markAvailabilityHintSeen } from '@/lib/availability-hint';
 
 // ============================================
 // Types
@@ -66,6 +69,10 @@ export interface FilterHeaderProps {
   isCompactView?: boolean;
   /** Callback to toggle compact view */
   onToggleCompact?: () => void;
+  /** Tombol "hanya seat tersedia" — nyala berarti paket habis disembunyikan */
+  availableOnly?: boolean;
+  /** Callback tombol "hanya seat tersedia" */
+  onToggleAvailableOnly?: () => void;
 }
 
 // Trigger sizing for the filter-row dropdowns: two of them share the row (flex-1),
@@ -127,6 +134,8 @@ export function FilterHeader({
   onClearFilter,
   isCompactView = false,
   onToggleCompact,
+  availableOnly = false,
+  onToggleAvailableOnly,
 }: FilterHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -263,26 +272,62 @@ export function FilterHeader({
     inputRef.current?.focus();
   };
 
-  // Secondary filter choices must match the packages those modes can show.
-  // Sold-out packages remain accessible only through "SEMUA DATA".
-  const availablePackages = useMemo(() => {
+  // Tombol "hanya seat tersedia" — dua mode di bawah sudah menyatakan gerbang
+  // kursinya lewat namanya sendiri, jadi tombolnya tidak ikut dirender di sana.
+  const showAvailabilityToggle = MODES_WITH_AVAILABILITY_TOGGLE.includes(filterMode);
+
+  // Coach mark sekali-tampil untuk tombol itu. Dipicu saat tombolnya PERTAMA
+  // KALI terlihat — bukan cuma saat ganti mode dari SEAT TERSEDIA, tapi juga
+  // saat pengunjung membuka /{agent}/landing-jeddah langsung dari WhatsApp.
+  // Justru yang kedua ini yang paling tidak tahu tombol itu untuk apa.
+  const availabilityBtnRef = useRef<HTMLButtonElement>(null);
+  const [hintOpen, setHintOpen] = useState(false);
+  // Sekali per mount, di atas ingatan localStorage: mencegah gelembung terbit
+  // lagi kalau tombolnya sempat hilang lalu muncul kembali dalam satu kunjungan.
+  const hintArmedRef = useRef(true);
+
+  const dismissAvailabilityHint = useCallback(() => {
+    hintArmedRef.current = false;
+    markAvailabilityHintSeen();
+    setHintOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showAvailabilityToggle || !hintArmedRef.current) return;
+    if (!shouldShowAvailabilityHint()) {
+      hintArmedRef.current = false;
+      return;
+    }
+    // Jeda supaya gelembung tidak berebut frame dengan animasi buka header dan
+    // paint pertama daftar paket — diukur setelah semuanya duduk.
+    const timer = setTimeout(() => setHintOpen(true), 600);
+    return () => clearTimeout(timer);
+  }, [showAvailabilityToggle]);
+
+  // Roster sub-filter memakai gerbang yang SAMA dengan hasilnya (filterPackages),
+  // jadi angka di label selalu sama dengan jumlah kartu — kalau lepas, "Jeddah
+  // (59 paket)" nangkring di atas 29 kartu. Tanpa toggle isinya seluruh paket:
+  // gerbang kursi bukan lagi bawaan, dan bulan yang habis total tetap harus bisa
+  // dipilih.
+  const rosterPackages = useMemo(() => {
+    if (!showAvailabilityToggle || !availableOnly) return packages;
     return packages.filter(pkg => pkg.seatSisa > 0);
-  }, [packages]);
+  }, [packages, showAvailabilityToggle, availableOnly]);
 
-  // Group available packages by month
+  // Group packages by month
   const monthGroups = useMemo<MonthGroup[]>(() => {
-    return groupByMonth(availablePackages);
-  }, [availablePackages]);
+    return groupByMonth(rosterPackages);
+  }, [rosterPackages]);
 
-  // Extract unique durations from available packages
+  // Extract unique durations
   const durationOptions = useMemo(() => {
-    return extractUniqueDurations(availablePackages);
-  }, [availablePackages]);
+    return extractUniqueDurations(rosterPackages);
+  }, [rosterPackages]);
 
-  // Extract unique landing cities from available packages
+  // Extract unique landing cities
   const landingOptions = useMemo(() => {
-    return extractUniqueLandings(availablePackages);
-  }, [availablePackages]);
+    return extractUniqueLandings(rosterPackages);
+  }, [rosterPackages]);
 
   // Jendela musim dingin dihitung sekali per sesi — sama seperti halaman Brosur;
   // window tidak bergeser mid-day untuk use case ini.
@@ -291,7 +336,7 @@ export function FilterHeader({
   // Tipe paket: roster, urutan, label, dan gerbang "hanya yang punya paket"
   // datang dari modul bersama, jadi daftarnya identik dengan halaman Brosur.
   const packageTypeOptions = useMemo(() => {
-    const options = listPackageTypeOptions(availablePackages.map(umrohTypeSubject), musimDinginWindow);
+    const options = listPackageTypeOptions(rosterPackages.map(umrohTypeSubject), musimDinginWindow);
     // Sub-nilai dari tautan lama (mis. /umroh-musim-dingin di tahun tanpa paket
     // Des/Jan) tetap ditampilkan supaya trigger tidak kosong dan user tahu
     // filter apa yang sedang aktif.
@@ -299,7 +344,7 @@ export function FilterHeader({
       options.push({ value: secondaryValue, label: packageTypeLabel(secondaryValue) });
     }
     return options;
-  }, [availablePackages, musimDinginWindow, secondaryValue]);
+  }, [rosterPackages, musimDinginWindow, secondaryValue]);
 
   // Mode URL-saja (mis. /cuti-5-hari, /liburan-sekolah) tidak ada di roster
   // dropdown. Tanpa entri sintetis, FilterDropdown tidak menemukan labelnya dan
@@ -626,6 +671,39 @@ export function FilterHeader({
             >
               <LayoutList className={ROW_ICON_SIZE} />
             </button>
+
+            {/* Hanya Seat Tersedia — MENYEMPITKAN, jadi nyala/hijau berarti ada
+                saringan yang sedang jalan (sepola tombol Compact & titik hijau
+                di tombol Filter), bukan "datanya lebih banyak". */}
+            {showAvailabilityToggle && (
+              <button
+                ref={availabilityBtnRef}
+                onClick={() => {
+                  onToggleAvailableOnly?.();
+                  // Sudah ketemu sendiri — tak perlu diberi tahu lagi.
+                  dismissAvailabilityHint();
+                }}
+                className={`
+                  relative flex items-center justify-center
+                  w-9 h-9 sm:w-11 sm:h-11 shrink-0
+                  rounded-xl
+                  transition-all duration-200
+                  active:scale-95
+                  ${availableOnly
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
+                    : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80'
+                  }
+                  ${hintOpen ? 'ring-2 ring-emerald-500/70 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 animate-pulse' : ''}
+                `}
+                aria-pressed={availableOnly}
+                aria-label={availableOnly ? 'Tampilkan juga paket habis' : 'Sembunyikan paket habis'}
+                title={availableOnly ? 'Paket habis disembunyikan' : 'Semua jadwal tampil'}
+              >
+                {availableOnly
+                  ? <EyeOff className={ROW_ICON_SIZE} />
+                  : <Eye className={ROW_ICON_SIZE} />}
+              </button>
+            )}
           </div>
         </div>
         </div>
@@ -633,6 +711,15 @@ export function FilterHeader({
 
       </div>
 
+      {/* Petunjuk sekali-tampil untuk tombol mata. `open` ikut
+          showAvailabilityToggle DAN isVisible: kalau lepas, gelembungnya bisa
+          melayang menunjuk tombol yang sudah tidak dirender atau header yang
+          sudah menciut. */}
+      <AvailabilityCoachMark
+        anchorRef={availabilityBtnRef}
+        open={hintOpen && showAvailabilityToggle && isVisible}
+        onDismiss={dismissAvailabilityHint}
+      />
 
     </header>
   );

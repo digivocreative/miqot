@@ -65,6 +65,12 @@ export const DEPARTURE_RANGE_PARAM = 'berangkat';
 export const RETURN_RANGE_PARAM = 'pulang';
 export const SORT_PARAM = 'urut';
 
+/**
+ * Tombol "hanya seat tersedia". Flag tanpa nilai (sebentuk dengan `?promo`):
+ * bawaannya mati, jadi selama toggle tidak disentuh link tetap pendek.
+ */
+export const AVAILABILITY_PARAM = 'tersedia';
+
 const SORT_SLUGS: Record<SortOrder, string> = {
   'TANGGAL_TERDEKAT': 'terdekat',
   'TANGGAL_TERJAUH': 'terjauh',
@@ -99,6 +105,7 @@ const LEGACY_SECONDARY_PARAM: Partial<Record<FilterMode, string>> = {
 const LEGACY_QUICK_FILTER_PARAM = 'cepat';
 
 export interface FilterUrlState {
+  availableOnly?: boolean;
   quickFilter?: QuickFilterType | null;
   departureRanges?: readonly TimeRange[];
   returnRanges?: readonly TimeRange[];
@@ -112,6 +119,7 @@ export interface ParsedFilterUrl {
    * semuanya terpakai bersamaan tanpa mengubah bentuk data ini.
    */
   secondary: Partial<Record<FilterMode, string>>;
+  availableOnly: boolean;
   quickFilter: QuickFilterType | null;
   departureRanges: TimeRange[];
   returnRanges: TimeRange[];
@@ -162,6 +170,10 @@ function decodeRanges(raw: string | null): TimeRange[] {
 export function buildFilterSearch(state: FilterUrlState): string {
   const parts: string[] = [];
 
+  // Paling depan: ini saringan paling kasar (memangkas separuh daftar), jadi
+  // paling terbaca di awal link.
+  if (state.availableOnly) parts.push(AVAILABILITY_PARAM);
+
   if (state.quickFilter && QUICK_FILTER_VALUES.includes(state.quickFilter)) {
     // Flag tanpa nilai: modenya sudah jelas dari namanya sendiri.
     parts.push(state.quickFilter);
@@ -199,6 +211,7 @@ export function parseFilterSearch(search: string | URLSearchParams): ParsedFilte
 
   return {
     secondary,
+    availableOnly: params.has(AVAILABILITY_PARAM),
     quickFilter,
     departureRanges: decodeRanges(params.get(DEPARTURE_RANGE_PARAM)),
     returnRanges: decodeRanges(params.get(RETURN_RANGE_PARAM)),

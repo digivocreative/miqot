@@ -68,20 +68,42 @@ const TODAY = new Date('2026-08-12T00:00:00Z'); // jendela musim dingin: Des 202
 
 const names = list => list.map(p => p.nama).sort();
 
-test('TIPE PAKET tanpa sub-nilai = semua paket yang masih punya kursi', () => {
+test('TIPE PAKET tanpa sub-nilai = seluruh paket, termasuk yang habis', () => {
   const result = filterPackages(DATA, { mode: 'TIPE PAKET', today: TODAY });
-  assert.equal(result.length, 5);
-  assert.equal(result.every(p => p.seatSisa > 0), true);
+  assert.equal(result.length, DATA.length);
 });
 
-test('TIPE PAKET tidak pernah membocorkan paket sold out', () => {
-  // Hanya 'SEMUA DATA' yang boleh menampilkan paket habis.
-  for (const type of ['UMROH SAJA', 'UMROH RAHMAH', 'KERETA CEPAT', 'UMROH PROMO']) {
-    const result = filterPackages(DATA, { mode: 'TIPE PAKET', secondaryValue: type, today: TODAY });
-    assert.equal(result.every(p => p.seatSisa > 0), true, type);
-  }
+test('TIPE PAKET ikut menampilkan paket sold out', () => {
   const rahmah = filterPackages(DATA, { mode: 'TIPE PAKET', secondaryValue: 'UMROH RAHMAH', today: TODAY });
-  assert.deepEqual(names(rahmah), ['MIX 12HR']); // 'MIX RAHMAH SOLD OUT' tidak ikut
+  assert.deepEqual(names(rahmah), ['MIX 12HR', 'MIX RAHMAH SOLD OUT']);
+});
+
+test('gerbang kursi tinggal milik SEAT TERSEDIA saja', () => {
+  // Satu-satunya mode yang menyembunyikan paket habis.
+  const available = filterPackages(DATA, { mode: 'AVAILABLE', today: TODAY });
+  assert.equal(available.every(p => p.seatSisa > 0), true);
+  assert.equal(available.length, 5);
+
+  // Mode lain berangkat dari dataset penuh. Diuji lewat bentuk tanpa sub-nilai,
+  // yang mengembalikan dataset dasarnya apa adanya — kalau gerbang kursi bocor
+  // ke sini lagi, panjangnya turun jadi 5.
+  for (const mode of ['LANDING DI', 'TIPE PAKET', 'DURASI PERJALANAN', 'DATA PER-BULAN', 'SEMUA DATA']) {
+    assert.equal(filterPackages(DATA, { mode, today: TODAY }).length, DATA.length, mode);
+  }
+});
+
+test('mode URL-saja juga memuat paket habis', () => {
+  const libur = [
+    pkg('LIBUR HABIS', { seatSisa: 0, keberangkatan: { tgl: '2026-06-20', jam: '08.00' } }),
+    pkg('LIBUR ADA', { keberangkatan: { tgl: '2026-07-02', jam: '08.00' } }),
+    pkg('BUKAN LIBUR', { keberangkatan: { tgl: '2026-09-02', jam: '08.00' } }),
+  ];
+  assert.deepEqual(names(filterPackages(libur, { mode: 'LIBURAN_SEKOLAH' })), ['LIBUR ADA', 'LIBUR HABIS']);
+
+  // Berangkat Sabtu, pulang Senin dini hari → cuti 5 hari kerja.
+  const cuti = { keberangkatan: { tgl: '2026-10-10', jam: '20.00' }, kepulangan: { tgl: '2026-10-19', jam: '02.00' } };
+  const data = [pkg('CUTI HABIS', { ...cuti, seatSisa: 0 }), pkg('CUTI ADA', cuti)];
+  assert.deepEqual(names(filterPackages(data, { mode: 'UMROH CUTI 5 HARI' })), ['CUTI ADA', 'CUTI HABIS']);
 });
 
 test('TIPE PAKET: Umroh Rahmah dari tier di `harga`, bukan dari nama', () => {
