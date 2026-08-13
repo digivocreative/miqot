@@ -27,12 +27,71 @@
 // karena PackageCard.tsx perlu di-transpile + di-resolve alias '@/' dan asetnya
 // sebelum bisa diimpor node. Kalau suatu saat hilang, tes gagal keras di build.
 import { build } from 'esbuild';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+/**
+ * Entry + shim ditulis ke temp dir, jadi esbuild menelusuri node_modules dari
+ * /private/var/... dan tidak menemukan apa pun; daftar inilah yang menambalnya.
+ *
+ * JANGAN menyusunnya sebagai join(ROOT, 'node_modules'). Di git worktree, ROOT
+ * adalah direktori worktree — yang TIDAK punya node_modules sendiri — sehingga
+ * setiap impor gagal dengan "Could not resolve react". Galat itu muncul lebih
+ * dulu dan MENUTUPI galat apa pun yang sebenarnya sedang dicari.
+ *
+ * resolve.paths() memberi rantai penelusuran node yang sesungguhnya dari berkas
+ * ini ke atas, jadi node_modules repo utama ikut terjaring dari worktree mana pun
+ * tanpa mengasumsikan tata letak paket apa pun. Yang tidak ada dibuang supaya
+ * nilai ini tetap terbaca apa adanya saat menelusuri masalah.
+ */
+const NODE_PATHS = createRequire(import.meta.url).resolve.paths('react').filter((dir) => existsSync(dir));
+
+if (NODE_PATHS.length === 0) {
+  throw new Error(
+    'Tidak ada direktori node_modules di jalur penelusuran dari tests/fixtures/. ' +
+    'Jalankan `npm install`; kalau ini git worktree, symlink node_modules repo utama ke sini.',
+  );
+}
+
+/**
+ * Sufiks '?url' adalah fitur Vite: impornya jadi modul yang meng-export URL aset
+ * itu sebagai default. esbuild tidak punya padanannya — sufiksnya diabaikan saat
+ * mencari berkas, jadi ia me-resolve .mjs aslinya lalu gagal keras karena di sana
+ * memang tidak ada export default:
+ *
+ *   ItineraryModal.tsx:8:7: ERROR: No matching export in
+ *   "pdfjs-dist/build/pdf.worker.min.mjs?url" for import "default"
+ *
+ * PackageCard menarik ItineraryModal lewat lazy import, jadi berkas itu ikut
+ * terbundel dan satu galat ini mematikan SELURUH tes render sungguhan sekaligus.
+ * JANGAN memperbaikinya dengan mengubah ItineraryModal.tsx — '?url' di sana benar
+ * untuk Vite; yang kurang adalah pemahaman bundler tes ini.
+ *
+ * Stub-nya cukup: nilai URL-nya tidak pernah dipakai saat SSR (ItineraryModal
+ * hanya meneruskannya ke pdfjs.GlobalWorkerOptions.workerSrc untuk browser).
+ * Bentuknya tetap dibuat menyerupai keluaran Vite ('/assets/<berkas>') supaya
+ * kalau suatu saat ada yang membacanya, yang terbaca tetap seperti URL.
+ */
+const VITE_URL_NAMESPACE = 'vite-url-suffix-stub';
+
+const viteUrlSuffix = {
+  name: 'vite-url-suffix',
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /\?url$/ }, (args) => ({
+      path: args.path,
+      namespace: VITE_URL_NAMESPACE,
+    }));
+    pluginBuild.onLoad({ filter: /.*/, namespace: VITE_URL_NAMESPACE }, (args) => ({
+      contents: `export default ${JSON.stringify(`/assets/${basename(args.path.replace(/\?url$/, ''))}`)};`,
+      loader: 'js',
+    }));
+  },
+};
 
 // createPortal dievaluasi saat render dan butuh target DOM. Cukup body kosong —
 // isinya tidak pernah dipakai karena portalnya di-shim jadi inline.
@@ -132,8 +191,8 @@ async function loadBundle() {
     jsx: 'automatic',
     absWorkingDir: ROOT,
     alias: { '@': join(ROOT, 'src') },
-    nodePaths: [join(ROOT, 'node_modules')],
-    plugins: [shims],
+    nodePaths: NODE_PATHS,
+    plugins: [shims, viteUrlSuffix],
     define: {
       'process.env.NODE_ENV': '"production"',
       'import.meta.env': '{}',
