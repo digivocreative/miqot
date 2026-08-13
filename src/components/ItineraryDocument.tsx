@@ -4,6 +4,7 @@
 // Render SAJA: tidak mengambil data, tidak memilih foto, tidak memutuskan
 // boleh-tidaknya terbit. Semua aset masuk sebagai dataURL dari
 // src/utils/itineraryPdfBlob.tsx.
+import type { ComponentProps, ComponentType } from 'react';
 import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
@@ -193,18 +194,40 @@ const s = StyleSheet.create({
 });
 
 /**
+ * `linebreak.infinity` di @react-pdf/textkit: penalti sebesar ini membuat titik
+ * potong DILARANG, bukan sekadar mahal (`node.penalty !== linebreak.infinity`).
+ */
+const HYPHENATION_TERLARANG = 10000;
+
+/**
+ * `hyphenationPenalty` dibaca @react-pdf/layout dari `node.props` saat menyusun
+ * opsi tata letak teks, tapi belum tercantum di d.ts react-pdf 4.3.2 — dibungkus
+ * di sini supaya pemakaiannya tetap bertipe, bukan `any` yang menyebar.
+ */
+const TeksParagraf = Text as ComponentType<
+  ComponentProps<typeof Text> & { hyphenationPenalty?: number }
+>;
+
+/**
  * Nama tempat penting ditebalkan di tengah kalimat. react-pdf mendukungnya
  * lewat <Text> bersarang — teksnya berasal dari PDF pihak ketiga lewat parser
  * LLM, jadi tetap dirender sebagai potongan teks, tidak pernah sebagai markup.
+ *
+ * `hyphenationPenalty` wajib: textkit menghitung suku kata PER RUN <Text>,
+ * sehingga tanda baca yang menempel pada potongan tebal ("Ka'bah" lalu ";")
+ * dianggap suku kata baru tanpa spasi di depannya — ditandai sebagai titik
+ * hyphenation, dan saat baris kebetulan patah di situ textkit menyisipkan glyph
+ * "-" ("…di area Ka'bah-" lalu "; kondisional."). Font.registerHyphenationCallback
+ * tidak menolong karena hanya memecah kata DI DALAM satu run.
  */
 function ActivityText({ text }: { text: string }) {
   const parts = splitImportantPlaces(text) as Array<{ text: string; bold: boolean }>;
   return (
-    <Text style={s.actText}>
+    <TeksParagraf style={s.actText} hyphenationPenalty={HYPHENATION_TERLARANG}>
       {parts.map((p, i) =>
         p.bold ? <Text key={i} style={{ fontWeight: 'bold' }}>{p.text}</Text> : <Text key={i}>{p.text}</Text>,
       )}
-    </Text>
+    </TeksParagraf>
   );
 }
 
