@@ -1483,18 +1483,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </>
       )}
 
+      {/*
+        stageLabel seragam dengan aksi ekspor lain (permintaan user 13 Agt 2026).
+        Kemajuan per langkah tidak hilang: ikon dokumen di modal tetap terisi
+        mengikuti done/total.
+      */}
       <CatalogLoadingModal
         open={catalogBusy || catalogResult !== null}
         status={catalogResult ? catalogResult.status : 'loading'}
-        stageLabel={
-          catalogStage?.kind === 'cover'
-            ? 'Menyusun sampul…'
-            : catalogStage?.kind === 'page'
-              ? `Menyiapkan ${catalogStage.page.label}…`
-              : catalogStage?.kind === 'package'
-                ? `Menyiapkan ${catalogStage.label}…`
-                : 'Menyiapkan halaman…'
-        }
+        stageLabel="Sebentar..."
         done={catalogProgress?.done ?? 0}
         total={catalogProgress?.total ?? 0}
         message={catalogResult?.message}

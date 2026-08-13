@@ -5,7 +5,7 @@ export interface CatalogLoadingModalProps {
   /** Whether the modal is shown at all. */
   open: boolean;
   status: 'loading' | 'success' | 'error';
-  /** Human step label, e.g. "Menyusun sampul…" / "Menyiapkan Juni 2026…". */
+  /** Label saat memuat, mis. "Sebentar..." — seragam dengan aksi ekspor lain. */
   stageLabel: string;
   done: number;
   total: number;
