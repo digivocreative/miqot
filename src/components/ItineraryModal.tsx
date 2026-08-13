@@ -905,7 +905,7 @@ export function ItineraryModal({
           {(ownPdfMode ? buildingOwnPdf : isSharing) ? (
             <>
               <Loader2 size={20} className="animate-spin" />
-              <span>Menyiapkan File...</span>
+              <span>Sebentar...</span>
             </>
           ) : (
             <>
