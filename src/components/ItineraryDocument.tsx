@@ -4,8 +4,9 @@
 // Render SAJA: tidak mengambil data, tidak memilih foto, tidak memutuskan
 // boleh-tidaknya terbit. Semua aset masuk sebagai dataURL dari
 // src/utils/itineraryPdfBlob.tsx.
-import type { ComponentProps, ComponentType } from 'react';
-import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Path } from '@react-pdf/renderer';
+import type { ComponentProps, ComponentType, ReactElement } from 'react';
+import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Path, Rect } from '@react-pdf/renderer';
+import { normalizeWaNumber, formatWaDisplay } from '@/utils/phone';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 import {
@@ -156,7 +157,10 @@ const s = StyleSheet.create({
   dotCol: { width: DOT_COL_W, alignItems: 'center', paddingTop: P(5) },
   dot: { width: P(8), height: P(8), borderRadius: P(4), backgroundColor: C.paper, borderWidth: P(2), borderColor: C.dot },
   rowBody: { flex: 1 },
-  actText: { fontSize: P(13.5), lineHeight: 1.5, color: C.ink },
+  // 14,5px — dinaikkan 1px dari nilai web (13,5) atas permintaan user: di
+  // halaman selebar 400px teks kegiatan adalah isi utamanya, dan ini satu-satunya
+  // ukuran yang sengaja menyimpang dari tampilan web (spec §3).
+  actText: { fontSize: P(14.5), lineHeight: 1.5, color: C.ink },
 
   moment: { backgroundColor: C.gold50, borderRadius: P(12), paddingHorizontal: P(12), paddingVertical: P(10), marginBottom: P(14) },
   momentTop: { flexDirection: 'row', alignItems: 'center', gap: P(8), marginBottom: P(4) },
@@ -206,7 +210,7 @@ const s = StyleSheet.create({
   agentName: { fontSize: P(13.5), fontWeight: 'bold', color: '#FFFFFF' },
   agentContact: { fontSize: P(10.5), color: C.gold, marginTop: P(2) },
   agentAjak: { fontSize: P(9.5), color: '#FFFFFF99', marginTop: P(2) },
-  qr: { width: P(58), height: P(58), backgroundColor: '#FFFFFF', borderRadius: P(4) },
+  qrPlate: { backgroundColor: '#FFFFFF', borderRadius: P(10), padding: P(4) },
 
   note: { marginTop: P(13), paddingHorizontal: P(24), fontSize: P(10.5), color: C.ink3, textAlign: 'center' },
   foot: {
@@ -263,6 +267,58 @@ function ActivityText({ text }: { text: string }) {
  * terbit berbeda tergantung perangkat agent. Tabel di bawah membuat hasilnya sama
  * di mana pun.
  */
+export interface QrModules {
+  /** Sisi matriks dalam modul (tanpa zona tenang). */
+  size: number;
+  /** Baris demi baris, true = modul gelap. Panjang = size × size. */
+  dark: boolean[];
+}
+
+/** Sisi kode QR di dokumen, dalam titik (di luar bantalan pelatnya). */
+const QR_SISI = P(58);
+/**
+ * Zona tenang. Standar QR meminta 4 modul; 3 sudah cukup karena pelat putih
+ * membulat di belakangnya menambah margin kosong yang sama fungsinya.
+ */
+const QR_ZONA_TENANG = 3;
+
+/**
+ * Kode QR digambar sebagai vektor bermodul membulat, bukan PNG dari qrcode.
+ * Alasannya dua: rasternya dulu terbit tanpa zona tenang sama sekali
+ * (`margin: 0`) sehingga kodenya menempel di tepi pelat — jelek sekaligus lebih
+ * sulit dipindai — dan modul kotak kaku terasa asing di antara kartu-kartu
+ * bersudut membulat. Vektor juga tetap tajam berapa pun pembaca PDF menzum.
+ *
+ * Modul digambar seukuran penuh dengan sudut membulat, BUKAN titik berjarak:
+ * modul bertetangga tetap menyatu sehingga ketahanan pindainya tidak berkurang.
+ */
+function KodeQR({ qr }: { qr: QrModules }) {
+  const sisi = qr.size + QR_ZONA_TENANG * 2;
+  const kotak: ReactElement[] = [];
+  for (let baris = 0; baris < qr.size; baris += 1) {
+    for (let kolom = 0; kolom < qr.size; kolom += 1) {
+      if (!qr.dark[baris * qr.size + kolom]) continue;
+      kotak.push(
+        <Rect
+          key={`${baris}-${kolom}`}
+          x={kolom + QR_ZONA_TENANG}
+          y={baris + QR_ZONA_TENANG}
+          width={1}
+          height={1}
+          rx={0.3}
+          ry={0.3}
+          fill={C.ink}
+        />,
+      );
+    }
+  }
+  return (
+    <View style={s.qrPlate}>
+      <Svg width={QR_SISI} height={QR_SISI} viewBox={`0 0 ${sisi} ${sisi}`}>{kotak}</Svg>
+    </View>
+  );
+}
+
 /**
  * Foto agent + centang biru mitra resmi. Bentuknya disamakan dengan lencana di
  * CompareDocument (lingkaran #1d9bf0, centang putih, cincin putih tipis) supaya
@@ -609,7 +665,9 @@ export interface ItineraryDocProps {
   photosByDay: Array<Array<ItineraryFoto | null>>;
   flagDataUrl?: string;
   logoDataUrl?: string;
-  qrDataUrl?: string;
+  qr?: QrModules;
+  /** "alhijaz.co/nikita" — alamat yang dituju QR, ditulis apa adanya di kartu. */
+  agentUrlLabel?: string;
   agentPhotoDataUrl?: string;
   mode?: ItineraryPageMode;
   /** Tinggi halaman dalam titik; hanya dipakai saat mode `utuh`. */
@@ -617,7 +675,7 @@ export interface ItineraryDocProps {
 }
 
 export function ItineraryDocument({
-  content, paket, agent, photosByDay, flagDataUrl, logoDataUrl, qrDataUrl, agentPhotoDataUrl,
+  content, paket, agent, photosByDay, flagDataUrl, logoDataUrl, qr, agentUrlLabel, agentPhotoDataUrl,
   mode = 'paginasi', pageHeight,
 }: ItineraryDocProps) {
   // Koreksi terminal kedatangan (T3→T2) SEBELUM semua turunan data supaya teks
@@ -651,6 +709,12 @@ export function ItineraryDocument({
     : 0;
 
   const berangkatLabel = ID_SINGKAT(paket?.keberangkatan?.tgl || '');
+
+  // Nomor agent tersimpan sebagai "628…"; normalizeWaNumber sekalian membetulkan
+  // data legacy yang kehilangan angka 8 di depan. Gagal dibaca → tampilkan apa
+  // adanya, jangan mengarang nomor.
+  const waAgent = agent?.phone ? normalizeWaNumber(agent.phone) : null;
+  const teleponAgent = waAgent ? formatWaDisplay(waAgent, '-') : (agent?.phone || '');
 
   const tinggiHalaman = mode === 'ukur'
     ? ITINERARY_TINGGI_MAKS
@@ -708,10 +772,10 @@ export function ItineraryDocument({
             <AvatarTerverifikasi foto={agentPhotoDataUrl} />
             <View style={{ flex: 1 }}>
               <Text style={s.agentName}>{agent.name}</Text>
-              {agent.phone ? <Text style={s.agentContact}>{agent.phone}</Text> : null}
-              {qrDataUrl ? <Text style={s.agentAjak}>Pindai untuk buka itinerary versi web</Text> : null}
+              {teleponAgent ? <Text style={s.agentContact}>{teleponAgent}</Text> : null}
+              {agentUrlLabel ? <Text style={s.agentAjak}>{agentUrlLabel}</Text> : null}
             </View>
-            {qrDataUrl ? <Image src={qrDataUrl} style={s.qr} /> : null}
+            {qr ? <KodeQR qr={qr} /> : null}
           </View>
         ) : null}
 

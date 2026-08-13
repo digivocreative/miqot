@@ -42,7 +42,7 @@ export function normalizeWaNumber(wa?: string | null): string | null {
   return cleaned;
 }
 
-export function formatWaDisplay(phoneE164: string): string {
+export function formatWaDisplay(phoneE164: string, separator = ' '): string {
   const local = phoneE164.startsWith('62') ? `0${phoneE164.slice(2)}` : phoneE164;
-  return local.replace(/^(\d{4})(\d{4})(\d+)$/, '$1 $2 $3');
+  return local.replace(/^(\d{4})(\d{4})(\d+)$/, `$1${separator}$2${separator}$3`);
 }

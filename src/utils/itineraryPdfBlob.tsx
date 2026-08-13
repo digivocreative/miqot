@@ -12,8 +12,44 @@ import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { destinationPhotosForDays, destinationPhotoUrl } from '../../lib/itinerary-destinasi.js';
 import {
   ItineraryDocument, ITINERARY_PAD_BAWAH, ITINERARY_TINGGI_MAKS,
-  type ItineraryDocProps, type ItineraryFoto,
+  type ItineraryDocProps, type ItineraryFoto, type QrModules,
 } from '../components/ItineraryDocument';
+
+/**
+ * Matriks QR mentah, bukan PNG: dokumen menggambarnya sendiri sebagai vektor
+ * bermodul membulat. Ketahanan pindai 'M' dipertahankan — tautan share itinerary
+ * pendek, jadi tak perlu menurunkannya demi kerapatan modul.
+ */
+function matriksQr(url: string): QrModules | undefined {
+  try {
+    const { modules } = QRCode.create(url, { errorCorrectionLevel: 'M' }) as {
+      modules: { size: number; data: ArrayLike<number> };
+    };
+    return {
+      size: modules.size,
+      dark: Array.from({ length: modules.size * modules.size }, (_, i) => Boolean(modules.data[i])),
+    };
+  } catch (err) {
+    console.warn('[itinerary-pdf] QR dilewati:', err);
+    return undefined;
+  }
+}
+
+/**
+ * "alhijaz.co/nikita" — diturunkan dari tautan share supaya selalu memakai
+ * domain yang benar-benar dipakai aplikasi, bukan kolom `website` agent yang
+ * datanya beragam (sebagian berisi domain lain sama sekali).
+ */
+function labelUrlAgent(shareUrl?: string): string | undefined {
+  if (!shareUrl) return undefined;
+  try {
+    const u = new URL(shareUrl);
+    const slug = u.pathname.split('/').filter(Boolean)[0];
+    return slug ? `${u.host.replace(/^www\./, '')}/${slug}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * react-pdf tidak bisa membaca WebP (dan tidak bisa membaca JPEG progresif),
@@ -144,18 +180,7 @@ export async function generateItineraryPdfBlob({
     agent?.photo ? toDataUrl(agent.photo, { format: 'image/png', maxWidth: 240 }) : Promise.resolve(null),
   ]);
 
-  let qrDataUrl: string | undefined;
-  if (shareUrl) {
-    try {
-      qrDataUrl = await QRCode.toDataURL(shareUrl, {
-        margin: 0,
-        width: 232,
-        color: { dark: '#1E1512', light: '#FFFFFF' },
-      });
-    } catch (err) {
-      console.warn('[itinerary-pdf] QR dilewati:', err);
-    }
-  }
+  const qr = shareUrl ? matriksQr(shareUrl) : undefined;
 
   const isi: Omit<ItineraryDocProps, 'mode' | 'pageHeight'> = {
     content,
@@ -164,7 +189,8 @@ export async function generateItineraryPdfBlob({
     photosByDay,
     flagDataUrl: flagDataUrl || undefined,
     logoDataUrl: logoDataUrl || undefined,
-    qrDataUrl,
+    qr,
+    agentUrlLabel: labelUrlAgent(shareUrl),
     agentPhotoDataUrl: agentPhotoDataUrl || undefined,
   };
 
