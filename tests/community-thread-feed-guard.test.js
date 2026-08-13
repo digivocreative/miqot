@@ -6,8 +6,9 @@
 // Spec "komentar jadi kiriman penuh" (R3-R8) melonggarkan profil: balasan
 // (is_reply=true) kini ikut tampil di profil penulisnya dengan konteks
 // "Membalas ke @X", sementara linimasa (non-profil) dan semua sumber lain
-// (feed head, teaser, unread, broadcast, hitungan comment/thread, notifikasi
-// commentQuery) tetap menyaring penuh atau memakai is_reply sebagai pembeda.
+// (feed head, teaser, unread, broadcast, hitungan comment/thread, sumber
+// notifikasi loadTerasCommentRows) tetap menyaring penuh atau memakai is_reply
+// sebagai pembeda.
 // Daftar di bawah DIPERBARUI mengikuti perilaku baru itu -- bukan dihapus.
 // Lihat memo [[teras-utas-composer]].
 
@@ -22,6 +23,19 @@ function sliceAfter(marker, lines = 30) {
   const index = source.indexOf(marker);
   assert.notEqual(index, -1, `penanda tidak ditemukan di server.js: ${marker}`);
   return source.slice(index).split('\n').slice(0, lines).join('\n');
+}
+
+/**
+ * Ambil satu fungsi top-level UTUH: dari penanda sampai '}' di kolom 0.
+ * Dipakai untuk helper bernama, supaya tubuh yang bertambah panjang tidak
+ * diam-diam menggeser baris yang dijaga ke luar jendela hitungan-baris.
+ */
+function sliceFunction(marker) {
+  const index = source.indexOf(marker);
+  assert.notEqual(index, -1, `penanda tidak ditemukan di server.js: ${marker}`);
+  const end = source.indexOf('\n}\n', index);
+  assert.notEqual(end, -1, `akhir fungsi tidak ditemukan untuk penanda: ${marker}`);
+  return source.slice(index, end);
 }
 
 // Query yang MASIH menyaring PENUH (hanya kiriman induk / non-utas), tidak
@@ -111,22 +125,33 @@ test('daftar segmen utas di endpoint detail menyaring is_reply=false', () => {
   );
 });
 
-test('commentQuery notifikasi bersumber balasan (is_reply=true) dari community_posts', () => {
-  const block = sliceAfter('const commentQuery = ', 14);
+// Dulu dipin ke `const commentQuery = `. Identifier itu lenyap ketika sumber
+// notifikasi balasan dipindah ke helper bernama loadTerasCommentRows (c283ce1
+// — query DUA LANGKAH tanpa embed, karena embed self-FK di community_posts
+// balik array kosong tanpa galat). Nama helper jadi jangkar penggantinya, dan
+// dipasangkan dengan bukti helper itu MASIH DIPANGGIL: kalau di kemudian hari
+// ia diganti nama lagi atau ditinggalkan, dua-duanya merah, bukan lolos diam.
+test('sumber notifikasi komentar bersumber balasan (is_reply=true) dari community_posts', () => {
+  const block = sliceFunction('async function loadTerasCommentRows(');
   assert.match(
     block,
     /\.from\('community_posts'\)/,
-    'commentQuery harus bersumber dari community_posts (bukan community_post_comments lama)',
+    'sumber komentar harus community_posts (bukan community_post_comments lama)',
   );
   assert.match(
     block,
     /\.eq\('is_reply', true\)/,
-    'commentQuery harus menyaring is_reply=true (balasan), bukan segmen lanjutan utas lain yang juga ber-parent_post_id',
+    'sumber komentar harus menyaring is_reply=true (balasan), bukan segmen lanjutan utas lain yang juga ber-parent_post_id',
   );
   assert.match(
     block,
     /parent_post_id/,
-    'commentQuery masih perlu memeriksa relasi induk lewat parent_post_id',
+    'sumber komentar masih perlu memeriksa relasi induk lewat parent_post_id',
+  );
+  assert.match(
+    sliceFunction('async function loadTerasNotificationSources('),
+    /loadTerasCommentRows\(agent, \{ since, clearedAt, limit \}\)/,
+    'lonceng harus benar-benar memakai loadTerasCommentRows sebagai sumber comment',
   );
 });
 

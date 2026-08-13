@@ -79,21 +79,44 @@ test('server memakai guard skema broadcast, bukan menembakkan galat mentah', () 
 
 test('POST kiriman menegakkan kuota @semua sebelum menyimpan', () => {
   const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  const handlerStart = source.indexOf("app.post('/api/community/posts'");
+  // \n-anchored + dibatasi route berikutnya: tanpa '\n' di depan, indexOf cocok
+  // ke KOMENTAR yang menyebut path (server.js ~518: "BUKAN yang di
+  // app.post('/api/community/posts', ...)") lalu memotong 12000 karakter dari
+  // wilayah yang salah -- itu yang membuat tes ini merah di pohon bersih.
+  const handlerStart = source.indexOf("\napp.post('/api/community/posts',");
+  const handlerEnd = source.indexOf("\napp.post('/api/community/media',", handlerStart);
   assert.ok(handlerStart > 0, 'handler POST kiriman harus ada');
-  const handler = source.slice(handlerStart, handlerStart + 12000);
+  assert.ok(handlerEnd > handlerStart, 'batas akhir handler POST kiriman harus ketemu');
+  const handler = source.slice(handlerStart, handlerEnd);
 
   assert.match(handler, /hasEveryoneMention\(body\)/,
     'token dibaca dari body server, bukan dari flag kiriman klien');
   assert.match(handler, /Jatah @semua hari ini sudah dipakai\. Coba lagi besok\./,
     'penolakan kuota memakai kalimat spec');
-  assert.match(handler, /mentions_everyone/,
-    'kolom tanda ikut disisipkan');
 
+  // Penulisan kolom pindah ke helper createCommunityPostRow: handler kini hanya
+  // MENERUSKAN flag -- dan hanya untuk segmen PERTAMA sebuah utas, karena
+  // @semua milik utas, bukan tiap segmen. Keduanya dijaga terpisah supaya
+  // hilangnya salah satu tidak tertutupi yang lain.
+  assert.match(handler, /mentionsEveryone: i === 0 \? mentionsEveryone : false/,
+    'hanya segmen pertama utas yang membawa tanda @semua');
+  const helperStart = source.indexOf('async function createCommunityPostRow(');
+  assert.ok(helperStart > 0, 'helper createCommunityPostRow harus ada');
+  const helperEnd = source.indexOf('\n}\n', helperStart);
+  assert.ok(helperEnd > helperStart, 'akhir helper createCommunityPostRow harus ketemu');
+  assert.match(source.slice(helperStart, helperEnd), /mentions_everyone: true/,
+    'kolom tanda ikut disisipkan oleh createCommunityPostRow');
+
+  // Kuota diperiksa sebelum baris dibuat. Pembanding lama adalah literal
+  // ".from('community_posts')\n        .insert(" yang sudah tidak ada di handler
+  // (insert pindah ke helper, indentasinya pun beda), jadi urutan ini lolos
+  // lewat jalan pintas `insert === -1` alias tidak menguji apa-apa. Sekarang
+  // keberadaan titik simpannya diwajibkan lebih dulu.
   const quotaCheck = handler.indexOf('Jatah @semua hari ini sudah dipakai');
-  const insert = handler.indexOf('.from(\'community_posts\')\n        .insert(');
-  assert.ok(quotaCheck > 0 && (insert === -1 || quotaCheck < insert),
-    'kuota diperiksa sebelum insert, bukan sesudah');
+  const insertCall = handler.indexOf('createCommunityPostRow(');
+  assert.ok(quotaCheck > 0, 'penolakan kuota harus ada di handler');
+  assert.ok(insertCall > 0, 'handler harus menyimpan lewat createCommunityPostRow');
+  assert.ok(quotaCheck < insertCall, 'kuota diperiksa sebelum insert, bukan sesudah');
 });
 
 test('endpoint kuota broadcast tersedia untuk komposer', () => {

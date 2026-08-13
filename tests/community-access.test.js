@@ -237,7 +237,11 @@ test('dashboard registers Teras at all eight integration points', () => {
   const registrationChecks = [
     [
       'TabId',
-      /type TabId\s*=\s*[^;]*\|\s*'teras'\s*;/,
+      // 'teras' harus jadi ANGGOTA union, bukan anggota TERAKHIR: pin lama
+      // menuntut ';' persis sesudahnya dan mati begitu 'bani' ditambahkan di
+      // belakangnya (7304cb9). '|' di depan tetap diwajibkan supaya yang cocok
+      // benar-benar varian TabId, bukan substring 'teras' di tempat lain.
+      /type TabId\s*=[^;]*\|\s*'teras'\s*(?:\||;)/,
     ],
     [
       'slug maps',
@@ -293,9 +297,25 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
 
   assert.ok(terasEntryStart >= 0 && terasEntryEnd > terasEntryStart);
   assert.match(layoutSource.slice(terasEntryStart, terasEntryEnd), /hidden:\s*true/);
+  // Kartu Jendela Teras. Pin lama menuntut pembungkus persis
+  // <div className="col-span-3"> dan '/>' langsung sesudah onOpen; keduanya
+  // berubah saat Bani berbagi satu baris dengan Teras (7304cb9: wrapper grid
+  // bersama + prop `compact`). Yang benar-benar dijaga: kartu hanya dirender
+  // di dalam gerbang `terasEnabled`, dan membuka tab teras. Dijangkarkan ke
+  // titik render itu sendiri supaya prop/pembungkus baru tidak mematikannya,
+  // tapi gerbang yang hilang tetap merah.
+  const terasCardRenderCount = layoutSource.split('<TerasCard').length - 1;
+  assert.equal(terasCardRenderCount, 1, 'kartu Teras harus punya tepat satu titik render');
+  const terasCardIndex = layoutSource.indexOf('<TerasCard');
   assert.match(
-    layoutSource,
-    /\{terasEnabled && \(\s*<div className="col-span-3">[\s\S]*?<TerasCard onOpen=\{\(\) => navigateTab\('teras'\)\} \/>/,
+    layoutSource.slice(0, terasCardIndex).split('\n').slice(-4).join('\n'),
+    /\{terasEnabled && \(/,
+    'render <TerasCard> harus dibungkus langsung oleh gerbang {terasEnabled && (...)}',
+  );
+  assert.match(
+    layoutSource.slice(terasCardIndex, terasCardIndex + 200),
+    /onOpen=\{\(\) => navigateTab\('teras'\)\}/,
+    'onOpen kartu Teras harus membuka tab teras',
   );
   assert.match(
     layoutSource,
@@ -458,9 +478,28 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
     serverSource,
     /'image\/jpeg'[\s\S]*?'image\/png'[\s\S]*?'image\/webp'[\s\S]*?'video\/mp4'[\s\S]*?'video\/quicktime'[\s\S]*?'video\/webm'/,
   );
+  // Jalur BACA feed dipotong lewat deklarasi route (batas yang bertahan),
+  // bukan lewat daftar parameter buildPostsQuery: daftar itu tumbuh tiap kolom
+  // baru ditambahkan (4726ec7 menyisipkan includeEdited/includePin) dan
+  // mematikan pin lama tanpa ada invariant yang benar-benar berubah.
+  const feedRouteStart = serverSource.indexOf("\napp.get('/api/community/feed',");
+  const feedRouteEnd = serverSource.indexOf("\napp.get('/api/community/posts/:id',", feedRouteStart);
+  assert.ok(feedRouteStart >= 0 && feedRouteEnd > feedRouteStart, 'route feed harus ada');
+  const feedRouteSource = serverSource.slice(feedRouteStart, feedRouteEnd);
   assert.match(
-    serverSource,
-    /buildPostsQuery = \(includeMedia, includeQuote, includeLinkPreview, includeThread\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
+    feedRouteSource,
+    /const buildPostsQuery = \([^)]*\bincludeMedia\b[^)]*\) =>/,
+    'feed harus tetap merakit query lewat buildPostsQuery dengan flag includeMedia',
+  );
+  assert.match(
+    feedRouteSource,
+    /isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?includeMedia = false/,
+    'feed harus turun kelas (includeMedia=false) saat kolom media belum dimigrasi, bukan 500',
+  );
+  assert.match(
+    feedRouteSource,
+    /normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
+    'payload feed harus menormalkan media tersimpan + photo_url legacy',
   );
   assert.match(
     commentRouteSource,
