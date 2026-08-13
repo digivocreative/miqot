@@ -75,6 +75,45 @@ test('jadwal card keeps the seat row mounted while expanding', () => {
   assert.doesNotMatch(packageCard, /\{isExpanded && <div className="mb-3"><SeatAndDateSection/);
 });
 
+// Kartu yang di-skip content-visibility dilayout setinggi contain-intrinsic-size
+// sampai ia pernah dirender sekali. Kalau angka itu bukan tinggi kartu tertutup yang
+// sebenarnya, daftar di bawahnya bergeser sebanyak selisihnya tiap kartu pertama kali
+// muncul — dan di iOS Safari tidak ada scroll anchoring yang meredamnya (overflow-anchor
+// baru ada di Safari 27), jadi sentakannya sampai ke jari pengguna.
+//
+// Tes ini mengunci ARITMATIKANYA, bukan cuma angkanya: contain-intrinsic-size mengukur
+// content-box, jadi ia harus sama dengan tinggi kartu tertutup dikurangi padding-bottom
+// dan border kartu itu sendiri. Ubah pb-1/border-y dan tes ini merah — itu memang
+// maunya, karena angkanya harus diukur ulang.
+// Batasnya: tes ini TIDAK bisa menangkap penambahan baris di dalam kartu (tinggi 247px
+// hanya bisa diukur di browser sungguhan). Kalau isi kartu berubah, ukur ulang manual.
+test('skipped-card placeholder height matches the real closed-card height', () => {
+  const CLOSED_CARD_H = 247; // diukur di WebKit 26 @375/390/430px (judul 1 baris, 40/44 paket)
+  const PB_1 = 4;            // pb-1
+  const BORDER_Y = 2;        // border-y (1px atas + 1px bawah)
+
+  const declared = readMs(
+    packageCard,
+    /\[contain-intrinsic-size:auto_(\d+)px\]/,
+    'contain-intrinsic-size di root kartu',
+  );
+
+  // Kelas yang jadi dasar hitungan di atas harus masih terpasang di root kartu.
+  const rootClasses = packageCard.match(
+    /bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer[^\n]*/,
+  );
+  assert.ok(rootClasses, 'baris kelas root kartu pindah — perbarui patokan tes ini');
+  assert.match(rootClasses[0], /\bpb-1\b/, 'padding-bottom kartu berubah, ukur ulang tingginya');
+  assert.match(rootClasses[0], /\bborder-y\b/, 'border kartu berubah, ukur ulang tingginya');
+
+  assert.equal(
+    declared + PB_1 + BORDER_Y,
+    CLOSED_CARD_H,
+    `placeholder ${declared}px + pb-1 + border-y harus pas ${CLOSED_CARD_H}px; ` +
+      'meleset = daftar menyentak tiap kartu pertama kali muncul di iOS Safari',
+  );
+});
+
 test('seat progress stripes use a seamless, GPU-friendly animation tile', () => {
   assert.match(packageCard, /linear-gradient\(135deg,/);
   assert.match(packageCard, /backgroundSize: '16px 16px'/);

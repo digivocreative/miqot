@@ -188,9 +188,23 @@ function PackageCardImpl({
   // saat kartu dirender lagi. Clear saat expand harus render-phase (bukan useEffect)
   // supaya class tercabut pada commit yang sama dengan mulainya animasi.
   // Catatan: contain-intrinsic-size TIDAK ikut di-toggle — ia harus terpasang terus
-  // supaya browser merekam last remembered size selama kartu dirender penuh; tanpa
-  // itu, saat di-skip lagi kartu memakai placeholder 248px (≠ tinggi nyata) dan
-  // semua konten di bawahnya berkedip ±7px satu frame.
+  // supaya browser merekam last remembered size selama kartu dirender penuh.
+  //
+  // Angka placeholder-nya WAJIB tinggi kartu tertutup yang sebenarnya, bukan taksiran.
+  // Last remembered size cuma menolong kartu yang PERNAH dirender; kartu di bawah lipatan
+  // belum punya rekaman, jadi penampakan pertamanya memakai angka ini — dan tiap kali
+  // angkanya meleset, seluruh daftar di bawahnya bergeser sebanyak selisih itu. Di iOS
+  // Safari pergeseran itu tidak teredam sama sekali: WebKit belum punya scroll anchoring
+  // (overflow-anchor baru ada di Safari 27), jadi tiap koreksi menyentak konten tepat di
+  // bawah jari pengguna — persis keluhan "nge-jedug" saat menggulir.
+  //
+  // 241px = tinggi kartu tertutup 1-baris (247px) dikurangi pb-1 (4px) + border-y (2px);
+  // contain-intrinsic-size mengukur content-box. Diukur di WebKit 26 pada 375/390/430px:
+  // kartu tertutup hanya punya dua tinggi, 247px (judul 1 baris, 40 dari 44 paket) dan
+  // 261px (judul 2 baris). Nilai lama 248px tidak cocok dengan SATU kartu pun — ia jatuh
+  // di antara keduanya, jadi setiap kartu menyentak ±7px saat pertama muncul (25 sentakan
+  // / 175px dalam sekali gulir turun-naik). Dengan 241px tersisa 2 sentakan / 28px, yaitu
+  // kartu berjudul 2 baris saja. Ubah padding/border/baris kartu? UKUR ULANG angka ini.
   const [isSettledClosed, setIsSettledClosed] = useState(!isExpanded);
   if (isExpanded && isSettledClosed) {
     setIsSettledClosed(false);
@@ -1646,7 +1660,7 @@ _________________________
       onClick={handleCardClick}
       className={`
         bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
-        [contain-intrinsic-size:auto_248px] ${isSettledClosed ? '[content-visibility:auto]' : ''}
+        [contain-intrinsic-size:auto_241px] ${isSettledClosed ? '[content-visibility:auto]' : ''}
         transition-[box-shadow,border-color] duration-300 ease-out
         ${isExpanded
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
