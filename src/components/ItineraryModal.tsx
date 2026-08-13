@@ -561,7 +561,12 @@ export function ItineraryModal({
     }
   };
 
-  // Share First, Download Fallback handler
+  // ── Dokumen itinerary KANTOR (aset asli dari Alhijaz) ──
+  // Share First, Download Fallback handler. Tombol "Unduh PDF" yang sama dipakai
+  // untuk dua berkas berbeda tergantung tab aktif, jadi event-nya WAJIB berbeda:
+  // itinerary_own_pdf_download (rakitan kita) vs itinerary_office_pdf_download
+  // (berkas kantor). Satu nama event untuk keduanya = angka Analytics tak bisa
+  // dipakai menilai versi mana yang sebetulnya dikirim agen ke jamaah.
   const handleShareItinerary = async () => {
     if (!originalUrl) return;
     setIsSharing(true);
@@ -598,6 +603,13 @@ export function ItineraryModal({
       } else {
         downloadBlob(blob, fileName);
       }
+      // Ditembakkan di titik yang SAMA dengan handleOwnPdf (sesudah share/unduh,
+      // termasuk saat share dibatalkan) supaya kedua angka bisa dibandingkan
+      // langsung. `format`: aset kantor kadang gambar, bukan PDF.
+      trackEvent('action', 'itinerary_office_pdf_download', {
+        paket: effectivePaket?.jadwalId || title,
+        format: isImage ? 'image' : 'pdf',
+      });
     } catch (error) {
       console.error('Gagal share itinerary:', error);
       window.open(originalUrl, '_blank');

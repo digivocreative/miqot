@@ -18331,10 +18331,17 @@ const FEATURE_LABELS = {
 const ACTION_LABELS = {
   sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
   share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
-  download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
+  // Terlepas dari namanya, `download_itinerary` menyala saat kartu paket MEMBUKA
+  // modal itinerary — bukan saat berkas terunduh. Nama event dipertahankan demi
+  // data historis; labelnya dijujurkan supaya tidak tertukar dengan dua event
+  // unduhan di bawah.
+  download_itinerary: 'Buka Itinerary', wa_click_jamaah: 'WA Click Jamaah',
   view_itinerary_web: 'Lihat Itinerary Web', copy_itinerary_link: 'Salin Link Itinerary',
   wa_click_itinerary: 'WA dari Itinerary Share',
-  itinerary_own_pdf_download: 'Unduh Rencana Perjalanan',
+  // Dua berkas berbeda dari satu tombol "Unduh PDF" di ItineraryModal — sengaja
+  // dipisah agar terlihat versi mana yang benar-benar dipakai agen.
+  itinerary_own_pdf_download: 'Unduh Itinerary (Versi Kita)',
+  itinerary_office_pdf_download: 'Unduh Itinerary (PDF Kantor)',
   save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
   change_password: 'Ganti Password',
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',

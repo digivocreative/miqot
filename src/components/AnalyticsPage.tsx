@@ -47,6 +47,9 @@ const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 
 const ACTION_ICONS: Record<string, string> = {
   sync_jamaah: '🔄', generate_pdf: '📄', share_screenshot: '📸',
   download_brosur: '📥', download_itinerary: '📋', wa_click_jamaah: '💬',
+  // Versi kita (dirakit di klien) vs berkas kantor — ikonnya sengaja beda supaya
+  // kebedaan itu terbaca sekilas, bukan cuma dari teks label.
+  itinerary_own_pdf_download: '🗺️', itinerary_office_pdf_download: '🏢',
   save_capi_config: '⚙️', update_profil: '👤', change_password: '🔑',
   generate_script: '✍️', generate_voice: '🎙️',
   download_mp3: '🎵', download_wav: '🎵',
