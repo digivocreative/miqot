@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
-import { useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useIsPresent, useReducedMotion, type Variants } from 'framer-motion';
 import { Heart, Loader2, MessageCircle, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import type { CommunityComment, ReactionType, ReplyExpansionStatus } from '../TerasPage';
 import { AgentAvatar } from './AgentAvatar';
@@ -17,7 +17,21 @@ interface CommentThreadProps {
   onQuote: (commentId: string) => void;
   /** Buka sheet balasan (ala Threads) untuk komentar ini — tanpa pindah halaman. */
   onReply: (commentId: string) => void;
+  /** Hapus BENERAN — dipanggil dari tombol konfirmasi, bukan dari ikon tempat sampah. */
   onDelete: (commentId: string) => void;
+  /**
+   * Klik ikon tempat sampah: MINTA konfirmasi, belum menghapus. Konfirmasinya
+   * dirender inline di baris ini (dua tombol), bukan lewat window.confirm —
+   * dialog native bisa ditekan diam-diam oleh browser (checkbox "jangan
+   * tampilkan dialog lagi") atau webview yang tak menanganinya, dan saat itu
+   * terjadi tombol hapus jadi mati total tanpa pesan apa pun. Kiriman sudah
+   * lama memakai konfirmasi in-app (confirmDeletePostId); ini menyamakannya.
+   */
+  onRequestDelete: (commentId: string) => void;
+  /** Batalkan permintaan konfirmasi hapus. */
+  onCancelDelete: () => void;
+  /** Id komentar yang sedang menunggu konfirmasi hapus (null = tak ada). */
+  confirmDeleteCommentId: string | null;
   /**
    * Simpan edit body komentar. `null` = sukses (state komentar sudah
    * dipatch pemanggil lewat patchEntryBody di TerasPage); string = pesan
@@ -63,6 +77,103 @@ interface CommentThreadProps {
 // Sinkron dengan MAX_COMMUNITY_COMMENT_CHARS di TerasPage.tsx (batas komentar).
 const MAX_COMMENT_EDIT_CHARS = 300;
 
+/**
+ * Animasi "komentar baru mendarat". Dipakai lewat <AnimatePresence initial={false}>
+ * — itu kuncinya: daftar yang SUDAH ada saat panel pertama dibuka tidak ikut
+ * meletup satu per satu (panel sendiri sudah punya animasi buka), sementara baris
+ * yang menyusul kemudian — komentar yang baru dikirim (menyelip di paling atas),
+ * komentar orang lain yang masuk saat panel dimuat ulang, atau balasan yang baru
+ * di-expand — masuk lewat varian ini. Tak ada state "baru" yang perlu dititipkan
+ * dari TerasPage: kehadiran key baru di AnimatePresence sudah jadi sinyalnya.
+ *
+ * Tiga lapis yang berjalan bersamaan:
+ *   wrapper -> membuka tinggi 0->auto sambil turun sedikit (mendorong baris di
+ *              bawahnya, jadi daftar tidak "menyentak")
+ *   baris   -> kilau emerald (aksen Teras) yang memudar pelan, penanda mana yang
+ *              baru masuk
+ *   avatar  -> pantulan kecil (spring), titik fokus barisnya
+ * Dua lapis terakhir TIDAK punya initial/animate sendiri: framer mewariskannya
+ * dari wrapper lewat NAMA varian yang sama, jadi CommentRow tak perlu tahu apa
+ * pun soal state animasi dan baris lama tak pernah ikut menyala.
+ */
+const COMMENT_ENTER_EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
+const commentRevealVariants: Variants = {
+  hidden: { opacity: 0, height: 0, y: -10 },
+  visible: {
+    opacity: 1,
+    height: 'auto',
+    y: 0,
+    transition: { duration: 0.42, ease: COMMENT_ENTER_EASE, opacity: { duration: 0.28 } },
+  },
+  exit: { opacity: 0, height: 0, transition: { duration: 0.22, ease: 'easeIn' } },
+};
+
+const commentGlowVariants: Variants = {
+  hidden: { backgroundColor: 'rgba(16,185,129,0.16)' },
+  visible: {
+    backgroundColor: 'rgba(16,185,129,0)',
+    // Sengaja lebih lambat dari reveal-nya (0,42s): baris sudah selesai membuka,
+    // kilau masih memudar — mata sempat menangkap "yang ini yang baru". Tapi
+    // JANGAN dipanjangkan sembarangan: onAnimationComplete di CommentEnter baru
+    // menyala setelah animasi anak-anaknya ikut selesai (teruji), jadi durasi di
+    // sini = lama `overflow-hidden` menempel di wrapper.
+    transition: { duration: 0.9, ease: 'easeOut', delay: 0.2 },
+  },
+  exit: { backgroundColor: 'rgba(16,185,129,0)' },
+};
+
+// Avatar mendarat dengan pantulan kecil — titik fokus baris, jadi di sinilah
+// gerak yang "hidup" paling terbaca tanpa mengganggu keterbacaan teks.
+const commentAvatarVariants: Variants = {
+  hidden: { scale: 0.55 },
+  visible: { scale: 1, transition: { type: 'spring', stiffness: 540, damping: 22, delay: 0.08 } },
+  exit: { scale: 1 },
+};
+
+/**
+ * Wrapper satu baris yang masuk. Dipisah jadi komponen karena butuh satu state
+ * kecil: `overflow-hidden` WAJIB ada selama tinggi beranimasi (isi baris tumpah
+ * kalau tidak), dan WAJIB lepas sesudahnya — rail vertikal (`-mb-2`) dan burst
+ * reaksi (scale 1.9) sengaja melewati kotak baris, jadi hidden yang tertinggal
+ * memotongnya.
+ *
+ * Pelepasannya lewat onAnimationComplete + className, BUKAN `transitionEnd`
+ * milik framer: diuji di tests/teras-page.browser.test.js, nilai transitionEnd
+ * diam-diam TIDAK diterapkan kalau targetnya datang dari varian bernama —
+ * tinggi/opacity/y beres, tapi overflow menetap hidden selamanya. Lewat className
+ * juga bebas rebutan dengan style inline yang ditulis framer (overflow tak pernah
+ * jadi nilai animasi, jadi framer tak menyentuhnya).
+ */
+function CommentEnter({ animate, fresh, children }: { animate: boolean; fresh: boolean; children: ReactNode }) {
+  // Kesegaran DIKUNCI saat mount. Sesudah id-nya tercatat di render berikutnya
+  // `fresh` berbalik jadi false, dan tanpa penguncian ini baris yang MASIH
+  // beranimasi akan kehilangan klipingnya di tengah jalan.
+  const [entering] = useState(fresh);
+  const [revealed, setRevealed] = useState(false);
+  // false selama baris sedang keluar (dihapus) — tinggi menyusut lagi, jadi
+  // kliping perlu dipasang kembali.
+  const present = useIsPresent();
+  if (!animate) return <div>{children}</div>;
+  return (
+    <motion.div
+      variants={commentRevealVariants}
+      // Baris yang sudah ada saat panel dibuka: render langsung di keadaan akhir,
+      // TANPA kliping. Ini pasangan eksplisit dari <AnimatePresence initial={false}>
+      // — baris begitu tak pernah menganimasi, jadi onAnimationComplete-nya tak
+      // pernah menyala; kalau klipingnya ikut dipasang ia menempel SELAMANYA dan
+      // memotong pemisah full-bleed (-mx-4), rail (-mb-2), serta burst reaksi.
+      initial={entering ? 'hidden' : false}
+      animate="visible"
+      exit="exit"
+      onAnimationComplete={() => setRevealed(true)}
+      className={(entering && !revealed) || !present ? 'overflow-hidden' : undefined}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 interface CommentRowActions {
   myReaction: ReactionType | null;
   reactionCount: number;
@@ -85,6 +196,9 @@ export default function CommentThread({
   onQuote,
   onReply,
   onDelete,
+  onRequestDelete,
+  onCancelDelete,
+  confirmDeleteCommentId,
   onEditSave,
   onOpenThread,
   renderBody,
@@ -100,9 +214,36 @@ export default function CommentThread({
 }: CommentThreadProps) {
   const reduceMotion = useReducedMotion();
   const hideQuote = !!profileSlug;
+  // null = belum pernah render (semua baris dianggap lama, sama seperti
+  // initial={false} milik AnimatePresence).
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  // reduceMotion = tanpa animasi sama sekali, bukan versi cepat: baris langsung
+  // ada di tempatnya.
+  const animateEntry = !reduceMotion;
+
+  // Balasan mana yang benar-benar DIRENDER untuk sebuah komentar. Satu definisi
+  // dipakai dua kali (daftar id di bawah + JSX) supaya keduanya tak bisa
+  // menyimpang; kalau menyimpang, baris balasan yang di-expand akan dianggap
+  // "lama" dan masuk tanpa animasi.
+  const renderedRepliesOf = (comment: CommunityComment) => (
+    (replyExpansions?.[comment.id] === 'expanded' || !onToggleReplies)
+      ? (comment.preview_replies ?? [])
+      : []
+  );
+  // Baris mana yang BARU muncul sejak render sebelumnya. Ini pasangan eksplisit
+  // dari <AnimatePresence initial={false}>: AnimatePresence sudah menahan
+  // animasi baris lama, tapi kliping overflow butuh jawaban yang sama, dan
+  // hanya AnimatePresence yang tahu — baris lama tak pernah menganimasi
+  // sehingga onAnimationComplete-nya tak pernah menyala.
+  const seenIds = seenIdsRef.current;
+  const renderedIds = comments.flatMap(comment => [comment.id, ...renderedRepliesOf(comment).map(reply => reply.id)]);
+  const isFresh = (id: string) => seenIds !== null && !seenIds.has(id);
+  useEffect(() => {
+    seenIdsRef.current = new Set(renderedIds);
+  });
 
   return (
-    <>
+    <AnimatePresence initial={false}>
       {comments.map((comment, commentIndex) => {
         const previewReplies = comment.preview_replies ?? [];
         const replyCount = comment.reply_count ?? 0;
@@ -122,18 +263,21 @@ export default function CommentThread({
         // benar-benar tampil (tanpa ini rail bisa menjulur ke balasan tak-terlihat
         // kalau server masih mengirim cuplikan). Fallback tanpa toggle: tampilkan
         // apa adanya supaya balasan tak tersembunyi tanpa jalan keluar.
-        const renderedReplies = expanded || !canToggleReplies ? previewReplies : [];
+        const renderedReplies = renderedRepliesOf(comment);
         const showRepliesToggle = canToggleReplies
           ? expanded || expansion === 'loading' || expansion === 'error' || replyCount > 0
           : replyCount > 0;
 
         return (
-          <div key={comment.id}>
+          <CommentEnter key={comment.id} animate={animateEntry} fresh={isFresh(comment.id)}>
             <CommentRow
               comment={comment}
               agent={agent}
               deletingCommentId={deletingCommentId}
               onDelete={onDelete}
+              onRequestDelete={onRequestDelete}
+              onCancelDelete={onCancelDelete}
+              confirmDeleteCommentId={confirmDeleteCommentId}
               onEditSave={onEditSave}
               onOpenProfile={onOpenProfile}
               renderBody={renderBody}
@@ -162,13 +306,17 @@ export default function CommentThread({
                 komentar datar tetap tanpa rail. Balasan juga dapat baris aksi
                 (reaksi/balas/kutip) & klik-buka-thread, sama seperti induk.
                 renderedReplies kosong saat utas tertutup (ala Threads). */}
+            <AnimatePresence initial={false}>
             {renderedReplies.map((reply, index) => (
+              <CommentEnter key={reply.id} animate={animateEntry} fresh={isFresh(reply.id)}>
               <CommentRow
-                key={reply.id}
                 comment={reply}
                 agent={agent}
                 deletingCommentId={deletingCommentId}
                 onDelete={onDelete}
+                onRequestDelete={onRequestDelete}
+                onCancelDelete={onCancelDelete}
+                confirmDeleteCommentId={confirmDeleteCommentId}
                 onEditSave={onEditSave}
                 onOpenProfile={onOpenProfile}
                 renderBody={renderBody}
@@ -189,7 +337,9 @@ export default function CommentThread({
                   onReply: () => onReply(reply.id),
                 }}
               />
+              </CommentEnter>
             ))}
+            </AnimatePresence>
             {showRepliesToggle && (
               // Grid kolom-avatar yang sama dengan baris komentar: di feed
               // (railConnected) rail penyambung ke grup berikutnya harus LEWAT
@@ -222,10 +372,10 @@ export default function CommentThread({
                 </button>
               </div>
             )}
-          </div>
+          </CommentEnter>
         );
       })}
-    </>
+    </AnimatePresence>
   );
 }
 
@@ -234,6 +384,9 @@ function CommentRow({
   agent,
   deletingCommentId,
   onDelete,
+  onRequestDelete,
+  onCancelDelete,
+  confirmDeleteCommentId,
   onEditSave,
   onOpenProfile,
   renderBody,
@@ -251,6 +404,9 @@ function CommentRow({
   agent: { role?: string | null } | null;
   deletingCommentId: string | null;
   onDelete: (commentId: string) => void;
+  onRequestDelete: (commentId: string) => void;
+  onCancelDelete: () => void;
+  confirmDeleteCommentId: string | null;
   onEditSave: (commentId: string, body: string) => Promise<string | null>;
   onOpenProfile: (slug: string) => void;
   renderBody: (comment: CommunityComment) => ReactNode;
@@ -275,6 +431,7 @@ function CommentRow({
   hideQuote?: boolean;
 }) {
   const canDeleteComment = canDeleteCommunityEntry(agent, comment);
+  const confirmingDelete = confirmDeleteCommentId === comment.id;
   const commentAuthorName = comment.author.name || 'Agent';
   const commentAuthorSlug = comment.author.slug;
 
@@ -334,8 +491,13 @@ function CommentRow({
   };
 
   return (
-    <div
+    <motion.div
       data-comment-row
+      // Kilau "baru masuk". TIDAK punya initial/animate sendiri: nama variannya
+      // sama dengan wrapper di CommentThread, jadi framer mewariskannya dari
+      // sana — baris yang sudah lama tampil tak pernah menyala karena wrappernya
+      // pun tak pernah menganimasi ulang. reduceMotion = tanpa varian sama sekali.
+      variants={reduceMotion ? undefined : commentGlowVariants}
       role={onOpenThreadRow ? 'link' : undefined}
       tabIndex={onOpenThreadRow ? 0 : undefined}
       aria-label={onOpenThreadRow ? `Buka balasan ${commentAuthorName}` : undefined}
@@ -347,9 +509,14 @@ function CommentRow({
         // kolom avatar (railBelow), bukan pemisah.
         // railConnected (feed): buang hairline full-bleed (dulu "terasa post
         // baru") — cukup jarak atas, karena rail vertikal sudah menyambungkan.
+        // Jarak balasan sengaja PADDING, bukan margin: wrapper animasi masuk
+        // memakai overflow:hidden sementara (bikin BFC), dan margin-top anak
+        // berhenti melipat keluar di dalamnya — jarak 8px akan meloncat masuk
+        // lalu keluar lagi begitu overflow dilepas. Padding tak punya masalah itu,
+        // sekaligus membuat kilau "baru masuk" ikut menutupi jaraknya.
         isTopLevel
           ? (railConnected ? 'pt-2' : '-mx-4 border-t border-gray-100 px-4 pt-3 dark:border-slate-800')
-          : 'mt-2'
+          : 'pt-2'
       } ${
         onOpenThreadRow ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/50' : ''
       }`}
@@ -361,9 +528,13 @@ function CommentRow({
             dari kolom komentar yang tak-berposisi — tanpa lifting ini garis
             vertikal tampak "masuk ke dalam" foto profil. Setara pola avatar
             komposer (relative z-10) di TerasPage. */}
+        {/* Varian pantulan avatar diwarisi dari wrapper yang sama seperti kilau
+            baris — tanpa initial/animate sendiri, jadi hanya baris yang benar-benar
+            baru masuk yang memantul. */}
         {commentAuthorSlug ? (
-          <a
+          <motion.a
             href={terasProfilePath(commentAuthorSlug)}
+            variants={reduceMotion ? undefined : commentAvatarVariants}
             onClick={event => {
               if (isModifiedClick(event)) return;
               event.preventDefault();
@@ -374,11 +545,11 @@ function CommentRow({
             className="relative z-10"
           >
             <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
-          </a>
+          </motion.a>
         ) : (
-          <div className="relative z-10">
+          <motion.div variants={reduceMotion ? undefined : commentAvatarVariants} className="relative z-10">
             <AgentAvatar name={commentAuthorName} photo={comment.author.photo} size="post" />
-          </div>
+          </motion.div>
         )}
         {railBelow && (
           <div data-thread-rail="comment" aria-hidden="true" className="mt-1.5 -mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
@@ -409,7 +580,7 @@ function CommentRow({
           {comment.edited_at && (
             <span className="shrink-0 text-[11px] font-medium text-gray-400 dark:text-slate-500">· diedit</span>
           )}
-          {comment.is_own && !editState && (
+          {comment.is_own && !editState && !confirmingDelete && (
             <button
               type="button"
               onClick={() => setEditState({ text: comment.body, saving: false, error: null })}
@@ -420,20 +591,43 @@ function CommentRow({
               <Pencil size={13} />
             </button>
           )}
-          {canDeleteComment && (
+          {canDeleteComment && (confirmingDelete ? (
+            // Konfirmasi in-app, meniru pola kiriman (confirmDeletePostId):
+            // window.confirm() bisa dimatikan diam-diam oleh browser/webview,
+            // dan waktu itu terjadi tombol hapus mati total tanpa jejak.
+            // Pensil disembunyikan saat konfirmasi supaya dua tombol ini muat
+            // di baris yang sama tanpa menekan nama penulis.
+            <span className="-my-3 -mr-2 flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                disabled={deletingCommentId === comment.id}
+                onClick={() => onDelete(comment.id)}
+                aria-label="Konfirmasi hapus komentar"
+                className="flex min-h-11 items-center rounded-full px-2 text-[12.5px] font-bold text-red-600 transition-colors hover:bg-red-50 active:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20 dark:active:bg-red-900/20"
+              >
+                {deletingCommentId === comment.id ? <Loader2 size={13} className="animate-spin" /> : 'Hapus'}
+              </button>
+              <button
+                type="button"
+                disabled={deletingCommentId === comment.id}
+                onClick={onCancelDelete}
+                aria-label="Batal hapus komentar"
+                className="flex min-h-11 items-center rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 active:bg-gray-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:active:bg-slate-700/60"
+              >
+                Batal
+              </button>
+            </span>
+          ) : (
             <button
               type="button"
-              disabled={deletingCommentId === comment.id}
-              onClick={() => onDelete(comment.id)}
+              onClick={() => onRequestDelete(comment.id)}
               aria-label="Hapus komentar"
               title="Hapus komentar"
-              className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 active:text-red-500 disabled:opacity-50 dark:text-slate-400 dark:hover:text-red-400 dark:active:text-red-400"
+              className="-my-3 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-red-500 active:text-red-500 dark:text-slate-400 dark:hover:text-red-400 dark:active:text-red-400"
             >
-              {deletingCommentId === comment.id
-                ? <Loader2 size={13} className="animate-spin" />
-                : <Trash2 size={13} />}
+              <Trash2 size={13} />
             </button>
-          )}
+          ))}
         </div>
 
         {editState ? (
@@ -565,6 +759,6 @@ function CommentRow({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

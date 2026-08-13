@@ -1496,6 +1496,9 @@ export default function TerasPage({
   const [replyExpansions, setReplyExpansions] = useState<Record<string, ReplyExpansionStatus>>({});
   const [reactionBusy, setReactionBusy] = useState<Set<string>>(new Set());
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  // Komentar yang tombol hapusnya sudah diklik dan menunggu konfirmasi inline
+  // (setara confirmDeletePostId untuk kiriman). Lihat deleteComment.
+  const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState<string | null>(null);
   // Sheet balasan ala Threads: komposer menumpang di atas layar sekarang,
   // dikunci ke satu komentar target — TANPA navigasi ke halaman utas.
   // Mesin komentar dipakai apa adanya dengan panel key = id komentar target
@@ -3268,8 +3271,10 @@ export default function TerasPage({
    * dalam panel `targetPostId` (menggantikan cuplikan 2-terlama). Karena semua
    * mesin komentar (reaksi/hapus/kutip/peta reaksi) sudah menelusuri
    * preview_replies, balasan yang di-expand langsung interaktif tanpa jalur baru.
-   * Balasan datang urut lama->baru, jadi sisanya menambah DI BAWAH cuplikan
-   * (tak menggeser). Klik lagi ("Sembunyikan balasan") memulihkan cuplikan 2-terlama.
+   * Balasan datang urut TERBARU DULU — sama seperti daftar komentar itu sendiri
+   * (satu aturan urutan untuk semua daftar komentar, lihat GET .../comments) —
+   * dan dirender apa adanya. Klik lagi ("Sembunyikan balasan") mengosongkannya
+   * kembali (COMMENT_REPLY_PREVIEW_LIMIT = 0: tak ada cuplikan inline).
    */
   const toggleReplyExpansion = async (targetPostId: string, commentId: string) => {
     const status = replyExpansions[commentId];
@@ -3806,7 +3811,10 @@ export default function TerasPage({
       const newComment = created.data;
       setCommentPanels(current => {
         const currentPanel = current[postId] || emptyCommentPanel();
-        const comments = [...currentPanel.comments.filter(comment => comment.id !== newComment.id), newComment];
+        // Terbaru di ATAS (sama dengan urutan GET .../comments): komentar yang
+        // baru dikirim menyelip di baris pertama, langsung di bawah komposer —
+        // tanpa ini ia menempel di ujung daftar, sering di luar layar.
+        const comments = [newComment, ...currentPanel.comments.filter(comment => comment.id !== newComment.id)];
         const next = {
           ...current,
           [postId]: {
@@ -3836,7 +3844,7 @@ export default function TerasPage({
               return {
                 ...comment,
                 reply_count: (comment.reply_count ?? 0) + 1,
-                preview_replies: [...previews.filter(reply => reply.id !== newComment.id), newComment],
+                preview_replies: [newComment, ...previews.filter(reply => reply.id !== newComment.id)],
               };
             }
             if ((comment.preview_replies ?? []).some(reply => reply.id === postId)) {
@@ -4138,12 +4146,18 @@ export default function TerasPage({
   }, [fetchBroadcastQuota]);
 
   const deleteComment = async (postId: string, commentId: string) => {
-    if (deletingCommentId || !window.confirm('Hapus komentar ini?')) return;
-    // Tentukan top-level-atau-bukan dari snapshot SEBELUM request DELETE.
-    // window.confirm() di atas blocking (sinkron), jadi commentPanelsRef di
-    // sini masih mencerminkan panel persis saat tombol hapus diklik -- aman
-    // dipakai sebagai nilai murni, tidak tersandera keberadaan panel saat
-    // RESPONS tiba (mis. disela refreshFeed).
+    // Konfirmasinya dirender inline di baris komentar (confirmDeleteCommentId,
+    // meniru confirmDeletePostId milik kiriman) — BUKAN window.confirm.
+    // Dialog native bisa ditekan diam-diam: Chrome menawarkan centang "jangan
+    // tampilkan dialog lagi" dan sebagian webview tak menanganinya sama sekali;
+    // pada dua kasus itu confirm() balik `false` seketika, jadi tombol hapus
+    // mati total tanpa dialog, tanpa request, tanpa pesan galat.
+    if (deletingCommentId) return;
+    // Tentukan top-level-atau-bukan dari snapshot SEBELUM request DELETE:
+    // dibaca sinkron di klik tombol konfirmasi, jadi commentPanelsRef di sini
+    // masih mencerminkan panel persis saat itu -- aman dipakai sebagai nilai
+    // murni, tidak tersandera keberadaan panel saat RESPONS tiba (mis. disela
+    // refreshFeed).
     const panelBeforeDelete = commentPanelsRef.current[postId];
     const removedTopLevel = panelBeforeDelete
       ? removeCommentFromPanel(panelBeforeDelete.comments, commentId).removedTopLevel
@@ -4178,6 +4192,7 @@ export default function TerasPage({
       showToast(errorMessage(deleteError, 'Gagal menghapus komentar'), 'error');
     } finally {
       setDeletingCommentId(null);
+      setConfirmDeleteCommentId(null);
     }
   };
 
@@ -6242,7 +6257,12 @@ export default function TerasPage({
                             )}
                           </div>
                           <div className="min-w-0">
-                          {renderCommentComposer(commentTargetId, commentPanel, `Balas ke ${authorName}…`)}
+                          {/* Sheet balasan (renderCommentComposer di atas) tetap
+                              menyebut nama — di sana sasarannya satu komentar
+                              tertentu, jadi namanya membedakan. Di sini sasarannya
+                              selalu kiriman yang sedang dibuka, jadi namanya cuma
+                              mengulang yang sudah terbaca di kartunya. */}
+                          {renderCommentComposer(commentTargetId, commentPanel, 'Kirim balasan…')}
                           </div>
                         </div>
 
@@ -6260,6 +6280,9 @@ export default function TerasPage({
                             onQuote={commentId => handleCommentQuote(commentTargetId, commentId)}
                             onReply={commentId => openReplySheet(commentTargetId, commentId)}
                             onDelete={commentId => void deleteComment(commentTargetId, commentId)}
+                            onRequestDelete={setConfirmDeleteCommentId}
+                            onCancelDelete={() => setConfirmDeleteCommentId(null)}
+                            confirmDeleteCommentId={confirmDeleteCommentId}
                             onEditSave={handleCommentEditSave}
                             onOpenThread={openPostDetail}
                             profileSlug={profileSlug}

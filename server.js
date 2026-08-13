@@ -7615,13 +7615,23 @@ app.get('/api/community/posts/:id/comments', authMiddleware, async (req, res) =>
     // parent_post_id akan ikut menarik segmen lanjutan utas (Fitur A composer
     // juga memakai parent_post_id, dengan is_reply=false); is_reply=true
     // membedakan keduanya.
+    //
+    // Urutan TERBARU DULU (klien merender apa adanya, jadi komentar baru muncul
+    // di baris paling atas — tepat di bawah komposer). Arah order ini bukan
+    // sekadar kosmetik: berpasangan dengan limit(100) ia menentukan komentar
+    // MANA yang bertahan saat terpotong — descending menyimpan 100 TERBARU,
+    // ascending dulu menyimpan 100 TERLAMA (di kiriman ramai, komentar terbaru
+    // justru hilang dari daftar yang katanya "terbaru di atas"). id dipakai
+    // sebagai pemecah seri supaya dua komentar bercap waktu identik tetap
+    // deterministik urutannya, sama seperti pagination feed.
     const loadCommentRows = (includeMedia, includeEdited) => supabase
       .from('community_posts')
       .select(`id, agent_id, body, ${includeMedia ? 'media, ' : ''}${includeEdited ? 'edited_at, ' : ''}created_at, parent_post_id, agent:agents!community_posts_agent_id_fkey(name, slug, photo)`)
       .eq('parent_post_id', post.id)
       .eq('is_reply', true)
       .is('deleted_at', null)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(100);
     let includeMedia = true;
     let includeEdited = true;

@@ -1580,7 +1580,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('comments load once, Enter appends a server comment, and deleting removes it', { timeout: 30_000 }, async () => {
+  test('comments load once, Enter puts the new comment on top, and deleting removes it', { timeout: 30_000 }, async () => {
     let pendingCommentRoute;
     const post = makePost({
       id: 'comments-post',
@@ -1636,7 +1636,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       );
 
       const input = article.getByRole('textbox', { name: 'Tulis komentar' });
-      assert.equal(await input.getAttribute('placeholder'), 'Balas ke Agent Lain…');
+      assert.equal(await input.getAttribute('placeholder'), 'Kirim balasan…');
       assert.doesNotMatch(await input.getAttribute('class'), /rounded|border-gray|bg-white/,
         'input balasan harus transparan tanpa kapsul');
       await input.fill('Komentar baru');
@@ -1658,16 +1658,129 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         }),
       });
       await article.getByText('Komentar baru', { exact: true }).waitFor();
+      // Terbaru di ATAS: komentar yang baru dikirim menyelip di baris pertama
+      // (tepat di bawah komposer), bukan menempel di ujung daftar.
+      assert.match(
+        await article.locator('[data-comment-row]').first().innerText(),
+        /Komentar baru/,
+        'komentar terbaru harus muncul di baris paling atas',
+      );
+      // Animasi masuk (reveal tinggi + kilau emerald) harus SELESAI bersih.
+      // Yang dijaga di sini bukan gerakannya — itu timing — melainkan keadaan
+      // akhirnya: baris tak boleh tersangkut di tinggi 0/transparan, kilau harus
+      // habis, dan overflow wrapper kembali visible (rail vertikal & burst reaksi
+      // sengaja melewati kotak baris, jadi hidden yang tertinggal = terpotong).
+      const settled = await article.locator('[data-comment-row]').first().evaluate(async element => {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const wrapper = element.parentElement;
+        return {
+          height: Math.round(element.getBoundingClientRect().height),
+          opacity: getComputedStyle(wrapper).opacity,
+          background: getComputedStyle(element).backgroundColor,
+          overflow: getComputedStyle(wrapper).overflow,
+        };
+      });
+      assert.ok(settled.height > 20, `baris komentar baru harus punya tinggi wajar (dapat ${settled.height}px)`);
+      assert.equal(settled.opacity, '1', 'baris komentar baru harus opaque setelah animasi');
+      assert.match(settled.background, /rgba\(\d+,\s*\d+,\s*\d+,\s*0\)/, 'kilau harus memudar habis, bukan menetap');
+      assert.equal(settled.overflow, 'visible', 'overflow wrapper harus dilepas setelah animasi (rail tak boleh terpotong)');
       assert.equal(await input.evaluate(element => document.activeElement === element), true,
         'fokus input komentar harus tetap siap untuk komentar berikutnya');
       const commentRequest = matchingRequests(api, 'POST', '/api/community/posts/comments-post/comments')[0];
       assert.equal(commentRequest.body.body, 'Komentar baru');
       assert.match(commentRequest.body.client_id, /^[0-9a-f-]{36}$/i);
 
-      app.page.once('dialog', dialog => dialog.accept());
       await article.getByRole('button', { name: 'Hapus komentar' }).click();
+      await article.getByRole('button', { name: 'Konfirmasi hapus komentar' }).click();
       await article.getByText('Komentar baru', { exact: true }).waitFor({ state: 'detached' });
       assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/created-comment-1').length, 1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('hapus komentar tetap jalan walau dialog native dibungkam, dan baris lama tidak tersangkut kliping', { timeout: 30_000 }, async () => {
+    // window.confirm yang SELALU balik false meniru dua keadaan nyata: centang
+    // "jangan tampilkan dialog lagi" di Chrome, dan webview yang tak menangani
+    // dialog sama sekali. Dulu itu membuat tombol hapus komentar mati total —
+    // tanpa dialog, tanpa request, tanpa pesan galat. Konfirmasinya sekarang
+    // in-app, jadi window.confirm tak boleh dipanggil sama sekali.
+    const post = makePost({ id: 'detail-del', body: 'Kiriman detail', comment_count: 1 });
+    const api = createCommunityApi({
+      posts: [post],
+      comments: { 'detail-del': [makeComment({
+        id: 'komen-saya', body: 'Komentar saya sendiri', is_own: true,
+        author: { name: 'Nikita Test', slug: 'nikita', photo: null },
+      })] },
+      onRequest: async ({ record, route }) => {
+        if (record.method === 'GET' && record.pathname === '/api/community/posts/detail-del') {
+          await responseJson(route, { success: true, data: clone(post) });
+          return true;
+        }
+        return false;
+      },
+    });
+    const app = await openApp({
+      api,
+      path: '/dashboard/teras/post/detail-del',
+      waitForTeras: false,
+      initScript: 'window.__confirmCalls = 0; window.confirm = () => { window.__confirmCalls += 1; return false; };',
+    });
+    try {
+      const { page } = app;
+      await page.getByText('Komentar saya sendiri', { exact: true }).waitFor({ timeout: 15_000 });
+
+      // Baris yang sudah ada saat panel dirender TIDAK ikut animasi masuk, jadi
+      // ia juga tak boleh mewarisi klipingnya: overflow yang tertinggal hidden
+      // memotong pemisah full-bleed, rail, dan 8px kanan tombol hapus (baris
+      // sengaja -mx-4 melebihi wrappernya).
+      const clip = await page.locator('[data-comment-row]').first().evaluate(element => {
+        const wrapper = element.parentElement;
+        const button = element.querySelector('[aria-label="Hapus komentar"]');
+        const box = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.right - 2, box.top + box.height / 2);
+        return {
+          overflow: getComputedStyle(wrapper).overflow,
+          rowWiderThanWrapper: element.getBoundingClientRect().width > wrapper.getBoundingClientRect().width,
+          rightEdgeHitsButton: !!hit && !!hit.closest('[aria-label="Hapus komentar"]'),
+        };
+      });
+      assert.equal(clip.overflow, 'visible', 'baris lama tidak boleh tersangkut overflow-hidden dari animasi masuk');
+      assert.ok(clip.rowWiderThanWrapper, 'baris komentar memang melebihi wrappernya (-mx-4) — itu yang bikin kliping berbahaya');
+      assert.ok(clip.rightEdgeHitsButton, 'tepi kanan tombol hapus harus tetap bisa diklik, tidak terpotong kliping');
+
+      await page.getByRole('button', { name: 'Hapus komentar' }).click();
+      await page.getByRole('button', { name: 'Konfirmasi hapus komentar' }).click();
+      await page.getByText('Komentar saya sendiri', { exact: true }).waitFor({ state: 'detached' });
+      assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/komen-saya').length, 1,
+        'konfirmasi in-app harus benar-benar mengirim DELETE');
+      assert.equal(await page.evaluate(() => window.__confirmCalls), 0,
+        'jalur hapus komentar tidak boleh menyentuh window.confirm');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('batal di konfirmasi hapus komentar mengembalikan baris tanpa request', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({ id: 'cancel-post', body: 'Kiriman batal hapus', comment_count: 1 })],
+      comments: { 'cancel-post': [makeComment({
+        id: 'komen-batal', body: 'Komentar yang batal dihapus', is_own: true,
+        author: { name: 'Nikita Test', slug: 'nikita', photo: null },
+      })] },
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Kiriman batal hapus' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+      await article.getByText('Komentar yang batal dihapus', { exact: true }).waitFor();
+
+      await article.getByRole('button', { name: 'Hapus komentar' }).click();
+      await article.getByRole('button', { name: 'Batal hapus komentar' }).click();
+      await article.getByRole('button', { name: 'Hapus komentar' }).waitFor();
+      await article.getByText('Komentar yang batal dihapus', { exact: true }).waitFor();
+      assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/komen-batal').length, 0,
+        'batal tidak boleh mengirim DELETE');
     } finally {
       await app.close();
     }
@@ -2027,8 +2140,8 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       // Komentar agent lain: admin dapat tombol hapus meski is_own = false.
       await article.getByRole('button', { name: 'Komentari', exact: true }).click();
       await article.getByText('Komentar agent lain', { exact: true }).waitFor();
-      app.page.once('dialog', dialog => dialog.accept());
       await article.getByRole('button', { name: 'Hapus komentar' }).click();
+      await article.getByRole('button', { name: 'Konfirmasi hapus komentar' }).click();
       await article.getByText('Komentar agent lain', { exact: true }).waitFor({ state: 'detached' });
       assert.equal(matchingRequests(api, 'DELETE', '/api/community/comments/foreign-comment').length, 1);
 
