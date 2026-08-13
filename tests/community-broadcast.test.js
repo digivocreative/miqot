@@ -79,20 +79,40 @@ test('server memakai guard skema broadcast, bukan menembakkan galat mentah', () 
 
 test('POST kiriman menegakkan kuota @semua sebelum menyimpan', () => {
   const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  const handlerStart = source.indexOf("app.post('/api/community/posts'");
+  // Diawali \n supaya cocok ke deklarasi route sungguhan (kolom 0), bukan
+  // komentar yang menyebut path route — server.js ~518 menulis
+  // "app.post('/api/community/posts', ...)" sebagai contoh, dan komentar itu
+  // yang tadinya tertangkap (uji ini hijau/merah karena alasan yang salah).
+  const handlerStart = source.indexOf("\napp.post('/api/community/posts',");
   assert.ok(handlerStart > 0, 'handler POST kiriman harus ada');
-  const handler = source.slice(handlerStart, handlerStart + 12000);
+  const afterHandlerStart = source.slice(handlerStart + 1);
+  const nextRouteIndex = afterHandlerStart.search(/\napp\.(?:get|post|put|patch|delete)\(/);
+  const handler = nextRouteIndex === -1
+    ? afterHandlerStart
+    : afterHandlerStart.slice(0, nextRouteIndex);
 
   assert.match(handler, /hasEveryoneMention\(body\)/,
     'token dibaca dari body server, bukan dari flag kiriman klien');
   assert.match(handler, /Jatah @semua hari ini sudah dipakai\. Coba lagi besok\./,
     'penolakan kuota memakai kalimat spec');
-  assert.match(handler, /mentions_everyone/,
+
+  // Insert-nya tinggal di helper createCommunityPostRow (dipakai berulang oleh
+  // pembuat utas), jadi kolom tandanya dicari di sana — bukan di handler.
+  const helperStart = source.indexOf('\nasync function createCommunityPostRow({');
+  assert.ok(helperStart > 0, 'helper createCommunityPostRow harus ada');
+  const helperEnd = source.indexOf('\n}\n', helperStart);
+  assert.ok(helperEnd > helperStart, 'helper createCommunityPostRow harus punya akhir');
+  const helper = source.slice(helperStart, helperEnd);
+  assert.match(helper, /mentions_everyone/,
     'kolom tanda ikut disisipkan');
+  assert.match(handler, /mentionsEveryone:/,
+    'hasil deteksi server diteruskan ke helper insert, bukan diabaikan');
 
   const quotaCheck = handler.indexOf('Jatah @semua hari ini sudah dipakai');
-  const insert = handler.indexOf('.from(\'community_posts\')\n        .insert(');
-  assert.ok(quotaCheck > 0 && (insert === -1 || quotaCheck < insert),
+  const insert = handler.indexOf('createCommunityPostRow(');
+  assert.ok(quotaCheck > 0, 'penolakan kuota harus ada di dalam handler');
+  assert.ok(insert > 0, 'handler harus menyimpan lewat createCommunityPostRow');
+  assert.ok(quotaCheck < insert,
     'kuota diperiksa sebelum insert, bukan sesudah');
 });
 

@@ -237,7 +237,9 @@ test('dashboard registers Teras at all eight integration points', () => {
   const registrationChecks = [
     [
       'TabId',
-      /type TabId\s*=\s*[^;]*\|\s*'teras'\s*;/,
+      // 'teras' cukup jadi ANGGOTA union — jangan tuntut jadi yang terakhir;
+      // 'bani' menyusul di belakangnya (7304cb9) dan mematikan pin lama.
+      /type TabId\s*=\s*[^;]*\|\s*'teras'\s*(?:\||;)/,
     ],
     [
       'slug maps',
@@ -293,9 +295,31 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
 
   assert.ok(terasEntryStart >= 0 && terasEntryEnd > terasEntryStart);
   assert.match(layoutSource.slice(terasEntryStart, terasEntryEnd), /hidden:\s*true/);
+  // Dijangkar ke TITIK RENDER + kedekatan gerbangnya, bukan ke markup
+  // pembungkus: sejak Bani berbagi baris dengan Teras (7304cb9) pembungkusnya
+  // punya kelas grid dinamis dan TerasCard dapat prop `compact`. Yang dijaga
+  // adalah "dirender tepat sekali, di balik terasEnabled, menuju tab teras".
+  const terasCardRenders = layoutSource.match(/<TerasCard\b/g) ?? [];
+  assert.equal(terasCardRenders.length, 1, 'TerasCard harus dirender tepat sekali');
+  const terasCardRenderIndex = layoutSource.indexOf('<TerasCard');
+  // Dipotong sampai `/>` — bukan `[^>]*` — karena prop arrow (`() =>`) memuat
+  // `>`, jadi kelas negasi itu akan patah begitu urutan prop berubah.
+  const terasCardTagEnd = layoutSource.indexOf('/>', terasCardRenderIndex);
+  assert.ok(terasCardTagEnd > terasCardRenderIndex, 'tag TerasCard harus ditutup');
   assert.match(
-    layoutSource,
-    /\{terasEnabled && \(\s*<div className="col-span-3">[\s\S]*?<TerasCard onOpen=\{\(\) => navigateTab\('teras'\)\} \/>/,
+    layoutSource.slice(terasCardRenderIndex, terasCardTagEnd),
+    /onOpen=\{\(\) => navigateTab\('teras'\)\}/,
+    'TerasCard harus terhubung ke navigateTab teras',
+  );
+  const beforeTerasCardRender = layoutSource
+    .slice(0, terasCardRenderIndex)
+    .split('\n')
+    .slice(-5)
+    .join('\n');
+  assert.match(
+    beforeTerasCardRender,
+    /\{terasEnabled && \(/,
+    'render TerasCard harus tetap dikurung gerbang terasEnabled',
   );
   assert.match(
     layoutSource,
@@ -402,12 +426,16 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
   const reactionRouteStart = serverSource.indexOf("\napp.post('/api/community/posts/:id/reaction',");
   const commentRouteStart = serverSource.indexOf("\napp.post('/api/community/posts/:id/comments',");
   const deletePostRouteStart = serverSource.indexOf("\napp.delete('/api/community/posts/:id',");
+  const feedRouteStart = serverSource.indexOf("\napp.get('/api/community/feed',");
+  const detailRouteStart = serverSource.indexOf("\napp.get('/api/community/posts/:id',");
 
   assert.ok(postRouteStart >= 0 && mediaRouteStart > postRouteStart);
   assert.ok(mediaRouteStart >= 0 && reactionRouteStart > mediaRouteStart);
   assert.ok(reactionRouteStart >= 0 && commentRouteStart > reactionRouteStart);
   assert.ok(commentRouteStart >= 0 && deletePostRouteStart > commentRouteStart);
+  assert.ok(feedRouteStart >= 0 && detailRouteStart > feedRouteStart);
 
+  const feedRouteSource = serverSource.slice(feedRouteStart, detailRouteStart);
   const postRouteSource = serverSource.slice(postRouteStart, mediaRouteStart);
   const mediaRouteSource = serverSource.slice(mediaRouteStart, reactionRouteStart);
   const reactionRouteSource = serverSource.slice(reactionRouteStart, commentRouteStart);
@@ -458,9 +486,19 @@ test('community mutations preserve idempotency keys and handle retry conflicts',
     serverSource,
     /'image\/jpeg'[\s\S]*?'image\/png'[\s\S]*?'image\/webp'[\s\S]*?'video\/mp4'[\s\S]*?'video\/quicktime'[\s\S]*?'video\/webm'/,
   );
+  // Dilingkupi ke route feed (bukan seluruh server.js) supaya `[\s\S]*?` tidak
+  // bisa memungut `normalizeStoredCommunityMedia` milik route detail, dan
+  // daftar parameternya tidak dipin — pin/edit terus menambah flag (4726ec7).
   assert.match(
-    serverSource,
-    /buildPostsQuery = \(includeMedia, includeQuote, includeLinkPreview, includeThread\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
+    feedRouteSource,
+    /buildPostsQuery = \([^)]*\bincludeMedia\b[^)]*\)[\s\S]*?isCommunityMediaSchemaMissing\(postsError\)[\s\S]*?normalizeStoredCommunityMedia\(post\.media, post\.photo_url\)/,
+  );
+  // Nama helper yang dijangkar harus terbukti MASIH DIPANGGIL, biar rename
+  // berikutnya merah dua kali, bukan lolos diam-diam.
+  assert.match(
+    feedRouteSource,
+    /await buildPostsQuery\([^)]*\bincludeMedia\b[^)]*\)/,
+    'route feed harus memanggil buildPostsQuery dengan flag includeMedia',
   );
   assert.match(
     commentRouteSource,
