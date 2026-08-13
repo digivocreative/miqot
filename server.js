@@ -180,7 +180,12 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
-import { inferJourneyOrderFromItinerary, saudiOrderContradictsRoute, shouldSuppressJourneyOrder } from './lib/journey-order.js';
+import {
+  inferJourneyOrderFromItinerary,
+  itineraryBelongsToOtherSchedule,
+  saudiOrderContradictsRoute,
+  shouldSuppressJourneyOrder,
+} from './lib/journey-order.js';
 import {
   canServeItineraryCache,
   itineraryCacheFreshness,
@@ -2332,6 +2337,9 @@ function buildPackageContext(pkg, itineraryCtx = null) {
     content: itineraryCtx,
     berangkatTgl: pkg.berangkat_tgl,
   })) itineraryOrder = null;
+  // Tanggal milik keberangkatan lain membatalkan urutan tanpa perlu kontradiksi
+  // rute: dokumennya memang bukan milik paket ini.
+  if (itineraryBelongsToOtherSchedule(itineraryCtx, pkg.berangkat_tgl)) itineraryOrder = null;
   const itinerarySaudiOrder = itineraryOrder?.filter(label => label === 'Madinah' || label === 'Umroh') || null;
   const routeOrder = inferItineraryOrder(pkg) || {};
   const itinerarySummary = itinerarySaudiOrder?.[0] === 'Madinah'
@@ -21635,6 +21643,7 @@ async function cleanupExpiredPackages() {
 // dan cache basi baru sembuh di siklus ItinerarySync berikutnya.
 const warnedContradictoryJourneyOrder = new Set();
 const warnedSuspectRouteJourneyOrder = new Set();
+const warnedForeignItineraryContent = new Set();
 
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
@@ -21697,6 +21706,15 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
                 const order = inferJourneyOrderFromItinerary(row.content);
                 if (!Array.isArray(order) || order.length < 2) return null;
                 const schedule = scheduleById.get(row.jadwal_id);
+                // Dokumen bertanggal keberangkatan lain tidak pernah layak
+                // dipakai, bahkan saat rutenya tidak bertentangan (JBU1528).
+                if (itineraryBelongsToOtherSchedule(row.content, schedule?.berangkat_tgl)) {
+                  if (!warnedForeignItineraryContent.has(row.jadwal_id)) {
+                    warnedForeignItineraryContent.add(row.jadwal_id);
+                    console.warn(`[Schedules] Itinerary ${row.jadwal_id} bertanggal di luar keberangkatan ${schedule?.berangkat_tgl} — dokumen milik jadwal lain, urutan diabaikan`);
+                  }
+                  return null;
+                }
                 if (shouldSuppressJourneyOrder({
                   order,
                   berangkatRute: schedule?.berangkat_rute,
@@ -24719,11 +24737,20 @@ if (shouldRunBackgroundJobs()) {
   }, 30 * 60 * 1000);
 }
 
-// ── Bunny file sync: once daily. It fingerprints source files and uploads only changes. ──
+// ── Bunny file sync: fingerprints source files and uploads only changes. ──
+// Beberapa kali sehari, bukan sekali: kantor merevisi PDF di belakang URL yang
+// sama (JBU1528, 13 Agt 2026 — sempat memuat itinerary keberangkatan lain),
+// dan siklus 30 menit sengaja brosur-saja karena memindai ~100 PDF sesering itu
+// terlalu berat untuk origin Alhijaz yang kronis 522.
+const ITINERARY_SCAN_TIMES_WIB = (process.env.BUNNY_FULL_SCAN_TIMES_WIB || '03:30,11:30,19:30')
+  .split(',')
+  .map(time => time.trim())
+  .filter(Boolean);
+
 function scheduleDailyBunnySync() {
-  const nextRun = nextJakartaScheduleDate(new Date(), ['03:30']);
+  const nextRun = nextJakartaScheduleDate(new Date(), ITINERARY_SCAN_TIMES_WIB);
   const delayMs = Math.max(0, nextRun.getTime() - Date.now());
-  console.log(`[BunnySync] Next daily file sync in ${Math.round(delayMs / 60000)} minutes (03:30 WIB)`);
+  console.log(`[BunnySync] Next full file sync in ${Math.round(delayMs / 60000)} minutes (${ITINERARY_SCAN_TIMES_WIB.join(', ')} WIB)`);
   setTimeout(async () => {
     try {
       await queueFilesToBunny();

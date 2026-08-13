@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  classifyItineraryDepartureDate,
   inferJourneyOrderFromItinerary,
   inferSaudiJourneyOrderFromItinerary,
+  itineraryBelongsToOtherSchedule,
   itineraryMatchesDepartureDate,
   saudiOrderContradictsRoute,
   shouldSuppressJourneyOrder,
@@ -338,6 +340,45 @@ test('shouldSuppressJourneyOrder: kontradiksi + tanggal jadwal lain = ditekan', 
     }),
     true
   );
+});
+
+// Replika JBU1528 (13 Agt 2026): PDF keberangkatan 29 Agt sempat terpasang di
+// URL paket 22 Agt. Rutenya mendarat JED sehingga saudiOrderContradictsRoute
+// diam, dan urutan Madinah-dulu dari dokumen asing itu lolos ke kartu.
+const JBU1528_FOREIGN_CONTENT = {
+  days: [
+    { dayNumber: '1', title: 'Sabtu, 29 Agustus 2026', location: 'Jakarta – Madinah' },
+    { dayNumber: '2', title: 'Ahad, 30 Agustus 2026', location: 'Madinah' },
+    { dayNumber: '5', title: 'Rabu, 02 September 2026', location: 'Madinah - Mekkah' },
+  ],
+};
+
+test('classifyItineraryDepartureDate: tri-state membedakan cocok, bentrok, dan tak bertanggal', () => {
+  assert.equal(classifyItineraryDepartureDate(JBU1600_CONTENT, '2026-12-20'), 'match');
+  assert.equal(classifyItineraryDepartureDate(JBU1528_FOREIGN_CONTENT, '2026-08-22'), 'mismatch');
+  assert.equal(
+    classifyItineraryDepartureDate({ days: [{ title: 'Jakarta - Dubai', location: 'Jakarta - Dubai' }] }, '2026-08-22'),
+    'undated'
+  );
+  assert.equal(classifyItineraryDepartureDate(JBU1600_CONTENT, ''), 'undated');
+});
+
+test('itineraryBelongsToOtherSchedule: hanya tanggal bentrok yang dianggap dokumen asing (JBU1528)', () => {
+  assert.equal(itineraryBelongsToOtherSchedule(JBU1528_FOREIGN_CONTENT, '2026-08-22'), true);
+  // Dokumen yang benar untuk keberangkatan 29 Agt tidak boleh ikut tertuduh.
+  assert.equal(itineraryBelongsToOtherSchedule(JBU1528_FOREIGN_CONTENT, '2026-08-29'), false);
+  assert.equal(itineraryBelongsToOtherSchedule(JBU1600_CONTENT, '2026-12-20'), false);
+});
+
+test('itineraryBelongsToOtherSchedule: PDF tanpa judul bertanggal tidak pernah dituduh asing', () => {
+  const undated = {
+    days: [
+      { dayNumber: '1', title: 'Jakarta - Dubai', location: 'Jakarta - Dubai' },
+      { dayNumber: '2', title: 'Dubai - Madinah', location: 'Dubai - Madinah' },
+    ],
+  };
+  assert.equal(itineraryBelongsToOtherSchedule(undated, '2026-08-22'), false);
+  assert.equal(itineraryBelongsToOtherSchedule(null, '2026-08-22'), false);
 });
 
 test('shouldSuppressJourneyOrder: tanpa kontradiksi tidak pernah menekan, apa pun tanggalnya', () => {
