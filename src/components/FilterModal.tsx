@@ -2,7 +2,7 @@
 
 import { X, TicketPercent, Siren } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { URGENT_SEAT_THRESHOLD, type QuickFilterType, type TimeRange } from '@/utils';
+import { type QuickFilterType, type TimeRange } from '@/utils';
 
 // ============================================
 // Types
@@ -50,21 +50,18 @@ export interface FilterModalProps {
 const QUICK_FILTERS: Array<{
   id: QuickFilterType;
   label: string;
-  description: string;
   icon: React.ReactNode;
   activeClass: string;
 }> = [
   {
     id: 'promo',
     label: 'Promo Spesial',
-    description: 'Paket berlabel promo',
     icon: <TicketPercent size={20} />,
     activeClass: 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-300',
   },
   {
     id: 'urgent',
     label: 'Seat Menipis',
-    description: `Sisa ${URGENT_SEAT_THRESHOLD} kursi atau kurang`,
     icon: <Siren size={20} />,
     activeClass: 'bg-rose-100 dark:bg-rose-900/30 border-rose-500 text-rose-700 dark:text-rose-300',
   },
@@ -165,18 +162,15 @@ export function FilterModal({
                         onClick={() => handleSelectQuickFilter(filter.id)}
                         aria-pressed={isActive}
                         className={`
-                          flex flex-col gap-1 px-4 py-3 rounded-xl border text-left transition-colors
+                          flex items-center gap-2 px-4 py-3 rounded-xl border text-left text-sm font-semibold transition-colors
                           ${isActive
                             ? filter.activeClass
                             : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-500'
                           }
                         `}
                       >
-                        <span className="flex items-center gap-2 text-sm font-semibold">
-                          {filter.icon}
-                          {filter.label}
-                        </span>
-                        <span className="text-xs opacity-70">{filter.description}</span>
+                        {filter.icon}
+                        {filter.label}
                       </button>
                     );
                   })}
