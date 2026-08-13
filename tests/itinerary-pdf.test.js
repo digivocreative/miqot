@@ -28,12 +28,51 @@ const PAKET = {
   kepulangan: { tgl: '2026-09-13', jam: '16.00', rute: 'JED - CGK', kodePenerbangan: 'SV 818' },
 };
 
-test('jam tiba disembunyikan bila sama dengan jam berangkat', () => {
+test('jam kembar pindah ke sisi tiba, sisi berangkat dikosongkan', () => {
   const [pergi, pulang] = flightLegView(PAKET, { berangkat: '21:15', pulang: '16:00' });
   assert.equal(pergi.jam, '15:50');
   assert.equal(pergi.jamTiba, '21:15');
+  assert.equal(pulang.jam, '');
+  assert.equal(pulang.jamTiba, '16:00');
+});
+
+test('tanpa jam tiba, jam jadwal tetap di sisi berangkat', () => {
+  const [, pulang] = flightLegView(PAKET, {});
   assert.equal(pulang.jam, '16:00');
   assert.equal(pulang.jamTiba, null);
+});
+
+// `pulang_jam` sebagian jadwal cuma penanda hari (" (+7)", "5(+3)") tanpa jam.
+// normalizeJam sengaja membiarkannya utuh; kartunya yang tak boleh mencetaknya
+// di bawah bandara seolah itu jam keberangkatan.
+test('penanda hari tanpa jam tidak dicetak sebagai jam', () => {
+  const [, pulang] = flightLegView(
+    { keberangkatan: {}, kepulangan: { tgl: '2026-09-13', jam: ' (+7)', rute: 'JED - CGK', kodePenerbangan: 'SV 818' } },
+    { berangkat: null, pulang: '16:00' },
+  );
+  assert.equal(pulang.jam, '');
+  assert.equal(pulang.jamTiba, '16:00');
+});
+
+test('penanda berdigit "5(+3)" juga bukan jam', () => {
+  const [, pulang] = flightLegView(
+    { keberangkatan: {}, kepulangan: { jam: '5(+3)', rute: 'JED - CGK' } },
+    { berangkat: null, pulang: '08:35' },
+  );
+  assert.equal(pulang.jam, '');
+  assert.equal(pulang.jamTiba, '08:35');
+});
+
+test('jam tiba yang bukan jam ikut ditolak', () => {
+  const [, pulang] = flightLegView(PAKET, { berangkat: null, pulang: 'sore' });
+  assert.equal(pulang.jam, '16:00');
+  assert.equal(pulang.jamTiba, null);
+});
+
+test('dua-duanya kosong bukan berarti kembar', () => {
+  const [pergi] = flightLegView({ keberangkatan: { rute: 'CGK - MED' }, kepulangan: {} }, {});
+  assert.equal(pergi.jam, '');
+  assert.equal(pergi.jamTiba, null);
 });
 
 test('jam tiba yang beda tetap tampil, dan dinormalisasi', () => {
@@ -48,6 +87,22 @@ test('rute dipecah jadi bandara asal & tujuan, transit dibuang', () => {
   );
   assert.equal(pergi.dari, 'CGK');
   assert.equal(pergi.ke, 'JED');
+});
+
+// Kartu web merender baris "via <transit>"; PDF tidak. Keduanya tetap membaca
+// rute dari view model yang sama supaya pemecahan rutenya tak pernah berbeda.
+test('bandara transit dipisahkan ke via', () => {
+  const [pergi] = flightLegView(
+    { keberangkatan: { tgl: '2026-09-05', jam: '10:25', rute: 'CGK-DXB / DXB-JED', kodePenerbangan: 'EK 357' }, kepulangan: {} },
+    {},
+  );
+  assert.deepEqual(pergi.via, ['DXB']);
+});
+
+test('rute langsung tidak punya transit', () => {
+  const [pergi, pulang] = flightLegView(PAKET, {});
+  assert.deepEqual(pergi.via, []);
+  assert.deepEqual(pulang.via, []);
 });
 
 // ── priceRows (temuan T-4) ──

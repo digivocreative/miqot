@@ -542,7 +542,8 @@ function KartuPenerbangan({
               <View style={s.legRow}>
                 <View style={{ width: P(56) }}>
                   <Text style={s.airport}>{l.dari}</Text>
-                  <Text style={s.legJam}>{l.jam}</Text>
+                  {/* Kosong = jam jadwal ternyata jam tiba dan sudah pindah ke kanan. */}
+                  <Text style={s.legJam}>{l.jam || '—'}</Text>
                 </View>
                 <View style={s.legMid}>
                   <Text style={s.legKode}>{l.kode}</Text>
