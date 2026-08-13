@@ -18334,6 +18334,7 @@ const ACTION_LABELS = {
   download_itinerary: 'Download Itinerary', wa_click_jamaah: 'WA Click Jamaah',
   view_itinerary_web: 'Lihat Itinerary Web', copy_itinerary_link: 'Salin Link Itinerary',
   wa_click_itinerary: 'WA dari Itinerary Share',
+  itinerary_own_pdf_download: 'Unduh Rencana Perjalanan',
   save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
   change_password: 'Ganti Password',
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',

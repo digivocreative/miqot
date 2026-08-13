@@ -11,6 +11,9 @@ import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob } from '../utils/share';
 import { getPackageById } from '@/services/data-service';
+import { AGENTS_DATA } from '@/data/agents';
+import { canRenderItineraryPdf } from '../../lib/itinerary-pdf.js';
+import { generateItineraryPdfBlob, itineraryPdfFileName } from '../utils/itineraryPdfBlob';
 import SegmentedControl, { type SegmentedOption } from './common/SegmentedControl';
 import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
 
@@ -109,6 +112,7 @@ export function ItineraryModal({
   const [resolvedPaket, setResolvedPaket] = useState<UmrohPackage | null>(null);
   const effectivePaket = paket ?? resolvedPaket ?? null;
   const [isSharing, setIsSharing] = useState(false);
+  const [buildingOwnPdf, setBuildingOwnPdf] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
@@ -515,6 +519,46 @@ export function ItineraryModal({
   const zoomOut = () => zoomFromCenter(scaleRef.current - 0.25);
   const resetZoom = () => setViewerScaleImmediate(1);
 
+  // ── PDF "Rencana Perjalanan" (versi kita) ──
+  // Dirakit di klien dari data yang sama dengan tampilan web, jadi tombolnya
+  // mengikuti tab aktif: yang diunduh adalah yang sedang dilihat.
+  // Gerbang canRenderItineraryPdf memastikan tanggal per hari bisa ditambatkan
+  // ke jadwal — PDF bertanggal salah beredar di WA tanpa bisa ditarik kembali.
+  const ownPdfMode = hasTabs && activeTab === 'itinerary';
+  const ownPdfReady = Boolean(
+    effectivePaket && webContent && canRenderItineraryPdf(webContent, effectivePaket),
+  );
+
+  const handleOwnPdf = async () => {
+    if (!ownPdfReady || buildingOwnPdf || !effectivePaket || !webContent) return;
+    setBuildingOwnPdf(true);
+    try {
+      const blob = await generateItineraryPdfBlob({
+        content: webContent,
+        paket: effectivePaket,
+        agent: agentSlug ? AGENTS_DATA[agentSlug] : null,
+        shareUrl: shareUrl || undefined,
+      });
+      const fileName = itineraryPdfFileName(effectivePaket.jadwalId);
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      if (canShareFiles([file])) {
+        try {
+          await navigator.share({ title: `Rencana Perjalanan - ${title}`, files: [file] });
+        } catch (err: any) {
+          // Batal share = keputusan pengguna; selain itu jatuh ke unduhan biasa.
+          if (err?.name !== 'AbortError') downloadBlob(blob, fileName);
+        }
+      } else {
+        downloadBlob(blob, fileName);
+      }
+      trackEvent('action', 'itinerary_own_pdf_download', { paket: effectivePaket.jadwalId });
+    } catch (error) {
+      console.error('Gagal menyusun PDF rencana perjalanan:', error);
+    } finally {
+      setBuildingOwnPdf(false);
+    }
+  };
+
   // Share First, Download Fallback handler
   const handleShareItinerary = async () => {
     if (!originalUrl) return;
@@ -846,8 +890,8 @@ export function ItineraryModal({
         {/* Wording SERAGAM mobile/desktop (pola JourneyStrip 2026-07-31): label
             "Unduh PDF", fungsinya tetap share-sheet dulu di perangkat sentuh. */}
         <button
-          onClick={handleShareItinerary}
-          disabled={isSharing || !proxyUrl}
+          onClick={ownPdfMode ? handleOwnPdf : handleShareItinerary}
+          disabled={ownPdfMode ? !ownPdfReady || buildingOwnPdf : isSharing || !proxyUrl}
           className="
             flex-1 flex items-center justify-center gap-2 py-2.5 px-3
             rounded-xl text-sm font-bold text-white
@@ -856,7 +900,7 @@ export function ItineraryModal({
             transition-all duration-200 active:scale-[0.98] disabled:opacity-70
           "
         >
-          {isSharing ? (
+          {(ownPdfMode ? buildingOwnPdf : isSharing) ? (
             <>
               <Loader2 size={20} className="animate-spin" />
               <span>Menyiapkan File...</span>
