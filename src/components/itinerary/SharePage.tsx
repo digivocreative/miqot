@@ -162,7 +162,13 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
           </div>
         </header>
 
-        <WebItineraryView content={content} loading={false} error={null} paket={paket} />
+        <WebItineraryView
+          content={content}
+          loading={false}
+          error={null}
+          paket={paket}
+          onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_share', { paket: packageId })}
+        />
 
         <div className="px-4">
           <p className="mt-3 text-center text-[10.5px] leading-[1.45] text-itin-ink3">

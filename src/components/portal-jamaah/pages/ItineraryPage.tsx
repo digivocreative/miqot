@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BookOpenCheck, Map } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
+import { trackPublicEvent } from '@/utils/analytics';
 import { getPackageById } from '@/services/data-service';
 import PortalBackBar from '../components/PortalBackBar';
 import WebItineraryView, { type ItineraryContent } from '../../WebItineraryView';
@@ -20,9 +21,11 @@ function asItineraryContent(raw: unknown): ItineraryContent | null {
 }
 
 export default function ItineraryPage({
+  slug,
   data,
   onBack,
 }: {
+  slug: string;
   data: PortalMeData;
   onBack: () => void;
 }) {
@@ -101,6 +104,7 @@ export default function ItineraryPage({
               error={null}
               paket={paket}
               onRetryPdf={pdfUrl ? () => window.open(pdfUrl, '_blank', 'noopener,noreferrer') : undefined}
+              onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_portal', { paket: jadwalId })}
             />
           </Card>
           <p className="mt-3 text-center text-[11px] leading-5 text-ink/50">

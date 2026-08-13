@@ -30,6 +30,9 @@ interface AnalyticsData {
   }[];
   featureUsage: { feature: string; label: string; count: number }[];
   actionTracking: { action: string; label: string; count: number }[];
+  /** Event bertipe 'public' — dilakukan jamaah/calon jamaah, bukan agen.
+   *  Opsional: respons lama (mis. tab masih terbuka saat deploy) belum punya. */
+  publicTracking?: { name: string; label: string; count: number }[];
   recentActivity: {
     agentSlug: string;
     agentName: string;
@@ -50,6 +53,8 @@ const ACTION_ICONS: Record<string, string> = {
   // Versi kita (dirakit di klien) vs berkas kantor — ikonnya sengaja beda supaya
   // kebedaan itu terbaca sekilas, bukan cuma dari teks label.
   itinerary_own_pdf_download: '🗺️', itinerary_office_pdf_download: '🏢',
+  // Permukaan jamaah (event 'public'), dipakai panel Aktivitas Jamaah.
+  itinerary_pdf_download_share: '🔗', itinerary_pdf_download_portal: '🧳',
   save_capi_config: '⚙️', update_profil: '👤', change_password: '🔑',
   generate_script: '✍️', generate_voice: '🎙️',
   download_mp3: '🎵', download_wav: '🎵',
@@ -345,6 +350,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   if (!data) return null;
 
   const { overview, dailyActivity, agentActivity, featureUsage, actionTracking, recentActivity } = data;
+  const publicTracking = data.publicTracking ?? [];
 
   // Feature usage percentage
   const totalFeatureClicks = featureUsage.reduce((s, f) => s + f.count, 0) || 1;
@@ -673,6 +679,28 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
               </div>
             )}
           </div>
+
+          {/* Aktivitas Jamaah — event 'public': share link, portal jamaah, Ask AI.
+              Dipisah dari Action Tracking karena pelakunya bukan agen. */}
+          {publicTracking.length > 0 && (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
+              <div className="px-4 pt-4 pb-3">
+                <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aktivitas Jamaah</p>
+                <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Dari halaman publik & portal jamaah bulan ini (tanpa page view)</p>
+              </div>
+              <div className="px-4 pb-4 space-y-1.5">
+                {publicTracking.map(p => (
+                  <div key={p.name} className="flex items-center justify-between py-2 px-3 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-700">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{ACTION_ICONS[p.name] || '👥'}</span>
+                      <span className="text-[11px] font-medium text-gray-700 dark:text-slate-200">{p.label}</span>
+                    </div>
+                    <span className="text-[11px] font-extrabold text-gray-800 dark:text-white">{p.count.toLocaleString()}×</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -682,7 +710,10 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
         overview.totalPageViews === 0 &&
         overview.totalWAClicks === 0 &&
         featureUsage.length === 0 &&
-        actionTracking.length === 0 && (
+        actionTracking.length === 0 &&
+        // Aktivitas jamaah tanpa aktivitas agen tetap "ada datanya" — jangan
+        // tampilkan "belum ada data" di atas panel yang sedang berisi.
+        publicTracking.length === 0 && (
         <div className="text-center py-8 mt-4">
           <TrendingUp size={32} className="mx-auto text-gray-300 dark:text-slate-600 mb-3" />
           <p className="text-sm font-semibold text-gray-500 dark:text-slate-400">Belum ada data analytics untuk bulan ini</p>

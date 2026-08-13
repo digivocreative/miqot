@@ -26,6 +26,9 @@ interface Props {
   /** Pindahkan kartu "Ringkasan Perjalanan" ke bawah, tepat di atas kartu
    *  Penerbangan — dipakai popup Jadwal; share link & portal jamaah tetap di atas. */
   summaryAtBottom?: boolean;
+  /** Diteruskan ke JourneyStrip: pelacakan unduhan PDF kantor. Nama event beda
+   *  per permukaan (share publik vs portal jamaah), jadi pemanggil yang tahu. */
+  onPdfDownload?: () => void;
 }
 
 // Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
@@ -54,7 +57,7 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 }
 
 export default function WebItineraryView({
-  content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom,
+  content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom, onPdfDownload,
 }: Props) {
   if (loading) {
     return (
@@ -118,6 +121,7 @@ export default function WebItineraryView({
       brosurUrl={hideDocActions ? undefined : paket?.brosurUrl}
       departISO={paket?.keberangkatan?.tgl}
       paketNama={paket?.nama}
+      onPdfDownload={onPdfDownload}
     />
   );
 

@@ -16,9 +16,15 @@ const read = rel => readFileSync(join(root, rel), 'utf8');
 const modal = read('src/components/ItineraryModal.tsx');
 const server = read('server.js');
 const analyticsPage = read('src/components/AnalyticsPage.tsx');
+const strip = read('src/components/itinerary/JourneyStrip.tsx');
+const webView = read('src/components/WebItineraryView.tsx');
+const sharePage = read('src/components/itinerary/SharePage.tsx');
+const portalPage = read('src/components/portal-jamaah/pages/ItineraryPage.tsx');
 
 const OWN = 'itinerary_own_pdf_download';
 const OFFICE = 'itinerary_office_pdf_download';
+const SHARE = 'itinerary_pdf_download_share';
+const PORTAL = 'itinerary_pdf_download_portal';
 
 const handler = name => modal.match(new RegExp(`const ${name} = async \\(\\) => \\{[\\s\\S]*?\\n  \\};`))?.[0] ?? '';
 
@@ -58,9 +64,71 @@ test('ikon Analytics dibedakan juga, bukan cuma teks label', () => {
   const icons = analyticsPage.match(/const ACTION_ICONS: Record<string, string> = \{[\s\S]*?\n\};/)?.[0] ?? '';
   assert.notEqual(icons, '', 'ACTION_ICONS tidak ditemukan');
   const iconOf = name => icons.match(new RegExp(`${name}: '([^']+)'`))?.[1] ?? '';
-  const own = iconOf(OWN);
-  const office = iconOf(OFFICE);
-  assert.notEqual(own, '', `${OWN} jatuh ke ikon default`);
-  assert.notEqual(office, '', `${OFFICE} jatuh ke ikon default`);
-  assert.notEqual(own, office);
+  const seen = new Set();
+  for (const name of [OWN, OFFICE, SHARE, PORTAL]) {
+    const icon = iconOf(name);
+    assert.notEqual(icon, '', `${name} jatuh ke ikon default`);
+    assert.ok(!seen.has(icon), `ikon ${icon} dipakai dua event unduhan`);
+    seen.add(icon);
+  }
+});
+
+// ── Permukaan jamaah: tombol "Itinerary PDF" di JourneyStrip ──
+
+test('JourneyStrip menembakkan lewat callback pemanggil, saat klik', () => {
+  const handler = strip.match(/const startDownload = \(e: React\.MouseEvent\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(handler, '', 'startDownload tidak ditemukan');
+  // Sesudah guard (klik kedua saat proses berjalan tidak boleh dihitung dua kali)
+  // tapi SEBELUM kerja async: jalur desktop memakai location.assign yang
+  // meninggalkan halaman, event yang dikirim belakangan bisa hilang.
+  const guard = handler.indexOf('if (downloading || !pdfUrl) return;');
+  const fire = handler.indexOf('onPdfDownload?.()');
+  const async = handler.indexOf('const run = async');
+  assert.ok(guard !== -1 && fire !== -1 && async !== -1, 'guard/callback/run tidak lengkap');
+  assert.ok(guard < fire && fire < async, 'onPdfDownload harus sesudah guard dan sebelum kerja async');
+  // Komponennya dipakai tiga permukaan dengan sesi berbeda — nama event tidak
+  // boleh dipatri di sini.
+  assert.ok(!strip.includes('trackPublicEvent') && !strip.includes('trackEvent'));
+});
+
+test('prop unduhan diteruskan WebItineraryView ke JourneyStrip', () => {
+  assert.match(webView, /onPdfDownload\?: \(\) => void;/);
+  assert.match(webView, /onPdfDownload=\{onPdfDownload\}/);
+});
+
+test('share publik & portal jamaah memakai nama event masing-masing', () => {
+  assert.match(sharePage, new RegExp(`onPdfDownload=\\{\\(\\) => trackPublicEvent\\(slug, '${SHARE}'`));
+  assert.match(portalPage, new RegExp(`onPdfDownload=\\{\\(\\) => trackPublicEvent\\(slug, '${PORTAL}'`));
+  assert.notEqual(SHARE, PORTAL);
+  // Portal butuh slug agen; dulu ItineraryPage tidak menerimanya sama sekali.
+  assert.match(read('src/components/portal-jamaah/pages/PortalDashboard.tsx'), /<ItineraryPage slug=\{slug\}/);
+});
+
+test('event permukaan jamaah lolos whitelist server, dan tetap bertipe public', () => {
+  const whitelist = server.match(/const VALID_PUBLIC_EVENTS = \[[\s\S]*?\n\];/)?.[0] ?? '';
+  assert.notEqual(whitelist, '', 'VALID_PUBLIC_EVENTS tidak ditemukan');
+  // Tanpa whitelist, POST /api/analytics/public menjawab 400 dan event hilang
+  // diam-diam — persis kegagalan yang diperingatkan trackPublicEvent.
+  for (const name of [SHARE, PORTAL]) {
+    assert.ok(whitelist.includes(`'${name}'`), `${name} belum di-whitelist → ditolak 400`);
+    assert.ok(name.length <= 50, 'eventName > 50 karakter ditolak endpoint');
+    // Bukan aksi agen: yang mengunduh jamaah, jadi tak boleh masuk metrik
+    // aktivitas agen lewat trackEvent('action', ...).
+    assert.ok(!server.includes(`trackEvent('action', '${name}'`));
+  }
+});
+
+test('event publik punya daftar hitungan sendiri, tanpa ditelan page_view', () => {
+  // Sebelum ini event bertipe 'public' tidak punya breakdown sama sekali:
+  // hanya lewat di umpan aktivitas terbaru, jadi unduhan sisi jamaah mustahil
+  // dihitung. Panel ini yang membuat pelacakan JourneyStrip ada gunanya.
+  assert.match(server, /const publicTracking = Object\.entries\(publicMap\)/);
+  assert.match(server, /e\.event_type === 'public' && e\.event_name !== 'page_view'/);
+  assert.match(server, /\n        publicTracking,\n/);
+  // Label publik diambil dari kamus gabungan — ACTION_LABELS saja tak cukup
+  // karena sebagian event publik berlabel di FEATURE_LABELS (open_portal_*).
+  assert.match(server, /label: ALL_EVENT_LABELS\[name\] \|\| name/);
+  assert.match(analyticsPage, /publicTracking\.map\(p =>/);
+  // Respons lama (tab terbuka saat deploy) tidak punya field ini.
+  assert.match(analyticsPage, /data\.publicTracking \?\? \[\]/);
 });

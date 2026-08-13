@@ -18294,6 +18294,11 @@ const VALID_PUBLIC_EVENTS = [
   'view_portal_doc', 'open_quran_surah',
   // Halaman share itinerary /:slug/:packageId/itinerary (publik, keyed by agent slug)
   'open_itinerary_share', 'wa_click_itinerary',
+  // Unduh PDF itinerary kantor dari tombol JourneyStrip. Dipisah per permukaan
+  // karena populasinya beda: share = calon jamaah, portal = jamaah yang sudah
+  // berangkat/terdaftar. Keduanya BUKAN 'action' — yang mengunduh bukan agen,
+  // jadi tidak boleh menggelembungkan metrik aktivitas agen.
+  'itinerary_pdf_download_share', 'itinerary_pdf_download_portal',
 ];
 // Every event_name that counts as a "WhatsApp click" for the overview + per-agent + drill-down WA metrics.
 const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal', 'wa_click_itinerary'];
@@ -18342,6 +18347,10 @@ const ACTION_LABELS = {
   // dipisah agar terlihat versi mana yang benar-benar dipakai agen.
   itinerary_own_pdf_download: 'Unduh Itinerary (Versi Kita)',
   itinerary_office_pdf_download: 'Unduh Itinerary (PDF Kantor)',
+  // Permukaan jamaah — bertipe 'public', tapi labelnya ditaruh di sini supaya
+  // seluruh keluarga unduh-itinerary terbaca berdampingan.
+  itinerary_pdf_download_share: 'Unduh Itinerary (Share Publik)',
+  itinerary_pdf_download_portal: 'Unduh Itinerary (Portal Jamaah)',
   save_capi_config: 'Simpan Config CAPI', update_profil: 'Update Profil',
   change_password: 'Ganti Password',
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
@@ -18599,6 +18608,20 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       .map(([action, count]) => ({ action, label: ACTION_LABELS[action] || action, count }))
       .sort((a, b) => b.count - a.count);
 
+    // Aktivitas sisi jamaah/calon jamaah (event_type 'public'). Sengaja TIDAK
+    // dilebur ke Action Tracking — yang melakukannya bukan agen. Tanpa daftar
+    // sendiri, event publik tak punya hitungan di mana pun: hanya lewat sekilas
+    // di umpan aktivitas terbaru lalu hilang. page_view dibuang karena
+    // volumenya menenggelamkan sisanya (perlakuan sama dgn Recent Activity).
+    const publicMap = tallyBy(
+      rawEvents, aggEvents,
+      e => e.event_name,
+      e => e.event_type === 'public' && e.event_name !== 'page_view',
+    );
+    const publicTracking = Object.entries(publicMap)
+      .map(([name, count]) => ({ name, label: ALL_EVENT_LABELS[name] || name, count }))
+      .sort((a, b) => b.count - a.count);
+
     // Health badge — always based on the current 7-day window.
     const last7dByAgent = new Map();
     for (const e of last7dRawEvents) {
@@ -18664,6 +18687,7 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
         agentActivity,
         featureUsage,
         actionTracking,
+        publicTracking,
         recentActivity,
       },
     });

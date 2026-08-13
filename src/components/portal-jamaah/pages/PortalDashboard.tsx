@@ -125,7 +125,7 @@ export default function PortalDashboard({
     <div data-agent-slug={slug} data-booking-id={session.id_umroh}>
       <Suspense fallback={<LoadingScreen />}>
         {route === 'beranda' && <BerandaPage slug={slug} data={data} onNavigate={navigate} onLogout={handleLogout} />}
-        {route === 'itinerary' && <ItineraryPage data={data} onBack={goBack} />}
+        {route === 'itinerary' && <ItineraryPage slug={slug} data={data} onBack={goBack} />}
         {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
         {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
         {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}

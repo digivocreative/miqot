@@ -14,9 +14,13 @@ interface Props {
   departISO?: string | null;
   /** Nama paket untuk judul/berkas share brosur. */
   paketNama?: string | null;
+  /** Dipanggil saat tombol "Itinerary PDF" ditekan. Komponen ini dipakai di tiga
+   *  permukaan dengan sesi berbeda (modal agen, share publik, portal jamaah),
+   *  jadi event-nya ditembakkan pemanggil — bukan di sini. */
+  onPdfDownload?: () => void;
 }
 
-export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama }: Props) {
+export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama, onPdfDownload }: Props) {
   // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol. Sesudahnya:
   // - Perangkat sentuh → share sheet native (PDF di-fetch paralel selama
   //   animasi; share dipanggil ±2 dtk setelah klik, masih di jendela user
@@ -33,6 +37,11 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
   const startDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     if (downloading || !pdfUrl) return;
+    // Ditembakkan saat KLIK, tidak menunggu berkas selesai — jalur desktop
+    // memakai location.assign yang meninggalkan halaman, jadi event yang
+    // dikirim belakangan berisiko tak pernah terkirim. Konsekuensinya angka di
+    // sini = niat unduh, sedikit berbeda dari event modal agen yang menunggu.
+    onPdfDownload?.();
     setDownloading(true);
     const animationDone = new Promise<void>(resolve => {
       timerRef.current = window.setTimeout(resolve, 2000);
