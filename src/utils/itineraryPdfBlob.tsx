@@ -53,8 +53,21 @@ async function toDataUrl(
   }
 }
 
-export function itineraryPdfFileName(jadwalId: string): string {
-  return `rencana-perjalanan-${jadwalId || 'alhijaz'}.pdf`;
+/**
+ * "ITINERARY UMRAH HEMAT 9HR (KERETA CEPAT).pdf" — nama paket dipakai apa adanya
+ * supaya jamaah langsung tahu isi lampirannya di daftar berkas WhatsApp.
+ * Karakter yang dilarang di nama berkas Windows/macOS/Android dibuang, dan spasi
+ * ganda dari data jadwal ("( KERETA CEPAT)") dirapikan.
+ */
+export function itineraryPdfFileName(namaPaket: string, jadwalId?: string): string {
+  const inti = String(namaPaket || '').trim() || String(jadwalId || '').trim();
+  const aman = inti
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `ITINERARY ${aman || 'ALHIJAZ'}.pdf`;
 }
 
 /**
@@ -123,9 +136,12 @@ export async function generateItineraryPdfBlob({
     photosByDay.push(out);
   }
 
-  const [logoDataUrl, flagDataUrl] = await Promise.all([
+  const [logoDataUrl, flagDataUrl, agentPhotoDataUrl] = await Promise.all([
     toDataUrl(logoAlhijazWhite, { format: 'image/png', maxWidth: 400 }),
     toDataUrl(`${window.location.origin}/flags/saudi.png`, { format: 'image/png', maxWidth: 200 }),
+    // PNG, bukan JPEG: foto agent di Bunny sering progressive JPEG yang tak bisa
+    // dibaca react-pdf — alasan yang sama dengan fotoAgentPng di CompareDocument.
+    agent?.photo ? toDataUrl(agent.photo, { format: 'image/png', maxWidth: 240 }) : Promise.resolve(null),
   ]);
 
   let qrDataUrl: string | undefined;
@@ -149,6 +165,7 @@ export async function generateItineraryPdfBlob({
     flagDataUrl: flagDataUrl || undefined,
     logoDataUrl: logoDataUrl || undefined,
     qrDataUrl,
+    agentPhotoDataUrl: agentPhotoDataUrl || undefined,
   };
 
   // Dokumen terbit sebagai SATU halaman utuh: di layar HP orang menggeser, dan

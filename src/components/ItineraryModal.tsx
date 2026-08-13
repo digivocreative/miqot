@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { X, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText } from 'lucide-react';
 import { motion, AnimatePresence, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
@@ -17,13 +18,14 @@ import { generateItineraryPdfBlob, itineraryPdfFileName } from '../utils/itinera
 import SegmentedControl, { type SegmentedOption } from './common/SegmentedControl';
 import WebItineraryView, { type ItineraryContent } from './WebItineraryView';
 
-// Setup PDF.js Worker — primary CDN with fallback
-try {
-  pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-} catch {
-  // Fallback to cdnjs if unpkg fails
-  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
-}
+// Worker pdf.js DARI BUNDEL, bukan CDN. Selain menghapus kebergantungan jaringan
+// pihak ketiga untuk pratinjau, ini yang membuat ekspor "Rencana Perjalanan"
+// konsisten antar-perangkat: perakit blob memakai pdf.js untuk mengukur tinggi
+// isi, dan bila workernya gagal dimuat dokumen jatuh ke paginasi — sehingga
+// agent yang CDN-nya terblokir bisa mendapat bentuk dokumen yang berbeda.
+// Versinya juga otomatis sepadan dengan react-pdf, tak bisa selisih seperti URL
+// CDN yang dipatok manual. Pola yang sama dengan UmrohPernyataanPdfPreview.
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // ============================================
 // Types
@@ -539,7 +541,7 @@ export function ItineraryModal({
         agent: agentSlug ? AGENTS_DATA[agentSlug] : null,
         shareUrl: shareUrl || undefined,
       });
-      const fileName = itineraryPdfFileName(effectivePaket.jadwalId);
+      const fileName = itineraryPdfFileName(effectivePaket.nama, effectivePaket.jadwalId);
       const file = new File([blob], fileName, { type: 'application/pdf' });
       if (canShareFiles([file])) {
         try {

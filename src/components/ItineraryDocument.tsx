@@ -5,7 +5,7 @@
 // boleh-tidaknya terbit. Semua aset masuk sebagai dataURL dari
 // src/utils/itineraryPdfBlob.tsx.
 import type { ComponentProps, ComponentType } from 'react';
-import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer';
+import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Path } from '@react-pdf/renderer';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 import {
@@ -67,6 +67,19 @@ const BADGE_TEXT: Record<string, string> = {
   kumpul: 'TITIK KUMPUL', takeoff: 'TAKE OFF', landing: 'LANDING', transit: 'TRANSIT',
   bus: 'PERJALANAN BUS', kereta: 'KERETA CEPAT', tiba: 'TIBA', perjalanan: 'PERJALANAN',
 };
+
+/**
+ * Geometri rel timeline. `RAIL_X` DITURUNKAN dari lebar kolom, bukan angka
+ * hafalan: sebelumnya rel dipatok P(61.5) sementara pusat titik jatuh di
+ * P(14)+P(44)+P(18)/2, sehingga garis lewat di tepi titik — bukan menembus
+ * tengahnya. Untuk elemen `position: absolute` react-pdf mengukur `left` dari
+ * tepi LUAR induk, jadi padding kiri timeline ikut dihitung di sini.
+ */
+const TIMELINE_PAD_X = P(14);
+const JAM_W = P(44);
+const DOT_COL_W = P(18);
+const RAIL_W = 1;
+const RAIL_X = TIMELINE_PAD_X + JAM_W + DOT_COL_W / 2 - RAIL_W / 2;
 
 const s = StyleSheet.create({
   page: { fontFamily: 'Inter', backgroundColor: C.canvas, paddingTop: P(44), paddingBottom: P(46) },
@@ -130,17 +143,17 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
 
-  timeline: { paddingHorizontal: P(14), paddingVertical: P(12), position: 'relative' },
+  timeline: { paddingHorizontal: TIMELINE_PAD_X, paddingVertical: P(12), position: 'relative' },
   // Timeline dipecah dua wadah (baris pertama ikut blok header). Padding dan
   // rail dipotong di sambungan supaya gabungannya identik dengan satu wadah.
   timelineAtas: { paddingBottom: 0 },
   timelineBawah: { paddingTop: 0 },
-  railLine: { position: 'absolute', left: P(61.5), top: P(16), bottom: P(16), width: 1, backgroundColor: C.rail },
+  railLine: { position: 'absolute', left: RAIL_X, top: P(16), bottom: P(16), width: RAIL_W, backgroundColor: C.rail },
   railAtas: { bottom: 0 },
   railBawah: { top: 0 },
   row: { flexDirection: 'row', marginBottom: P(14) },
-  jam: { width: P(44), fontSize: P(12.5), fontWeight: 'bold', color: C.burgundy },
-  dotCol: { width: P(18), alignItems: 'center', paddingTop: P(5) },
+  jam: { width: JAM_W, fontSize: P(12.5), fontWeight: 'bold', color: C.burgundy },
+  dotCol: { width: DOT_COL_W, alignItems: 'center', paddingTop: P(5) },
   dot: { width: P(8), height: P(8), borderRadius: P(4), backgroundColor: C.paper, borderWidth: P(2), borderColor: C.dot },
   rowBody: { flex: 1 },
   actText: { fontSize: P(13.5), lineHeight: 1.5, color: C.ink },
@@ -186,6 +199,10 @@ const s = StyleSheet.create({
     marginHorizontal: P(12), marginTop: P(10), backgroundColor: C.ink, borderRadius: P(16),
     padding: P(14), flexDirection: 'row', alignItems: 'center', gap: P(12),
   },
+  avatarWrap: { position: 'relative', width: P(44), height: P(44) },
+  avatar: { width: P(44), height: P(44), borderRadius: P(22), objectFit: 'cover' },
+  avatarKosong: { width: P(44), height: P(44), borderRadius: P(22), backgroundColor: '#FFFFFF26' },
+  avatarBadge: { position: 'absolute', right: -1, bottom: -1 },
   agentName: { fontSize: P(13.5), fontWeight: 'bold', color: '#FFFFFF' },
   agentContact: { fontSize: P(10.5), color: C.gold, marginTop: P(2) },
   agentAjak: { fontSize: P(9.5), color: '#FFFFFF99', marginTop: P(2) },
@@ -239,14 +256,69 @@ function ActivityText({ text }: { text: string }) {
   );
 }
 
-const ID_FULL = (iso: string) =>
-  iso
-    ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('id-ID', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
-    })
-    : '';
+/**
+ * Tanggal dan angka DIRAKIT SENDIRI, tidak lewat toLocaleDateString/toLocaleString.
+ * Kelengkapan data lokal 'id-ID' berbeda antar-mesin (build ICU kecil di sebagian
+ * Android/WebView memulangkan "August"/"31,900,000"), sehingga PDF yang sama bisa
+ * terbit berbeda tergantung perangkat agent. Tabel di bawah membuat hasilnya sama
+ * di mana pun.
+ */
+/**
+ * Foto agent + centang biru mitra resmi. Bentuknya disamakan dengan lencana di
+ * CompareDocument (lingkaran #1d9bf0, centang putih, cincin putih tipis) supaya
+ * dua dokumen jualan tidak terasa berbeda.
+ *
+ * Lingkaran kosong tetap dirender saat fotonya gagal dimuat: ukurannya sama,
+ * jadi tata letak kartu — dan tinggi halaman yang diukur darinya — tidak
+ * bergeser hanya karena satu perangkat gagal mengunduh foto.
+ */
+function AvatarTerverifikasi({ foto }: { foto?: string }) {
+  return (
+    <View style={s.avatarWrap}>
+      {foto ? <Image style={s.avatar} src={foto} /> : <View style={s.avatarKosong} />}
+      <Svg style={s.avatarBadge} width={P(16)} height={P(16)} viewBox="0 0 26 26">
+        <Path d="M13 0a13 13 0 1 1 0 26 13 13 0 1 1 0-26z" fill="#FFFFFF" />
+        <Path d="M13 2a11 11 0 1 1 0 22 11 11 0 1 1 0-22z" fill="#1d9bf0" />
+        <Path
+          d="M8 13.5l3.4 3.4 6.6-7.2"
+          stroke="#FFFFFF" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none"
+        />
+      </Svg>
+    </View>
+  );
+}
 
-const fmtRp = (v: number) => `Rp ${v.toLocaleString('id-ID')}`;
+const ID_HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const ID_BULAN = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+const ID_BULAN_SINGKAT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+];
+
+function tanggalUTC(iso: string): Date | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** "Sabtu, 29 Agustus 2026" */
+const ID_FULL = (iso: string) => {
+  const d = tanggalUTC(iso);
+  return d
+    ? `${ID_HARI[d.getUTCDay()]}, ${d.getUTCDate()} ${ID_BULAN[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+    : '';
+};
+
+/** "29 Agu 2026" */
+const ID_SINGKAT = (iso: string) => {
+  const d = tanggalUTC(iso);
+  return d ? `${d.getUTCDate()} ${ID_BULAN_SINGKAT[d.getUTCMonth()]} ${d.getUTCFullYear()}` : '';
+};
+
+const fmtRp = (v: number) =>
+  `Rp ${Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 export interface ItineraryFoto {
   dataUrl: string;
@@ -538,13 +610,14 @@ export interface ItineraryDocProps {
   flagDataUrl?: string;
   logoDataUrl?: string;
   qrDataUrl?: string;
+  agentPhotoDataUrl?: string;
   mode?: ItineraryPageMode;
   /** Tinggi halaman dalam titik; hanya dipakai saat mode `utuh`. */
   pageHeight?: number;
 }
 
 export function ItineraryDocument({
-  content, paket, agent, photosByDay, flagDataUrl, logoDataUrl, qrDataUrl,
+  content, paket, agent, photosByDay, flagDataUrl, logoDataUrl, qrDataUrl, agentPhotoDataUrl,
   mode = 'paginasi', pageHeight,
 }: ItineraryDocProps) {
   // Koreksi terminal kedatangan (T3→T2) SEBELUM semua turunan data supaya teks
@@ -577,11 +650,7 @@ export function ItineraryDocument({
     ? segments.filter(x => x.key !== 'home').reduce((n, x) => n + x.nights, 0)
     : 0;
 
-  const berangkatLabel = paket?.keberangkatan?.tgl
-    ? new Date(`${paket.keberangkatan.tgl}T00:00:00Z`).toLocaleDateString('id-ID', {
-      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-    })
-    : '';
+  const berangkatLabel = ID_SINGKAT(paket?.keberangkatan?.tgl || '');
 
   const tinggiHalaman = mode === 'ukur'
     ? ITINERARY_TINGGI_MAKS
@@ -636,6 +705,7 @@ export function ItineraryDocument({
 
         {agent ? (
           <View style={s.agentCard} wrap={false}>
+            <AvatarTerverifikasi foto={agentPhotoDataUrl} />
             <View style={{ flex: 1 }}>
               <Text style={s.agentName}>{agent.name}</Text>
               {agent.phone ? <Text style={s.agentContact}>{agent.phone}</Text> : null}
