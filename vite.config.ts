@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js'
 // @ts-expect-error — shared JS module (no types); same prompts as server.js
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js'
 // @ts-expect-error — shared JS module used by the production server too
-import { TOP_PARTNER_ENDPOINT, sanitizePartnerRows } from './lib/top-partner.js'
+import { fetchTopPartnerData, isTopPartnerCacheFresh } from './lib/top-partner.js'
 // @ts-expect-error — shared JS module used by the production server too
 import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js'
 
@@ -19,7 +19,6 @@ const topPartnerSupabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERV
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : null
 
-const TOP_PARTNER_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let topPartnerDevMemory: { partners: unknown[]; syncedAt: string | null } | null = null;
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -318,11 +317,6 @@ function topPartnerBunnyDeps() {
   };
 }
 
-function isTopPartnerCacheFresh(syncedAt: string | null | undefined) {
-  const ts = Date.parse(syncedAt || '');
-  return Number.isFinite(ts) && Date.now() - ts < TOP_PARTNER_REFRESH_INTERVAL_MS;
-}
-
 async function loadTopPartnerDevCache() {
   if (topPartnerDevMemory?.partners?.length) return topPartnerDevMemory;
   if (!topPartnerSupabase) return null;
@@ -378,16 +372,14 @@ function topPartnerDevPlugin() {
             return sendTopPartnerDevResponse(res, { ...cached, cached: true });
           }
 
-          const upstream = await fetch(TOP_PARTNER_ENDPOINT, {
+          const { partners: sanitized } = await fetchTopPartnerData({
+            fetchImpl: fetch,
             headers: {
               'User-Agent': 'Mozilla/5.0 (compatible; AlhijazTopPartnerDev/1.0)',
               'Referer': 'https://alhijazindowisata.com/jadwal/',
             },
+            timeoutMs: 20_000,
           });
-          if (!upstream.ok) throw new Error(`dataagen.php ${upstream.status}`);
-          const raw = await upstream.json();
-          const rows = Array.isArray(raw?.aaData) ? raw.aaData : Array.isArray(raw?.data) ? raw.data : [];
-          const sanitized = sanitizePartnerRows(rows).slice(0, 20);
           const partners = await mirrorTopPartnerPhotos(sanitized, topPartnerBunnyDeps());
           const syncedAt = new Date().toISOString();
           await persistTopPartnerDevCache(partners, syncedAt);

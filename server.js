@@ -229,11 +229,11 @@ import {
 import { parseSyncCooldownMinutes, parseSyncCooldownMs, computeFirstCycleDelayMs } from './lib/sync-schedule.js';
 import { isWeatherRefreshDue, mergeWeatherResults } from './lib/weather-cache.js';
 import {
-  TOP_PARTNER_ENDPOINT,
   TOP_PARTNER_META_DESCRIPTION,
   TOP_PARTNER_META_TITLE,
   TOP_PARTNER_OG_IMAGE_PATH,
-  sanitizePartnerRows,
+  fetchTopPartnerData,
+  isTopPartnerCacheFresh,
 } from './lib/top-partner.js';
 import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js';
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
@@ -21258,11 +21258,12 @@ async function downloadFile(url) {
 // ──────────────────────────────────────────────
 // Top Partner public cache
 // ──────────────────────────────────────────────
-const TOP_PARTNER_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const TOP_PARTNER_DB_READ_TTL_MS = 10 * 60 * 1000;
+const TOP_PARTNER_REFRESH_RETRY_MS = 5 * 60 * 1000;
 let topPartnerMemory = null; // { partners: [...], syncedAt: string }
 let topPartnerDbReadAt = 0;
 let topPartnerFetchInFlight = null;
+let topPartnerFetchAttemptedAt = 0;
 
 async function topPartnerBunnyFileExists(path) {
   try {
@@ -21306,23 +21307,15 @@ function topPartnerBunnyDeps() {
 }
 
 async function fetchTopPartnersOnce() {
-  const res = await fetch(TOP_PARTNER_ENDPOINT, {
+  const { partners: sanitized, endpoint } = await fetchTopPartnerData({
+    fetchImpl: fetch,
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; AlhijazTopPartner/1.0)',
       'Referer': 'https://alhijazindowisata.com/jadwal/',
       'Accept': 'application/json,text/plain,*/*',
     },
-    signal: AbortSignal.timeout(20000),
+    timeoutMs: 20_000,
   });
-  if (!res.ok) throw new Error(`dataagen.php ${res.status}`);
-
-  const raw = await res.json();
-  const rows = Array.isArray(raw?.aaData) ? raw.aaData : Array.isArray(raw?.data) ? raw.data : [];
-  const sanitized = sanitizePartnerRows(rows).slice(0, 20);
-  if (sanitized.length === 0) {
-    console.warn('[TopPartner] Endpoint tidak mengembalikan partner valid — DB & memory tidak diubah');
-    return false;
-  }
 
   const partners = await mirrorTopPartnerPhotos(sanitized, topPartnerBunnyDeps());
 
@@ -21335,7 +21328,7 @@ async function fetchTopPartnersOnce() {
       { onConflict: 'id' }
     );
     if (error) throw new Error(error.message);
-    console.log(`[TopPartner] ${partners.length} partner dipersist ke Supabase`);
+    console.log(`[TopPartner] ${partners.length} partner dari ${new URL(endpoint).host} dipersist ke Supabase`);
   } catch (err) {
     console.error('[TopPartner] Supabase persist error:', err.message);
   }
@@ -21344,6 +21337,7 @@ async function fetchTopPartnersOnce() {
 
 function fetchTopPartners() {
   if (!topPartnerFetchInFlight) {
+    topPartnerFetchAttemptedAt = Date.now();
     topPartnerFetchInFlight = fetchTopPartnersOnce().finally(() => {
       topPartnerFetchInFlight = null;
     });
@@ -21355,7 +21349,7 @@ if (shouldRunBackgroundJobs()) {
   (async () => {
     try {
       await loadTopPartnersFromSupabase();
-      if (isWeatherRefreshDue(topPartnerMemory?.syncedAt, Date.now(), TOP_PARTNER_REFRESH_INTERVAL_MS)) {
+      if (!isTopPartnerCacheFresh(topPartnerMemory?.syncedAt)) {
         console.log('[TopPartner] Cache kosong/basi saat startup, fetch sekali...');
         await fetchTopPartners();
       } else {
@@ -21398,11 +21392,35 @@ app.get('/api/top-partner', async (req, res) => {
       await loadTopPartnersFromSupabase();
       topPartnerDbReadAt = now;
     }
+
+    // Endpoint publik ikut memulihkan cache basi. Ini penting bila cron pernah
+    // gagal (misalnya upstream diblokir WAF) atau background jobs dimatikan.
+    // Cache lama tetap dilayani selama refresh agar landing page tidak blank.
+    let stale = !isTopPartnerCacheFresh(topPartnerMemory?.syncedAt, now);
+    const retryAllowed = now - topPartnerFetchAttemptedAt >= TOP_PARTNER_REFRESH_RETRY_MS;
+    if (!topPartnerMemory?.partners?.length && (topPartnerFetchInFlight || retryAllowed)) {
+      try {
+        await fetchTopPartners();
+      } catch (refreshErr) {
+        console.error('[TopPartner] On-demand refresh error:', refreshErr.message);
+      }
+      stale = !isTopPartnerCacheFresh(topPartnerMemory?.syncedAt);
+    } else if (stale && !topPartnerFetchInFlight && retryAllowed) {
+      void fetchTopPartners().catch((refreshErr) => {
+        console.error('[TopPartner] Background refresh error:', refreshErr.message);
+      });
+    }
+
     if (!topPartnerMemory?.partners?.length) {
       return res.status(503).json({ error: 'Data partner belum tersedia' });
     }
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=3600');
-    res.json({ success: true, partners: topPartnerMemory.partners, syncedAt: topPartnerMemory.syncedAt });
+    res.json({
+      success: true,
+      partners: topPartnerMemory.partners,
+      syncedAt: topPartnerMemory.syncedAt,
+      ...(stale ? { stale: true } : {}),
+    });
   } catch (err) {
     console.error('[TopPartner] read error:', err.message);
     if (topPartnerMemory?.partners?.length) {

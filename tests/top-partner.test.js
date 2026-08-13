@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  TOP_PARTNER_ENDPOINTS,
   TOP_PARTNER_META_DESCRIPTION,
   TOP_PARTNER_META_TITLE,
   TOP_PARTNER_OG_IMAGE_PATH,
   TOP_PARTNER_PHOTO_PROXY_BASE,
+  TOP_PARTNER_REFRESH_INTERVAL_MS,
   buildPhotoProxyUrl,
+  fetchTopPartnerData,
   firstValidUrl,
+  isTopPartnerCacheFresh,
   normalizeWaNumber,
   sanitizePartnerRow,
   shufflePartners,
@@ -49,6 +53,54 @@ test('buildPhotoProxyUrl builds the Alhijaz image-resizer proxy and hides empty 
     buildPhotoProxyUrl('sm0107820251001173530p.jpeg'),
     `${TOP_PARTNER_PHOTO_PROXY_BASE}sm0107820251001173530p.jpeg`
   );
+});
+
+test('top partner source prefers the healthy direct origin and keeps an HTTPS fallback', () => {
+  assert.match(TOP_PARTNER_ENDPOINTS[0], /^http:\/\/115\.124\.86\.220\/jadwal\/src\/dataagen\.php\?/);
+  assert.match(TOP_PARTNER_ENDPOINTS[1], /^https:\/\/alhijazindowisata\.com\/jadwal\/src\/dataagen\.php\?/);
+});
+
+test('fetchTopPartnerData fails over and rejects an empty source payload', async () => {
+  const calls = [];
+  const result = await fetchTopPartnerData({
+    endpoints: ['https://blocked.example/dataagen.php', 'http://origin.example/dataagen.php'],
+    headers: { 'User-Agent': 'TopPartnerTest' },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes('blocked')) {
+        return { ok: true, status: 200, json: async () => ({ aaData: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ aaData: [[' Partner Baru ', '081234567890', '', '', '', '', '', '', '77']] }),
+      };
+    },
+  });
+
+  assert.equal(result.endpoint, 'http://origin.example/dataagen.php');
+  assert.equal(result.partners.length, 1);
+  assert.equal(result.partners[0].name, 'Partner Baru');
+  assert.deepEqual(calls.map((call) => call.url), [
+    'https://blocked.example/dataagen.php',
+    'http://origin.example/dataagen.php',
+  ]);
+  assert.equal(calls[0].init.cache, 'no-store');
+  assert.equal(calls[0].init.headers['User-Agent'], 'TopPartnerTest');
+});
+
+test('isTopPartnerCacheFresh enforces the daily freshness boundary', () => {
+  const now = Date.parse('2026-08-13T12:00:00.000Z');
+  assert.equal(
+    isTopPartnerCacheFresh(new Date(now - TOP_PARTNER_REFRESH_INTERVAL_MS + 1).toISOString(), now),
+    true,
+  );
+  assert.equal(
+    isTopPartnerCacheFresh(new Date(now - TOP_PARTNER_REFRESH_INTERVAL_MS).toISOString(), now),
+    false,
+  );
+  assert.equal(isTopPartnerCacheFresh('not-a-date', now), false);
+  assert.equal(isTopPartnerCacheFresh(new Date(now + 1).toISOString(), now), false);
 });
 
 test('sanitizePartnerRow trims names, ignores YouTube, normalizes WhatsApp, and sanitizes social URLs', () => {
@@ -118,9 +170,16 @@ test('buildTopPartnerCdnUrl points partner photos to Bunny CDN', () => {
   );
 });
 
-test('normalizeBunnyDownloadUrl only upgrades the leading URL scheme', () => {
+test('normalizeBunnyDownloadUrl bypasses the blocked official photo host safely', () => {
   const proxyUrl = `${TOP_PARTNER_PHOTO_PROXY_BASE}sm01.jpg`;
-  assert.equal(normalizeBunnyDownloadUrl(proxyUrl), proxyUrl);
+  assert.equal(
+    normalizeBunnyDownloadUrl(proxyUrl),
+    'http://115.124.86.220/jadwal/_s.php?.max=350&.img=http://115.124.86.220/m/sm01.jpg',
+  );
+  assert.equal(
+    normalizeBunnyDownloadUrl('http://115.124.86.220/m/sm01.jpg'),
+    'http://115.124.86.220/m/sm01.jpg',
+  );
   assert.equal(normalizeBunnyDownloadUrl('http://example.com/file.jpg'), 'https://example.com/file.jpg');
 });
 

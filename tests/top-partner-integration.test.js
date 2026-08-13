@@ -13,7 +13,8 @@ test('server exposes DB-backed public top-partner endpoint and reserves the slug
   assert.equal(/RESERVED_SPA_SLUGS = new Set\(\[[^\]]*'top-partner'/s.test(server), true);
   assert.equal(server.includes("app.get('/api/top-partner'"), true);
   assert.equal(server.includes('top_partners_cache'), true);
-  assert.equal(server.includes('sanitizePartnerRows'), true);
+  assert.equal(server.includes('fetchTopPartnerData'), true);
+  assert.equal(server.includes('isTopPartnerCacheFresh'), true);
   assert.equal(server.includes('mirrorTopPartnerPhotos'), true);
   assert.equal(server.includes("cron.schedule('0 4 * * *'"), true);
   assert.equal(server.includes('topPartnerBunnyDeps'), true);
@@ -44,6 +45,7 @@ test('Vite dev top-partner API also mirrors photos to Bunny and seeds DB cache',
   assert.equal(vite.includes('topPartnerBunnyDeps'), true);
   assert.equal(vite.includes('topPartnerBunnyFileExists'), true);
   assert.equal(vite.includes('normalizeBunnyDownloadUrl'), true);
+  assert.equal(vite.includes('fetchTopPartnerData'), true);
   assert.equal(vite.includes('top_partners_cache'), true);
   assert.equal(vite.includes("dev: true"), true);
 });
@@ -57,7 +59,20 @@ test('Vite dev top-partner API serves fresh DB cache before slow upstream refres
   assert.equal(vite.includes('isTopPartnerCacheFresh'), true);
   assert.equal(vite.includes('sendTopPartnerDevResponse'), true);
   assert.match(handler, /const cached = await loadTopPartnerDevCache\(\);[\s\S]*?if \(cached\?\.partners\?\.length && isTopPartnerCacheFresh\(cached\.syncedAt\)\)/);
-  assert.equal(handler.indexOf('loadTopPartnerDevCache') < handler.indexOf('fetch(TOP_PARTNER_ENDPOINT'), true);
+  assert.equal(handler.indexOf('loadTopPartnerDevCache') < handler.indexOf('fetchTopPartnerData'), true);
+});
+
+test('production top-partner endpoint self-heals stale cache with a retry cooldown', () => {
+  const server = read('server.js');
+  const handlerStart = server.indexOf("app.get('/api/top-partner'");
+  const handler = server.slice(handlerStart, server.indexOf("async function syncFilesToBunny", handlerStart));
+
+  assert.notEqual(handlerStart, -1);
+  assert.equal(server.includes('TOP_PARTNER_REFRESH_RETRY_MS'), true);
+  assert.equal(server.includes('topPartnerFetchAttemptedAt'), true);
+  assert.match(handler, /stale = !isTopPartnerCacheFresh\(topPartnerMemory\?\.syncedAt, now\)/);
+  assert.match(handler, /stale && !topPartnerFetchInFlight && retryAllowed/);
+  assert.match(handler, /void fetchTopPartners\(\)\.catch/);
 });
 
 test('top partner cache migration exists', () => {
