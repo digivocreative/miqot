@@ -19,6 +19,20 @@ const BUBBLE_WIDTH = 232;
 /** Jarak aman dari tepi kiri/kanan viewport. */
 const EDGE_GUTTER = 10;
 
+/**
+ * Durasi animasi masuk & keluar. Keluar sengaja lebih cepat — menunggu balon
+ * pamit terasa lamban justru setelah user menekan tombolnya.
+ *
+ * SATU sumber angka: dipakai sebagai `transitionDuration` inline SEKALIGUS
+ * sebagai jeda sebelum unmount. Kalau dipisah jadi kelas Tailwind, keduanya
+ * bisa melenceng dan gelembung terpotong di tengah fade-out.
+ */
+const ENTER_MS = 260;
+const EXIT_MS = 180;
+
+/** Kurva yang sama dengan animasi buka-tutup header — satu bahasa gerak. */
+const EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
 interface BubbleCoords {
   top: number;
   left: number;
@@ -66,27 +80,29 @@ export interface AvailabilityCoachMarkProps {
  */
 export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: AvailabilityCoachMarkProps) {
   const [coords, setCoords] = useState<BubbleCoords | null>(null);
+  // `render` dipisah dari `open` supaya gelembung bisa BERTAHAN HIDUP selama
+  // animasi keluar. Kalau ikut `open` mentah-mentah, ia lenyap di frame yang
+  // sama dan fade-out-nya tidak pernah kelihatan.
+  const [render, setRender] = useState(false);
   const [shown, setShown] = useState(false);
 
   useLayoutEffect(() => {
-    if (!open) {
-      setCoords(null);
-      setShown(false);
-      return;
-    }
+    if (!open) return;
     const el = anchorRef.current;
     if (!el) return;
     setCoords(measureFrom(el));
+    setRender(true);
   }, [open, anchorRef]);
 
   // Fade + scale masuk lewat double rAF: tanpa frame kosong di antaranya, kedua
   // state jatuh di satu frame yang sama dan transisinya tidak pernah main.
   // (Pola yang sama dipakai bio-editor/HintBanner.)
   //
-  // Bergantung pada `open`, BUKAN `coords`: coords kini berubah tiap pengukuran
-  // ulang, dan menyalakan ulang animasi masuk tiap kali header bergeser.
+  // Bergantung pada `open`/`render`, BUKAN `coords`: coords berubah tiap
+  // pengukuran ulang, dan itu akan menyalakan ulang animasi masuk tiap kali
+  // header bergeser.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !render) return;
     let r2 = 0;
     const r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => setShown(true));
@@ -95,7 +111,18 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
       cancelAnimationFrame(r1);
       if (r2) cancelAnimationFrame(r2);
     };
-  }, [open]);
+  }, [open, render]);
+
+  // Animasi keluar: pudar dulu, baru dilepas dari DOM.
+  useEffect(() => {
+    if (open || !render) return;
+    setShown(false);
+    const timer = window.setTimeout(() => {
+      setRender(false);
+      setCoords(null);
+    }, EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, render]);
 
   // Gelembung ini TIDAK pernah bubar sendiri — tidak ada timer, guliran tidak
   // menutupnya. Yang tersisa cuma menjaga posisinya tetap benar: headernya
@@ -139,7 +166,7 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
     };
   }, [open, anchorRef]);
 
-  if (!open || !coords) return null;
+  if (!render || !coords) return null;
 
   return createPortal(
     <div
@@ -150,19 +177,36 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
         left: coords.left,
         width: BUBBLE_WIDTH,
         zIndex: 10000,
+        transitionDuration: `${shown ? ENTER_MS : EXIT_MS}ms`,
+        transitionTimingFunction: EASING,
+        // Tumbuh DARI ujung panah, bukan dari tengah balon — itu yang membuat
+        // gerakannya terbaca sebagai "keluar dari tombol itu".
+        transformOrigin: `${coords.arrow}px 0px`,
       }}
       className={`
-        transition-all duration-200 ease-out
+        transition-[opacity,transform] motion-reduce:transition-none
         ${shown ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-1 scale-95'}
       `}
     >
+      {/* Warnanya DIBALIK terhadap halaman: latar terang → balon gelap, latar
+          gelap → balon terang. Bukan sekadar menggelapkan sedikit — slate-700 di
+          atas halaman slate-900 nyaris tidak terpisah, padahal justru gelembung
+          inilah yang harus paling menonjol. */}
       {/* Panah menunjuk tombolnya. Diposisikan relatif terhadap gelembung supaya
           tetap menempel di tombol walau gelembungnya digeser dari tepi layar. */}
       <div
         style={{ left: coords.arrow }}
-        className="absolute -top-[5px] -ml-[6px] w-3 h-3 rotate-45 rounded-[2px] bg-slate-900 dark:bg-slate-700"
+        className="absolute -top-[5px] -ml-[6px] w-3 h-3 rotate-45 rounded-[2px] bg-slate-900 dark:bg-slate-50"
       />
-      <div className="relative rounded-xl bg-slate-900 dark:bg-slate-700 text-white shadow-lg shadow-slate-900/25 px-3 py-2.5 pr-8">
+      <div
+        className="
+          relative rounded-xl px-3 py-2.5 pr-8
+          bg-slate-900 dark:bg-slate-50
+          text-white dark:text-slate-900
+          shadow-lg shadow-slate-900/25 dark:shadow-black/50
+          ring-1 ring-black/5 dark:ring-black/20
+        "
+      >
         <p className="text-[12px] leading-snug">
           Tap untuk <span className="font-semibold">sembunyikan paket yang sudah habis</span>
         </p>
@@ -171,8 +215,9 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
           className="
             absolute top-1.5 right-1.5
             flex items-center justify-center w-5 h-5 rounded-md
-            text-slate-400 hover:text-white hover:bg-white/10
             transition-colors
+            text-slate-400 hover:text-white hover:bg-white/10
+            dark:text-slate-500 dark:hover:text-slate-900 dark:hover:bg-black/10
           "
           aria-label="Tutup petunjuk"
         >

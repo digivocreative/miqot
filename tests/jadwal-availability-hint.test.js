@@ -120,6 +120,31 @@ test('scroll & resize hanya mengukur ulang, tidak menutup', () => {
 
 // ── Sambungan di FilterHeader ──
 
+test('panah memakai warna yang sama persis dengan badan, di KEDUA mode', () => {
+  // Panah yang warnanya melenceng = segitiga nyasar yang tidak menyatu dengan
+  // balon. Paling gampang terjadi saat menambah varian gelap: satu diperbarui,
+  // satunya lupa.
+  const warna = /bg-slate-900 dark:bg-slate-50/g;
+  assert.equal([...coachMark.matchAll(warna)].length, 2, 'badan & panah harus sewarna');
+  // Teksnya ikut membalik, kalau tidak jadi putih-di-atas-putih saat mode gelap.
+  assert.match(coachMark, /text-white dark:text-slate-900/);
+});
+
+test('gelembung punya animasi KELUAR, bukan hilang mendadak', () => {
+  // Kalau langsung unmount saat `open` jadi false, tidak ada satu frame pun
+  // untuk memainkan fade-out — inilah kondisi sebelum perbaikan ini.
+  assert.match(coachMark, /EXIT_MS/);
+  assert.match(coachMark, /setShown\(false\)/);
+  assert.match(coachMark, /setRender\(false\)/);
+});
+
+test('transisi TIDAK boleh menyentuh top/left', () => {
+  // Posisinya diukur ulang saat header menciut/mengembang. Kalau top/left ikut
+  // ditransisikan, gelembung berenang mengejar tombol alih-alih menempel.
+  assert.doesNotMatch(coachMark, /transition-all/);
+  assert.match(coachMark, /transition-\[opacity,transform\]/);
+});
+
 test('gelembung berjangkar ke tombol matanya sendiri', () => {
   assert.match(filterHeader, /<AvailabilityCoachMark/);
   assert.match(filterHeader, /ref=\{availabilityBtnRef\}/);
