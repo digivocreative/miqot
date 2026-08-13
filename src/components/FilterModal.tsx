@@ -1,23 +1,17 @@
 'use client';
 
-import { X, TicketPercent, Siren, Banknote, HeartHandshake } from 'lucide-react';
+import { X, TicketPercent, Siren } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { URGENT_SEAT_THRESHOLD, type QuickFilterType, type TimeRange } from '@/utils';
 
 // ============================================
 // Types
 // ============================================
 
-export type QuickFilterType = 
-  | 'promo' 
-  | 'urgent' 
-  | 'termurah' 
-  | 'rahmah';
-
-// ============================================
-// Time Filter Types
-// ============================================
-
-export type TimeRange = '00-06' | '06-12' | '12-18' | '18-24';
+// QuickFilterType & TimeRange hidup di src/utils/filter-url.ts (dipakai juga
+// untuk baca/tulis query URL). Di-export ulang di sini karena App & barrel
+// komponen sudah lama mengambilnya dari file ini.
+export type { QuickFilterType, TimeRange };
 
 interface TimeRangeOption {
   value: TimeRange;
@@ -47,40 +41,32 @@ export interface FilterModalProps {
 // Filter Configuration (Reused)
 // ============================================
 
+// Dua filter cepat, dan HANYA dua: keduanya menyaring hal yang tidak punya
+// jalan lain di halaman ini. Status promo datang dari flag upstream — 13 dari
+// 15 paket promo tidak memuat kata "promo" di namanya, jadi kotak Cari tidak
+// bisa menggantikannya. Sisa kursi tidak tampil di filter mana pun.
+// "Harga Termurah" & "Paket Rahmah" sengaja TIDAK dihidupkan lagi: yang pertama
+// duplikat dropdown Urutkan, yang kedua duplikat Jenis Paket → Umroh Rahmah.
 const QUICK_FILTERS: Array<{
   id: QuickFilterType;
   label: string;
   description: string;
   icon: React.ReactNode;
-  colorClass: string;
+  activeClass: string;
 }> = [
-  { 
-    id: 'promo', 
-    label: 'Promo Spesial', 
-    description: 'Paket harga promo terbatas',
+  {
+    id: 'promo',
+    label: 'Promo Spesial',
+    description: 'Paket berlabel promo',
     icon: <TicketPercent size={20} />,
-    colorClass: 'text-emerald-600 bg-emerald-50 border-emerald-200'
+    activeClass: 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-300',
   },
-  { 
-    id: 'urgent', 
-    label: 'Urgent / Terdekat', 
-    description: 'Seat sisa sedikit / dalam waktu dekat',
+  {
+    id: 'urgent',
+    label: 'Seat Menipis',
+    description: `Sisa ${URGENT_SEAT_THRESHOLD} kursi atau kurang`,
     icon: <Siren size={20} />,
-    colorClass: 'text-rose-600 bg-rose-50 border-rose-200'
-  },
-  { 
-    id: 'termurah', 
-    label: 'Harga Termurah', 
-    description: 'Urutkan dari harga termurah',
-    icon: <Banknote size={20} />,
-    colorClass: 'text-blue-600 bg-blue-50 border-blue-200'
-  },
-  { 
-    id: 'rahmah', 
-    label: 'Paket Rahmah', 
-    description: 'Kategori paket Bintang 5',
-    icon: <HeartHandshake size={20} />,
-    colorClass: 'text-purple-600 bg-purple-50 border-purple-200'
+    activeClass: 'bg-rose-100 dark:bg-rose-900/30 border-rose-500 text-rose-700 dark:text-rose-300',
   },
 ];
 
@@ -166,6 +152,36 @@ export function FilterModal({
 
             {/* Scrollable Content */}
             <div className="overflow-y-auto px-5 py-2 space-y-6">
+
+              {/* Section 0: Quick Filters */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Pilihan Cepat</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {QUICK_FILTERS.map((filter) => {
+                    const isActive = selectedFilter === filter.id;
+                    return (
+                      <button
+                        key={filter.id}
+                        onClick={() => handleSelectQuickFilter(filter.id)}
+                        aria-pressed={isActive}
+                        className={`
+                          flex flex-col gap-1 px-4 py-3 rounded-xl border text-left transition-colors
+                          ${isActive
+                            ? filter.activeClass
+                            : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-500'
+                          }
+                        `}
+                      >
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          {filter.icon}
+                          {filter.label}
+                        </span>
+                        <span className="text-xs opacity-70">{filter.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Section 1: Departure Time */}
               <div>

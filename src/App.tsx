@@ -2,8 +2,22 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages, refreshPackages } from '@/services';
-import { filterPackages, sortPackages, getFilterSlug, resolveFilterSlug, MODES_WITH_SORT, type FilterMode, type SortOrder } from '@/utils';
-import { packageTypeFromSlug, packageTypeLabel, packageTypeSlug } from '@/lib/packageType';
+import {
+  filterPackages,
+  sortPackages,
+  buildFilterSlug,
+  resolveFilterSlug,
+  filterModeLabel,
+  filterDimension,
+  buildFilterSearch,
+  parseFilterSearch,
+  URGENT_SEAT_THRESHOLD,
+  MODES_WITH_SORT,
+  type FilterMode,
+  type SortOrder,
+} from '@/utils';
+import { getLandingAirportCode, getLandingCityName } from '@/utils/journey';
+import { packageTypeLabel } from '@/lib/packageType';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
@@ -70,6 +84,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // mode (lihat handleSecondaryValueChange) — di sana state closure masih basi.
   const filterModeRef = useRef<FilterMode>('AVAILABLE');
   filterModeRef.current = filterMode;
+  // URL baru boleh ditulis ulang SETELAH filter dari URL selesai dibaca.
+  // Tanpa gerbang ini, efek sinkron di bawah jalan lebih dulu dengan state
+  // bawaan dan menghapus ?landing=/?cepat= dari link yang baru saja dibuka.
+  const urlSyncReadyRef = useRef(false);
   const [filterSecondaryValue, setFilterSecondaryValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -194,23 +212,36 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       setCurrentAgent(null);
     }
 
-    // Apply filter from URL slug. Slug lama (mis. /umroh-promo) membawa preset
-    // tipe paket — lihat LEGACY_FILTER_SLUGS di src/utils/filter-logic.ts.
+    // Filter dari URL: mode ada di segmen path, seluruh sisanya di query
+    // (?tipe/?landing/?bulan/?durasi/?cepat/?berangkat/?pulang/?urut — lihat
+    // src/utils/filter-url.ts). Query dibaca TANPA syarat slug: /nikita?cepat=promo
+    // itu link yang sah, dan filter sheet tidak punya slug sendiri.
+    const parsedUrl = parseFilterSearch(window.location.search);
+    setQuickFilter(parsedUrl.quickFilter);
+    setDepartureTimeRanges(parsedUrl.departureRanges);
+    setReturnTimeRanges(parsedUrl.returnRanges);
+
+    // Slug lama (mis. /umroh-promo) membawa preset tipe paket — lihat
+    // LEGACY_FILTER_SLUGS di src/utils/filter-logic.ts.
     if (filterSlugFromUrl) {
       const resolved = resolveFilterSlug(filterSlugFromUrl);
       if (resolved) {
+        filterModeRef.current = resolved.mode;
         setFilterMode(resolved.mode);
-        // `?tipe=` menang atas preset slug: itu yang ditulis saat user memilih
-        // tipe lain, jadi URL yang di-share tidak pernah berbohong.
-        const typeFromQuery = resolved.mode === 'TIPE PAKET'
-          ? packageTypeFromSlug(new URLSearchParams(window.location.search).get('tipe') || '')
-          : null;
-        const secondary = typeFromQuery || resolved.secondaryValue;
+        // Sub-nilai dari query menang atas preset slug: itu yang ditulis saat
+        // user memilih sendiri, jadi URL yang di-share tidak pernah berbohong.
+        const secondary = parsedUrl.secondary[resolved.mode] || resolved.secondaryValue;
         if (secondary) setFilterSecondaryValue(secondary);
-        // Set default sort for modes with sort sub-dropdown
-        setSortOrder(MODES_WITH_SORT.includes(resolved.mode) ? 'TANGGAL_TERDEKAT' : null);
+        setSortOrder(
+          parsedUrl.sortOrder ?? (MODES_WITH_SORT.includes(resolved.mode) ? 'TANGGAL_TERDEKAT' : null),
+        );
       }
+    } else if (parsedUrl.sortOrder) {
+      setSortOrder(parsedUrl.sortOrder);
     }
+
+    // Mulai sekarang URL boleh ditulis ulang dari state (lihat efek sinkron URL).
+    urlSyncReadyRef.current = true;
 
     // Dynamic SEO: Update title & description
     if (agent) {
@@ -253,16 +284,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   }, [searchQuery, currentAgentSlug]);
 
   /**
-   * Helper to build the URL path from current agent + filter mode.
+   * Helper to build the URL path from current agent + filter.
    * On custom domain the host already identifies the agent, so slug is omitted.
+   *
+   * Mode DAN sub-nilainya menyatu di satu segmen (`/nikita/landing-madinah`) —
+   * lihat buildFilterSlug di src/utils/filter-logic.ts.
    */
-  const buildUrlPath = useCallback((mode: FilterMode) => {
+  const buildUrlPath = useCallback((mode: FilterMode, secondaryValue?: string) => {
     const agentSlug = isCustomDomain
       ? ''
       : currentAgent
         ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || ''
         : '';
-    const filterSlug = getFilterSlug(mode);
+    const filterSlug = buildFilterSlug(mode, secondaryValue);
 
     if (agentSlug && filterSlug) return `/${agentSlug}/${filterSlug}`;
     if (agentSlug) return `/${agentSlug}`;
@@ -277,6 +311,56 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // New Time Filter States
   const [departureTimeRanges, setDepartureTimeRanges] = useState<TimeRange[]>([]);
   const [returnTimeRanges, setReturnTimeRanges] = useState<TimeRange[]>([]);
+
+  /**
+   * SATU-SATUNYA penulis URL untuk filter.
+   *
+   * Efek, bukan handler: dropdown mode memanggil onSecondaryValueChange('') di
+   * event yang SAMA persis setelah onFilterModeChange, jadi handler mana pun
+   * melihat state yang basi — dulu itu membuat pindah Tipe Paket → Landing
+   * menulis balik URL ke /tipe-paket. Efek jalan setelah kedua state duduk,
+   * jadi path + query selalu menggambarkan filter yang benar-benar aktif.
+   *
+   * replaceState (bukan push): filter bukan langkah navigasi, dan tombol Back
+   * harus mengembalikan pengunjung ke halaman sebelumnya, bukan menelusuri
+   * setiap pilihan filter.
+   */
+  useEffect(() => {
+    if (!urlSyncReadyRef.current) return;
+    // Tampilan satu paket (/{agent}/{jadwalId}) memakai path yang sama sekali
+    // bukan path filter — menulisinya akan menghapus deep link paketnya.
+    if (singlePackageId) return;
+    const path = buildUrlPath(filterMode, filterSecondaryValue);
+    const search = buildFilterSearch({
+      quickFilter,
+      departureRanges: departureTimeRanges,
+      returnRanges: returnTimeRanges,
+      sortOrder,
+    });
+    const next = `${path}${search}`;
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    window.history.replaceState(null, '', next);
+  }, [
+    buildUrlPath,
+    singlePackageId,
+    filterMode,
+    filterSecondaryValue,
+    quickFilter,
+    departureTimeRanges,
+    returnTimeRanges,
+    sortOrder,
+  ]);
+
+  /**
+   * Telemetri filter. Sebelum ini halaman jadwal hanya melaporkan page_view dan
+   * klik WA, jadi tidak ada satu pun data tentang filter mana yang dipakai —
+   * setiap keputusan produk soal filter jadi tebakan. Event publik (keyed by
+   * slug agent) karena pengunjungnya jamaah, bukan agent yang login.
+   */
+  const trackFilterChange = useCallback((filter: string, value: string) => {
+    if (!currentAgentSlug) return;
+    trackPublicEvent(currentAgentSlug, 'jadwal_filter', { filter, value: value || '(kosong)' });
+  }, [currentAgentSlug]);
 
   // ============================================
   // Fetch Packages (triggered by year change)
@@ -354,13 +438,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 500);
       }
-      // Clean up the URL params
-      params.delete('expand');
-      params.delete('transition');
-      const cleanUrl = params.toString()
-        ? `${window.location.pathname}?${params.toString()}`
-        : window.location.pathname;
-      window.history.replaceState(null, '', cleanUrl);
+      // Bersih-bersih ?expand/?transition. Query filter DIRAKIT ULANG lewat
+      // builder yang sama dengan efek sinkron — kalau memakai
+      // params.toString(), koma kembali jadi %2C dan flag `?promo` jadi
+      // `?promo=`, persis bentuk berantakan yang sudah ditinggalkan.
+      const from = params.get('from');
+      const search = buildFilterSearch({
+        quickFilter,
+        departureRanges: departureTimeRanges,
+        returnRanges: returnTimeRanges,
+        sortOrder,
+      });
+      const fromPart = from ? `${search ? '&' : '?'}from=${encodeURIComponent(from)}` : '';
+      window.history.replaceState(null, '', `${window.location.pathname}${search}${fromPart}`);
     }
   }, [loading, packages]);
 
@@ -400,37 +490,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       result = result.filter(pkg => isTimeInRanges(pkg.kepulangan.jam, returnTimeRanges));
     }
 
-    // Apply quick filter
-    if (quickFilter) {
-      switch (quickFilter) {
-        case 'promo':
-          result = result.filter(pkg => pkg.isPromo);
-          break;
-        case 'urgent':
-          // Sort by lowest remaining seats (Ascending)
-          result = [...result].sort((a, b) => a.seatSisa - b.seatSisa);
-          break;
-        case 'termurah':
-          // Sort by price ascending
-          result = [...result].sort((a, b) => {
-            const getMin = (pkg: UmrohPackage) => {
-              let min = Infinity;
-              for (const tier of Object.values(pkg.harga)) {
-                const prices = [tier.Quard, tier.Triple, tier.Double].filter(Boolean);
-                for (const p of prices) {
-                  const val = parseInt(p!, 10);
-                  if (val > 0 && val < min) min = val;
-                }
-              }
-              return min;
-            };
-            return getMin(a) - getMin(b);
-          });
-          break;
-        case 'rahmah':
-          result = result.filter(pkg => pkg.nama.toLowerCase().includes('rahmah'));
-          break;
-      }
+    // Filter cepat (bottom sheet). Keduanya MENYARING, tidak mengurutkan:
+    // urutan tetap milik dropdown Urutkan, jadi "Promo termurah" mungkin.
+    if (quickFilter === 'promo') {
+      result = result.filter(pkg => pkg.isPromo);
+    } else if (quickFilter === 'urgent') {
+      result = result.filter(pkg => pkg.seatSisa > 0 && pkg.seatSisa <= URGENT_SEAT_THRESHOLD);
     }
 
     // Then apply search query (Omni Search)
@@ -446,9 +511,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           pkg.keberangkatan.kodePenerbangan.toLowerCase().includes(query) ||
           pkg.kepulangan.kodePenerbangan.toLowerCase().includes(query);
 
-        // 3. Landing City (from route)
-        const landingCity = pkg.keberangkatan.rute.split(' - ')[1] || '';
-        const matchLanding = landingCity.toLowerCase().includes(query);
+        // 3. Landing City — lewat helper yang sama dengan kartu & filter.
+        // Dulu `rute.split(' - ')[1]`: untuk rute multi-leg ("CGK-DXB/DXB-MED",
+        // 18 dari 44 paket) hasilnya undefined, dan untuk rute tunggal hanya
+        // kodenya — mengetik "jeddah" tidak pernah cocok, hanya "jed".
+        const matchLanding =
+          getLandingAirportCode(pkg).toLowerCase().includes(query) ||
+          getLandingCityName(pkg).toLowerCase().includes(query);
+
+        // 3b. Kode paket (JBU1589) — dipakai agent saat koordinasi internal.
+        const matchPackageId = pkg.jadwalId.toLowerCase().includes(query);
 
         // 4. Hotel Names (only check the cheapest/displayed tier)
         const matchHotel = (() => {
@@ -485,16 +557,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         const matchRawDate = pkg.keberangkatan.tgl.includes(query) ||
                              pkg.kepulangan.tgl.includes(query);
 
-        return matchName || matchAirline || matchFlightCode || matchLanding || matchHotel || matchDate || matchRawDate;
+        return matchName || matchPackageId || matchAirline || matchFlightCode || matchLanding || matchHotel || matchDate || matchRawDate;
       });
     }
 
-    // Apply sort order from sub-dropdown (AVAILABLE/PROMO)
+    // Urutan: dropdown Urutkan kalau ada, selain itu tanggal berangkat terdekat.
+    // Filter cepat tidak lagi ikut mengurutkan, jadi tidak ada pengecualian.
     if (sortOrder) {
       result = sortPackages(result, sortOrder);
-    } else if (!quickFilter || (quickFilter !== 'urgent' && quickFilter !== 'termurah')) {
-      // Default: sort by departure date
-      result.sort((a, b) => 
+    } else {
+      result = [...result].sort((a, b) =>
         new Date(a.keberangkatan.tgl).getTime() - new Date(b.keberangkatan.tgl).getTime()
       );
     }
@@ -515,8 +587,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setSortOrder('TANGGAL_TERDEKAT');
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
-    // Reset URL to default (no filter slug)
-    window.history.replaceState(null, '', buildUrlPath('AVAILABLE'));
+    // URL menyusul lewat efek sinkron di atas.
   };
 
   const handleFilterModeChange = (mode: FilterMode) => {
@@ -525,24 +596,36 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterSecondaryValue('');
     // Set default sort for modes with sort sub-dropdown
     setSortOrder(MODES_WITH_SORT.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
-    // Sync URL slug
-    window.history.replaceState(null, '', buildUrlPath(mode));
+    trackFilterChange('mode', mode);
   };
 
   const handleSecondaryValueChange = (value: string) => {
     setFilterSecondaryValue(value);
-    // Tipe paket ikut ke URL sebagai `?tipe=`. Tanpa ini, pengunjung yang masuk
-    // lewat slug lama (mis. /umroh-promo) lalu memilih tipe lain akan menyalin
-    // URL yang menjanjikan filter yang sudah tidak aktif. Query, bukan segmen
-    // ketiga: segmen ketiga bisa dibaca src/main.tsx sebagai ID paket.
-    //
     // Lewat ref, BUKAN state: dropdown mode memanggil onSecondaryValueChange('')
-    // di event yang SAMA persis setelah onFilterModeChange, dan `filterMode` di
-    // closure masih mode LAMA di titik itu — pindah dari Tipe Paket ke Landing
-    // akan menulis balik URL ke /tipe-paket padahal modenya sudah bukan itu.
-    if (filterModeRef.current !== 'TIPE PAKET') return;
-    const path = buildUrlPath('TIPE PAKET');
-    window.history.replaceState(null, '', value ? `${path}?tipe=${packageTypeSlug(value)}` : path);
+    // di event yang SAMA persis setelah onFilterModeChange, jadi `filterMode` di
+    // closure masih mode LAMA di titik ini.
+    if (!value) return; // reset saat ganti mode — bukan pilihan user
+    trackFilterChange(filterDimension(filterModeRef.current), value);
+  };
+
+  const handleQuickFilterChange = (next: QuickFilterType | null) => {
+    setQuickFilter(next);
+    trackFilterChange('cepat', next || '');
+  };
+
+  const handleDepartureRangeChange = (ranges: TimeRange[]) => {
+    setDepartureTimeRanges(ranges);
+    trackFilterChange('berangkat', ranges.join(','));
+  };
+
+  const handleReturnRangeChange = (ranges: TimeRange[]) => {
+    setReturnTimeRanges(ranges);
+    trackFilterChange('pulang', ranges.join(','));
+  };
+
+  const handleSortOrderChange = (order: SortOrder | null) => {
+    setSortOrder(order);
+    trackFilterChange('urut', order || '');
   };
 
   // Saat pindah kartu (A terbuka → tap B), panel A ditutup INSTAN (prop
@@ -792,7 +875,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         onYearChange={handleYearChange}
         onFilterModeChange={handleFilterModeChange}
         onSecondaryValueChange={handleSecondaryValueChange}
-        onSortOrderChange={setSortOrder}
+        onSortOrderChange={handleSortOrderChange}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         searchQuery={searchQuery}
@@ -895,7 +978,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                   Tidak ada paket ditemukan
                 </p>
                 <p className="text-gray-400 text-sm mb-6 max-w-xs mx-auto">
-                  Tidak ada paket dengan kriteria "{filterMode}"
+                  Tidak ada paket dengan kriteria "{filterModeLabel(filterMode)}"
                   {filterSecondaryValue && ` - ${filterMode === 'TIPE PAKET' ? packageTypeLabel(filterSecondaryValue) : filterSecondaryValue}`}
                   {searchQuery && ` dan pencarian "${searchQuery}"`}
                 </p>
@@ -950,11 +1033,11 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         isOpen={isFilterModalOpen}
         onClose={() => setIsFilterModalOpen(false)}
         selectedFilter={quickFilter}
-        onSelectFilter={setQuickFilter}
+        onSelectFilter={handleQuickFilterChange}
         departureRanges={departureTimeRanges}
-        onDepartureRangeChange={setDepartureTimeRanges}
+        onDepartureRangeChange={handleDepartureRangeChange}
         returnRanges={returnTimeRanges}
-        onReturnRangeChange={setReturnTimeRanges}
+        onReturnRangeChange={handleReturnRangeChange}
       />
 
       {/* ============================================ */}

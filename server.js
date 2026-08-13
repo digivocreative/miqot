@@ -18267,6 +18267,10 @@ app.get('/api/laporan/jamaah/doc-proxy', authMiddleware, proxyInternalDocument);
 const VALID_EVENT_TYPES = ['login', 'feature', 'action', 'public'];
 const VALID_PUBLIC_EVENTS = [
   'page_view', 'wa_click_public', 'inquiry_submitted',
+  // Filter halaman jadwal publik: metadata { filter, value } — filter =
+  // 'mode' | 'tipe' | 'landing' | 'bulan' | 'durasi' | 'cepat' | 'berangkat' |
+  // 'pulang' | 'urut' (nama yang sama dengan param URL-nya).
+  'jadwal_filter',
   'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked',
   'bio_view', 'bio_social_click',
   // Portal Jamaah is jamaah-authenticated (magic-link session, NOT the agent
@@ -18372,6 +18376,7 @@ const ALL_EVENT_LABELS = {
   login: 'Login', login_failed: 'Login Gagal',
   inquiry_submitted: 'Inquiry Masuk',
   page_view: 'Page View', wa_click_public: 'WA Click Public',
+  jadwal_filter: 'Filter Jadwal',
   ask_ai_opened: 'Ask AI Dibuka', ask_ai_chip_tapped: 'Ask AI Chip',
   ask_ai_free_query: 'Ask AI Query', ask_ai_wa_clicked: 'Ask AI WA',
   bio_view: 'Kunjungan Bio', bio_social_click: 'Klik Sosial Bio',

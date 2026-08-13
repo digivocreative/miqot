@@ -8,6 +8,7 @@ import {
   FilterMode,
   SortOrder,
   MODES_WITH_SORT,
+  filterModeLabel,
   groupByMonth,
   extractUniqueDurations,
   extractUniqueLandings,
@@ -84,13 +85,15 @@ const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
 // Filter mode options for dropdown.
 // 'LIBURAN_SEKOLAH' & 'UMROH CUTI 5 HARI' sengaja tidak di sini — mode URL saja
 // (lihat FilterMode di src/utils/filter-logic.ts).
+// Label datang dari FILTER_MODE_LABELS: nilai mode terikat slug URL & logika
+// filter, teksnya tidak — mis. 'TIPE PAKET' tampil sebagai "JENIS PAKET".
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
-  { value: 'AVAILABLE', label: 'SEAT TERSEDIA' },
-  { value: 'LANDING DI', label: 'LANDING DI' },
-  { value: 'TIPE PAKET', label: 'TIPE PAKET' },
-  { value: 'DURASI PERJALANAN', label: 'DURASI PERJALANAN' },
-  { value: 'DATA PER-BULAN', label: 'DATA PER-BULAN' },
-  { value: 'SEMUA DATA', label: 'SEMUA DATA' },
+  { value: 'AVAILABLE', label: filterModeLabel('AVAILABLE') },
+  { value: 'TIPE PAKET', label: filterModeLabel('TIPE PAKET') },
+  { value: 'LANDING DI', label: filterModeLabel('LANDING DI') },
+  { value: 'DURASI PERJALANAN', label: filterModeLabel('DURASI PERJALANAN') },
+  { value: 'DATA PER-BULAN', label: filterModeLabel('DATA PER-BULAN') },
+  { value: 'SEMUA DATA', label: filterModeLabel('SEMUA DATA') },
 ];
 
 const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
@@ -305,7 +308,7 @@ export function FilterHeader({
   const filterModeOptions = useMemo(() => {
     const options = FILTER_MODE_OPTIONS.map(o => ({ value: o.value as string, label: o.label }));
     if (!options.some(o => o.value === filterMode)) {
-      options.push({ value: filterMode, label: filterMode.replace(/_/g, ' ') });
+      options.push({ value: filterMode, label: filterModeLabel(filterMode) });
     }
     return options;
   }, [filterMode]);
@@ -452,10 +455,15 @@ export function FilterHeader({
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={[
-                { value: '', label: '- Pilih Tipe -' },
+                { value: '', label: '- Pilih Jenis -' },
                 ...packageTypeOptions,
               ]}
-              ariaLabel="Pilih Tipe Paket"
+              // Roster jenis paket lewat 8 opsi, jadi FilterDropdown otomatis
+              // memunculkan kotak Cari — tidak berguna di sini: daftarnya pendek,
+              // muat satu layar, dan halaman ini sudah punya kotak Cari sendiri
+              // tepat di bawahnya.
+              searchable={false}
+              ariaLabel="Pilih Jenis Paket"
               widthClass="flex-1"
             />
           )}
@@ -501,7 +509,10 @@ export function FilterHeader({
               onChange={onSecondaryValueChange}
               options={[
                 { value: '', label: '- Pilih Bulan -' },
-                ...monthGroups.map((m) => ({ value: m.monthKey, label: `${m.monthName} (${m.availableSeat}/${m.totalSeat})` })),
+                // Nama bulan saja — hitungan kursi (sisa/total) sengaja tidak
+                // ikut: angkanya lebar, memaksa trigger terpotong di mobile,
+                // dan sisa seat sudah terbaca per kartu.
+                ...monthGroups.map((m) => ({ value: m.monthKey, label: m.monthName })),
               ]}
               ariaLabel="Pilih Bulan"
               widthClass="flex-1"

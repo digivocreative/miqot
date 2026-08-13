@@ -5,10 +5,12 @@
 
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
-import { getLandingAirportCode, getLandingCityName } from './journey';
+import { airportCityName, getLandingAirportCode, getLandingCityName } from './journey';
 import {
   getMusimDinginWindow,
   matchesPackageType,
+  packageTypeFromSlug,
+  packageTypeSlug,
   umrohTypeSubject,
   PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
   PACKAGE_TYPE_UMROH_PROMO,
@@ -118,6 +120,31 @@ export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
   'SEMUA DATA': 'semua-data',
 };
 
+/**
+ * Label yang DILIHAT pengunjung untuk tiap mode.
+ *
+ * Sengaja dipisah dari nilai FilterMode: nilainya sudah terikat ke slug URL
+ * (/tipe-paket), ke LEGACY_FILTER_SLUGS, dan ke logika filterPackages — jadi
+ * "TIPE PAKET" tetap nilai internal walau di layar tertulis "JENIS PAKET".
+ * Dipakai dropdown utama (FilterHeader) DAN pesan kosong di App, supaya kedua
+ * teks tidak pernah menyebut mode yang sama dengan dua nama berbeda.
+ */
+export const FILTER_MODE_LABELS: Record<FilterMode, string> = {
+  'AVAILABLE': 'SEAT TERSEDIA',
+  'TIPE PAKET': 'JENIS PAKET',
+  'LANDING DI': 'LANDING DI',
+  'LIBURAN_SEKOLAH': 'LIBURAN SEKOLAH',
+  'UMROH CUTI 5 HARI': 'UMROH CUTI 5 HARI',
+  'DURASI PERJALANAN': 'DURASI PERJALANAN',
+  'DATA PER-BULAN': 'DATA PER-BULAN',
+  'SEMUA DATA': 'SEMUA DATA',
+};
+
+/** Label tampilan sebuah mode; mode tak dikenal jatuh ke teksnya sendiri. */
+export function filterModeLabel(mode: FilterMode | string): string {
+  return FILTER_MODE_LABELS[mode as FilterMode] ?? String(mode).replace(/_/g, ' ');
+}
+
 /** Reverse map: slug → FilterMode */
 export const SLUG_TO_FILTER_MODE: Record<string, FilterMode> = Object.fromEntries(
   Object.entries(FILTER_MODE_SLUGS)
@@ -155,12 +182,123 @@ export function getFilterSlug(mode: FilterMode): string {
   return FILTER_MODE_SLUGS[mode] || '';
 }
 
-/** Slug URL → mode + sub-nilai bawaannya (slug lama membawa preset tipe paket). */
+// ============================================
+// Slug gabungan: mode + sub-nilai jadi SATU segmen
+// ============================================
+//
+// `/nikita/landing-madinah`, bukan `/nikita/landing-di?landing=med`. Bentuk ini
+// dipilih karena link jadwal hidupnya di WhatsApp: agent menyalin dan sering
+// membacakannya, jadi satu segmen yang bisa dibaca manusia lebih berguna
+// daripada pasangan param yang mengulang nama modenya.
+//
+// Slug lama TETAP dikenali (SLUG_TO_FILTER_MODE + LEGACY_FILTER_SLUGS + alias
+// query di src/utils/filter-url.ts) — tidak ada link tersebar yang mati.
+//
+// HATI-HATI: src/main.tsx memakai getFilterModeFromSlug sebagai gerbang NEGATIF
+// (slug tak dikenal = ID paket). Setiap pola di bawah karena itu wajib sempit
+// dan tertutup; pola yang terlalu longgar akan menelan `/nikita/JBU1574` dan
+// mengubah halaman detail paket jadi daftar jadwal.
+
+const LANDING_SLUG_PREFIX = 'landing-';
+const DURATION_SLUG_SUFFIX = '-hari';
+
+function slugifyCity(name: string): string {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** 'MED' → 'landing-madinah' (nama kota, bukan kode — kode tak terbaca jamaah). */
+function landingSlug(code: string): string | null {
+  const key = String(code || '').trim().toUpperCase();
+  if (!LANDING_FILTER_CODES.includes(key)) return null;
+  const city = slugifyCity(airportCityName(key));
+  return city ? `${LANDING_SLUG_PREFIX}${city}` : null;
+}
+
+function landingFromSlug(slug: string): string | null {
+  if (!slug.startsWith(LANDING_SLUG_PREFIX)) return null;
+  const city = slug.slice(LANDING_SLUG_PREFIX.length);
+  if (!city) return null;
+  return LANDING_FILTER_CODES.find(code => slugifyCity(airportCityName(code)) === city) ?? null;
+}
+
+/** '2026-11' → 'november-2026' */
+function monthSlug(monthKey: string): string | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || '').trim());
+  if (!match) return null;
+  const name = MONTH_NAMES_ID[parseInt(match[2], 10) - 1];
+  return name ? `${name.toLowerCase()}-${match[1]}` : null;
+}
+
+function monthFromSlug(slug: string): string | null {
+  const match = /^([a-z]+)-(\d{4})$/.exec(slug);
+  if (!match) return null;
+  const index = MONTH_NAMES_ID.findIndex(name => name.toLowerCase() === match[1]);
+  if (index < 0) return null;
+  return `${match[2]}-${String(index + 1).padStart(2, '0')}`;
+}
+
+/** '9' → '9-hari' */
+function durationSlug(days: string): string | null {
+  return /^\d{1,2}$/.test(String(days || '').trim()) ? `${parseInt(days, 10)}${DURATION_SLUG_SUFFIX}` : null;
+}
+
+function durationFromSlug(slug: string): string | null {
+  const match = new RegExp(`^(\\d{1,2})${DURATION_SLUG_SUFFIX}$`).exec(slug);
+  return match ? String(parseInt(match[1], 10)) : null;
+}
+
+/**
+ * Segmen filter untuk URL: mode + sub-nilai kalau ada, kalau tidak slug mode.
+ * Mengembalikan '' untuk mode bawaan (AVAILABLE) — pemanggil menyusun path-nya.
+ */
+export function buildFilterSlug(mode: FilterMode, secondaryValue?: string): string {
+  const base = getFilterSlug(mode);
+  const value = String(secondaryValue || '').trim();
+  if (!value) return base;
+
+  switch (mode) {
+    case 'LANDING DI':
+      return landingSlug(value) || base;
+    case 'DATA PER-BULAN':
+      return monthSlug(value) || base;
+    case 'DURASI PERJALANAN':
+      return durationSlug(value) || base;
+    case 'TIPE PAKET':
+      return packageTypeSlug(value) || base;
+    default:
+      return base;
+  }
+}
+
+/** Slug URL → mode + sub-nilainya (slug gabungan baru maupun slug lama). */
 export function resolveFilterSlug(slug: string): { mode: FilterMode; secondaryValue?: string } | null {
   const key = String(slug || '').toLowerCase();
+  if (!key) return null;
+
   const mode = SLUG_TO_FILTER_MODE[key];
   if (mode) return { mode };
-  return LEGACY_FILTER_SLUGS[key] ?? null;
+
+  const legacy = LEGACY_FILTER_SLUGS[key];
+  if (legacy) return legacy;
+
+  const landing = landingFromSlug(key);
+  if (landing) return { mode: 'LANDING DI', secondaryValue: landing };
+
+  const month = monthFromSlug(key);
+  if (month) return { mode: 'DATA PER-BULAN', secondaryValue: month };
+
+  const days = durationFromSlug(key);
+  if (days) return { mode: 'DURASI PERJALANAN', secondaryValue: days };
+
+  // Roster tipe paket itu tertutup (PACKAGE_TYPE_ORDER), jadi aman sebagai
+  // penutup: slug asing tetap jatuh ke null → dibaca sebagai ID paket.
+  const type = packageTypeFromSlug(key);
+  if (type) return { mode: 'TIPE PAKET', secondaryValue: type };
+
+  return null;
 }
 
 /** Get FilterMode from a URL slug. Returns null if not a valid filter slug. */
@@ -257,6 +395,18 @@ function approximateHijriMonth(dateStr: string): string {
 // ============================================
 
 /**
+ * Kota landing yang boleh jadi pilihan filter "LANDING DI" — hanya dua pintu
+ * masuk Saudi.
+ *
+ * getLandingAirportCode punya fallback ke kedatangan TERAKHIR rute berangkat
+ * saat rantainya tidak pernah menyentuh Saudi (salah entri, atau paket yang
+ * rutenya berhenti di kota tur seperti DXB/IST/CAI). Kode itu bukan kota
+ * landing, dan dulu ikut muncul sebagai opsi — pilihan yang tak berarti buat
+ * jamaah. Di sini ia disaring keluar; paketnya tetap tampil di mode lain.
+ */
+export const LANDING_FILTER_CODES: readonly string[] = ['JED', 'MED'];
+
+/**
  * Extract unique landing cities from all packages.
  * Landing = arrival city of the departure flight's final leg (mis. Jeddah / Madinah).
  * Reuses the same logic as the package card (getLandingAirportCode/Name) so the
@@ -267,6 +417,7 @@ export function extractUniqueLandings(packages: UmrohPackage[]): LandingCity[] {
 
   packages.forEach(pkg => {
     const code = getLandingAirportCode(pkg);
+    if (!LANDING_FILTER_CODES.includes(code)) return;
     const name = getLandingCityName(pkg);
     const existing = cityMap.get(code);
     if (existing) {

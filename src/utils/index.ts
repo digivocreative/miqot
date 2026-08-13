@@ -3,3 +3,4 @@
  */
 
 export * from './filter-logic';
+export * from './filter-url';

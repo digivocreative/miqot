@@ -12,6 +12,7 @@ const root = new URL('..', import.meta.url).pathname;
 const read = rel => readFileSync(join(root, rel), 'utf8');
 
 const filterHeader = read('src/components/FilterHeader.tsx');
+const filterLogic = read('src/utils/filter-logic.ts');
 const app = read('src/App.tsx');
 const brochurePage = read('src/components/BrochureSchedulePage.tsx');
 const brochureTemplate = read('src/components/BrochureScheduleTemplate.tsx');
@@ -20,7 +21,15 @@ test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus'
   const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
   assert.notEqual(optionsBlock, '', 'FILTER_MODE_OPTIONS tidak ditemukan — perbarui regex tes ini bersama kodenya');
 
-  assert.match(optionsBlock, /value: 'TIPE PAKET', label: 'TIPE PAKET'/);
+  // Mode 'TIPE PAKET' tampil sebagai "JENIS PAKET"; nilainya tetap karena
+  // terikat slug /tipe-paket, LEGACY_FILTER_SLUGS, dan filterPackages.
+  assert.match(optionsBlock, /value: 'TIPE PAKET', label: filterModeLabel\('TIPE PAKET'\)/);
+  assert.match(filterLogic, /'TIPE PAKET': 'JENIS PAKET'/);
+  // Urutan dropdown: Jenis Paket mendahului Landing Di.
+  assert.ok(
+    optionsBlock.indexOf("value: 'TIPE PAKET'") < optionsBlock.indexOf("value: 'LANDING DI'"),
+    'TIPE PAKET harus di atas LANDING DI di dropdown utama',
+  );
   for (const gone of [
     'UMROH CUTI 5 HARI',
     'UMROH PROMO',
@@ -46,10 +55,10 @@ test('sub-filter tipe paket: placeholder ala Jadwal, tanpa showAllOptions', () =
   // Tidak boleh melewati `<FilterDropdown` lain, kalau tidak blok-nya menelan
   // dropdown utama (yang memang memakai showAllOptions).
   const block = filterHeader.match(
-    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Pilih Tipe Paket"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
+    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Pilih Jenis Paket"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
   )?.[0] ?? '';
-  assert.notEqual(block, '', 'dropdown Tipe Paket tidak ditemukan');
-  assert.match(block, /value: '', label: '- Pilih Tipe -'/);
+  assert.notEqual(block, '', 'dropdown Jenis Paket tidak ditemukan');
+  assert.match(block, /value: '', label: '- Pilih Jenis -'/);
   assert.match(block, /\.\.\.packageTypeOptions/);
   // Scroll cap hanya dilepas untuk dropdown utama — dikunci juga oleh
   // tests/filter-header-main-dropdown-full-list.test.js.
@@ -75,22 +84,27 @@ test('daftar mode ber-sort hidup di satu tempat saja', () => {
   assert.doesNotMatch(app, /const modesWithSort/);
 });
 
-test('tipe paket ikut ke URL sebagai ?tipe= saat sub-filter diganti', () => {
+test('filter ikut ke URL lewat SATU penulis, bukan tiap handler', () => {
+  // Perilaku encoding-nya diuji di tests/jadwal-filter-url.test.js; di sini
+  // yang dijaga sambungannya di App.
+  assert.match(app, /buildFilterSearch\(\{/);
+  assert.match(app, /parseFilterSearch\(window\.location\.search\)/);
+  // Penulisan URL HARUS terpusat di efek. Dulu tiap handler menulis sendiri dan
+  // handler-nya melihat state basi: dropdown mode memanggil
+  // onSecondaryValueChange('') di event yang sama persis setelah
+  // onFilterModeChange, jadi pindah Tipe Paket → Landing menulis balik URL ke
+  // /tipe-paket padahal modenya sudah bukan itu.
+  const writers = [...app.matchAll(/window\.history\.replaceState\(null, '', (?:next|`\$\{path\})/g)];
+  assert.equal(writers.length, 1, 'penulis URL filter harus tepat satu');
+  assert.match(app, /if \(!urlSyncReadyRef\.current\) return;/);
   const handler = app.match(/const handleSecondaryValueChange = [\s\S]*?\n  \};/)?.[0] ?? '';
   assert.notEqual(handler, '', 'handleSecondaryValueChange tidak ditemukan');
-  assert.match(handler, /\?tipe=\$\{packageTypeSlug\(value\)\}/);
-  assert.match(handler, /replaceState/);
-  // WAJIB lewat ref: dropdown mode memanggil onSecondaryValueChange('') di event
-  // yang sama persis setelah onFilterModeChange, jadi `filterMode` di closure
-  // masih mode LAMA. Dengan state, pindah Tipe Paket → Landing menulis balik URL
-  // ke /tipe-paket padahal modenya sudah bukan itu.
-  assert.match(handler, /filterModeRef\.current !== 'TIPE PAKET'/);
-  assert.doesNotMatch(handler, /\bfilterMode !== 'TIPE PAKET'/);
+  assert.doesNotMatch(handler, /replaceState/);
+  assert.match(handler, /filterModeRef\.current/);
   assert.match(app, /filterModeRef\.current = mode;/);
-  // Slug lama (mis. /umroh-promo) membawa preset; tanpa penulisan ulang ini URL
-  // yang di-share akan menjanjikan filter yang sudah tidak aktif.
+  // Slug lama (mis. /umroh-promo) membawa preset; sub-nilai dari query menang.
   assert.match(app, /resolveFilterSlug\(filterSlugFromUrl\)/);
-  assert.match(app, /packageTypeFromSlug\(/);
+  assert.match(app, /parsedUrl\.secondary\[resolved\.mode\] \|\| resolved\.secondaryValue/);
 });
 
 test('Brosur memakai roster bersama, bukan daftar tipe inline lagi', () => {
