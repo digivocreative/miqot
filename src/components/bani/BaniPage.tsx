@@ -26,6 +26,7 @@ import {
 } from '@/lib/baniSuggestions';
 import { isComplexBaniAnswer } from '@/lib/baniAnswer';
 import { buildShownRefs } from '@/lib/baniShownRefs';
+import { trackEvent } from '@/utils/analytics';
 import { useBaniConfirmMotion } from './baniConfirmMotion';
 import BaniAvatar from './BaniAvatar';
 import { getAuthHeaders } from '../LoginPage';
@@ -413,6 +414,18 @@ export default function BaniPage({ slug, agent = null, onNavigate }: {
 
   // Respons yang datang setelah halaman ditinggalkan diabaikan (guard di ask()).
   useEffect(() => () => { abortRef.current?.abort(); }, []);
+
+  // Kunjungan halaman, terpisah dari `bani_ask` yang baru menyala kalau ada
+  // pertanyaan terjawab. Tanpa pasangan ini "tidak menemukan menunya" dan
+  // "dibuka lalu ditinggal tanpa bertanya" tak bisa dibedakan di Analytics.
+  // Halaman di-unmount tiap pindah tab (DashboardLayout merender per activeTab),
+  // jadi satu mount = satu kunjungan; ref-nya hanya menahan mount ganda StrictMode.
+  const openTracked = useRef(false);
+  useEffect(() => {
+    if (openTracked.current) return;
+    openTracked.current = true;
+    trackEvent('feature', 'open_bani');
+  }, []);
 
   const clearConversation = useCallback(() => {
     clearStoredConversation();

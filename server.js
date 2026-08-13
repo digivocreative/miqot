@@ -18340,6 +18340,10 @@ const FEATURE_LABELS = {
   open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
   // Itinerary web/share
   open_itinerary_share: 'Itinerary Share',
+  // Bani: kunjungan halaman. Pasangannya `bani_ask` (dashboard/bani_ask) baru
+  // menyala kalau pertanyaan benar-benar terjawab — selisih keduanya = agent
+  // yang membuka lalu pergi tanpa bertanya.
+  open_bani: 'Bani',
 };
 const ACTION_LABELS = {
   sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
