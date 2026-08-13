@@ -68,9 +68,12 @@ const BADGE_TEXT: Record<string, string> = {
 };
 
 const s = StyleSheet.create({
-  page: { fontFamily: 'Inter', backgroundColor: C.canvas, paddingBottom: P(46) },
+  page: { fontFamily: 'Inter', backgroundColor: C.canvas, paddingTop: P(44), paddingBottom: P(46) },
 
-  hero: { backgroundColor: C.burgundyDark, paddingHorizontal: P(20), paddingTop: P(24), paddingBottom: P(20) },
+  hero: {
+    backgroundColor: C.burgundyDark, marginTop: -P(44),
+    paddingHorizontal: P(20), paddingTop: P(24), paddingBottom: P(20),
+  },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   logo: { width: P(128), height: P(22), objectFit: 'contain' },
   badge: { borderWidth: 1, borderColor: '#FFFFFF4D', borderRadius: P(4), paddingVertical: P(4), paddingHorizontal: P(8) },
@@ -81,9 +84,14 @@ const s = StyleSheet.create({
   pillText: { fontSize: P(11), fontWeight: 'bold', color: '#FFFFFF' },
 
   runHead: {
-    backgroundColor: C.burgundyDark, paddingHorizontal: P(18), paddingVertical: P(13),
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    position: 'absolute', top: 0, left: 0, right: 0, height: P(44),
   },
+  runHeadInner: {
+    height: P(44), backgroundColor: C.burgundyDark,
+    paddingHorizontal: P(18), flexDirection: 'row',
+    justifyContent: 'space-between', alignItems: 'center',
+  },
+  runHeadText: { fontSize: P(9), fontWeight: 'bold', letterSpacing: P(1), color: '#FFFFFFCC' },
   runLogo: { width: P(104), height: P(18), objectFit: 'contain' },
 
   cardWrap: { marginHorizontal: P(12), marginTop: P(10) },
@@ -97,7 +105,10 @@ const s = StyleSheet.create({
   dayChipText: { fontSize: P(14), fontWeight: 'bold', color: '#FFFFFF' },
   dayTitle: { fontSize: P(14), fontWeight: 'bold', color: C.ink },
   daySub: { fontSize: P(11.5), color: C.ink3, marginTop: P(1) },
-  flag: { width: P(52), height: P(35), opacity: 0.3, objectFit: 'cover', borderRadius: P(4) },
+  flag: {
+    width: P(22), height: P(15), objectFit: 'cover', borderRadius: P(3),
+    borderWidth: 1, borderColor: C.border,
+  },
 
   timeline: { paddingHorizontal: P(14), paddingVertical: P(12), position: 'relative' },
   railLine: { position: 'absolute', left: P(61.5), top: P(16), bottom: P(16), width: 1, backgroundColor: C.rail },
@@ -225,8 +236,15 @@ function KartuHari({
   let lastShownTime = '';
 
   return (
-    <View style={s.cardWrap}>
+    <View style={s.cardWrap} minPresenceAhead={P(140)}>
       <View style={s.card}>
+        {/*
+          JANGAN beri wrap={false} pada header hari. Sebagai anak PERTAMA dari
+          kartu yang boleh terpotong, react-pdf malah membuang isi timeline yang
+          menyusul di batas halaman: uji JBU1550 kehilangan 6 aktivitas (seluruh
+          Hari 2 lenyap) dan dokumennya menyusut 10 → 8 halaman. Tanpa flag ini
+          header tetap tidak pernah terbelah karena tingginya selalu muat.
+        */}
         <View style={s.cardHead}>
           <View style={s.dayChip}><Text style={s.dayChipText}>{dayNum}</Text></View>
           <View style={{ flex: 1 }}>
@@ -259,7 +277,7 @@ function KartuHari({
             }
 
             return (
-              <View key={i} style={s.row}>
+              <View key={i} style={s.row} wrap={false}>
                 <Text style={s.jam}>{showTime ? act.time : ''}</Text>
                 <View style={s.dotCol}><View style={s.dot} /></View>
                 <View style={s.rowBody}>
@@ -462,6 +480,19 @@ export function ItineraryDocument({
   return (
     <Document title={`Rencana Perjalanan — ${paket?.nama || ''}`}>
       <Page size={[P(400), P(800)]} style={s.page}>
+        <View
+          style={s.runHead}
+          fixed
+          render={({ pageNumber }) =>
+            pageNumber === 1 ? null : (
+              <View style={s.runHeadInner}>
+                {logoDataUrl ? <Image src={logoDataUrl} style={s.runLogo} /> : <View />}
+                <Text style={s.runHeadText}>ITINERARY</Text>
+              </View>
+            )
+          }
+        />
+
         <View style={s.hero}>
           <View style={s.heroTop}>
             {logoDataUrl ? <Image src={logoDataUrl} style={s.logo} /> : <View />}
