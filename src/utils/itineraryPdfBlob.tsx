@@ -3,13 +3,17 @@
 // dan bisa dipakai ulang bila nanti dipanggil dari halaman share publik.
 // Spec: docs/superpowers/specs/2026-08-13-itinerary-pdf-versi-kita-design.md
 import { pdf } from '@react-pdf/renderer';
+import { pdfjs } from 'react-pdf';
 import QRCode from 'qrcode';
 import type { UmrohPackage } from '@/types';
 import type { AgentData } from '@/data/agents';
 // Logo hidup di src/, bukan public/ — diambil sebagai URL bundle, bukan path origin.
 import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { destinationPhotosForDays, destinationPhotoUrl } from '../../lib/itinerary-destinasi.js';
-import { ItineraryDocument, type ItineraryDocProps, type ItineraryFoto } from '../components/ItineraryDocument';
+import {
+  ItineraryDocument, ITINERARY_PAD_BAWAH, ITINERARY_TINGGI_MAKS,
+  type ItineraryDocProps, type ItineraryFoto,
+} from '../components/ItineraryDocument';
 
 /**
  * react-pdf tidak bisa membaca WebP (dan tidak bisa membaca JPEG progresif),
@@ -51,6 +55,44 @@ async function toDataUrl(
 
 export function itineraryPdfFileName(jadwalId: string): string {
   return `rencana-perjalanan-${jadwalId || 'alhijaz'}.pdf`;
+}
+
+/**
+ * Tinggi isi sebenarnya dari cetakan mode `ukur`, dalam titik.
+ *
+ * react-pdf tidak pernah melaporkan tinggi hasil tata letaknya, jadi satu-satunya
+ * sumber yang jujur adalah dokumen yang sudah jadi: dicetak setinggi mungkin pada
+ * satu halaman, lalu dibaca baris teks paling bawah. Cetakan `ukur` tidak memuat
+ * kaki dokumen, sehingga baris terbawah pasti catatan penutup.
+ *
+ * Mengembalikan null bila pengukuran tak bisa dipercaya — isinya melebihi batas
+ * satu halaman, tak ada teks sama sekali, atau pdf.js gagal dimuat. Pemanggil
+ * lalu kembali ke paginasi, bukan menerbitkan dokumen yang terpotong.
+ */
+async function ukurTinggiIsi(blob: Blob): Promise<number | null> {
+  try {
+    const data = new Uint8Array(await blob.arrayBuffer());
+    const doc = await pdfjs.getDocument({ data }).promise;
+    try {
+      if (doc.numPages !== 1) return null;
+      const teks = await (await doc.getPage(1)).getTextContent();
+      let terbawah = Infinity;
+      for (const item of teks.items as Array<{ transform?: number[] }>) {
+        const y = item.transform?.[5];
+        if (typeof y === 'number' && y < terbawah) terbawah = y;
+      }
+      if (!Number.isFinite(terbawah)) return null;
+      // `terbawah` adalah garis alas (origin PDF di kiri-BAWAH). Tambah turunan
+      // huruf secukupnya, lalu ruang untuk kaki dokumen.
+      const tinggi = Math.ceil(ITINERARY_TINGGI_MAKS - terbawah + 4 + ITINERARY_PAD_BAWAH);
+      return tinggi > 0 && tinggi <= ITINERARY_TINGGI_MAKS ? tinggi : null;
+    } finally {
+      await doc.destroy();
+    }
+  } catch (err) {
+    console.warn('[itinerary-pdf] tinggi isi gagal diukur, kembali ke paginasi:', err);
+    return null;
+  }
 }
 
 export async function generateItineraryPdfBlob({
@@ -99,15 +141,26 @@ export async function generateItineraryPdfBlob({
     }
   }
 
+  const isi: Omit<ItineraryDocProps, 'mode' | 'pageHeight'> = {
+    content,
+    paket,
+    agent,
+    photosByDay,
+    flagDataUrl: flagDataUrl || undefined,
+    logoDataUrl: logoDataUrl || undefined,
+    qrDataUrl,
+  };
+
+  // Dokumen terbit sebagai SATU halaman utuh: di layar HP orang menggeser, dan
+  // memotongnya per halaman menyisakan rongga di kaki tiap halaman. Tingginya
+  // harus diukur dari cetakan sungguhan lebih dulu — react-pdf tidak menyediakan
+  // hasil tata letaknya. Bila pengukuran gagal atau isinya melewati batas
+  // halaman PDF, dokumen tetap terbit dengan paginasi lama.
+  const tinggi = await ukurTinggiIsi(await pdf(<ItineraryDocument {...isi} mode="ukur" />).toBlob());
+
   return pdf(
-    <ItineraryDocument
-      content={content}
-      paket={paket}
-      agent={agent}
-      photosByDay={photosByDay}
-      flagDataUrl={flagDataUrl || undefined}
-      logoDataUrl={logoDataUrl || undefined}
-      qrDataUrl={qrDataUrl}
-    />,
+    tinggi
+      ? <ItineraryDocument {...isi} mode="utuh" pageHeight={tinggi} />
+      : <ItineraryDocument {...isi} />,
   ).toBlob();
 }

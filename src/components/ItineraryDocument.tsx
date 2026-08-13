@@ -77,7 +77,15 @@ const s = StyleSheet.create({
   },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   logo: { width: P(128), height: P(22), objectFit: 'contain' },
-  badge: { borderWidth: 1, borderColor: '#FFFFFF4D', borderRadius: P(4), paddingVertical: P(4), paddingHorizontal: P(8) },
+  // borderColor WAJIB opak. react-pdf 4.3.2 merusak warna border semi-transparan
+  // — '#FFFFFF4D' MAUPUN 'rgba(255,255,255,0.3)' sama-sama dirender hijau terang
+  // #00FF4D (terukur di rasterisasi); warna opak lewat dengan benar. #805250 =
+  // hasil campuran putih 30% di atas hero #4A0805, jadi tampilannya tak berubah.
+  // Semi-transparan tetap aman untuk color dan backgroundColor (lihat s.pill).
+  badge: {
+    borderWidth: 1, borderColor: '#805250', borderRadius: P(4),
+    paddingVertical: P(4), paddingHorizontal: P(8),
+  },
   badgeText: { fontSize: P(9), fontWeight: 'bold', letterSpacing: P(1.3), color: '#FFFFFFCC' },
   heroTitle: { marginTop: P(12), fontSize: P(17), fontWeight: 'bold', lineHeight: 1.5, color: '#FFFFFF' },
   pillRow: { marginTop: P(12), flexDirection: 'row', gap: P(6) },
@@ -506,6 +514,22 @@ function KartuHarga({ paket }: { paket: UmrohPackage }) {
   );
 }
 
+export const ITINERARY_LEBAR = P(400);
+export const ITINERARY_TINGGI_PAGINASI = P(800);
+/** Batas dimensi halaman PDF 1.x — 200 inci. Isi yang melewatinya tak bisa jadi satu halaman. */
+export const ITINERARY_TINGGI_MAKS = 14400;
+/** Ruang di bawah isi: cukup untuk kaki dokumen, sama dengan paddingBottom halaman. */
+export const ITINERARY_PAD_BAWAH = P(46);
+
+/**
+ * - `paginasi` — banyak halaman berukuran tetap (desain awal, spec D-3).
+ * - `ukur` — satu halaman setinggi mungkin TANPA kaki, dipakai perakit blob
+ *   untuk mengukur tinggi isi sebenarnya lewat posisi teks terakhir.
+ * - `utuh` — satu halaman setinggi isinya; nomor halaman ditiadakan karena
+ *   selalu "1 / 1".
+ */
+export type ItineraryPageMode = 'paginasi' | 'ukur' | 'utuh';
+
 export interface ItineraryDocProps {
   content: { days: ItineraryDayData[] };
   paket: UmrohPackage;
@@ -514,10 +538,14 @@ export interface ItineraryDocProps {
   flagDataUrl?: string;
   logoDataUrl?: string;
   qrDataUrl?: string;
+  mode?: ItineraryPageMode;
+  /** Tinggi halaman dalam titik; hanya dipakai saat mode `utuh`. */
+  pageHeight?: number;
 }
 
 export function ItineraryDocument({
   content, paket, agent, photosByDay, flagDataUrl, logoDataUrl, qrDataUrl,
+  mode = 'paginasi', pageHeight,
 }: ItineraryDocProps) {
   // Koreksi terminal kedatangan (T3→T2) SEBELUM semua turunan data supaya teks
   // yang dirender dan yang dipindai konsisten — sama seperti WebItineraryView.
@@ -555,9 +583,15 @@ export function ItineraryDocument({
     })
     : '';
 
+  const tinggiHalaman = mode === 'ukur'
+    ? ITINERARY_TINGGI_MAKS
+    : mode === 'utuh'
+      ? (pageHeight || ITINERARY_TINGGI_PAGINASI)
+      : ITINERARY_TINGGI_PAGINASI;
+
   return (
     <Document title={`Rencana Perjalanan — ${paket?.nama || ''}`}>
-      <Page size={[P(400), P(800)]} style={s.page}>
+      <Page size={[ITINERARY_LEBAR, tinggiHalaman]} style={s.page}>
         <View
           style={s.runHead}
           fixed
@@ -613,13 +647,22 @@ export function ItineraryDocument({
 
         <Text style={s.note}>Jadwal dapat berubah menyesuaikan kondisi di lapangan.</Text>
 
-        <View style={s.foot} fixed>
-          <Text style={s.footText}>{paket?.jadwalId} · {paket?.nama}</Text>
-          <Text
-            style={s.footText}
-            render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
-          />
-        </View>
+        {/*
+          Kaki sengaja TIDAK dirender saat mengukur: ia melekat di dasar halaman,
+          jadi teksnya akan selalu jadi baris terbawah dan menutupi posisi isi
+          yang justru ingin diukur.
+        */}
+        {mode === 'ukur' ? null : (
+          <View style={s.foot} fixed>
+            <Text style={s.footText}>{paket?.jadwalId} · {paket?.nama}</Text>
+            {mode === 'utuh' ? null : (
+              <Text
+                style={s.footText}
+                render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
+              />
+            )}
+          </View>
+        )}
       </Page>
     </Document>
   );
