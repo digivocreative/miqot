@@ -778,7 +778,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
                     className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                   >
                     {pdfSharing
-                      ? <><Loader2 size={18} className="animate-spin" /> Menyiapkan...</>
+                      ? <><Loader2 size={18} className="animate-spin" /> Sebentar...</>
                       : shareLabel
                         ? <><Share2 size={18} /> Bagikan PDF</>
                         : <><Download size={18} /> Unduh PDF</>}

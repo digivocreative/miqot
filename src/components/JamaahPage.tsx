@@ -368,7 +368,7 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
             ) : (
               <Download size={18} />
             )}
-            {exportingPdf ? 'Menyiapkan PDF...' : useShareLabel ? 'Bagikan PDF' : 'Unduh PDF'}
+            {exportingPdf ? 'Sebentar...' : useShareLabel ? 'Bagikan PDF' : 'Unduh PDF'}
           </button>
         </div>
       )}

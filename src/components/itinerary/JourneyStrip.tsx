@@ -145,11 +145,12 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
               {/* Wording & ikon SERAGAM mobile/desktop (permintaan user 2026-07-31) —
                   yang berbeda hanya fungsinya: sentuh = share sheet, desktop = unduh. */}
               {/* nowrap + label pendek: sejak tombol Brosur hadir, lebar tombol tinggal
-                  setengah — "Menyiapkan dokumen…" membungkus 2 baris dan kartu melar. */}
+                  setengah — label panjang seperti "Menyiapkan dokumen…" membungkus 2 baris
+                  dan kartu melar. */}
               <span className="relative flex items-center gap-2 whitespace-nowrap">
                 {downloading ? (
                   <>
-                    <Loader2 size={15} className="animate-spin" /> Menyiapkan PDF…
+                    <Loader2 size={15} className="animate-spin" /> Sebentar...
                   </>
                 ) : (
                   <>

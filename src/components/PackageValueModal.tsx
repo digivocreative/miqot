@@ -617,7 +617,7 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
                     ) : (
                       <ExternalLink size={16} />
                     )}
-                    <span>{attachmentLoading || isSharing ? 'Menyiapkan...' : 'ChatGPT'}</span>
+                    <span>{attachmentLoading || isSharing ? 'Sebentar...' : 'ChatGPT'}</span>
                   </button>
                 </div>
               </div>

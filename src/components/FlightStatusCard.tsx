@@ -479,7 +479,7 @@ function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, has
         ) : shareUrl || shareFailed || !hasInternalAuth ? (
           <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
         ) : (
-          <><Loader2 size={13} strokeWidth={2} className="animate-spin" />Menyiapkan link...</>
+          <><Loader2 size={13} strokeWidth={2} className="animate-spin" />Sebentar...</>
         )}
       </button>
 

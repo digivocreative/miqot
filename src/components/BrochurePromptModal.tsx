@@ -555,7 +555,7 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
                     isOpeningChatGPT
                       ? 'Memproses...'
                       : isNativeSharePending
-                        ? 'Menyiapkan...'
+                        ? 'Sebentar...'
                         : 'ChatGPT'
                   }</span>
                 </button>

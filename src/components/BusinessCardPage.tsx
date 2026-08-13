@@ -305,7 +305,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
           {'share' in navigator && (
             <button onClick={handleShare} disabled={!!exporting}
               className="w-full py-3 rounded-xl text-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-              {exporting === 'share' ? <><Loader2 size={16} className="animate-spin" /> Menyiapkan...</> : <><Share2 size={16} /> Bagikan</>}
+              {exporting === 'share' ? <><Loader2 size={16} className="animate-spin" /> Sebentar...</> : <><Share2 size={16} /> Bagikan</>}
             </button>
           )}
           <p className="text-[9px] text-gray-400 dark:text-slate-500 text-center mt-1">Format PNG · Resolusi tinggi · Siap print & share</p>
