@@ -88,9 +88,10 @@ test('syncCalendar menghapus baris hantu penomoran ulang dalam satu run', async 
     assert.deepEqual(supabase.state.deletedIds, [staleId]);
     assert.equal(result.rowsDeletedPerEvent, 1);
     assert.equal(supabase.state.upserted.some(row => row.id === freshId), true);
-    // Bukti lokal per-event: tak perlu run kedua, dan tak menyentuh
-    // daftar kandidat stale global.
-    assert.equal(supabase.state.staleCandidates?.includes(staleId) ?? false, false);
+    // Bukti lokal per-event: tuntas dalam satu run, tanpa run kedua.
+    // (Jangan menegaskan `staleCandidates` di sini — daftar kandidat global
+    // baru berhenti mencatat baris ini setelah Task 4 mengganti buktinya ke
+    // absennya event key. Penegasannya ada di Task 4 step 2.)
   } finally {
     global.fetch = originalFetch;
   }

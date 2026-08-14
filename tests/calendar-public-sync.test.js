@@ -138,7 +138,7 @@ function makeResult(table, builder, state) {
   }
 
   if (table === 'calendar_events') {
-    if (builder.columns === 'id, raw_data') {
+    if (builder.columns === 'id, event_date, event_type, raw_data') {
       if (state.existingCalendarReadError) {
         return { data: null, error: new Error('calendar read unavailable') };
       }
@@ -169,7 +169,11 @@ function createFakeSupabase({
     updates: [],
     existingCalendarIds,
     existingCalendarRows: existingCalendarRows
-      || existingCalendarIds.map(id => ({ id, raw_data: null })),
+      || existingCalendarIds.map((id) => {
+        // id = `${event_date}_${event_type}_${rowKey}`
+        const [event_date, event_type] = String(id).split('_');
+        return { id, event_date, event_type, raw_data: null };
+      }),
     existingCalendarReadError,
     missingMutawifColumn,
     missingMutawifErrorCount: 0,
@@ -714,7 +718,7 @@ test('syncCalendar reports delete failure only after all upserts succeed', async
   }
 });
 
-test('syncCalendar deletes a stale row only after two complete primary snapshots', async () => {
+test('syncCalendar menghapus baris hantu penomoran ulang dalam satu run', async () => {
   const originalFetch = global.fetch;
   try {
     global.fetch = async (url) => {
@@ -728,22 +732,20 @@ test('syncCalendar deletes a stale row only after two complete primary snapshots
       throw new Error(`unexpected fetch: ${url}`);
     };
 
-    // Modal hanya mengembalikan grup 10, sementara grup 11 masih ada di DB.
+    // Hulu menomori ulang kloter: dulu grup 11, sekarang modal hanya
+    // mengembalikan grup 10 untuk (tanggal, tipe) yang sama.
     const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const freshId = `${SYNC_EVENT_DATE}_keberangkatan_10`;
     const syncCalendar = await loadSyncCalendar();
     const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
 
-    const first = await syncCalendar(supabase);
-    assert.equal(first.success, true);
-    assert.equal(first.degraded, true);
-    assert.deepEqual(first.degradedReasons, ['stale_confirmation_pending']);
-    assert.equal(supabase.state.deleteAttempts.length, 0);
-    assert.deepEqual(supabase.state.staleCandidates, [staleId]);
+    const result = await syncCalendar(supabase);
 
-    const second = await syncCalendar(supabase);
-    assert.equal(second.success, true);
-    assert.equal(second.degraded, false);
+    assert.equal(result.success, true);
     assert.deepEqual(supabase.state.deletedIds, [staleId]);
+    assert.equal(result.rowsDeletedPerEvent, 1);
+    assert.equal(supabase.state.upserted.some(row => row.id === freshId), true);
+    // Bukti lokal per-event: tuntas dalam satu run, tanpa run kedua.
   } finally {
     global.fetch = originalFetch;
   }

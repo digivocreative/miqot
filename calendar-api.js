@@ -165,7 +165,7 @@ function eventCanUseMutawifReader(event, options) {
 }
 
 async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback, readerOptions) {
-  const failedKey = `${event.date}_${event.type}`;
+  const eventKey = `${event.date}_${event.type}`;
   let details;
 
   try {
@@ -174,7 +174,9 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
     console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
     return {
       rows: [],
-      failedKey,
+      eventKey,
+      authoritative: false,
+      failedKey: eventKey,
       fallbackUsed: 0,
       emptyDetails: 0,
       detailUsesFallback: false,
@@ -231,7 +233,9 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
       console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
       return {
         rows: [],
-        failedKey,
+        eventKey,
+        authoritative: false,
+        failedKey: eventKey,
         fallbackUsed,
         emptyDetails,
         detailUsesFallback,
@@ -264,6 +268,10 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
 
   return {
     rows,
+    eventKey,
+    // `detailUsesFallback` sengaja TIDAK ikut menentukan: itu soal rute, bukan
+    // mutu data. Origin fallback menyajikan isi yang sama lewat IP.
+    authoritative: rows.length > 0 && fallbackUsed === 0 && emptyDetails === 0,
     failedKey: null,
     fallbackUsed,
     emptyDetails,
@@ -413,6 +421,11 @@ export async function syncCalendar(supabase, options = {}) {
     },
   );
 
+  // Peta event key → himpunan id segar, hanya untuk event yang daftar grupnya
+  // benar-benar berhasil di-scrape. Daftar itu otoritatif untuk (tanggal, tipe)
+  // miliknya sendiri, sehingga baris DB di luar daftar boleh langsung dibuang.
+  const authoritativeFreshIdsByEvent = new Map();
+
   for (const result of detailResults) {
     if (result.failedKey) failedEventKeys.add(result.failedKey);
     fallbackUsed += result.fallbackUsed;
@@ -421,6 +434,12 @@ export async function syncCalendar(supabase, options = {}) {
     mutawifReaderEvents += result.mutawifReaderEvents;
     mutawifReaderRows += result.mutawifReaderRows;
     mutawifReaderFailures += result.mutawifReaderFailures;
+    if (result.authoritative) {
+      authoritativeFreshIdsByEvent.set(
+        result.eventKey,
+        new Set(result.rows.map(row => row.id)),
+      );
+    }
     if (result.rows.length > 0) allRows.push(...result.rows);
   }
 
@@ -435,9 +454,13 @@ export async function syncCalendar(supabase, options = {}) {
   if (mutawifReaderFailures > 0) degradedReasons.push('mutawif_reader_failures');
 
   let rowsUpserted = 0;
+  let rowsDeletedPerEvent = 0;
+  let rowsDeletedGlobal = 0;
   const resultMeta = () => ({
     count: rowsUpserted,
     rowsUpserted,
+    rowsDeletedPerEvent,
+    rowsDeletedGlobal,
     eventsTotal: filtered.length,
     eventsSucceeded: filtered.length - failedEventKeys.size,
     failedEvents: failedEventKeys.size,
@@ -460,7 +483,7 @@ export async function syncCalendar(supabase, options = {}) {
 
   const { data: existingRows, error: existingRowsError } = await supabase
     .from('calendar_events')
-    .select('id, raw_data')
+    .select('id, event_date, event_type, raw_data')
     .gte('event_date', rangeStartStr);
 
   const needsMutawifPreservation = allRows.some(row => row._preserve_mutawif);
@@ -510,6 +533,44 @@ export async function syncCalendar(supabase, options = {}) {
     rowsUpserted += batch.length;
   }
 
+  const DELETE_BATCH = 50;
+
+  // ── Jalur per-event ──
+  // Untuk tiap (tanggal, tipe) yang daftar grupnya baru saja berhasil di-scrape,
+  // daftar itu otoritatif: baris DB di luar daftar adalah hantu. Buktinya lokal
+  // dan langsung, jadi tak perlu konfirmasi dua-langkah. Ini yang menangkap
+  // penomoran ulang kloter oleh sistem hulu — sumber utama baris kembar.
+  if (!existingRowsError && existingRows && authoritativeFreshIdsByEvent.size > 0) {
+    const perEventStaleIds = [];
+    for (const row of existingRows) {
+      const id = String(row.id);
+      if (id.startsWith('_DEMO_')) continue;
+      const freshIds = authoritativeFreshIdsByEvent.get(`${row.event_date}_${row.event_type}`);
+      if (!freshIds || freshIds.has(id)) continue;
+      perEventStaleIds.push(id);
+    }
+
+    for (let i = 0; i < perEventStaleIds.length; i += DELETE_BATCH) {
+      const batch = perEventStaleIds.slice(i, i + DELETE_BATCH);
+      const { error: deleteError } = await supabase
+        .from('calendar_events')
+        .delete()
+        .in('id', batch);
+      if (deleteError) {
+        const syncError = `delete stale per-event calendar_events gagal: ${deleteError.message}`;
+        console.error(`[Calendar] ${syncError}`);
+        return { success: false, error: syncError, ...resultMeta() };
+      }
+      rowsDeletedPerEvent += batch.length;
+    }
+    if (rowsDeletedPerEvent > 0) {
+      console.log(
+        `[Calendar] Hapus ${rowsDeletedPerEvent} baris hantu dari `
+        + `${authoritativeFreshIdsByEvent.size} event otoritatif`,
+      );
+    }
+  }
+
   const degradedSnapshot = publicPageUsesFallback
     || detailOriginFallbackUsed > 0
     || fallbackUsed > 0
@@ -550,7 +611,6 @@ export async function syncCalendar(supabase, options = {}) {
       return { success: false, error: syncError, ...resultMeta() };
     }
 
-    const DELETE_BATCH = 50;
     for (let i = 0; i < staleIds.length; i += DELETE_BATCH) {
       const batch = staleIds.slice(i, i + DELETE_BATCH);
       const { error: deleteError } = await supabase
