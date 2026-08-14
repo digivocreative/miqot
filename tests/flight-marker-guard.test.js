@@ -9,6 +9,23 @@ const publicShareHandler = server.slice(
   server.indexOf("app.get('/api/flight-share/:code'"),
   server.indexOf('// ──────────────────────────────────────────────\n// Haji Plus API'),
 );
+const flightPoller = server.slice(
+  server.indexOf('async function pollActiveFlights()'),
+  server.indexOf('function dateOnly(date)'),
+);
+
+/**
+ * Ambil satu fungsi top-level UTUH: dari penanda sampai '}' di kolom 0. Bukan
+ * hitungan baris — tubuh yang memanjang akan menggeser baris terjaga ke luar
+ * jendela dan penjaganya lolos diam-diam.
+ */
+function sliceFunction(marker) {
+  const index = server.indexOf(marker);
+  assert.notEqual(index, -1, `penanda tidak ditemukan di server.js: ${marker}`);
+  const end = server.indexOf('\n}\n', index);
+  assert.notEqual(end, -1, `akhir fungsi tidak ditemukan untuk penanda: ${marker}`);
+  return server.slice(index, end);
+}
 
 test('server never substitutes midnight when marker timing is unknown', () => {
   assert.doesNotMatch(
@@ -38,6 +55,30 @@ test('marker operational date keys cache, status cards, and polling consistently
   assert.match(server, /const flightId = `\$\{segment\.flightDate\}_\$\{segment\.flightIata\}`/);
   assert.match(server, /shouldPollFlight\(segment\.flightDate, event\.event_type\)/);
   assert.match(server, /providerFlightMatchesSegment\(apiData, flightSegment\)/);
+});
+
+test('poller abandons a provider record frozen mid-flight instead of re-stamping it', () => {
+  // The 5-minute en-route interval kept polling SV819 long after AirLabs stopped
+  // updating it, refreshing synced_at on dead evidence and burning quota.
+  assert.ok(flightPoller.length > 0, 'pollActiveFlights slice must not be empty');
+  assert.match(flightPoller, /isExpiredActiveProviderClaim\(existing\)/);
+  assert.match(server, /isExpiredActiveProviderClaim,[\s\S]*from '\.\/lib\/flight-provider-freshness\.js'/);
+});
+
+test('cache penerbangan membawa bukti provider utuh, bukan jam berangkat saja', () => {
+  // getCachedFlight MEMBANGUN ULANG baris provider tiap pembacaan lalu menimpa
+  // `status`. Selama proyeksinya cuma `dep_time_ts`, `updated` dan kedua stempel
+  // kedatangan hilang di jalur cache: kedua penjaga rekaman beku tak bersenjata
+  // dan 'unverified' hasil formatFlightForFrontend hidup lagi jadi 'en-route'.
+  const cacheWrite = sliceFunction('function setCachedFlight(');
+  const cacheRead = sliceFunction('function getCachedFlight(');
+
+  assert.match(cacheWrite, /providerRaw: projectProviderEvidence\(providerRow\?\.raw_api\)/);
+  assert.match(cacheRead, /raw_api: cached\.providerRaw/);
+  // Proyeksi lossy lama tak boleh kembali lewat pintu mana pun.
+  assert.doesNotMatch(cacheRead, /dep_time_ts: cached\./);
+  assert.doesNotMatch(cacheWrite, /providerDepTs:/);
+  assert.match(server, /projectProviderEvidence,[\s\S]*from '\.\/lib\/flight-provider-freshness\.js'/);
 });
 
 test('flight status UI uses provider-backed normalized labels without a redundant header badge', () => {
