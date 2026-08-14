@@ -14,6 +14,34 @@ async function importTsModule(path) {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 }
 
+/**
+ * Muat satu fungsi TOP-LEVEL yang tidak diekspor dari sebuah komponen, lalu
+ * jalankan sungguhan.
+ *
+ * Kenapa lewat jalan ini dan bukan merender kartunya (bandingkan
+ * fixtures/flight-card-render.js): default export FlightStatusCard mengambil
+ * datanya sendiri di useEffect, dan useEffect tidak pernah jalan di
+ * renderToStaticMarkup — kartunya akan selalu ter-render kosong, tanpa satu pun
+ * nama tour leader. Menjalankan fungsi murninya adalah cara terdekat untuk
+ * menguji PERILAKU alih-alih mencocokkan ejaan sumber.
+ */
+async function importPrivateFunction(path, name) {
+  const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `fungsi ${name}() tidak ada lagi di ${path}`);
+  // Sampai '}' di kolom 0 — bukan hitungan baris, supaya tubuh yang memanjang
+  // tidak diam-diam memotong fungsinya di tengah.
+  const end = source.indexOf('\n}\n', start);
+  assert.notEqual(end, -1, `akhir fungsi ${name}() tidak ditemukan di ${path}`);
+  const { code } = transformSync(`${source.slice(start, end)}\n}\nexport { ${name} };`, {
+    loader: 'ts',
+    format: 'esm',
+    sourcemap: false,
+  });
+  const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+  return mod[name];
+}
+
 test('flight card selects en-route, then delayed, then scheduled segment', async () => {
   const { selectActiveFlightSegment } = await importTsModule('src/lib/flightActiveSegment.ts');
   const fallback = { flightNumber: 'JOURNEY', status: 'scheduled' };
@@ -81,8 +109,42 @@ test('en-route traveled line renders a flowing aurora gradient without animated 
   assert.doesNotMatch(routeLine, /strokeDasharray="22 78"|strokeDasharray="10 90"/);
 });
 
-test('flight card renders tour leader names in uppercase', () => {
+/**
+ * Penjaga lama memaku `tlClean.toUpperCase()` dan menamai dirinya "in
+ * uppercase". Invarian itu sudah DIBALIK dengan sengaja di b9a310b: nama tour
+ * leader tidak lagi di-toUpperCase karena cleanTourLeader() memang sudah
+ * menghasilkan Title Case — panel yang diperluas selama ini sudah begitu, baris
+ * kloter yang belum. Jadi pin lamanya bukan sekadar bergeser, ia menjaga
+ * kebalikan dari perilaku yang sekarang benar.
+ *
+ * Yang dijaga sekarang: normalisasinya Title Case (dibuktikan dengan
+ * MENJALANKAN fungsinya), kedua titik render lewat normalisasi itu, dan tak ada
+ * satu pun yang meneriakkannya kembali.
+ */
+test('tour leader names are normalised to Title Case, never shouted', async () => {
+  const cleanTourLeader = await importPrivateFunction(
+    'src/components/FlightStatusCard.tsx',
+    'cleanTourLeader',
+  );
+
+  // Perilaku, bukan ejaan: TERIAK harus turun jadi Title Case.
+  assert.equal(cleanTourLeader('•  h. AHMAD  zAiNi'), 'H. Ahmad Zaini');
+  assert.equal(cleanTourLeader('USTADZ BUDI'), 'Ustadz Budi');
+  assert.equal(cleanTourLeader('· KH. Abdul  Ghani'), 'Kh. Abdul Ghani');
+  // Nilai kosong dari tabel jadwal jangan sampai jadi " · " menggantung.
+  assert.equal(cleanTourLeader('-'), '');
+  assert.equal(cleanTourLeader('   '), '');
+  assert.equal(cleanTourLeader(undefined), '');
+
   const page = readFileSync(new URL('../src/components/FlightStatusCard.tsx', import.meta.url), 'utf8');
 
-  assert.match(page, /tlClean\.toUpperCase\(\)/);
+  // Kedua titik render harus lewat normalisasi itu. Dipasangkan dengan
+  // importPrivateFunction di atas, rename cleanTourLeader jadi merah dua kali —
+  // bukan lolos diam-diam.
+  assert.match(page, /const tlClean = cleanTourLeader\(flight\.tourLeader\)/);
+  assert.match(page, /const tlClean = cleanTourLeader\(kloter\.tourLeader\)/);
+
+  // Dan tak boleh ada yang meneriakkannya lagi, atau melewati normalisasinya.
+  assert.doesNotMatch(page, /tlClean\s*\.\s*toUpperCase\(\)/);
+  assert.doesNotMatch(page, /\{\s*(?:flight|kloter)\.tourLeader\s*\}/);
 });
