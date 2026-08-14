@@ -47,13 +47,20 @@ function hariLagiLabel(hariLagi: number): string {
   return `${hariLagi} hari`;
 }
 
+// Nama TL di calendar_events tersimpan HURUF BESAR SEMUA dan sering tiga kata
+// atau lebih ("BIRRUL SETIANINGSIH MUSIRAN") — terlalu panjang untuk baris
+// ringkas di HP. Dijadikan Title Case dan dipotong dua kata pertama.
+function shortTourLeaderName(name: string): string {
+  return toWaTitleCase(name).split(' ').filter(Boolean).slice(0, 2).join(' ');
+}
+
 // Satu sesi memuat banyak paket, masing-masing dengan TL sendiri — 3 dari 11
 // sesi dalam jendela per 2026-08-14 punya lebih dari satu. Yang pertama
 // disebut namanya, sisanya dihitung, supaya baris tetap muat di layar HP.
 function tourLeaderLabel(tourLeaders: string[]): string {
   if (tourLeaders.length === 0) return 'TL belum ditentukan';
-  if (tourLeaders.length === 1) return tourLeaders[0];
-  return `${tourLeaders[0]} +${tourLeaders.length - 1}`;
+  const first = shortTourLeaderName(tourLeaders[0]);
+  return tourLeaders.length === 1 ? first : `${first} +${tourLeaders.length - 1}`;
 }
 
 export function ManasikSessionSummaryRow({ session, onSelect }: {
@@ -79,7 +86,7 @@ export function ManasikSessionSummaryRow({ session, onSelect }: {
             </span>
           )}
         </p>
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] font-medium">
+        <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] font-medium">
           <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400">
             <Users size={11} strokeWidth={2.2} className="shrink-0" />
             <span>{session.count} Jamaah</span>

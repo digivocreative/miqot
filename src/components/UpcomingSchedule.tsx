@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, GraduationCap, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import KaabaIcon from './bio/KaabaIcon';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
@@ -111,9 +111,15 @@ const DAY_HEADERS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 // titik kalender dan legenda di atasnya.
 const SECTION_ORDER = ['berangkat', 'manasik'] as const;
 type SectionKey = typeof SECTION_ORDER[number];
-const SECTION_CONFIG: Record<SectionKey, { label: string; Icon: LucideIcon; activeTab: string }> = {
+// lucide 0.563 tidak punya ikon Kaaba, jadi tabnya memakai KaabaIcon buatan
+// sendiri berdampingan dengan ikon lucide. Tipenya ditulis sebagai union kedua
+// bentuk itu, bukan ComponentType<{...}>: ikon lucide adalah
+// ForwardRefExoticComponent dan tidak cocok dengan tanda tangan komponen polos.
+type SectionIcon = typeof Plane | typeof KaabaIcon;
+
+const SECTION_CONFIG: Record<SectionKey, { label: string; Icon: SectionIcon; activeTab: string }> = {
   berangkat: { label: 'Berangkat', Icon: Plane, activeTab: TAB_CONFIG.keberangkatan.activeTab },
-  manasik: { label: 'Manasik', Icon: GraduationCap, activeTab: TAB_CONFIG.manasik.activeTab },
+  manasik: { label: 'Manasik', Icon: KaabaIcon, activeTab: TAB_CONFIG.manasik.activeTab },
 };
 
 function cacheKey(year: number, month: number) {
@@ -525,7 +531,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
         ) : berangkatGroups.length > 0 ? (
           <>
             <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700">
-              <div className="flex w-full gap-1 rounded-xl bg-gray-50 p-1 dark:bg-slate-900">
+              <div className="flex w-full gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-900">
                 {SECTION_ORDER.map(section => {
                   const { label, Icon } = SECTION_CONFIG[section];
                   const isActive = activeSection === section;
@@ -535,13 +541,13 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                       type="button"
                       onClick={() => selectSection(section)}
                       aria-pressed={isActive}
-                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all duration-200 ${
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-[11px] font-bold transition-all duration-200 ${
                         isActive
                           ? SECTION_CONFIG[section].activeTab
-                          : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                          : 'text-gray-500 dark:text-slate-500 hover:text-gray-700 dark:hover:text-slate-300'
                       }`}
                     >
-                      <Icon size={12} strokeWidth={2.4} className="shrink-0" />
+                      <Icon size={14} strokeWidth={2.4} className="shrink-0" />
                       {label}
                     </button>
                   );
