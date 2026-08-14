@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages, refreshPackages } from '@/services';
@@ -23,6 +23,7 @@ import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
+import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import { resolvePackageBackTarget } from '@/lib/packageBackTarget';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { Loader2 } from 'lucide-react';
@@ -382,6 +383,43 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 menit
 
+  /**
+   * Refresh latar menukar SELURUH array packages. Kalau data segar menjatuhkan
+   * paket yang posisinya di atas viewport (kursi habis → tersaring keluar mode
+   * AVAILABLE), seluruh kartu di bawahnya naik — terukur 524px untuk dua kartu,
+   * dua pertiga layar, tepat saat pengguna mulai menggulir.
+   *
+   * Jadi setiap penerapan hasil latar mencatat kartu jangkar DULU (sinkron,
+   * selagi DOM masih daftar lama), lalu useLayoutEffect di bawah meluruskannya
+   * kembali sebelum paint. Muatan datanya tidak ditunda sedikit pun — yang
+   * diredam cuma pergeserannya.
+   */
+  const pendingAnchorRef = useRef<ListAnchor | null>(null);
+
+  const applyPackages = useCallback((next: UmrohPackage[], preserveScroll: boolean) => {
+    if (preserveScroll) pendingAnchorRef.current = captureListAnchor();
+    setPackages(next);
+    // Auto-populate hotel distance database from API data
+    buildDatabaseFromPackages(next);
+  }, []);
+
+  useLayoutEffect(() => {
+    const anchor = pendingAnchorRef.current;
+    if (!anchor) return;
+    pendingAnchorRef.current = null;
+
+    // Tandai sebagai scroll programatik supaya auto-hide FilterHeader &
+    // FloatingAgentBar tidak membacanya sebagai gestur user lalu menoggle overlay.
+    // Keduanya digas rAF, jadi penandanya harus bertahan beberapa frame — bukan
+    // dilepas seketika di baris berikutnya.
+    beginProgrammaticScroll();
+    try {
+      restoreListAnchor(anchor);
+    } finally {
+      window.setTimeout(endProgrammaticScroll, 150);
+    }
+  }, [packages]);
+
   const fetchPackages = useCallback(async (yearCode: string, silent = false) => {
     if (!silent) {
       setLoading(true);
@@ -397,16 +435,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       : await getPackages({ yearCode, nonBlockingStale: true });
     
     if (result.success) {
-      setPackages(result.packages);
-      // Auto-populate hotel distance database from API data
-      buildDatabaseFromPackages(result.packages);
+      // Muatan non-silent mengganti daftar yang baru saja dikosongkan spinner
+      // (atau daftar kosong saat mount) — tidak ada jangkar yang perlu dijaga.
+      // Refresh interval 30 menit menukar daftar di bawah mata pengguna: jaga.
+      applyPackages(result.packages, /* preserveScroll */ silent);
 
       // If data came from stale cache, trigger background API refresh
       if (result.fromCache && !silent) {
         refreshPackages({ yearCode, silent: true }).then(freshResult => {
           if (freshResult.success) {
-            setPackages(freshResult.packages);
-            buildDatabaseFromPackages(freshResult.packages);
+            applyPackages(freshResult.packages, /* preserveScroll */ true);
             console.log('[App] Background revalidation complete');
           }
         });
@@ -420,7 +458,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     if (!silent) {
       setLoading(false);
     }
-  }, []);
+  }, [applyPackages]);
 
   // Initial fetch, cache init, and refetch on year change
   useEffect(() => {
