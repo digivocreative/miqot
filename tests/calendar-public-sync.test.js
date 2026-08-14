@@ -751,6 +751,143 @@ test('syncCalendar menghapus baris hantu penomoran ulang dalam satu run', async 
   }
 });
 
+test('kegagalan detail satu event tidak menghalangi pembersihan event lain', async () => {
+  const originalFetch = global.fetch;
+  const events = [
+    {
+      title: 'Keberangkatan UMROH',
+      start: SYNC_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B1532', apalah: 'JBU1532' },
+    },
+    {
+      title: 'Keberangkatan UMROH',
+      start: FAILED_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B9999', apalah: 'JBU9999' },
+    },
+  ];
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(publicPageHtmlForEvents(events));
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        // Tabel tanpa kolom GROUP/PAKET/PESAWAT -> detail gagal diparse,
+        // tanpa memicu retry jaringan.
+        if (parsed.searchParams.get('.m') === 'B9999') {
+          return htmlResponse(`
+            <table>
+              <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+              <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+            </table>
+          `);
+        }
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const healthyStaleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const failedEventId = `${FAILED_EVENT_DATE}_keberangkatan_77`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarIds: [healthyStaleId, failedEventId],
+    });
+
+    const result = await syncCalendar(supabase);
+
+    // Sync tetap melapor gagal karena satu detail gagal — itu perilaku lama
+    // yang dipertahankan. Yang berubah: kegagalan itu tidak lagi mengunci
+    // pembersihan event yang sehat.
+    assert.equal(result.success, false);
+    assert.equal(result.failedEvents, 1);
+    assert.deepEqual(supabase.state.deletedIds, [healthyStaleId]);
+    assert.equal(supabase.state.deletedIds.includes(failedEventId), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('dua kloter pada satu jadwal sama-sama bertahan', async () => {
+  const originalFetch = global.fetch;
+  const twoGroupModalHtml = `
+<table>
+  <thead>
+    <tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>STAFF</th><th>TL</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>69</td><td>SAUDIA ~ SV 827</td><td>00.40</td><td>PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)</td><td>40</td><td>-</td><td>-</td></tr>
+    <tr><td>70</td><td>SAUDIA ~ SV 827</td><td>00.40</td><td>PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)</td><td>45</td><td>-</td><td>-</td></tr>
+  </tbody>
+</table>`;
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') return htmlResponse(twoGroupModalHtml);
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarIds: [
+        `${SYNC_EVENT_DATE}_keberangkatan_69`,
+        `${SYNC_EVENT_DATE}_keberangkatan_70`,
+      ],
+    });
+
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.equal(supabase.state.upserted.length, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('event yang direkonstruksi dari umroh_schedules tidak menghapus baris lamanya', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      // Modal 200 dengan tabel berheader sah tapi tanpa baris -> detail kosong
+      // -> baris direkonstruksi dari umroh_schedules (fallback jadwal).
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(`
+<table>
+  <thead>
+    <tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>STAFF</th><th>TL</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>`);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
+    const result = await syncCalendar(supabase);
+
+    // Baris hasil rekonstruksi BUKAN bukti daftar grup yang sebenarnya, jadi
+    // event ini tidak otoritatif dan tak boleh menghapus apa pun.
+    assert.equal(result.rowsDeletedPerEvent, 0);
+    assert.equal(supabase.state.deletedIds.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('syncCalendar skips stale-delete when the public page uses the fallback origin', async () => {
   const originalFetch = global.fetch;
   const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
