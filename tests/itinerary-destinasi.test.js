@@ -26,6 +26,39 @@ test('situs suci Saudi: varian ejaan PDF dikenali', () => {
   assert.equal(file('berbelanja di Pasar Corniche'), 'pasar-cornice.png');
 });
 
+test('titik kumpul Soekarno-Hatta: Café Zukavia & Palmeera Lounge, termasuk typo hulu', () => {
+  assert.equal(file('Rombongan tiba di café Zukavia Terminal 2F'), 'cafe-zukavia.png');
+  assert.equal(file('Tiba di Cafe Zukavia Terminal 2F Bandara Soekarno-Hatta, pembagian ID Card'), 'cafe-zukavia.png');
+  assert.equal(file('makan malam di café Zukafia'), 'cafe-zukavia.png');
+  assert.equal(file('Rombongan tiba di lounge Palmeera Terminal 2F'), 'palmeera-lounge.png');
+  assert.equal(file('Rombongan tiba di Lounge Palmera Terminal 2F'), 'palmeera-lounge.png');
+  assert.equal(file('Tiba di lounge Palmerra, Gate 6, Terminal 2F'), 'palmeera-lounge.png');
+  assert.equal(file('Kumpul di lounge Palmeer, Terminal 2F Bandara Soekarno-Hatta'), 'palmeera-lounge.png');
+  // Palm Jumeirah tak boleh tertangkap pola Palmeera.
+  assert.equal(file('Photostop di Palm Jumeirah, pulau buatan'), 'palm-jumeirah.png');
+});
+
+test('Bir Ali menang atas kereta cepat di baris miqat (keretanya sudah punya badge)', () => {
+  assert.equal(file('Check out hotel menuju Bir ali untuk miqot'), 'masjid-bir-ali.png');
+  assert.equal(file('Transit di Bir Ali untuk miqat dan niat umrah.'), 'masjid-bir-ali.png');
+  assert.equal(
+    file('Check-out hotel menuju Bir Ali untuk miqat, lalu ke stasiun kereta cepat Haramain.'),
+    'masjid-bir-ali.png',
+  );
+  // Miqat di tempat lain BUKAN Bir Ali — jangan asal cocok ke kata "miqat".
+  assert.equal(file('Mengambil miqat di Tan’im untuk umrah kedua (kondisional).'), null);
+  assert.equal(file('Miqat dapat dilakukan di dalam pesawat, Ya’lamlam, atau Bandara Jeddah.'), null);
+  // Baris kereta tanpa Bir Ali tetap memakai foto kereta.
+  assert.equal(file('Check out hotel menuju stasiun kereta cepat haramain'), 'kereta-cepat-haramain.png');
+});
+
+test('Jabal Tsur: varian ejaan, dan "Jabal Nur" tak ikut tertangkap', () => {
+  assert.equal(file('Ziarah kota Mekkah ke Jabal Tsur'), 'jabal-tsur.png');
+  assert.equal(file('Ziarah Jabal Thur, tempat persembunyian Rasulullah'), 'jabal-tsur.png');
+  assert.equal(file('Melewati Gua Tsur'), 'jabal-tsur.png');
+  assert.equal(file('Ziarah ke Jabal Nur dan Gua Hira'), null);
+});
+
 test('arafah menang atas rahmah: teks gabungan pakai foto Padang Arafah', () => {
   assert.equal(file('Mengunjungi Padang Arafah dan Jabal Rahmah'), 'padang-arafah-jabal-rahmah.png');
   assert.equal(file('Ziarah ke Jabal Rahmah, tempat pertemuan Nabi Adam'), 'jabal-rahmah.png');
@@ -85,7 +118,9 @@ test('foto bandara menempel ke momen: keberangkatan di take-off, kepulangan di l
     ),
   ];
   const photos = destinationPhotosForDays(days);
-  assert.equal(photos[0][0], null); // titik kumpul BUKAN momen keberangkatan (feedback 2026-07-31)
+  // Titik kumpul BUKAN momen keberangkatan (feedback 2026-07-31): fotonya ruang
+  // tunggunya sendiri, bukan foto keberangkatan yang jatah panel TAKE OFF.
+  assert.equal(photos[0][0]?.file, 'palmeera-lounge.png');
   assert.equal(photos[0][1]?.file, 'keberangkatan-di-bandara.png'); // take off
   assert.equal(photos[1][0], null); // tiba di Jeddah ≠ keberangkatan/kepulangan
   assert.equal(photos[2][0]?.file, 'masjidil-haram.png');
@@ -127,6 +162,47 @@ test('dedup global: Masjidil Haram tiap hari → foto hanya di kemunculan pertam
   assert.equal(photos[1][1]?.file, 'jabal-uhud.png');
   assert.equal(photos[2][0], null);
   assert.equal(photos[3][0], null); // tawaf → foto Masjidil Haram, sudah tampil
+});
+
+// ── Gantian Jabal Tsur ↔ Padang Arafah di baris ziarah gabungan ──
+const ZIARAH = 'Ziarah ke Jabal Tsur, Padang Arafah, Jabal Rahmah, Muzdalifah, Mina, dan Jabal Nur.';
+const pickZiarah = days => destinationPhotosForDays(days)[0][0]?.file ?? null;
+
+test('gantian: kedua foto sama-sama kebagian di baris ziarah gabungan', () => {
+  // Satu kegiatan tetap SATU foto; yang digilir hanya siapa yang menang, supaya
+  // tak ada foto yang selamanya kalah. Tak menguji nilai hash — cukup buktikan
+  // dua-duanya benar-benar muncul di sebaran itinerary.
+  const hasil = new Set();
+  for (let i = 0; i < 12; i++) {
+    hasil.add(pickZiarah([mkDay(ZIARAH), mkDay(`Istirahat di hotel ${'.'.repeat(i)}`)]));
+  }
+  assert.deepEqual([...hasil].sort(), ['jabal-tsur.png', 'padang-arafah-jabal-rahmah.png']);
+});
+
+test('gantian deterministik: itinerary yang sama selalu memberi foto yang sama', () => {
+  const days = [mkDay(ZIARAH), mkDay('Sholat di Masjidil Haram')];
+  const pertama = pickZiarah(days);
+  assert.ok(pertama);
+  for (let i = 0; i < 5; i++) assert.equal(pickZiarah(days), pertama);
+});
+
+test('gantian tak menyia-nyiakan jatah: yang sudah tampil dilewati', () => {
+  // Padang Arafah sudah muncul di hari 1 → baris gabungan hari 2 WAJIB jatuh ke
+  // Jabal Tsur, berapa pun gilirannya; kalau tidak, barisnya kosong percuma.
+  const days = [
+    mkDay('Ziarah ke Padang Arafah'),
+    mkDay(ZIARAH),
+    mkDay('Istirahat'),
+    mkDay('Istirahat'),
+  ];
+  const photos = destinationPhotosForDays(days);
+  assert.equal(photos[0][0]?.file, 'padang-arafah-jabal-rahmah.png');
+  assert.equal(photos[1][0]?.file, 'jabal-tsur.png');
+});
+
+test('gantian menghormati prioritas global: Masjidil Haram tetap menang', () => {
+  const days = [mkDay('Menuju Masjidil Haram, lalu ziarah Jabal Tsur dan Padang Arafah')];
+  assert.equal(destinationPhotosForDays(days)[0][0]?.file, 'masjidil-haram.png');
 });
 
 test('activities campuran string/{time,text} dan input cacat tak melempar', () => {
