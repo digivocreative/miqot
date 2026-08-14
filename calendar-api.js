@@ -50,14 +50,15 @@ const CALENDAR_PUBLIC_MUTAWIF_READER_DAYS = parsePositiveInt(
   process.env.CALENDAR_PUBLIC_MUTAWIF_READER_DAYS,
   180,
 );
-const parsedMaxStaleDeleteRatio = Number.parseFloat(
-  process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
-);
-const CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = Number.isFinite(parsedMaxStaleDeleteRatio)
-  && parsedMaxStaleDeleteRatio >= 0
-  && parsedMaxStaleDeleteRatio <= 1
-  ? parsedMaxStaleDeleteRatio
-  : 0.25;
+// Dibaca saat dipakai, bukan saat modul dimuat: ambang ini perlu bisa diubah
+// tanpa restart, dan tes tidak bisa menguji pagarnya kalau nilainya membeku
+// pada impor pertama.
+function maxStaleDeleteRatio() {
+  const parsed = Number.parseFloat(
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
+  );
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.25;
+}
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
@@ -609,12 +610,17 @@ export async function syncCalendar(supabase, options = {}) {
       console.warn(`[Calendar] ${pendingStaleIds.length} stale row menunggu konfirmasi snapshot berikutnya`);
     }
 
+    // Pagar ini SENGAJA hanya menghitung stale jalur global. Penghapusan
+    // per-event punya bukti langsung per (tanggal, tipe) dan jumlahnya bisa
+    // besar saat backlog dikuras — memasukkannya ke sini akan menggagalkan
+    // sync dan mengunci pembersihan, persis bug yang sedang diperbaiki.
+    const ratioLimit = maxStaleDeleteRatio();
     const staleDeleteRatio = existingRows.length > 0
       ? staleIds.length / existingRows.length
       : 0;
 
-    if (staleDeleteRatio > CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO) {
-      const syncError = `stale-delete ${staleIds.length}/${existingRows.length} row (${Math.round(staleDeleteRatio * 100)}%) melewati batas aman ${Math.round(CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO * 100)}%`;
+    if (staleDeleteRatio > ratioLimit) {
+      const syncError = `stale-delete ${staleIds.length}/${existingRows.length} row (${Math.round(staleDeleteRatio * 100)}%) melewati batas aman ${Math.round(ratioLimit * 100)}%`;
       console.error(`[Calendar] ${syncError}`);
       return { success: false, error: syncError, ...resultMeta() };
     }

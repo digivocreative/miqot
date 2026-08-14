@@ -24986,6 +24986,8 @@ async function runCalendarSyncAttempt(attempt = 0) {
       last_events_total: syncResult?.eventsTotal ?? null,
       last_events_succeeded: syncResult?.eventsSucceeded ?? null,
       last_rows_upserted: syncResult?.rowsUpserted ?? syncResult?.count ?? null,
+      last_rows_deleted_per_event: syncResult?.rowsDeletedPerEvent ?? 0,
+      last_rows_deleted_global: syncResult?.rowsDeletedGlobal ?? 0,
       last_mutawif_reader_events: syncResult?.mutawifReaderEvents ?? null,
       last_mutawif_reader_rows: syncResult?.mutawifReaderRows ?? null,
       last_mutawif_reader_failures: syncResult?.mutawifReaderFailures ?? null,
@@ -24998,6 +25000,22 @@ async function runCalendarSyncAttempt(attempt = 0) {
     } else {
       healthPatch.last_full_success_at = calendarLastSuccessAt;
       clearCalendarPrimaryProbe();
+    }
+    // Informatif saja: tidak memblokir penghapusan dan tidak menggagalkan sync.
+    // Drain backlog pertama memang besar; yang perlu dicurigai adalah kalau
+    // angka sebesar ini berulang di run-run berikutnya.
+    const totalDeleted = (syncResult?.rowsDeletedPerEvent || 0)
+      + (syncResult?.rowsDeletedGlobal || 0);
+    if (totalDeleted > 50) {
+      try {
+        await sendOpsAlert(
+          `🧹 <b>Sync kalender menghapus ${totalDeleted} baris</b> — `
+          + `${syncResult.rowsDeletedPerEvent} per-event, ${syncResult.rowsDeletedGlobal} event lenyap. `
+          + 'Wajar saat backlog pertama dikuras; periksa bila berulang.',
+        );
+      } catch (err) {
+        console.warn('[Calendar] Gagal kirim alert penghapusan:', err.message);
+      }
     }
     await persistCalendarSyncHealth(healthPatch);
     // Generate AI insight after first sync (if cache is empty or stale format)

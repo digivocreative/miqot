@@ -888,6 +888,42 @@ test('event yang direkonstruksi dari umroh_schedules tidak menghapus baris laman
   }
 });
 
+test('penghapusan per-event masif tidak tersandung pagar rasio stale global', async () => {
+  const originalFetch = global.fetch;
+  const originalRatio = process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO;
+  try {
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = '0.25';
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    // 8 baris hantu pada event key yang segar; semuanya lewat jalur per-event.
+    // Rasionya 8/8 = 100%, jauh di atas 25% — dan itu memang tidak boleh
+    // menggagalkan sync, karena backlog besar justru yang perlu dikuras.
+    const staleIds = [11, 12, 13, 14, 15, 16, 17, 18]
+      .map(n => `${SYNC_EVENT_DATE}_keberangkatan_${n}`);
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: staleIds });
+
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(result.rowsDeletedPerEvent, 8);
+    assert.equal(result.rowsDeletedGlobal, 0);
+    assert.equal(supabase.state.deletedIds.length, 8);
+  } finally {
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = originalRatio;
+    global.fetch = originalFetch;
+  }
+});
+
 test('event key yang lenyap dari snapshot dihapus setelah dua run', async () => {
   const originalFetch = global.fetch;
   try {
