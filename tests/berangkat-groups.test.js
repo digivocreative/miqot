@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildBerangkatGroups, getDestinationFlags, cleanTourLeader, realDateKey,
+  buildBerangkatGroups, getDestinationFlags, cleanTourLeader, realDateKey, fmtTglHari,
 } from '../lib/berangkat-groups.js';
 
 test('buildBerangkatGroups mengelompokkan item dengan jadwal_id yang sama', () => {
@@ -105,4 +105,26 @@ test('realDateKey meloloskan tanggal nyata dan memotong bagian waktu', () => {
   assert.equal(realDateKey('2026-02-28'), '2026-02-28');
   assert.equal(realDateKey('2024-02-29'), '2024-02-29'); // kabisat
   assert.equal(realDateKey('2026-08-14T00:00:00.000Z'), '2026-08-14');
+});
+
+test('cleanTourLeader menganggap placeholder strip sebagai belum ditentukan', () => {
+  // calendar_events menyimpan "-" (dan "•  -") untuk TL yang belum ditunjuk —
+  // 5 dari 11 sesi manasik dalam jendela 2026-08-14 begitu. Diloloskan apa
+  // adanya, baris ringkas manasik berbunyi "18 Jamaah · -".
+  assert.equal(cleanTourLeader('-'), null);
+  assert.equal(cleanTourLeader('•  -'), null);
+  assert.equal(cleanTourLeader('--'), null);
+  assert.equal(cleanTourLeader(' – '), null);
+  // Nama yang memuat strip TETAP nama
+  assert.equal(cleanTourLeader('H. AHMAD AL-FARISI'), 'H. AHMAD AL-FARISI');
+});
+
+test('fmtTglHari menyertakan nama hari dan tak bergeser oleh zona waktu pembaca', () => {
+  // Dibaca sebagai UTC, sama seperti ManasikDateChip: kunci tanggalnya polos
+  // 'YYYY-MM-DD', jadi nama harinya harus persis milik tanggal itu di mana pun
+  // pembacanya berada — hari yang meleset jauh lebih kentara daripada tanggal.
+  assert.equal(fmtTglHari('2026-08-15'), 'Sabtu, 15 Agustus 2026');
+  assert.equal(fmtTglHari('2026-09-19'), 'Sabtu, 19 September 2026');
+  assert.equal(fmtTglHari(null), '-');
+  assert.equal(fmtTglHari('0000-00-00'), '-');
 });

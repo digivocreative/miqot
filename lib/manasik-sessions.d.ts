@@ -6,6 +6,8 @@ export interface ManasikSession {
   manasik_jam: string | null;
   hari_lagi: number;
   count: number;
+  tour_leaders: string[];
+  shares_date: boolean;
   groups: BerangkatGroup[];
   items: BerangkatItem[];
 }

@@ -151,3 +151,41 @@ test('wibTodayKey memakai tanggal WIB, bukan UTC', () => {
   assert.equal(wibTodayKey(new Date('2026-08-14T22:30:00Z')), '2026-08-15');
   assert.equal(wibTodayKey(new Date('2026-08-14T10:00:00Z')), '2026-08-14');
 });
+
+test('tour_leaders memuat TL berbeda dari semua paket dalam sesi, tanpa duplikat', () => {
+  const sessions = buildManasikSessions([
+    { ...grp({ paket: 'PAKET A', manasik_tgl: plusDays(3) }), tour_leader: 'BIRRUL SETIANINGSIH' },
+    { ...grp({ paket: 'PAKET B', manasik_tgl: plusDays(3) }), tour_leader: 'AZIZAH MUKMININ' },
+    { ...grp({ paket: 'PAKET C', manasik_tgl: plusDays(3) }), tour_leader: 'AZIZAH MUKMININ' },
+  ], TODAY);
+
+  assert.equal(sessions.length, 1);
+  assert.deepEqual(sessions[0].tour_leaders, ['AZIZAH MUKMININ', 'BIRRUL SETIANINGSIH']);
+});
+
+test('tour_leaders membuang yang null — placeholder sudah dibuang cleanTourLeader di hulu', () => {
+  const sessions = buildManasikSessions([
+    { ...grp({ paket: 'PAKET A', manasik_tgl: plusDays(3) }), tour_leader: null },
+    { ...grp({ paket: 'PAKET B', manasik_tgl: plusDays(3) }), tour_leader: 'SISKA FADIA NURI' },
+  ], TODAY);
+
+  assert.deepEqual(sessions[0].tour_leaders, ['SISKA FADIA NURI']);
+
+  const tanpaTl = buildManasikSessions([
+    { ...grp({ paket: 'PAKET A', manasik_tgl: plusDays(3) }), tour_leader: null },
+  ], TODAY);
+  assert.deepEqual(tanpaTl[0].tour_leaders, []);
+});
+
+test('shares_date menandai sesi yang berbagi tanggal dengan sesi lain', () => {
+  // 19 Sep 2026 punya sesi 08:00 DAN 08:30. Tanpa penanda ini, baris ringkas
+  // keduanya tampil identik begitu jam dicabut dari baris metadatanya.
+  const sessions = buildManasikSessions([
+    grp({ paket: 'PAKET PAGI', manasik_tgl: plusDays(5), manasik_jam: '08:00:00' }),
+    grp({ paket: 'PAKET SIANG', manasik_tgl: plusDays(5), manasik_jam: '08:30:00' }),
+    grp({ paket: 'SENDIRIAN', manasik_tgl: plusDays(9), manasik_jam: '08:00:00' }),
+  ], TODAY);
+
+  assert.equal(sessions.length, 3);
+  assert.deepEqual(sessions.map(s => s.shares_date), [true, true, false]);
+});
