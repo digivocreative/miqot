@@ -16,7 +16,7 @@ test('missing trustworthy times can never fabricate takeoff', () => {
   );
 });
 
-test('calendar-only fallback is scheduled before departure then requires provider confirmation', () => {
+test('calendar-only fallback is scheduled before departure then requires provider confirmation until well past arrival', () => {
   const times = {
     depUTC: Date.parse('2026-07-11T14:20:00Z'),
     arrUTC: Date.parse('2026-07-11T18:10:00Z'),
@@ -32,6 +32,41 @@ test('calendar-only fallback is scheduled before departure then requires provide
   );
   assert.deepEqual(
     computeFallbackFlightState(times, Date.parse('2026-07-11T18:11:00Z')),
+    { status: 'unverified', progress: 0 },
+  );
+});
+
+test('calendar-only fallback presumes landed once arrival plus the grace window has passed', () => {
+  // User-approved 2026-08-14: lewat jam landing (plus tenggang 90 menit yang
+  // sama dengan pagar klaim provider) kartu tampil "Mendarat", bukan "Perlu
+  // Cek" selamanya. Batasnya inklusif: tepat arr+90m sudah dianggap mendarat.
+  const times = {
+    depUTC: Date.parse('2026-07-11T14:20:00Z'),
+    arrUTC: Date.parse('2026-07-11T18:10:00Z'),
+  };
+
+  assert.deepEqual(
+    computeFallbackFlightState(times, Date.parse('2026-07-11T19:39:59Z')),
+    { status: 'unverified', progress: 0 },
+  );
+  assert.deepEqual(
+    computeFallbackFlightState(times, Date.parse('2026-07-11T19:40:00Z')),
+    { status: 'landed', progress: 100 },
+  );
+  assert.deepEqual(
+    computeFallbackFlightState(times, Date.parse('2026-07-12T09:00:00Z')),
+    { status: 'landed', progress: 100 },
+  );
+});
+
+test('untrusted times never presume landed, however far past the clock', () => {
+  const times = {
+    depUTC: Date.parse('2026-07-11T14:20:00Z'),
+    arrUTC: Date.parse('2026-07-11T18:10:00Z'),
+    operationalTimeTrusted: false,
+  };
+  assert.deepEqual(
+    computeFallbackFlightState(times, Date.parse('2026-07-12T09:00:00Z')),
     { status: 'unverified', progress: 0 },
   );
 });

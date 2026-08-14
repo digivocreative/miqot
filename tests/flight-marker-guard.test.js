@@ -81,6 +81,21 @@ test('cache penerbangan membawa bukti provider utuh, bukan jam berangkat saja', 
   assert.match(server, /projectProviderEvidence,[\s\S]*from '\.\/lib\/flight-provider-freshness\.js'/);
 });
 
+test('klaim provider yang di-override penjaga gugur berikut detail operasionalnya', () => {
+  // Rekaman beku SV819 kini tampil 'landed' hasil presumsi, bukan klaim
+  // provider. progress/delay milik klaim mati itu (percent 195, delay taksiran
+  // mid-flight) tak boleh ikut tampil: gerbang lama `=== 'unverified'` terlalu
+  // sempit begitu putusan penjaga bisa berupa 'landed'.
+  const formatter = sliceFunction('function formatFlightForFrontend(row)');
+  assert.match(formatter, /const claimOverridden = displayStatus !== row\.status/);
+  assert.match(formatter, /progress: claimOverridden \? \(displayStatus === 'landed' \? 100 : 0\) : row\.progress \|\| 0/);
+  assert.match(formatter, /delayed: claimOverridden \? 0 : row\.delayed \|\| 0/);
+  assert.match(formatter, /depDelayed: claimOverridden \? 0 : row\.dep_delayed \|\| 0/);
+  assert.match(formatter, /arrDelayed: claimOverridden \? 0 : row\.arr_delayed \|\| 0/);
+  // Gerbang lama tak boleh kembali: 'unverified' bukan satu-satunya override.
+  assert.doesNotMatch(formatter, /displayStatus === 'unverified' \? 0/);
+});
+
 test('flight status UI uses provider-backed normalized labels without a redundant header badge', () => {
   assert.match(card, /getFlightStatusPresentation\(summaryFlight\.status\)/);
   assert.match(card, /\{sc\.label\}/);

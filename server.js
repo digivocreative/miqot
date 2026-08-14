@@ -14192,6 +14192,10 @@ function formatFlightForFrontend(row) {
   const { depTs, arrTs } = flightProgressTs(row.raw_api);
   const isLive = isLiveProviderFlight(row);
   const displayStatus = providerBackedDisplayStatus(row);
+  // Putusan penjaga yang menyimpang dari klaim provider (beku/basi) menggugurkan
+  // detail operasional klaim itu: progress & delay-nya bukan fakta. 'landed'
+  // hasil presumsi berarti perjalanan selesai — progress 100 tanpa badge delay.
+  const claimOverridden = displayStatus !== row.status;
   const detailsUsable = isFreshProviderFlight(row)
     || row?.status === 'landed'
     || row?.status === 'cancelled';
@@ -14225,15 +14229,15 @@ function formatFlightForFrontend(row) {
     alt: isLive ? row.alt || null : null,
     speed: isLive ? row.speed || null : null,
     direction: isLive ? row.direction || null : null,
-    progress: displayStatus === 'unverified' ? 0 : row.progress || 0,
+    progress: claimOverridden ? (displayStatus === 'landed' ? 100 : 0) : row.progress || 0,
     depTs,
     arrTs,
-    delayed: displayStatus === 'unverified' ? 0 : row.delayed || 0,
+    delayed: claimOverridden ? 0 : row.delayed || 0,
     aircraftType: getAircraftName(row.aircraft_icao),
     aircraftReg: row.aircraft_reg || null,
     duration: row.duration || null,
-    depDelayed: displayStatus === 'unverified' ? 0 : row.dep_delayed || 0,
-    arrDelayed: displayStatus === 'unverified' ? 0 : row.arr_delayed || 0,
+    depDelayed: claimOverridden ? 0 : row.dep_delayed || 0,
+    arrDelayed: claimOverridden ? 0 : row.arr_delayed || 0,
     arrBaggage: row.arr_baggage || null,
     isLive,
     trackingSource: 'airlabs',
@@ -15337,7 +15341,7 @@ async function pollActiveFlights() {
       // 5-minute active interval re-polls it 12x/hour, and each response only
       // re-stamps synced_at onto evidence that stopped moving hours ago. Once the
       // claim has expired on its own arrival clock, abandon it — the card already
-      // reads "Perlu Cek" via providerBackedDisplayStatus.
+      // presumes "Mendarat" via providerBackedDisplayStatus.
       if (existing && isExpiredActiveProviderClaim(existing)) continue;
       // Re-poll cancelled flights if event is today — cancellation might be from wrong route
       if (existing && existing.status === 'cancelled') {

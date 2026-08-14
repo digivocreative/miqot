@@ -64,9 +64,11 @@ test('re-fetching a frozen provider record cannot keep its in-flight claim alive
   assert.equal(providerBackedDisplayStatus(row, now), 'unverified');
 });
 
-test('an in-flight claim expires once its own arrival estimate is well past', () => {
+test('an in-flight claim well past its own arrival estimate is presumed landed', () => {
   // Belt to the `updated` braces: a record that keeps ticking but never lands
-  // and never pushes its ETA forward is not a credible in-flight claim.
+  // and never pushes its ETA forward is not a credible in-flight claim. The
+  // provider's own arrival estimate has long passed, so the flight is presumed
+  // landed — never LIVE, and never an eternal Terbang.
   const row = {
     status: 'en-route',
     synced_at: '2026-07-10T12:57:00Z',
@@ -76,7 +78,7 @@ test('an in-flight claim expires once its own arrival estimate is well past', ()
     },
   };
   assert.equal(isExpiredActiveProviderClaim(row, now), true);
-  assert.equal(providerBackedDisplayStatus(row, now), 'unverified');
+  assert.equal(providerBackedDisplayStatus(row, now), 'landed');
   assert.equal(isLiveProviderFlight(row, now), false);
 });
 
@@ -116,10 +118,12 @@ test('scheduled and terminal rows never expire on the in-flight arrival guard', 
   }
 });
 
-test('SV819 13 Aug 2026: frozen Saudia record stops claiming Terbang', () => {
+test('SV819 13 Aug 2026: frozen Saudia record is presumed landed, never an eternal Terbang', () => {
   // Real row that shipped the bug: AirLabs stopped updating 2h43m before the
   // scheduled arrival and left `status: en-route` with no arr_actual, while our
-  // 5-minute poller kept re-stamping synced_at.
+  // 5-minute poller kept re-stamping synced_at. Well past the record's own
+  // arrival estimate the display presumes Mendarat (user-approved 2026-08-14),
+  // so the card both reads correctly and ages out via the 6-hour landed prune.
   const bugNow = Date.parse('2026-08-14T03:51:00Z');
   const row = {
     status: 'en-route',
@@ -133,7 +137,7 @@ test('SV819 13 Aug 2026: frozen Saudia record stops claiming Terbang', () => {
       dep_actual_ts: 1786617540,
     },
   };
-  assert.equal(providerBackedDisplayStatus(row, bugNow), 'unverified');
+  assert.equal(providerBackedDisplayStatus(row, bugNow), 'landed');
   assert.equal(isLiveProviderFlight(row, bugNow), false);
 });
 
@@ -231,14 +235,15 @@ test('proyeksi bukti provider untuk cache tidak mengubah satu pun putusan penjag
   }
 });
 
-test('rekaman beku tetap unverified lewat jalur cache, bukan hidup lagi jadi Terbang', () => {
+test('rekaman beku turun jadi Mendarat lewat jalur cache, bukan hidup lagi jadi Terbang', () => {
   const [, at, row] = EVIDENCE_CASES[0];
   const cached = { ...row, raw_api: projectProviderEvidence(row.raw_api) };
-  // Anti-asersi hampa: proyeksi yang mengembalikan null juga membuat kedua sisi
-  // sama-sama 'unverified' di tes di atas — di sini buktinya harus benar-benar terbawa.
+  // Anti-asersi hampa: tanpa bukti kedatangan yang terbawa, synced_at yang segar
+  // membuat baris cache kembali dinilai 'en-route' — bukan 'landed'. Buktinya
+  // harus benar-benar selamat dari proyeksi.
   assert.equal(cached.raw_api?.updated, 1786634204);
   assert.equal(cached.raw_api?.arr_estimated_ts, 1786651860);
-  assert.equal(providerBackedDisplayStatus(cached, at), 'unverified');
+  assert.equal(providerBackedDisplayStatus(cached, at), 'landed');
   assert.equal(isLiveProviderFlight(cached, at), false);
 });
 
