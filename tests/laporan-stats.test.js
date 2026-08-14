@@ -273,7 +273,13 @@ test('Statistik page shows compact upcoming package rows with click-through deta
   assert.match(berangkatGroupViewsSource, /function GroupMeta/);
   assert.match(berangkatGroupViewsSource, /className="flex items-center gap-2"/);
   assert.match(berangkatGroupViewsSource, /<DestinationFlags paket=\{group\.paket\} \/>[\s\S]*className="truncate[^"]*">\{group\.paket\}/);
-  assert.match(berangkatGroupViewsSource, /const manasikLabel = group\.manasik_tgl\s*\?\s*fmtTglLong\(group\.manasik_tgl\)\s*:\s*null/);
+  // Dijangkarkan ke realDateKey, bukan ke cek truthy telanjang seperti dulu:
+  // umroh_schedules memakai sentinel '0000-00-00', yang LOLOS cek truthy lalu
+  // dipajang fmtTglLong sebagai literal "Invalid Date" ke agen. doesNotMatch
+  // di bawah yang menahan kemunduran itu — tanpanya asersi ini masih hijau
+  // walau pagarnya dicopot.
+  assert.match(berangkatGroupViewsSource, /const manasikLabel = realDateKey\(group\.manasik_tgl\)\s*\?\s*fmtTglLong\(group\.manasik_tgl\)\s*:\s*null/);
+  assert.doesNotMatch(berangkatGroupViewsSource, /const manasikLabel = group\.manasik_tgl\s*\?/);
   assert.match(berangkatGroupViewsSource, /className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2"/);
   assert.match(berangkatGroupViewsSource, /GroupMeta label="Berangkat"/);
   assert.match(berangkatGroupViewsSource, /GroupMeta label="Penerbangan"/);
@@ -288,7 +294,12 @@ test('Statistik page shows compact upcoming package rows with click-through deta
   assert.match(berangkatGroupViewsSource, /Dimohon \$\{honorific\} untuk mempersiapkan diri sebelum hari keberangkatan\./);
   assert.doesNotMatch(berangkatGroupViewsSource, /Berikut informasi keberangkatan umroh/);
   assert.match(berangkatGroupViewsSource, /const waNumber = normalizeWaNumber\(item\.wa\)/);
-  assert.match(berangkatGroupViewsSource, /const waUrl = waNumber[\s\S]{0,120}wa\.me\/\$\{waNumber\}[\s\S]{0,120}buildBerangkatWaText\(item\)/);
+  // Teks WA kini bisa dioper (sesi manasik memakai kalimat lain), jadi tautannya
+  // dijangkarkan ke buildWaText. Yang harus tetap dijaga: DEFAULT-nya masih
+  // pesan keberangkatan, supaya baris Berangkat Mendatang tak diam-diam
+  // berganti kalimat.
+  assert.match(berangkatGroupViewsSource, /const waUrl = waNumber[\s\S]{0,120}wa\.me\/\$\{waNumber\}[\s\S]{0,120}buildWaText\(item\)/);
+  assert.match(berangkatGroupViewsSource, /buildWaText = buildBerangkatWaText/);
   assert.match(berangkatGroupViewsSource, /aria-label=\{`Chat WhatsApp \$\{item\.nama\}`\}/);
   assert.match(berangkatGroupViewsSource, /\{showPackage \? \([\s\S]*item\.hari_lagi[\s\S]*\) : \(\s*waUrl \? \(/);
   assert.match(berangkatGroupViewsSource, /onSelect\(group\.key\)/);
