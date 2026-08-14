@@ -251,13 +251,24 @@ ada (`existingCalendarIds`, `staleCandidates`, `deletedIds`, `deleteAttempts`):
 7. **Rasio 25% hanya menghitung stale global** — penghapusan per-event masif
    tidak menggagalkan sync.
 
-Dua tes yang sudah ada memaku perilaku yang justru merupakan bugnya:
+Tiga tes yang sudah ada memaku perilaku yang justru merupakan bugnya:
 
+- `syncCalendar deletes a stale row only after two complete primary snapshots`
+  (`tests/calendar-public-sync.test.js:717`) — memakai baris basi pada event key
+  yang **sama** dengan baris segar, yaitu kasus per-event, yang kini tuntas dalam
+  satu run. Kasus dua-langkah yang sesungguhnya dipindahkan ke fixture baru
+  dengan event key yang benar-benar absen dari snapshot.
 - `syncCalendar skips stale-delete when the public page uses the fallback origin`
   (`tests/calendar-public-sync.test.js:752`)
 - `syncCalendar skips stale-delete when modal details use the fallback origin`
   (`tests/calendar-public-sync.test.js:822`)
 
-Keduanya ditulis ulang untuk menegaskan invarian baru — rute cadangan tidak
+Ketiganya ditulis ulang untuk menegaskan invarian baru — rute cadangan tidak
 memblokir, mutu data per-event yang memblokir — bukan dilonggarkan sampai hijau.
 Hasil tulis ulang dibuktikan lewat uji mutasi.
+
+Perhatian khusus pada dua tes rute: bila hanya dibiarkan apa adanya, keduanya
+tetap **hijau** setelah perbaikan, tetapi karena alasan yang salah — bukan lagi
+karena rute memblokir, melainkan karena konfirmasi dua-langkah jalur global belum
+terpenuhi pada run pertama. Itu persis pola penjaga yang basi diam-diam, jadi
+keduanya wajib ditulis ulang memakai baris hantu di event key yang segar.
