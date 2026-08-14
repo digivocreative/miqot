@@ -9,7 +9,7 @@ import { trackEvent } from '../../utils/analytics';
 import { getDestinationFlags, fmtTgl, fmtTglLong, realDateKey } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup, DestinationFlag } from '../../../lib/berangkat-groups.js';
 
-function toWaTitleCase(value: string | null | undefined): string {
+export function toWaTitleCase(value: string | null | undefined): string {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return '-';
   return normalized
@@ -45,12 +45,19 @@ function buildBerangkatWaText(item: BerangkatItem): string {
   return lines.join('\n');
 }
 
-function BerangkatRow({ item, showPackage = true }: { item: BerangkatItem; showPackage?: boolean }) {
+// Dipakai daftar Berangkat Mendatang DAN daftar peserta sesi manasik, karena
+// itu namanya bukan lagi BerangkatRow. `buildWaText` dioper supaya pengingat
+// manasik tidak memakai kalimat keberangkatan.
+export function JamaahRow({ item, showPackage = true, buildWaText = buildBerangkatWaText }: {
+  item: BerangkatItem;
+  showPackage?: boolean;
+  buildWaText?: (item: BerangkatItem) => string;
+}) {
   const initials = getInitials(item.nama);
   const isFemale = item.jk === 'P';
   const waNumber = normalizeWaNumber(item.wa);
   const waUrl = waNumber
-    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(buildBerangkatWaText(item))}`
+    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(buildWaText(item))}`
     : null;
   return (
     <div className="px-4 py-3 flex items-center gap-3">
@@ -103,13 +110,13 @@ function BerangkatRow({ item, showPackage = true }: { item: BerangkatItem; showP
 
 // Satu definisi gaya label untuk seluruh header detail — dipakai grid meta dan
 // baris link itinerary, supaya keduanya tak pernah berbeda sendiri.
-function FieldLabel({ children }: { children: React.ReactNode }) {
+export function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="truncate text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{children}</p>
   );
 }
 
-function GroupMeta({ label, value }: { label: string; value: string | null | undefined }) {
+export function GroupMeta({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="min-w-0">
       <FieldLabel>{label}</FieldLabel>
@@ -294,7 +301,7 @@ export function BerangkatGroupDetail({ group, agentSlug }: { group: BerangkatGro
         {agentSlug && <ItineraryLinkRow group={group} agentSlug={agentSlug} />}
       </div>
       <div className="divide-y divide-gray-50 dark:divide-slate-700/40">
-        {group.items.map((item, i) => <BerangkatRow key={`${group.key}-${item.nama}-${i}`} item={item} showPackage={false} />)}
+        {group.items.map((item, i) => <JamaahRow key={`${group.key}-${item.nama}-${i}`} item={item} showPackage={false} />)}
       </div>
     </div>
   );
