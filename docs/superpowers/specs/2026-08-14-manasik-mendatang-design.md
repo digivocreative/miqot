@@ -64,6 +64,12 @@ Satu tugas: `BerangkatGroup[]` → `ManasikSession[]`. Ditaruh terpisah dari
 `lib/berangkat-groups.js` supaya modul itu tetap tentang berangkat saja — dia ikut terpakai
 halaman Statistik, yang tidak butuh manasik.
 
+Validasi tanggalnya sendiri (`realDateKey`) ditaruh di `lib/berangkat-groups.js` bersama
+helper tanggal yang sudah ada di sana, karena dipakai dua sisi: menyaring sesi manasik dan
+membetulkan "Invalid Date" di detail Berangkat Mendatang. Ia menolak `0000-00-00` **dan**
+tanggal yang bergeser diam-diam saat diparse — `Date.parse('2026-02-31')` tidak `NaN`,
+melainkan jadi 3 Maret — jadi hasilnya diuji balik, bukan sekadar dicek `Number.isFinite`.
+
 ```
 buildManasikSessions(groups, todayStr)
   ├─ buang grup yang manasik_tgl-nya bukan tanggal nyata   ← menangkap "0000-00-00"
@@ -263,9 +269,11 @@ Suite penuh dan pemeriksaan browser dijalankan oleh user, sesuai kebiasaan kerja
 
 | Berkas | Perubahan |
 |---|---|
-| `lib/manasik-sessions.js` | **baru** — `buildManasikSessions`, konstanta jendela, validator tanggal, normalisasi jam |
+| `lib/berangkat-groups.js` + `.d.ts` | `realDateKey()` — validator tanggal nyata, ditaruh bersama helper tanggal yang sudah ada di sana karena dipakai dua sisi (perbaikan "Invalid Date" dan penyaringan sesi manasik) |
+| `lib/manasik-sessions.js` | **baru** — `buildManasikSessions`, konstanta jendela, `normalizeManasikJam`, `wibTodayKey` |
 | `lib/manasik-sessions.d.ts` | **baru** — tipe `ManasikSession` |
+| `tests/berangkat-groups.test.js` | 2 tes untuk `realDateKey` |
 | `src/components/berangkat/ManasikSessionViews.tsx` | **baru** — `ManasikSessionSummaryRow`, `ManasikSessionDetail`, `buildManasikWaText` |
 | `src/components/UpcomingSchedule.tsx` | tab section, state tab aktif, generalisasi pencarian sheet |
 | `src/components/berangkat/BerangkatGroupViews.tsx` | `BerangkatRow` → `JamaahRow` (diekspor) + prop `buildWaText`; ekspor `FieldLabel`/`GroupMeta`; perbaikan "Invalid Date" |
-| `tests/manasik-sessions.test.js` | **baru** — 8 tes |
+| `tests/manasik-sessions.test.js` | **baru** — 10 tes |
