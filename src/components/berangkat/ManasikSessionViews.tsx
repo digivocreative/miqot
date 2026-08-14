@@ -113,6 +113,49 @@ export function ManasikSessionSummaryRow({ session, onSelect }: {
   );
 }
 
+// Di sheet detail namanya ditulis UTUH (bukan dua kata seperti baris ringkas) —
+// ruangnya ada, dan agen memakainya untuk mengenali orangnya. Satu TL tampil
+// sebagai teks biasa supaya sebaris dengan Jam/Jamaah di atasnya; lebih dari
+// satu jadi chip yang membungkus, karena empat nama panjang dalam satu sel
+// grid akan terpotong.
+function ManasikTourLeaders({ tourLeaders }: { tourLeaders: string[] }) {
+  if (tourLeaders.length === 0) {
+    return (
+      <div className="mt-2">
+        <FieldLabel>Tour Leader</FieldLabel>
+        <p className="mt-0.5 text-[11px] font-semibold italic text-gray-400 dark:text-slate-500">
+          Belum ditentukan
+        </p>
+      </div>
+    );
+  }
+
+  if (tourLeaders.length === 1) {
+    return (
+      <div className="mt-2">
+        <GroupMeta label="Tour Leader" value={toWaTitleCase(tourLeaders[0])} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <FieldLabel>Tour Leader ({tourLeaders.length})</FieldLabel>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {tourLeaders.map(name => (
+          <span
+            key={name}
+            className="inline-flex max-w-full items-center gap-1 rounded-md bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/20 dark:text-violet-300"
+          >
+            <User size={10} strokeWidth={2.4} className="shrink-0" />
+            <span className="truncate">{toWaTitleCase(name)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
   return (
     <div>
@@ -128,9 +171,8 @@ export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
           <GroupMeta label="Jam" value={session.manasik_jam ? `${session.manasik_jam} WIB` : null} />
           <GroupMeta label="Jamaah" value={`${session.count} orang`} />
-          <GroupMeta label="Paket" value={`${session.groups.length} paket`} />
-          <GroupMeta label="Sisa Waktu" value={hariLagiLabel(session.hari_lagi)} />
         </div>
+        <ManasikTourLeaders tourLeaders={session.tour_leaders} />
       </div>
       {session.groups.map(group => (
         <div key={group.key}>
