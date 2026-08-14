@@ -142,8 +142,10 @@ import {
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
+  isExpiredActiveProviderClaim,
   isFreshProviderFlight,
   isLiveProviderFlight,
+  projectProviderEvidence,
   providerBackedDisplayStatus,
 } from './lib/flight-provider-freshness.js';
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
@@ -14277,7 +14279,7 @@ function getCachedFlight(flightId) {
   const providerRow = {
     status: cached.providerStatus,
     synced_at: cached.providerSyncedAt,
-    raw_api: cached.providerDepTs ? { dep_time_ts: cached.providerDepTs } : null,
+    raw_api: cached.providerRaw,
   };
   const status = providerBackedDisplayStatus(providerRow);
   if (cached.providerStatus === 'scheduled' && status !== 'scheduled') {
@@ -14315,7 +14317,10 @@ function setCachedFlight(flightId, data, providerRow = null) {
     timestamp: Date.now(),
     providerStatus: providerRow?.status || null,
     providerSyncedAt: providerRow?.synced_at || null,
-    providerDepTs: flightProgressTs(providerRow?.raw_api).depTs || null,
+    // Simpan SELURUH bukti yang dibaca penjaga, bukan jam berangkat saja —
+    // getCachedFlight menilai ulang baris ini tiap pembacaan, dan proyeksi yang
+    // menjatuhkan `updated`/stempel kedatangan melucuti penjaga rekaman beku.
+    providerRaw: projectProviderEvidence(providerRow?.raw_api),
   });
 }
 
@@ -15328,6 +15333,12 @@ async function pollActiveFlights() {
 
       // Skip landed flights (truly terminal)
       if (existing && existing.status === 'landed') continue;
+      // A provider record frozen mid-flight keeps claiming en-route forever. The
+      // 5-minute active interval re-polls it 12x/hour, and each response only
+      // re-stamps synced_at onto evidence that stopped moving hours ago. Once the
+      // claim has expired on its own arrival clock, abandon it — the card already
+      // reads "Perlu Cek" via providerBackedDisplayStatus.
+      if (existing && isExpiredActiveProviderClaim(existing)) continue;
       // Re-poll cancelled flights if event is today — cancellation might be from wrong route
       if (existing && existing.status === 'cancelled') {
         if (segment.flightDate !== getWIBDateStr()) continue;
