@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildBerangkatGroups, getDestinationFlags, cleanTourLeader,
+  buildBerangkatGroups, getDestinationFlags, cleanTourLeader, realDateKey,
 } from '../lib/berangkat-groups.js';
 
 test('buildBerangkatGroups mengelompokkan item dengan jadwal_id yang sama', () => {
@@ -85,4 +85,24 @@ test('getDestinationFlags mengenali banyak negara, urut sesuai EXTRA_DESTINATION
 test('cleanTourLeader membuang bullet dan merapatkan spasi, string kosong jadi null', () => {
   assert.equal(cleanTourLeader('•  H. Ahmad'), 'H. Ahmad');
   assert.equal(cleanTourLeader(''), null);
+});
+
+test('realDateKey menolak sentinel 0000-00-00 dan tanggal yang tak ada di kalender', () => {
+  // umroh_schedules memakai '0000-00-00' sebagai "tidak ada tanggal" (JBU0679,
+  // JBU1577). Regex saja meloloskannya, dan Date.parse('2026-02-31') justru
+  // VALID (bergeser jadi 3 Maret) — dua-duanya harus ditolak.
+  assert.equal(realDateKey('0000-00-00'), null);
+  assert.equal(realDateKey('2026-02-31'), null);
+  assert.equal(realDateKey('2026-13-01'), null);
+  assert.equal(realDateKey(''), null);
+  assert.equal(realDateKey(null), null);
+  assert.equal(realDateKey(undefined), null);
+  assert.equal(realDateKey('bukan tanggal'), null);
+});
+
+test('realDateKey meloloskan tanggal nyata dan memotong bagian waktu', () => {
+  assert.equal(realDateKey('2026-08-14'), '2026-08-14');
+  assert.equal(realDateKey('2026-02-28'), '2026-02-28');
+  assert.equal(realDateKey('2024-02-29'), '2024-02-29'); // kabisat
+  assert.equal(realDateKey('2026-08-14T00:00:00.000Z'), '2026-08-14');
 });

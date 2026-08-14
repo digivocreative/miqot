@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, GraduationCap, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
@@ -7,6 +7,9 @@ import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/
 import { buildBerangkatGroups, fmtTglLong } from '../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
 import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
+import { buildManasikSessions, wibTodayKey, MANASIK_WINDOW_DAYS } from '../../lib/manasik-sessions.js';
+import type { ManasikSession } from '../../lib/manasik-sessions.js';
+import { ManasikSessionSummaryRow, ManasikSessionDetail } from './berangkat/ManasikSessionViews';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -102,6 +105,16 @@ const TAB_ORDER: TabKey[] = ['keberangkatan', 'kepulangan', 'manasik'];
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const DAY_HEADERS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 
+// Tab section bawah kartu. Kelas pill-nya diambil dari TAB_CONFIG supaya tak
+// ada kosakata warna baru: hijau = berangkat, ungu = manasik, persis warna
+// titik kalender dan legenda di atasnya.
+const SECTION_ORDER = ['berangkat', 'manasik'] as const;
+type SectionKey = typeof SECTION_ORDER[number];
+const SECTION_CONFIG: Record<SectionKey, { label: string; activeTab: string }> = {
+  berangkat: { label: 'Berangkat', activeTab: TAB_CONFIG.keberangkatan.activeTab },
+  manasik: { label: 'Manasik', activeTab: TAB_CONFIG.manasik.activeTab },
+};
+
 function cacheKey(year: number, month: number) {
   return `${year}-${month}`;
 }
@@ -136,11 +149,15 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   const [berangkatItems, setBerangkatItems] = useState<BerangkatItem[]>([]);
   const [berangkatLabel, setBerangkatLabel] = useState<string>('');
   const [berangkatLoading, setBerangkatLoading] = useState(true);
-  const [showAllGroups, setShowAllGroups] = useState(false);
-  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
+  // Satu pasang state untuk KEDUA tab: sheet cuma bisa dibuka dari tab yang
+  // aktif, dan selama sheet terbuka kartu di belakang `inert` sehingga tab tak
+  // bisa berganti. Yang bercabang cuma pencariannya, di bawah.
+  const [activeSection, setActiveSection] = useState<SectionKey>('berangkat');
+  const [showAllList, setShowAllList] = useState(false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const dayCloseButtonRef = useRef<HTMLButtonElement | null>(null);
-  const berangkatCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const listCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Sekali saat mount — jendelanya tetap 60 hari ke depan dan TIDAK ikut
   // navigasi bulan kalender, jadi tak ada dependensi ke currentMonth.
@@ -172,11 +189,38 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   }, []);
 
   const berangkatGroups = useMemo(() => buildBerangkatGroups(berangkatItems), [berangkatItems]);
-  const berangkatPreview = berangkatGroups.slice(0, 3);
-  const selectedGroup = useMemo(
-    () => berangkatGroups.find(g => g.key === selectedGroupKey) || null,
-    [berangkatGroups, selectedGroupKey],
+  const manasikSessions = useMemo(
+    () => buildManasikSessions(berangkatGroups, wibTodayKey()),
+    [berangkatGroups],
   );
+  const manasikJamaahCount = useMemo(
+    () => manasikSessions.reduce((total, session) => total + session.count, 0),
+    [manasikSessions],
+  );
+
+  const isManasik = activeSection === 'manasik';
+  const listLength = isManasik ? manasikSessions.length : berangkatGroups.length;
+  const previewCount = Math.min(3, listLength);
+
+  // Dua pencarian terpisah, masing-masing dipagari tab aktif: kunci milik tab
+  // lain tak boleh ikut cocok. Keduanya memakai HASIL pencarian, bukan kunci
+  // mentah — lihat catatan di anySheetOpen di bawah.
+  const selectedGroup = useMemo(
+    () => (activeSection === 'berangkat' ? berangkatGroups.find(g => g.key === selectedKey) || null : null),
+    [activeSection, berangkatGroups, selectedKey],
+  );
+  const selectedSession: ManasikSession | null = useMemo(
+    () => (activeSection === 'manasik' ? manasikSessions.find(s => s.key === selectedKey) || null : null),
+    [activeSection, manasikSessions, selectedKey],
+  );
+
+  // Ganti tab = buang state sheet milik tab lama. Ditulis di handler, bukan
+  // effect, supaya tak ada render antara dengan kunci yang tak cocok.
+  const selectSection = useCallback((section: SectionKey) => {
+    setActiveSection(section);
+    setSelectedKey(null);
+    setShowAllList(false);
+  }, []);
 
   const fetchMonth = useCallback(async (year: number, month: number) => {
     const key = cacheKey(year, month);
@@ -206,12 +250,14 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth.year, currentMonth.month]);
 
-  // Pakai selectedGroup (hasil pencarian), bukan selectedGroupKey mentah: kunci
-  // yang tak cocok dengan grup mana pun tidak boleh mengunci halaman tanpa ada
-  // sheet yang muncul. Syarat di sini harus sama persis dengan syarat render.
-  const anySheetOpen = selectedDay !== null || showAllGroups || !!selectedGroup;
+  // Pakai selectedGroup/selectedSession (HASIL pencarian), bukan selectedKey
+  // mentah: kunci yang tak cocok dengan apa pun tidak boleh mengunci halaman
+  // tanpa ada sheet yang muncul. Sejak ada dua tab, kunci milik tab lain juga
+  // masuk kategori itu — pencariannya sudah dipagari activeSection di atas.
+  // Syarat di sini harus sama persis dengan syarat render.
+  const anySheetOpen = selectedDay !== null || showAllList || !!selectedGroup || !!selectedSession;
   const daySheetOpen = selectedDay !== null;
-  const berangkatSheetOpen = showAllGroups || !!selectedGroup;
+  const listSheetOpen = showAllList || !!selectedGroup || !!selectedSession;
 
   useEffect(() => {
     if (anySheetOpen) {
@@ -256,16 +302,16 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     if (!anySheetOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || activeItinerary) return;
-      if (berangkatSheetOpen) {
-        setSelectedGroupKey(null);
-        setShowAllGroups(false);
+      if (listSheetOpen) {
+        setSelectedKey(null);
+        setShowAllList(false);
       } else if (daySheetOpen) {
         setSelectedDay(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [anySheetOpen, berangkatSheetOpen, daySheetOpen, activeItinerary]);
+  }, [anySheetOpen, listSheetOpen, daySheetOpen, activeItinerary]);
 
   // Fokus awal ke tombol tutup, lalu kembalikan ke pemicunya saat sheet ditutup
   // (pola yang sama dipakai PackageValueModal).
@@ -280,18 +326,18 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   // terekam sebelum fokus dipindahkan, dan supaya pemicu yang diingat tetap
   // yang asli ("Lihat lainnya") saat isi sheet berganti daftar → detail.
   useEffect(() => {
-    if (!berangkatSheetOpen) return;
+    if (!listSheetOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     return () => { previouslyFocused?.focus?.(); };
-  }, [berangkatSheetOpen]);
+  }, [listSheetOpen]);
 
   // Fokuskan tombol tutup saat dibuka DAN setiap kali isinya berganti
   // daftar ↔ detail: baris yang sedang fokus ikut ter-unmount waktu berpindah
   // ke detail, dan tanpa dipindahkan fokusnya jatuh ke <body>.
   useEffect(() => {
-    if (!berangkatSheetOpen) return;
-    berangkatCloseButtonRef.current?.focus();
-  }, [berangkatSheetOpen, selectedGroupKey]);
+    if (!listSheetOpen) return;
+    listCloseButtonRef.current?.focus();
+  }, [listSheetOpen, selectedKey]);
 
   function prevMonth() {
     setSelectedDay(null);
@@ -482,25 +528,53 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
           </div>
         ) : berangkatGroups.length > 0 ? (
           <>
-            <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700 flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">
-                  Berangkat Mendatang
-                </p>
-                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
-                  {berangkatItems.length} jamaah · {berangkatGroups.length} paket{berangkatLabel ? ` · ${berangkatLabel}` : ''}
-                </p>
+            <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-1 rounded-xl bg-gray-50 p-1 dark:bg-slate-900">
+                  {SECTION_ORDER.map(section => (
+                    <button
+                      key={section}
+                      type="button"
+                      onClick={() => selectSection(section)}
+                      aria-pressed={activeSection === section}
+                      className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all duration-200 ${
+                        activeSection === section
+                          ? SECTION_CONFIG[section].activeTab
+                          : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                      }`}
+                    >
+                      {SECTION_CONFIG[section].label}
+                    </button>
+                  ))}
+                </div>
+                {isManasik
+                  ? <GraduationCap size={15} className="shrink-0 text-violet-500 dark:text-violet-400" />
+                  : <Plane size={15} className="shrink-0 text-blue-500 dark:text-blue-400" />}
               </div>
-              <Plane size={15} className="shrink-0 text-blue-500 dark:text-blue-400" />
+              <p className="mt-1.5 text-[10px] text-gray-400 dark:text-slate-500">
+                {isManasik
+                  ? `${manasikJamaahCount} jamaah · ${manasikSessions.length} sesi · ${MANASIK_WINDOW_DAYS} hari ke depan`
+                  : `${berangkatItems.length} jamaah · ${berangkatGroups.length} paket${berangkatLabel ? ` · ${berangkatLabel}` : ''}`}
+              </p>
             </div>
-            <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-              {berangkatPreview.map(group => (
-                <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedGroupKey} />
-              ))}
-            </div>
-            {berangkatGroups.length > berangkatPreview.length && (
+            {isManasik && manasikSessions.length === 0 ? (
+              <p className="px-4 pb-3 text-[11px] text-gray-400 dark:text-slate-500">
+                Belum ada manasik dalam {MANASIK_WINDOW_DAYS} hari ke depan
+              </p>
+            ) : (
+              <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                {isManasik
+                  ? manasikSessions.slice(0, previewCount).map(session => (
+                      <ManasikSessionSummaryRow key={session.key} session={session} onSelect={setSelectedKey} />
+                    ))
+                  : berangkatGroups.slice(0, previewCount).map(group => (
+                      <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedKey} />
+                    ))}
+              </div>
+            )}
+            {listLength > previewCount && (
               <button
-                onClick={() => setShowAllGroups(true)}
+                onClick={() => setShowAllList(true)}
                 className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1"
               >
                 Lihat lainnya <ChevronDown size={12} />
@@ -749,7 +823,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
 
       {/* ── Bottom Sheet Berangkat Mendatang (daftar lengkap & detail grup) ── */}
       <AnimatePresence>
-        {(showAllGroups || selectedGroup) && (
+        {listSheetOpen && (
           <>
             <motion.div
               key="berangkat-overlay"
@@ -757,7 +831,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
               transition={{ duration: 0.2 }}
               className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
               aria-hidden="true"
-              onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
+              onClick={() => { setSelectedKey(null); setShowAllList(false); }}
             />
             <motion.div
               key="berangkat-sheet"
@@ -774,17 +848,23 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
               <div className="px-4 pb-2 flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p id="berangkat-sheet-title" className="text-base font-bold text-gray-800 dark:text-white">
-                    {selectedGroup ? 'Detail Keberangkatan' : 'Berangkat Mendatang'}
+                    {selectedSession ? 'Detail Manasik'
+                      : selectedGroup ? 'Detail Keberangkatan'
+                      : isManasik ? 'Manasik Mendatang' : 'Berangkat Mendatang'}
                   </p>
                   <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
-                    {selectedGroup
-                      ? `${selectedGroup.count} jamaah · ${fmtTglLong(selectedGroup.tgl_berangkat)}`
-                      : `${berangkatGroups.length} paket${berangkatLabel ? ` · ${berangkatLabel}` : ''}`}
+                    {selectedSession
+                      ? `${selectedSession.count} jamaah · ${fmtTglLong(selectedSession.manasik_tgl)}${selectedSession.manasik_jam ? ` · ${selectedSession.manasik_jam}` : ''}`
+                      : selectedGroup
+                        ? `${selectedGroup.count} jamaah · ${fmtTglLong(selectedGroup.tgl_berangkat)}`
+                        : isManasik
+                          ? `${manasikSessions.length} sesi · ${MANASIK_WINDOW_DAYS} hari ke depan`
+                          : `${berangkatGroups.length} paket${berangkatLabel ? ` · ${berangkatLabel}` : ''}`}
                   </p>
                 </div>
                 <button
-                  ref={berangkatCloseButtonRef}
-                  onClick={() => { setSelectedGroupKey(null); setShowAllGroups(false); }}
+                  ref={listCloseButtonRef}
+                  onClick={() => { setSelectedKey(null); setShowAllList(false); }}
                   aria-label="Tutup"
                   className="w-8 h-8 shrink-0 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
@@ -792,13 +872,19 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {selectedGroup ? (
+                {selectedSession ? (
+                  <ManasikSessionDetail session={selectedSession} />
+                ) : selectedGroup ? (
                   <BerangkatGroupDetail group={selectedGroup} agentSlug={agentSlug} />
                 ) : (
                   <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                    {berangkatGroups.map(group => (
-                      <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedGroupKey} />
-                    ))}
+                    {isManasik
+                      ? manasikSessions.map(session => (
+                          <ManasikSessionSummaryRow key={session.key} session={session} onSelect={setSelectedKey} />
+                        ))
+                      : berangkatGroups.map(group => (
+                          <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={setSelectedKey} />
+                        ))}
                   </div>
                 )}
               </div>
