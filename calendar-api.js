@@ -571,12 +571,15 @@ export async function syncCalendar(supabase, options = {}) {
     }
   }
 
-  const degradedSnapshot = publicPageUsesFallback
-    || detailOriginFallbackUsed > 0
-    || fallbackUsed > 0
-    || failedEventKeys.size > 0;
-
-  if (!existingRowsError && existingRows && !degradedSnapshot) {
+  // ── Jalur global ──
+  // Untuk event key yang lenyap total dari snapshot. Rute cadangan
+  // (page_fallback / detail_fallback) tidak lagi mengunci penghapusan: isinya
+  // sama, cuma jalannya lewat IP, dan gerbang itulah yang membuat penyapu tak
+  // pernah jalan selama origin utama membalas 403. Kegagalan detail pun tidak
+  // relevan di sini karena buktinya adalah daftar event halaman, bukan baris
+  // hasil detail. Konfirmasi dua-langkah tetap dipertahankan karena bukti
+  // "absen dari daftar" lebih lemah daripada bukti per-event.
+  if (!existingRowsError && existingRows) {
     const freshIds = new Set(allRows.map(row => row.id));
     const observedStaleIds = existingRows
       .map(row => row.id)
@@ -626,8 +629,6 @@ export async function syncCalendar(supabase, options = {}) {
     if (staleIds.length > 0) {
       console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
     }
-  } else if (!existingRowsError && existingRows && degradedSnapshot) {
-    console.warn('[Calendar] Stale-delete dilewati karena snapshot belum authoritative/complete');
   }
 
   if (failedEventKeys.size > 0) {

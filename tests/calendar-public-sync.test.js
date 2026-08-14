@@ -888,9 +888,8 @@ test('event yang direkonstruksi dari umroh_schedules tidak menghapus baris laman
   }
 });
 
-test('syncCalendar skips stale-delete when the public page uses the fallback origin', async () => {
+test('rute fallback halaman tidak menghalangi penghapusan per-event', async () => {
   const originalFetch = global.fetch;
-  const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
   try {
     global.fetch = async (url) => {
       const parsed = new URL(String(url));
@@ -904,13 +903,17 @@ test('syncCalendar skips stale-delete when the public page uses the fallback ori
       throw new Error(`unexpected fetch: ${url}`);
     };
 
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
     const syncCalendar = await loadSyncCalendar();
-    const supabase = createFakeSupabase({ existingCalendarIds: [unrelatedStaleId] });
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
     const result = await syncCalendar(supabase);
 
     assert.equal(result.success, true);
     assert.equal(result.source, 'fallback');
-    assert.equal(supabase.state.deletedIds.length, 0);
+    // Rute cadangan menyajikan isi yang sama lewat IP; ia tidak boleh
+    // mengunci penyapu. Gerbang inilah yang dulu membuat penyapu tak pernah
+    // jalan selama origin utama membalas 403.
+    assert.deepEqual(supabase.state.deletedIds, [staleId]);
   } finally {
     global.fetch = originalFetch;
   }
@@ -958,9 +961,8 @@ test('syncCalendar serializes modal requests while the public page uses fallback
   }
 });
 
-test('syncCalendar skips stale-delete when modal details use the fallback origin', async () => {
+test('rute fallback detail modal tidak menghalangi penghapusan per-event', async () => {
   const originalFetch = global.fetch;
-  const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
   try {
     global.fetch = async (url) => {
       const parsed = new URL(String(url));
@@ -976,13 +978,14 @@ test('syncCalendar skips stale-delete when modal details use the fallback origin
       throw new Error(`unexpected fetch: ${url}`);
     };
 
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
     const syncCalendar = await loadSyncCalendar();
-    const supabase = createFakeSupabase({ existingCalendarIds: [unrelatedStaleId] });
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
     const result = await syncCalendar(supabase);
 
     assert.equal(result.success, true);
     assert.equal(result.source, 'fallback');
-    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.deepEqual(supabase.state.deletedIds, [staleId]);
   } finally {
     global.fetch = originalFetch;
   }
