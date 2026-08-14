@@ -888,6 +888,91 @@ test('event yang direkonstruksi dari umroh_schedules tidak menghapus baris laman
   }
 });
 
+test('event key yang lenyap dari snapshot dihapus setelah dua run', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    // Event key ini tidak ada sama sekali di PUBLIC_PAGE_HTML.
+    const goneId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [goneId] });
+
+    const first = await syncCalendar(supabase);
+    assert.equal(first.success, true);
+    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.deepEqual(supabase.state.staleCandidates, [goneId]);
+
+    const second = await syncCalendar(supabase);
+    assert.equal(second.success, true);
+    assert.deepEqual(supabase.state.deletedIds, [goneId]);
+    assert.equal(second.rowsDeletedGlobal, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('kegagalan detail tidak menjadikan baris event itu kandidat stale global', async () => {
+  const originalFetch = global.fetch;
+  const events = [
+    {
+      title: 'Keberangkatan UMROH',
+      start: SYNC_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B1532', apalah: 'JBU1532' },
+    },
+    {
+      title: 'Keberangkatan UMROH',
+      start: FAILED_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B9999', apalah: 'JBU9999' },
+    },
+  ];
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(publicPageHtmlForEvents(events));
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        if (parsed.searchParams.get('.m') === 'B9999') {
+          return htmlResponse(`
+            <table>
+              <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+              <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+            </table>
+          `);
+        }
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const failedEventId = `${FAILED_EVENT_DATE}_keberangkatan_77`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [failedEventId] });
+
+    await syncCalendar(supabase);
+
+    // Event-nya ADA di snapshot; detailnya saja yang gagal. Absennya detail
+    // bukan bukti bahwa event-nya lenyap.
+    assert.equal(supabase.state.staleCandidates?.includes(failedEventId) ?? false, false);
+    assert.equal(supabase.state.deletedIds.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('rute fallback halaman tidak menghalangi penghapusan per-event', async () => {
   const originalFetch = global.fetch;
   try {

@@ -580,10 +580,15 @@ export async function syncCalendar(supabase, options = {}) {
   // hasil detail. Konfirmasi dua-langkah tetap dipertahankan karena bukti
   // "absen dari daftar" lebih lemah daripada bukti per-event.
   if (!existingRowsError && existingRows) {
-    const freshIds = new Set(allRows.map(row => row.id));
+    // Bukti jalur ini adalah daftar event pada halaman, bukan baris hasil
+    // detail. Dengan begitu satu detail yang gagal diambil tidak lagi membuat
+    // seluruh barisnya tampak lenyap — dulu itulah sebabnya kegagalan detail
+    // harus memblokir penghapusan sama sekali.
+    const snapshotKeys = new Set(filtered.map(event => `${event.date}_${event.type}`));
     const observedStaleIds = existingRows
-      .map(row => row.id)
-      .filter(id => !freshIds.has(id) && !id.startsWith('_DEMO_'));
+      .filter(row => !snapshotKeys.has(`${row.event_date}_${row.event_type}`))
+      .map(row => String(row.id))
+      .filter(id => !id.startsWith('_DEMO_'));
     const staleCandidates = await loadCalendarStaleCandidates(supabase);
     if (staleCandidates.error) {
       const syncError = `gagal membaca konfirmasi stale calendar: ${staleCandidates.error.message}`;
@@ -625,9 +630,10 @@ export async function syncCalendar(supabase, options = {}) {
         console.error(`[Calendar] ${syncError}`);
         return { success: false, error: syncError, ...resultMeta() };
       }
+      rowsDeletedGlobal += batch.length;
     }
-    if (staleIds.length > 0) {
-      console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
+    if (rowsDeletedGlobal > 0) {
+      console.log(`[Calendar] Hapus ${rowsDeletedGlobal} baris dari event key yang lenyap`);
     }
   }
 
@@ -661,7 +667,7 @@ export async function syncCalendar(supabase, options = {}) {
     return { success: false, error: syncError, ...resultMeta() };
   }
   if (failedEventKeys.size > 0) {
-    const syncError = `${failedEventKeys.size}/${filtered.length} detail event gagal; ${rowsUpserted} row aman sudah diperbarui dan row lama dipertahankan`;
+    const syncError = `${failedEventKeys.size}/${filtered.length} detail event gagal; ${rowsUpserted} row aman sudah diperbarui dan row lama event yang gagal dipertahankan`;
     return { success: false, error: syncError, ...resultMeta() };
   }
 
