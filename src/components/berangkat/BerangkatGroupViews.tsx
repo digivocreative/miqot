@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronRight, Copy, Link2, Users } from 'lucide-react';
 import { normalizeWaNumber } from '../../utils/phone';
 import { trackEvent } from '../../utils/analytics';
-import { getDestinationFlags, fmtTgl, fmtTglLong } from '../../../lib/berangkat-groups.js';
+import { getDestinationFlags, fmtTgl, fmtTglLong, realDateKey } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup, DestinationFlag } from '../../../lib/berangkat-groups.js';
 
 function toWaTitleCase(value: string | null | undefined): string {
@@ -269,7 +269,10 @@ function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSl
 }
 
 export function BerangkatGroupDetail({ group, agentSlug }: { group: BerangkatGroup; agentSlug?: string | null }) {
-  const manasikLabel = group.manasik_tgl
+  // realDateKey, bukan sekadar cek kosong: manasik_tgl bisa berisi sentinel
+  // '0000-00-00' dari umroh_schedules, dan fmtTglLong() akan memajangnya
+  // sebagai literal "Invalid Date" ke agen.
+  const manasikLabel = realDateKey(group.manasik_tgl)
     ? fmtTglLong(group.manasik_tgl)
     : null;
 
