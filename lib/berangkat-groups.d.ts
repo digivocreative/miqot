@@ -41,5 +41,6 @@ export function buildBerangkatGroups(items: BerangkatItem[]): BerangkatGroup[];
 export function cleanTourLeader(value: string | null | undefined): string | null;
 export function fmtTgl(d: string): string;
 export function fmtTglLong(d: string | null | undefined): string;
+export function fmtTglHari(d: string | null | undefined): string;
 export function fmtHariLagi(n: number | null): string;
 export function realDateKey(value: string | null | undefined): string | null;

@@ -5,8 +5,8 @@
 // Warnanya ungu, mengikuti warna yang sudah jadi milik manasik di legenda dan
 // titik kalender kartu ini (TAB_CONFIG.manasik di UpcomingSchedule.tsx).
 
-import { Clock, Users } from 'lucide-react';
-import { fmtTgl, fmtTglLong } from '../../../lib/berangkat-groups.js';
+import { Clock, User, Users } from 'lucide-react';
+import { fmtTgl, fmtTglHari, fmtTglLong } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem } from '../../../lib/berangkat-groups.js';
 import type { ManasikSession } from '../../../lib/manasik-sessions.js';
 import { FieldLabel, GroupMeta, JamaahRow, toWaTitleCase } from './BerangkatGroupViews';
@@ -42,7 +42,18 @@ function ManasikDateChip({ tgl }: { tgl: string }) {
 }
 
 function hariLagiLabel(hariLagi: number): string {
-  return hariLagi === 0 ? 'Hari ini' : `${hariLagi} hari`;
+  if (hariLagi === 0) return 'Hari ini';
+  if (hariLagi === 1) return 'Besok';
+  return `${hariLagi} hari`;
+}
+
+// Satu sesi memuat banyak paket, masing-masing dengan TL sendiri — 3 dari 11
+// sesi dalam jendela per 2026-08-14 punya lebih dari satu. Yang pertama
+// disebut namanya, sisanya dihitung, supaya baris tetap muat di layar HP.
+function tourLeaderLabel(tourLeaders: string[]): string {
+  if (tourLeaders.length === 0) return 'TL belum ditentukan';
+  if (tourLeaders.length === 1) return tourLeaders[0];
+  return `${tourLeaders[0]} +${tourLeaders.length - 1}`;
 }
 
 export function ManasikSessionSummaryRow({ session, onSelect }: {
@@ -57,24 +68,28 @@ export function ManasikSessionSummaryRow({ session, onSelect }: {
     >
       <ManasikDateChip tgl={session.manasik_tgl} />
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
-          {fmtTglLong(session.manasik_tgl)}
+        <p className="flex min-w-0 items-baseline gap-1.5 text-xs font-bold text-gray-800 dark:text-white">
+          <span className="truncate">{fmtTglHari(session.manasik_tgl)}</span>
+          {/* Jam hanya muncul saat tanggalnya dipakai lebih dari satu sesi —
+              tanpa itu, 19 Sep 08:00 dan 08:30 jadi dua baris kembar. */}
+          {session.shares_date && session.manasik_jam && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+              <Clock size={10} strokeWidth={2.4} className="shrink-0" />
+              {session.manasik_jam}
+            </span>
+          )}
         </p>
         <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] font-medium">
-          {session.manasik_jam && (
-            <>
-              <span className="inline-flex shrink-0 items-center gap-1 text-violet-600 dark:text-violet-400">
-                <Clock size={11} strokeWidth={2.2} className="shrink-0" />
-                <span>{session.manasik_jam}</span>
-              </span>
-              <span className="text-gray-300 dark:text-slate-600">·</span>
-            </>
-          )}
-          <span className="shrink-0 text-gray-500 dark:text-slate-400">{session.groups.length} paket</span>
-          <span className="text-gray-300 dark:text-slate-600">·</span>
           <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400">
             <Users size={11} strokeWidth={2.2} className="shrink-0" />
             <span>{session.count} Jamaah</span>
+          </span>
+          <span className="text-gray-300 dark:text-slate-600">·</span>
+          <span className="inline-flex min-w-0 items-center gap-1 text-gray-500 dark:text-slate-400">
+            <User size={11} strokeWidth={2.2} className="shrink-0" />
+            <span className={`truncate ${session.tour_leaders.length === 0 ? 'italic text-gray-400 dark:text-slate-500' : ''}`}>
+              {tourLeaderLabel(session.tour_leaders)}
+            </span>
           </span>
         </div>
       </div>
@@ -99,7 +114,7 @@ export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
           <ManasikDateChip tgl={session.manasik_tgl} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold text-gray-800 dark:text-white">
-              {fmtTglLong(session.manasik_tgl)}
+              {fmtTglHari(session.manasik_tgl)}
             </p>
           </div>
         </div>
@@ -107,7 +122,7 @@ export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
           <GroupMeta label="Jam" value={session.manasik_jam ? `${session.manasik_jam} WIB` : null} />
           <GroupMeta label="Jamaah" value={`${session.count} orang`} />
           <GroupMeta label="Paket" value={`${session.groups.length} paket`} />
-          <GroupMeta label="Sisa Waktu" value={session.hari_lagi === 0 ? 'Hari ini' : `${session.hari_lagi} hari lagi`} />
+          <GroupMeta label="Sisa Waktu" value={hariLagiLabel(session.hari_lagi)} />
         </div>
       </div>
       {session.groups.map(group => (
