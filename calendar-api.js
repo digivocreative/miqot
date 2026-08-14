@@ -50,14 +50,15 @@ const CALENDAR_PUBLIC_MUTAWIF_READER_DAYS = parsePositiveInt(
   process.env.CALENDAR_PUBLIC_MUTAWIF_READER_DAYS,
   180,
 );
-const parsedMaxStaleDeleteRatio = Number.parseFloat(
-  process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
-);
-const CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = Number.isFinite(parsedMaxStaleDeleteRatio)
-  && parsedMaxStaleDeleteRatio >= 0
-  && parsedMaxStaleDeleteRatio <= 1
-  ? parsedMaxStaleDeleteRatio
-  : 0.25;
+// Dibaca saat dipakai, bukan saat modul dimuat: ambang ini perlu bisa diubah
+// tanpa restart, dan tes tidak bisa menguji pagarnya kalau nilainya membeku
+// pada impor pertama.
+function maxStaleDeleteRatio() {
+  const parsed = Number.parseFloat(
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO || '0.25',
+  );
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.25;
+}
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
@@ -165,7 +166,7 @@ function eventCanUseMutawifReader(event, options) {
 }
 
 async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback, readerOptions) {
-  const failedKey = `${event.date}_${event.type}`;
+  const eventKey = `${event.date}_${event.type}`;
   let details;
 
   try {
@@ -174,7 +175,9 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
     console.warn(`[Calendar] ${err.message} — baris lama event ini dipertahankan`);
     return {
       rows: [],
-      failedKey,
+      eventKey,
+      authoritative: false,
+      failedKey: eventKey,
       fallbackUsed: 0,
       emptyDetails: 0,
       detailUsesFallback: false,
@@ -231,7 +234,9 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
       console.warn(`[Calendar] Detail kosong utk ${event.date}/${event.type} dan fallback jadwal tidak lengkap — baris lama dipertahankan`);
       return {
         rows: [],
-        failedKey,
+        eventKey,
+        authoritative: false,
+        failedKey: eventKey,
         fallbackUsed,
         emptyDetails,
         detailUsesFallback,
@@ -264,6 +269,10 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
 
   return {
     rows,
+    eventKey,
+    // `detailUsesFallback` sengaja TIDAK ikut menentukan: itu soal rute, bukan
+    // mutu data. Origin fallback menyajikan isi yang sama lewat IP.
+    authoritative: rows.length > 0 && fallbackUsed === 0 && emptyDetails === 0,
     failedKey: null,
     fallbackUsed,
     emptyDetails,
@@ -413,6 +422,11 @@ export async function syncCalendar(supabase, options = {}) {
     },
   );
 
+  // Peta event key → himpunan id segar, hanya untuk event yang daftar grupnya
+  // benar-benar berhasil di-scrape. Daftar itu otoritatif untuk (tanggal, tipe)
+  // miliknya sendiri, sehingga baris DB di luar daftar boleh langsung dibuang.
+  const authoritativeFreshIdsByEvent = new Map();
+
   for (const result of detailResults) {
     if (result.failedKey) failedEventKeys.add(result.failedKey);
     fallbackUsed += result.fallbackUsed;
@@ -421,6 +435,12 @@ export async function syncCalendar(supabase, options = {}) {
     mutawifReaderEvents += result.mutawifReaderEvents;
     mutawifReaderRows += result.mutawifReaderRows;
     mutawifReaderFailures += result.mutawifReaderFailures;
+    if (result.authoritative) {
+      authoritativeFreshIdsByEvent.set(
+        result.eventKey,
+        new Set(result.rows.map(row => row.id)),
+      );
+    }
     if (result.rows.length > 0) allRows.push(...result.rows);
   }
 
@@ -435,9 +455,13 @@ export async function syncCalendar(supabase, options = {}) {
   if (mutawifReaderFailures > 0) degradedReasons.push('mutawif_reader_failures');
 
   let rowsUpserted = 0;
+  let rowsDeletedPerEvent = 0;
+  let rowsDeletedGlobal = 0;
   const resultMeta = () => ({
     count: rowsUpserted,
     rowsUpserted,
+    rowsDeletedPerEvent,
+    rowsDeletedGlobal,
     eventsTotal: filtered.length,
     eventsSucceeded: filtered.length - failedEventKeys.size,
     failedEvents: failedEventKeys.size,
@@ -460,7 +484,7 @@ export async function syncCalendar(supabase, options = {}) {
 
   const { data: existingRows, error: existingRowsError } = await supabase
     .from('calendar_events')
-    .select('id, raw_data')
+    .select('id, event_date, event_type, raw_data')
     .gte('event_date', rangeStartStr);
 
   const needsMutawifPreservation = allRows.some(row => row._preserve_mutawif);
@@ -510,16 +534,62 @@ export async function syncCalendar(supabase, options = {}) {
     rowsUpserted += batch.length;
   }
 
-  const degradedSnapshot = publicPageUsesFallback
-    || detailOriginFallbackUsed > 0
-    || fallbackUsed > 0
-    || failedEventKeys.size > 0;
+  const DELETE_BATCH = 50;
 
-  if (!existingRowsError && existingRows && !degradedSnapshot) {
-    const freshIds = new Set(allRows.map(row => row.id));
+  // ── Jalur per-event ──
+  // Untuk tiap (tanggal, tipe) yang daftar grupnya baru saja berhasil di-scrape,
+  // daftar itu otoritatif: baris DB di luar daftar adalah hantu. Buktinya lokal
+  // dan langsung, jadi tak perlu konfirmasi dua-langkah. Ini yang menangkap
+  // penomoran ulang kloter oleh sistem hulu — sumber utama baris kembar.
+  if (!existingRowsError && existingRows && authoritativeFreshIdsByEvent.size > 0) {
+    const perEventStaleIds = [];
+    for (const row of existingRows) {
+      const id = String(row.id);
+      if (id.startsWith('_DEMO_')) continue;
+      const freshIds = authoritativeFreshIdsByEvent.get(`${row.event_date}_${row.event_type}`);
+      if (!freshIds || freshIds.has(id)) continue;
+      perEventStaleIds.push(id);
+    }
+
+    for (let i = 0; i < perEventStaleIds.length; i += DELETE_BATCH) {
+      const batch = perEventStaleIds.slice(i, i + DELETE_BATCH);
+      const { error: deleteError } = await supabase
+        .from('calendar_events')
+        .delete()
+        .in('id', batch);
+      if (deleteError) {
+        const syncError = `delete stale per-event calendar_events gagal: ${deleteError.message}`;
+        console.error(`[Calendar] ${syncError}`);
+        return { success: false, error: syncError, ...resultMeta() };
+      }
+      rowsDeletedPerEvent += batch.length;
+    }
+    if (rowsDeletedPerEvent > 0) {
+      console.log(
+        `[Calendar] Hapus ${rowsDeletedPerEvent} baris hantu dari `
+        + `${authoritativeFreshIdsByEvent.size} event otoritatif`,
+      );
+    }
+  }
+
+  // ── Jalur global ──
+  // Untuk event key yang lenyap total dari snapshot. Rute cadangan
+  // (page_fallback / detail_fallback) tidak lagi mengunci penghapusan: isinya
+  // sama, cuma jalannya lewat IP, dan gerbang itulah yang membuat penyapu tak
+  // pernah jalan selama origin utama membalas 403. Kegagalan detail pun tidak
+  // relevan di sini karena buktinya adalah daftar event halaman, bukan baris
+  // hasil detail. Konfirmasi dua-langkah tetap dipertahankan karena bukti
+  // "absen dari daftar" lebih lemah daripada bukti per-event.
+  if (!existingRowsError && existingRows) {
+    // Bukti jalur ini adalah daftar event pada halaman, bukan baris hasil
+    // detail. Dengan begitu satu detail yang gagal diambil tidak lagi membuat
+    // seluruh barisnya tampak lenyap — dulu itulah sebabnya kegagalan detail
+    // harus memblokir penghapusan sama sekali.
+    const snapshotKeys = new Set(filtered.map(event => `${event.date}_${event.type}`));
     const observedStaleIds = existingRows
-      .map(row => row.id)
-      .filter(id => !freshIds.has(id) && !id.startsWith('_DEMO_'));
+      .filter(row => !snapshotKeys.has(`${row.event_date}_${row.event_type}`))
+      .map(row => String(row.id))
+      .filter(id => !id.startsWith('_DEMO_'));
     const staleCandidates = await loadCalendarStaleCandidates(supabase);
     if (staleCandidates.error) {
       const syncError = `gagal membaca konfirmasi stale calendar: ${staleCandidates.error.message}`;
@@ -540,17 +610,21 @@ export async function syncCalendar(supabase, options = {}) {
       console.warn(`[Calendar] ${pendingStaleIds.length} stale row menunggu konfirmasi snapshot berikutnya`);
     }
 
+    // Pagar ini SENGAJA hanya menghitung stale jalur global. Penghapusan
+    // per-event punya bukti langsung per (tanggal, tipe) dan jumlahnya bisa
+    // besar saat backlog dikuras — memasukkannya ke sini akan menggagalkan
+    // sync dan mengunci pembersihan, persis bug yang sedang diperbaiki.
+    const ratioLimit = maxStaleDeleteRatio();
     const staleDeleteRatio = existingRows.length > 0
       ? staleIds.length / existingRows.length
       : 0;
 
-    if (staleDeleteRatio > CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO) {
-      const syncError = `stale-delete ${staleIds.length}/${existingRows.length} row (${Math.round(staleDeleteRatio * 100)}%) melewati batas aman ${Math.round(CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO * 100)}%`;
+    if (staleDeleteRatio > ratioLimit) {
+      const syncError = `stale-delete ${staleIds.length}/${existingRows.length} row (${Math.round(staleDeleteRatio * 100)}%) melewati batas aman ${Math.round(ratioLimit * 100)}%`;
       console.error(`[Calendar] ${syncError}`);
       return { success: false, error: syncError, ...resultMeta() };
     }
 
-    const DELETE_BATCH = 50;
     for (let i = 0; i < staleIds.length; i += DELETE_BATCH) {
       const batch = staleIds.slice(i, i + DELETE_BATCH);
       const { error: deleteError } = await supabase
@@ -562,12 +636,11 @@ export async function syncCalendar(supabase, options = {}) {
         console.error(`[Calendar] ${syncError}`);
         return { success: false, error: syncError, ...resultMeta() };
       }
+      rowsDeletedGlobal += batch.length;
     }
-    if (staleIds.length > 0) {
-      console.log(`[Calendar] Removed ${staleIds.length} stale records from sync range`);
+    if (rowsDeletedGlobal > 0) {
+      console.log(`[Calendar] Hapus ${rowsDeletedGlobal} baris dari event key yang lenyap`);
     }
-  } else if (!existingRowsError && existingRows && degradedSnapshot) {
-    console.warn('[Calendar] Stale-delete dilewati karena snapshot belum authoritative/complete');
   }
 
   if (failedEventKeys.size > 0) {
@@ -600,7 +673,7 @@ export async function syncCalendar(supabase, options = {}) {
     return { success: false, error: syncError, ...resultMeta() };
   }
   if (failedEventKeys.size > 0) {
-    const syncError = `${failedEventKeys.size}/${filtered.length} detail event gagal; ${rowsUpserted} row aman sudah diperbarui dan row lama dipertahankan`;
+    const syncError = `${failedEventKeys.size}/${filtered.length} detail event gagal; ${rowsUpserted} row aman sudah diperbarui dan row lama event yang gagal dipertahankan`;
     return { success: false, error: syncError, ...resultMeta() };
   }
 

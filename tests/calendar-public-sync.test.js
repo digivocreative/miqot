@@ -138,7 +138,7 @@ function makeResult(table, builder, state) {
   }
 
   if (table === 'calendar_events') {
-    if (builder.columns === 'id, raw_data') {
+    if (builder.columns === 'id, event_date, event_type, raw_data') {
       if (state.existingCalendarReadError) {
         return { data: null, error: new Error('calendar read unavailable') };
       }
@@ -169,7 +169,11 @@ function createFakeSupabase({
     updates: [],
     existingCalendarIds,
     existingCalendarRows: existingCalendarRows
-      || existingCalendarIds.map(id => ({ id, raw_data: null })),
+      || existingCalendarIds.map((id) => {
+        // id = `${event_date}_${event_type}_${rowKey}`
+        const [event_date, event_type] = String(id).split('_');
+        return { id, event_date, event_type, raw_data: null };
+      }),
     existingCalendarReadError,
     missingMutawifColumn,
     missingMutawifErrorCount: 0,
@@ -714,7 +718,7 @@ test('syncCalendar reports delete failure only after all upserts succeed', async
   }
 });
 
-test('syncCalendar deletes a stale row only after two complete primary snapshots', async () => {
+test('syncCalendar menghapus baris hantu penomoran ulang dalam satu run', async () => {
   const originalFetch = global.fetch;
   try {
     global.fetch = async (url) => {
@@ -728,30 +732,285 @@ test('syncCalendar deletes a stale row only after two complete primary snapshots
       throw new Error(`unexpected fetch: ${url}`);
     };
 
-    // Modal hanya mengembalikan grup 10, sementara grup 11 masih ada di DB.
+    // Hulu menomori ulang kloter: dulu grup 11, sekarang modal hanya
+    // mengembalikan grup 10 untuk (tanggal, tipe) yang sama.
     const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const freshId = `${SYNC_EVENT_DATE}_keberangkatan_10`;
     const syncCalendar = await loadSyncCalendar();
     const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
 
-    const first = await syncCalendar(supabase);
-    assert.equal(first.success, true);
-    assert.equal(first.degraded, true);
-    assert.deepEqual(first.degradedReasons, ['stale_confirmation_pending']);
-    assert.equal(supabase.state.deleteAttempts.length, 0);
-    assert.deepEqual(supabase.state.staleCandidates, [staleId]);
+    const result = await syncCalendar(supabase);
 
-    const second = await syncCalendar(supabase);
-    assert.equal(second.success, true);
-    assert.equal(second.degraded, false);
+    assert.equal(result.success, true);
     assert.deepEqual(supabase.state.deletedIds, [staleId]);
+    assert.equal(result.rowsDeletedPerEvent, 1);
+    assert.equal(supabase.state.upserted.some(row => row.id === freshId), true);
+    // Bukti lokal per-event: tuntas dalam satu run, tanpa run kedua.
   } finally {
     global.fetch = originalFetch;
   }
 });
 
-test('syncCalendar skips stale-delete when the public page uses the fallback origin', async () => {
+test('kegagalan detail satu event tidak menghalangi pembersihan event lain', async () => {
   const originalFetch = global.fetch;
-  const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
+  const events = [
+    {
+      title: 'Keberangkatan UMROH',
+      start: SYNC_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B1532', apalah: 'JBU1532' },
+    },
+    {
+      title: 'Keberangkatan UMROH',
+      start: FAILED_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B9999', apalah: 'JBU9999' },
+    },
+  ];
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(publicPageHtmlForEvents(events));
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        // Tabel tanpa kolom GROUP/PAKET/PESAWAT -> detail gagal diparse,
+        // tanpa memicu retry jaringan.
+        if (parsed.searchParams.get('.m') === 'B9999') {
+          return htmlResponse(`
+            <table>
+              <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+              <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+            </table>
+          `);
+        }
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const healthyStaleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const failedEventId = `${FAILED_EVENT_DATE}_keberangkatan_77`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarIds: [healthyStaleId, failedEventId],
+    });
+
+    const result = await syncCalendar(supabase);
+
+    // Sync tetap melapor gagal karena satu detail gagal — itu perilaku lama
+    // yang dipertahankan. Yang berubah: kegagalan itu tidak lagi mengunci
+    // pembersihan event yang sehat.
+    assert.equal(result.success, false);
+    assert.equal(result.failedEvents, 1);
+    assert.deepEqual(supabase.state.deletedIds, [healthyStaleId]);
+    assert.equal(supabase.state.deletedIds.includes(failedEventId), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('dua kloter pada satu jadwal sama-sama bertahan', async () => {
+  const originalFetch = global.fetch;
+  const twoGroupModalHtml = `
+<table>
+  <thead>
+    <tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>STAFF</th><th>TL</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>69</td><td>SAUDIA ~ SV 827</td><td>00.40</td><td>PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)</td><td>40</td><td>-</td><td>-</td></tr>
+    <tr><td>70</td><td>SAUDIA ~ SV 827</td><td>00.40</td><td>PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)</td><td>45</td><td>-</td><td>-</td></tr>
+  </tbody>
+</table>`;
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') return htmlResponse(twoGroupModalHtml);
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({
+      existingCalendarIds: [
+        `${SYNC_EVENT_DATE}_keberangkatan_69`,
+        `${SYNC_EVENT_DATE}_keberangkatan_70`,
+      ],
+    });
+
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.equal(supabase.state.upserted.length, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('event yang direkonstruksi dari umroh_schedules tidak menghapus baris lamanya', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      // Modal 200 dengan tabel berheader sah tapi tanpa baris -> detail kosong
+      // -> baris direkonstruksi dari umroh_schedules (fallback jadwal).
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(`
+<table>
+  <thead>
+    <tr><th>GROUP</th><th>PESAWAT</th><th>WAKTU</th><th>PAKET</th><th>PAX</th><th>STAFF</th><th>TL</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>`);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
+    const result = await syncCalendar(supabase);
+
+    // Baris hasil rekonstruksi BUKAN bukti daftar grup yang sebenarnya, jadi
+    // event ini tidak otoritatif dan tak boleh menghapus apa pun.
+    assert.equal(result.rowsDeletedPerEvent, 0);
+    assert.equal(supabase.state.deletedIds.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('penghapusan per-event masif tidak tersandung pagar rasio stale global', async () => {
+  const originalFetch = global.fetch;
+  const originalRatio = process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO;
+  try {
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = '0.25';
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    // 8 baris hantu pada event key yang segar; semuanya lewat jalur per-event.
+    // Rasionya 8/8 = 100%, jauh di atas 25% — dan itu memang tidak boleh
+    // menggagalkan sync, karena backlog besar justru yang perlu dikuras.
+    const staleIds = [11, 12, 13, 14, 15, 16, 17, 18]
+      .map(n => `${SYNC_EVENT_DATE}_keberangkatan_${n}`);
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: staleIds });
+
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true);
+    assert.equal(result.rowsDeletedPerEvent, 8);
+    assert.equal(result.rowsDeletedGlobal, 0);
+    assert.equal(supabase.state.deletedIds.length, 8);
+  } finally {
+    process.env.CALENDAR_PUBLIC_MAX_STALE_DELETE_RATIO = originalRatio;
+    global.fetch = originalFetch;
+  }
+});
+
+test('event key yang lenyap dari snapshot dihapus setelah dua run', async () => {
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    // Event key ini tidak ada sama sekali di PUBLIC_PAGE_HTML.
+    const goneId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [goneId] });
+
+    const first = await syncCalendar(supabase);
+    assert.equal(first.success, true);
+    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.deepEqual(supabase.state.staleCandidates, [goneId]);
+
+    const second = await syncCalendar(supabase);
+    assert.equal(second.success, true);
+    assert.deepEqual(supabase.state.deletedIds, [goneId]);
+    assert.equal(second.rowsDeletedGlobal, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('kegagalan detail tidak menjadikan baris event itu kandidat stale global', async () => {
+  const originalFetch = global.fetch;
+  const events = [
+    {
+      title: 'Keberangkatan UMROH',
+      start: SYNC_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B1532', apalah: 'JBU1532' },
+    },
+    {
+      title: 'Keberangkatan UMROH',
+      start: FAILED_EVENT_DATE,
+      color: '#7bc86c',
+      extendedProps: { mjudul: 'KEBERANGKATAN UMROH', aid: 'B9999', apalah: 'JBU9999' },
+    },
+  ];
+
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(publicPageHtmlForEvents(events));
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        if (parsed.searchParams.get('.m') === 'B9999') {
+          return htmlResponse(`
+            <table>
+              <thead><tr><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead>
+              <tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+            </table>
+          `);
+        }
+        return htmlResponse(PUBLIC_MODAL_HTML);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const failedEventId = `${FAILED_EVENT_DATE}_keberangkatan_77`;
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase({ existingCalendarIds: [failedEventId] });
+
+    await syncCalendar(supabase);
+
+    // Event-nya ADA di snapshot; detailnya saja yang gagal. Absennya detail
+    // bukan bukti bahwa event-nya lenyap.
+    assert.equal(supabase.state.staleCandidates?.includes(failedEventId) ?? false, false);
+    assert.equal(supabase.state.deletedIds.length, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('rute fallback halaman tidak menghalangi penghapusan per-event', async () => {
+  const originalFetch = global.fetch;
   try {
     global.fetch = async (url) => {
       const parsed = new URL(String(url));
@@ -765,13 +1024,17 @@ test('syncCalendar skips stale-delete when the public page uses the fallback ori
       throw new Error(`unexpected fetch: ${url}`);
     };
 
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
     const syncCalendar = await loadSyncCalendar();
-    const supabase = createFakeSupabase({ existingCalendarIds: [unrelatedStaleId] });
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
     const result = await syncCalendar(supabase);
 
     assert.equal(result.success, true);
     assert.equal(result.source, 'fallback');
-    assert.equal(supabase.state.deletedIds.length, 0);
+    // Rute cadangan menyajikan isi yang sama lewat IP; ia tidak boleh
+    // mengunci penyapu. Gerbang inilah yang dulu membuat penyapu tak pernah
+    // jalan selama origin utama membalas 403.
+    assert.deepEqual(supabase.state.deletedIds, [staleId]);
   } finally {
     global.fetch = originalFetch;
   }
@@ -819,9 +1082,8 @@ test('syncCalendar serializes modal requests while the public page uses fallback
   }
 });
 
-test('syncCalendar skips stale-delete when modal details use the fallback origin', async () => {
+test('rute fallback detail modal tidak menghalangi penghapusan per-event', async () => {
   const originalFetch = global.fetch;
-  const unrelatedStaleId = `${isoDateMonthsAhead(4)}_keberangkatan_legacy`;
   try {
     global.fetch = async (url) => {
       const parsed = new URL(String(url));
@@ -837,13 +1099,14 @@ test('syncCalendar skips stale-delete when modal details use the fallback origin
       throw new Error(`unexpected fetch: ${url}`);
     };
 
+    const staleId = `${SYNC_EVENT_DATE}_keberangkatan_11`;
     const syncCalendar = await loadSyncCalendar();
-    const supabase = createFakeSupabase({ existingCalendarIds: [unrelatedStaleId] });
+    const supabase = createFakeSupabase({ existingCalendarIds: [staleId] });
     const result = await syncCalendar(supabase);
 
     assert.equal(result.success, true);
     assert.equal(result.source, 'fallback');
-    assert.equal(supabase.state.deletedIds.length, 0);
+    assert.deepEqual(supabase.state.deletedIds, [staleId]);
   } finally {
     global.fetch = originalFetch;
   }
