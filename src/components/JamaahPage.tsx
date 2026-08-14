@@ -1750,10 +1750,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        {(item.jadwal_nama || item.paket || item.wa) && (
+                        {/* Baris identitas: ID Umroh (bukan nama paket — nama paket
+                            pindah ke grid detail di dalam kartu). */}
+                        {(item.id_umroh || item.wa) && (
                           <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                            {item.jadwal_nama || item.paket || formatJamaahPhone(item.wa)}
-                            {(item.jadwal_nama || item.paket) && item.wa ? ` · ${formatJamaahPhone(item.wa)}` : ''}
+                            {item.id_umroh ? <span className="font-mono">{item.id_umroh}</span> : formatJamaahPhone(item.wa)}
+                            {item.id_umroh && item.wa ? ` · ${formatJamaahPhone(item.wa)}` : ''}
                           </p>
                         )}
                         {item.notes && (
@@ -1879,9 +1881,12 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                             <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200">-</p>
                           )}
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">ID Umroh</p>
-                          <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200">{item.id_umroh || '-'}</p>
+                        {/* ID Umroh sudah tampil di baris ringkas; slot ini dipakai
+                            nama paket yang pindah dari sana. `col-span-2` supaya nama
+                            panjang ("REGULER 9HR (KERETA CEPAT)") tidak terpotong. */}
+                        <div className="col-span-2">
+                          <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Paket</p>
+                          <p className="text-[13px] font-bold text-gray-700 dark:text-slate-200">{item.jadwal_nama || item.paket || '-'}</p>
                         </div>
                         <div>
                           <p className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wide">Tgl Daftar</p>
