@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, GraduationCap, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
@@ -110,9 +111,9 @@ const DAY_HEADERS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 // titik kalender dan legenda di atasnya.
 const SECTION_ORDER = ['berangkat', 'manasik'] as const;
 type SectionKey = typeof SECTION_ORDER[number];
-const SECTION_CONFIG: Record<SectionKey, { label: string; activeTab: string }> = {
-  berangkat: { label: 'Berangkat', activeTab: TAB_CONFIG.keberangkatan.activeTab },
-  manasik: { label: 'Manasik', activeTab: TAB_CONFIG.manasik.activeTab },
+const SECTION_CONFIG: Record<SectionKey, { label: string; Icon: LucideIcon; activeTab: string }> = {
+  berangkat: { label: 'Berangkat', Icon: Plane, activeTab: TAB_CONFIG.keberangkatan.activeTab },
+  manasik: { label: 'Manasik', Icon: GraduationCap, activeTab: TAB_CONFIG.manasik.activeTab },
 };
 
 function cacheKey(year: number, month: number) {
@@ -193,11 +194,6 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     () => buildManasikSessions(berangkatGroups, wibTodayKey()),
     [berangkatGroups],
   );
-  const manasikJamaahCount = useMemo(
-    () => manasikSessions.reduce((total, session) => total + session.count, 0),
-    [manasikSessions],
-  );
-
   const isManasik = activeSection === 'manasik';
   const listLength = isManasik ? manasikSessions.length : berangkatGroups.length;
   const previewCount = Math.min(3, listLength);
@@ -529,33 +525,28 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
         ) : berangkatGroups.length > 0 ? (
           <>
             <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex gap-1 rounded-xl bg-gray-50 p-1 dark:bg-slate-900">
-                  {SECTION_ORDER.map(section => (
+              <div className="flex w-full gap-1 rounded-xl bg-gray-50 p-1 dark:bg-slate-900">
+                {SECTION_ORDER.map(section => {
+                  const { label, Icon } = SECTION_CONFIG[section];
+                  const isActive = activeSection === section;
+                  return (
                     <button
                       key={section}
                       type="button"
                       onClick={() => selectSection(section)}
-                      aria-pressed={activeSection === section}
-                      className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all duration-200 ${
-                        activeSection === section
+                      aria-pressed={isActive}
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all duration-200 ${
+                        isActive
                           ? SECTION_CONFIG[section].activeTab
                           : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
                       }`}
                     >
-                      {SECTION_CONFIG[section].label}
+                      <Icon size={12} strokeWidth={2.4} className="shrink-0" />
+                      {label}
                     </button>
-                  ))}
-                </div>
-                {isManasik
-                  ? <GraduationCap size={15} className="shrink-0 text-violet-500 dark:text-violet-400" />
-                  : <Plane size={15} className="shrink-0 text-blue-500 dark:text-blue-400" />}
+                  );
+                })}
               </div>
-              <p className="mt-1.5 text-[10px] text-gray-400 dark:text-slate-500">
-                {isManasik
-                  ? `${manasikJamaahCount} jamaah · ${manasikSessions.length} sesi · ${MANASIK_WINDOW_DAYS} hari ke depan`
-                  : `${berangkatItems.length} jamaah · ${berangkatGroups.length} paket${berangkatLabel ? ` · ${berangkatLabel}` : ''}`}
-              </p>
             </div>
             {isManasik && manasikSessions.length === 0 ? (
               <p className="px-4 pb-3 text-[11px] text-gray-400 dark:text-slate-500">
