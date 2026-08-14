@@ -189,11 +189,42 @@ export function FilterHeader({
         (e.target === padBoxRef.current && e.propertyName.startsWith('padding'));
       if (settled) publish();
     };
+    // iOS Safari menembakkan `resize` saat toolbar browser muncul kembali — pada
+    // gestur scroll-up yang SAMA yang memulai animasi buka header 300ms. Dulu
+    // jalur ini publish() telanjang: mengukur DI TENGAH animasi (terukur 153px
+    // dari settled 167px), menulis nilai antara ke --filter-header-h, menggeser
+    // seluruh daftar di bawah jari (-14px), lalu transitionend menulis nilai
+    // settled dan menggesernya balik (+14px). iOS belum punya scroll anchoring
+    // (overflow-anchor baru Safari 27), jadi dua sentakan itu terasa mentah —
+    // persis "ngejedug" tiap ganti arah gulir. Saat animasi masih berjalan,
+    // lewati saja: transitionend settled di atas yang akan mengukur.
+    //
+    // Pagarnya bertanya ke animasinya SENDIRI, bukan timer: resize me-restart
+    // transisi (terukur molor sampai ~690ms), jadi timer 300ms+margin pun bocor.
+    const isToggleAnimating = () =>
+      [collapseRef.current, padBoxRef.current].some(
+        node => node?.getAnimations().some(a => a.playState === 'running'),
+      );
+    let resizeSettleTimer = 0;
+    const onResize = () => {
+      if (!isToggleAnimating()) publish();
+      // Resize lintas-breakpoint (rotasi 390->744 melewati sm): isi header ikut
+      // bertransisi (transition-all pada input Cari, ukuran tombol), jadi
+      // pengukuran di momen resize menangkap nilai tengah (terukur 175px dari
+      // settled 181px) — dan transisi itu SENGAJA tak lolos saringan settled di
+      // atas. Ukur sekali lagi setelah reda; kalau saat itu toggle header justru
+      // sedang beranimasi, transitionend settled yang mengambil alih.
+      window.clearTimeout(resizeSettleTimer);
+      resizeSettleTimer = window.setTimeout(() => {
+        if (!isToggleAnimating()) publish();
+      }, 400);
+    };
     publish(); // mount: expanded, nothing animating yet
-    window.addEventListener('resize', publish);
+    window.addEventListener('resize', onResize);
     el.addEventListener('transitionend', onTransitionEnd);
     return () => {
-      window.removeEventListener('resize', publish);
+      window.clearTimeout(resizeSettleTimer);
+      window.removeEventListener('resize', onResize);
       el.removeEventListener('transitionend', onTransitionEnd);
     };
   }, []);
