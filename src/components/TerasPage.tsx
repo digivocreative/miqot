@@ -371,6 +371,16 @@ const MAX_SNIPPET_TITLE_CHARS = 80;
 // Small buffer over the limit so pasted text isn't silently truncated —
 // the counter turns red and submit stays disabled until it's trimmed.
 const COMPOSER_BODY_HARD_CAP = 520;
+// Toolbar composer: label teks hanya muat di layar lebar. Bertiga berlabel,
+// baris tombol ±297px sementara kolom kanan composer di ponsel 360-375px cuma
+// ±276-291px — counter karakter terdorong keluar dan terpotong. Di bawah 640px
+// tombol jadi ikon saja; nama aksesibelnya dipegang aria-label tiap tombol
+// (WAJIB: `hidden` mencabut teks dari pohon aksesibilitas, jadi tanpa
+// aria-label tombolnya kehilangan nama untuk screen reader dan tes).
+// Tanpa label, isi tombol tinggal ikon 18px + px-2.5 = 38px — di bawah lantai
+// 44px yang dijaga tes target sentuh. `min-w-11` yang menahannya; ia tidak
+// perlu varian sm: karena tombol berlabel sudah jauh lebih lebar dari 44px.
+const COMPOSER_TOOLBAR_LABEL_CLASS = 'hidden sm:inline';
 const SNIPPET_TITLE_HARD_CAP = 88;
 const COMMENT_BODY_HARD_CAP = 320;
 // Pesan persis dari server saat client_id komentar bentrok (POST
@@ -4930,11 +4940,12 @@ export default function TerasPage({
           type="button"
           onClick={() => openComposerMediaPicker(segment.key)}
           disabled={composerBusy || segment.media.length >= MAX_COMMUNITY_MEDIA || pollBlocksMedia}
+          aria-label="Foto/Video"
           title={pollBlocksMedia ? 'Polling tidak bisa digabung dengan media' : 'Tambah foto atau video (JPG/PNG/WEBP, MP4/MOV/WEBM)'}
-          className="-ml-2 flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
+          className="-ml-2 flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 dark:active:bg-slate-800"
         >
           <ImageIcon size={18} strokeWidth={1.8} />
-          Foto/Video
+          <span className={COMPOSER_TOOLBAR_LABEL_CLASS}>Foto/Video</span>
         </button>
         {isFirstSegment && !composerQuote && (
           <button
@@ -4945,6 +4956,7 @@ export default function TerasPage({
             }}
             disabled={composerBusy || segment.media.length > 0 || !!composerSnippet}
             aria-pressed={!!composerPoll}
+            aria-label="Polling"
             title={
               composerSnippet
                 ? 'Polling tidak bisa digabung dengan lampiran teks'
@@ -4952,14 +4964,14 @@ export default function TerasPage({
                   ? 'Polling tidak bisa digabung dengan media'
                   : 'Tambah polling (2-4 opsi)'
             }
-            className={`flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
+            className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
               composerPoll
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             <BarChart3 size={18} strokeWidth={1.8} />
-            Polling
+            <span className={COMPOSER_TOOLBAR_LABEL_CLASS}>Polling</span>
           </button>
         )}
         {isFirstSegment && (
@@ -4971,17 +4983,18 @@ export default function TerasPage({
             onClick={() => setSnippetEditorOpen(true)}
             disabled={composerBusy || !!composerPoll}
             aria-pressed={!!composerSnippet}
+            aria-label="Lampiran"
             title={composerPoll
               ? 'Lampiran teks tidak bisa digabung dengan polling'
               : composerSnippet ? 'Ubah lampiran teks' : 'Tambah lampiran teks panjang'}
-            className={`flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
+            className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
               composerSnippet
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             <FileText size={18} strokeWidth={1.8} />
-            Lampiran
+            <span className={COMPOSER_TOOLBAR_LABEL_CLASS}>Lampiran</span>
           </button>
         )}
       </>

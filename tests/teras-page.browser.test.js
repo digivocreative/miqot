@@ -2803,6 +2803,57 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('composer toolbar stays icon-only on phones so the counter is never clipped', { timeout: 30_000 }, async () => {
+    const app = await openApp({
+      api: createCommunityApi(),
+      viewport: { width: 360, height: 800 },
+    });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      const textarea = dialog.getByPlaceholder(COMPOSER_PLACEHOLDER);
+      await textarea.waitFor();
+
+      // Tiga tombol berlabel penuh (Foto/Video + Polling + Lampiran) tidak muat
+      // di kolom composer ponsel: counter terdorong keluar dan terpotong oleh
+      // overflow-x-hidden induknya. Invariannya geometris, bukan tekstual —
+      // counter harus berakhir di dalam kolom yang sama dengan textarea.
+      const counter = dialog.getByText('0/500', { exact: true });
+      const [textareaBox, counterBox] = await Promise.all([
+        textarea.boundingBox(),
+        counter.boundingBox(),
+      ]);
+      assert.ok(textareaBox && counterBox, 'geometri toolbar composer harus dapat diukur');
+      assert.ok(
+        counterBox.x + counterBox.width <= textareaBox.x + textareaBox.width + 1,
+        `counter karakter tidak boleh melewati kolom composer: ${JSON.stringify({ textareaBox, counterBox })}`,
+      );
+
+      // Ikon saja di ponsel, TAPI nama aksesibel tetap ada — `hidden` mencabut
+      // teks dari pohon aksesibilitas, jadi ini yang menjaga aria-label tiap
+      // tombol tidak ikut terhapus saat labelnya disembunyikan.
+      for (const name of ['Foto/Video', 'Polling', 'Lampiran']) {
+        assert.equal(
+          await dialog.getByRole('button', { name, exact: true }).count(), 1,
+          `tombol ${name} harus tetap punya nama aksesibel saat label disembunyikan`,
+        );
+        assert.equal(
+          await dialog.getByText(name, { exact: true }).isVisible(), false,
+          `label ${name} harus tersembunyi di viewport ponsel`,
+        );
+      }
+
+      // Di layar lebar (sm: 640px) label kembali muncul utuh.
+      await app.page.setViewportSize({ width: 720, height: 900 });
+      for (const name of ['Foto/Video', 'Polling', 'Lampiran']) {
+        await dialog.getByText(name, { exact: true }).waitFor({ state: 'visible' });
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   test('Bagikan opens a dialog showing the short /teras/<code> link before copying', { timeout: 30_000 }, async () => {
     const fullId = '9fc969b0-2465-4ae0-bbba-56e606a84914';
     const api = createCommunityApi({
