@@ -724,9 +724,6 @@ export default function HotelKelolaPage() {
         </button>
         {showBanners && (
         <>
-        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">
-          Gambar kartu kategori di Direktori Hotel. Tanpa banner, kartu memakai cover hotel pertama kota itu.
-        </p>
         {bannerError && (
           <div className="mt-2 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-[11px] text-red-600 dark:text-red-400 font-medium">
             {bannerError}
