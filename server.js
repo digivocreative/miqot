@@ -44,7 +44,7 @@ import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { computeJamaahSyncEvents, emptyJamaahSyncEvents, hasJamaahSyncEvents, mergeJamaahSyncEvents, jamaahRowKey, toMoney, hasJamaahPayment, datePlusDaysKey, isFutureRelevantJamaah } from './lib/jamaah-sync-events.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
-import { findRejectedVideoCodec } from './lib/community-video.js';
+import { findRejectedVideoCodec, findUnplayableVideo } from './lib/community-video.js';
 import {
   MAINTENANCE_ACCESS_COOKIE,
   createMaintenanceGate,
@@ -7324,6 +7324,21 @@ app.post('/api/community/media', authMiddleware, prepareCommunityMediaUpload, pa
 
 const HOTEL_MEDIA_FOLDER = 'hotels';
 
+// Subset ketat dari COMMUNITY_MEDIA_MIME_TYPES. WebM DIBUANG: dukungannya di
+// Safari/iOS tidak merata, sedangkan direktori ini justru sering dibuka agent
+// dari iPhone. Sisanya (JPG/PNG/WebP + MP4/MOV berisi H.264) bisa dibuka semua
+// perangkat; MOV tetap disimpan sebagai .mp4 lewat storageMime bawaannya.
+const HOTEL_MEDIA_MIME_TYPES = Object.freeze({
+  'image/jpeg': COMMUNITY_MEDIA_MIME_TYPES['image/jpeg'],
+  'image/png': COMMUNITY_MEDIA_MIME_TYPES['image/png'],
+  'image/webp': COMMUNITY_MEDIA_MIME_TYPES['image/webp'],
+  'video/mp4': COMMUNITY_MEDIA_MIME_TYPES['video/mp4'],
+  'video/quicktime': COMMUNITY_MEDIA_MIME_TYPES['video/quicktime'],
+});
+
+const HOTEL_MEDIA_FORMAT_ERROR = 'Format tidak didukung. Gunakan foto JPG/PNG/WebP '
+  + 'atau video MP4 (H.264).';
+
 function hotelMediaPublicPrefixes() {
   const prefixes = [];
   if (getBunnyEnabled()) prefixes.push(`https://${BUNNY_CDN_HOSTNAME}/${HOTEL_MEDIA_FOLDER}/`);
@@ -7683,9 +7698,9 @@ async function prepareHotelMediaUpload(req, res, next) {
     }
 
     const mime = String(req.get('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
-    const mediaConfig = COMMUNITY_MEDIA_MIME_TYPES[mime];
+    const mediaConfig = HOTEL_MEDIA_MIME_TYPES[mime];
     if (!mediaConfig) {
-      return res.status(415).json({ error: 'Format media tidak didukung' });
+      return res.status(415).json({ error: HOTEL_MEDIA_FORMAT_ERROR });
     }
 
     const contentLengthHeader = req.get('Content-Length');
@@ -7736,8 +7751,10 @@ app.post('/api/hotels/media', authMiddleware, adminOnly, prepareHotelMediaUpload
     if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
       return res.status(400).json({ error: 'Isi file media tidak valid' });
     }
-    if (['video/mp4', 'video/quicktime'].includes(mime)) {
-      const rejectedCodec = findRejectedVideoCodec(buffer);
+    // Wajib H.264 — bukan sekadar bukan-HEVC. Media hotel dibuka berulang oleh
+    // semua agent lintas perangkat, jadi hanya baseline universal yang lolos.
+    if (mediaConfig.type === 'video') {
+      const rejectedCodec = findUnplayableVideo(buffer);
       if (rejectedCodec) return res.status(415).json({ error: rejectedCodec.message });
     }
 

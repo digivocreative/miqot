@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
   Loader2, Play, ChevronDown, Search,
@@ -15,7 +16,10 @@ const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-6
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
-const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+// WebM sengaja TIDAK didukung (dukungan iOS tak merata) — cerminan
+// HOTEL_MEDIA_MIME_TYPES di server. Video wajib H.264, diperiksa server.
+const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime']);
+const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime';
 const FACILITY_PRESETS = ['Wi-Fi', 'Restoran', 'AC', 'Lift', 'Laundry', 'Musholla', 'Kursi Roda'];
 
 interface FormMedia {
@@ -98,7 +102,11 @@ function resizeHotelPhoto(file: File): Promise<Blob> {
         0.85
       );
     };
-    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Gagal membaca foto')); };
+    // Gagal decode paling sering = HEIC/HEIF iPhone di perangkat non-Apple.
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Foto ini tidak bisa dibaca. Simpan/ekspor ulang sebagai JPG atau PNG, lalu unggah lagi.'));
+    };
     img.src = objectUrl;
   });
 }
@@ -132,22 +140,41 @@ async function uploadHotelMedia(blob: Blob): Promise<string> {
   return json.url;
 }
 
-type KelolaView = { kind: 'list' } | { kind: 'create' } | { kind: 'edit'; slug: string };
+type KelolaTab = 'detail' | 'media';
+type KelolaView =
+  | { kind: 'list' }
+  | { kind: 'create'; tab: KelolaTab }
+  | { kind: 'edit'; slug: string; tab: KelolaTab };
 
-// View diturunkan dari URL (/dashboard/hotels[/tambah|/edit/:slug]) supaya
-// tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
+const KELOLA_TABS: { id: KelolaTab; label: string }[] = [
+  { id: 'detail', label: 'Detail' },
+  { id: 'media', label: 'Media' },
+];
+
+// Segmen tab yang tak dikenal (salah ketik, URL lama) jatuh ke Detail tanpa
+// menulis ulang URL — fail-soft, tanpa efek samping saat render.
+function readKelolaTab(segment: string | undefined): KelolaTab {
+  return segment === 'media' ? 'media' : 'detail';
+}
+
+// View diturunkan dari URL (/dashboard/hotels[/tambah|/edit/:slug][/media])
+// supaya tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
 // pola sama dengan readHotelView di HotelPage (keluhan "navigasi double").
+// Tab Detail sengaja tanpa segmen sendiri agar URL form yang sudah beredar
+// tetap sah. Indeks segmen tab beda antara tambah (3) dan edit (4) — hanya
+// edit yang membawa slug.
 function readKelolaView(): KelolaView {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  if (segments[2] === 'tambah') return { kind: 'create' };
+  if (segments[2] === 'tambah') return { kind: 'create', tab: readKelolaTab(segments[3]) };
   const slug = decodeURIComponent(segments[3] || '');
-  if (segments[2] === 'edit' && slug) return { kind: 'edit', slug };
+  if (segments[2] === 'edit' && slug) return { kind: 'edit', slug, tab: readKelolaTab(segments[4]) };
   return { kind: 'list' };
 }
 
-export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: string) => void }) {
+export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: string, opts?: { replace?: boolean }) => void }) {
   // Re-render tiap navigasi datang dari pathTick DashboardLayout.
   const view = readKelolaView();
+  const reduceMotion = useReducedMotion();
   const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState<string>('semua');
@@ -251,13 +278,29 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   };
 
   // Kunci primitif, bukan objek view — readKelolaView membuat objek baru tiap render.
+  // JANGAN masukkan tab ke kunci mana pun di bawah: efek-efek berikut me-reset
+  // form dan memuat ulang detail hotel, jadi kalau ikut berubah tiap ganti tab,
+  // isian yang sedang diketik hilang dan unggahan yang belum tersimpan dibuang.
   const editSlug = view.kind === 'edit' ? view.slug : null;
   const isCreate = view.kind === 'create';
   const inForm = view.kind !== 'list';
 
-  // Meninggalkan form (Batal, back header, pindah tab) membuang unggahan yang
-  // belum tersimpan. Setelah Simpan sukses daftarnya sudah dikosongkan, jadi
-  // yang tersisa di sini memang benar-benar yatim.
+  // Tab form ikut URL (/edit/:slug[/media], /tambah[/media]) supaya refresh
+  // bertahan di tab yang sama. Pindah tab memakai replace: riwayat tidak
+  // menumpuk, jadi back (header / browser / gestur iOS) tetap keluar ke daftar.
+  const activeTab: KelolaTab = view.kind === 'list' ? 'detail' : view.tab;
+  const formBasePath = editSlug
+    ? `/dashboard/hotels/edit/${encodeURIComponent(editSlug)}`
+    : '/dashboard/hotels/tambah';
+  const goTab = (tab: KelolaTab) => {
+    if (tab === activeTab) return;
+    onNavigate(tab === 'detail' ? formBasePath : `${formBasePath}/${tab}`, { replace: true });
+  };
+
+  // Meninggalkan form (Batal, back header, pindah tab dashboard) membuang
+  // unggahan yang belum tersimpan. Setelah Simpan sukses daftarnya sudah
+  // dikosongkan, jadi yang tersisa di sini memang benar-benar yatim. Pindah
+  // Detail↔Media tidak memicu ini: inForm tetap true di kedua tab.
   useEffect(() => {
     if (!inForm) return;
     const pending = pendingUploadsRef.current;
@@ -301,7 +344,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       const isImage = file.type.startsWith('image/');
       const isVideo = SUPPORTED_VIDEO_TYPES.has(file.type);
       if (!isImage && !isVideo) {
-        setSaveError('Format tidak didukung. Foto (JPG/PNG/WebP) atau video (MP4/MOV/WebM).');
+        setSaveError('Format tidak didukung. Gunakan foto JPG/PNG/WebP atau video MP4 (H.264).');
         continue;
       }
       if (isImage && file.size > MAX_IMAGE_BYTES) {
@@ -377,8 +420,11 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     // Mode edit tapi detail belum/gagal termuat → tanpa editingId permintaan
     // akan jatuh ke POST dan MENDUPLIKASI hotel. Tahan di sini (fail-closed).
     if (editSlug && !editingId) { setSaveError('Data hotel belum termuat. Muat ulang halaman ini.'); return; }
-    if (!form.name.trim()) { setSaveError('Nama hotel wajib diisi.'); return; }
+    // Simpan bisa ditekan dari tab mana pun, jadi lompat ke tab yang bermasalah
+    // dulu — tanpa itu pesan error menunjuk isian yang sedang tersembunyi.
+    if (!form.name.trim()) { goTab('detail'); setSaveError('Nama hotel wajib diisi.'); return; }
     if (form.media.some(m => m.status === 'uploading')) {
+      goTab('media');
       setSaveError('Tunggu unggahan media selesai dulu.');
       return;
     }
@@ -638,7 +684,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/mp4,video/quicktime,video/webm"
+                accept={MEDIA_ACCEPT}
                 multiple
                 className="hidden"
                 aria-hidden="true"
@@ -651,7 +697,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               >
                 <ImagePlus size={20} className="text-gray-400 dark:text-slate-500" />
                 <span className="text-[13px] font-semibold text-gray-700 dark:text-slate-200">Tambah foto / video</span>
-                <span className="text-[11px] text-gray-400 dark:text-slate-500">Foto maks 3MB · Video maks 20MB</span>
+                <span className="text-[11px] text-gray-400 dark:text-slate-500">Foto maks 3MB · Video MP4 (H.264) maks 20MB</span>
               </button>
               {form.media.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -829,7 +875,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
         <input
           ref={bannerInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
           onChange={e => { handleBannerFile(e.target.files); e.currentTarget.value = ''; }}
         />
