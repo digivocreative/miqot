@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ElementType } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Plus, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronDown, Search, CheckCircle2,
+  Loader2, Play, ChevronDown, Search, CheckCircle2, FileText,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
+import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 import {
   HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
   type HotelListItem, type HotelDetail, type HotelMediaItem,
@@ -146,9 +147,9 @@ type KelolaView =
   | { kind: 'create'; tab: KelolaTab }
   | { kind: 'edit'; slug: string; tab: KelolaTab };
 
-const KELOLA_TABS: { id: KelolaTab; label: string }[] = [
-  { id: 'detail', label: 'Detail' },
-  { id: 'media', label: 'Media' },
+const KELOLA_TABS: { id: KelolaTab; label: string; icon: ElementType }[] = [
+  { id: 'detail', label: 'Detail', icon: FileText },
+  { id: 'media', label: 'Media', icon: ImagePlus },
 ];
 
 // Segmen tab yang tak dikenal (salah ketik, URL lama) jatuh ke Detail tanpa
@@ -535,43 +536,28 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     const landmark = HOTEL_CITY_LANDMARKS[form.city];
     return (
       <HotelViewShell viewKey="kelola-form">
-        {/* Tab menempel tepat di bawah header DashboardLayout dan memakai
-            material yang sama supaya terbaca sebagai satu chrome. Offset 61px =
-            tinggi header sub-halaman (py-3 + chip 36px + border), diukur di
-            browser — BUKAN 53px yang dipakai SettingsPage/StatistikPage: angka
-            itu peninggalan header lama dan kini kependekan 8px. */}
+        {/* Sub-bar sticky + SegmentedControl = pola baku halaman anak
+            (SettingsPage/StatistikPage). DS menetapkan SegmentedControl untuk
+            mode switch 2-4 opsi; tab garis-bawah custom bukan bagian sistem.
+            Materialnya ikut token Header DS supaya menyatu dengan header. */}
         <div
-          role="tablist"
           aria-label="Bagian form hotel"
-          className="sticky top-[61px] z-20 -mx-4 -mt-4 mb-4 flex gap-5 border-b border-gray-100 bg-white/90 px-4 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
+          style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+          className="sticky z-20 -mx-4 -mt-4 mb-4 border-b border-gray-100 bg-white/90 px-4 py-2 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
         >
-          {KELOLA_TABS.map(tab => {
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                id={`hotel-form-tab-${tab.id}`}
-                aria-selected={active}
-                aria-controls={`hotel-form-panel-${tab.id}`}
-                onClick={() => goTab(tab.id)}
-                className={`-mb-px shrink-0 border-b-2 px-0.5 py-3 text-[13px] font-bold transition-colors ${
-                  active
-                    ? 'border-emerald-500 text-gray-900 dark:border-emerald-400 dark:text-white'
-                    : 'border-transparent text-gray-400 dark:text-slate-500'
-                }`}
-              >
-                {tab.label}
-                {/* Isi tab lain tak terlihat — hitungan media jadi penandanya. */}
-                {tab.id === 'media' && form.media.length > 0 && (
-                  <span className={`ml-1.5 text-[11px] font-semibold ${active ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-slate-600'}`}>
-                    · {form.media.length}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          <SegmentedControl
+            options={KELOLA_TABS.map(tab => ({
+              value: tab.id,
+              label: tab.id === 'media' && form.media.length > 0
+                // Isi tab lain tak terlihat — hitungan media jadi penandanya.
+                ? `${tab.label} · ${form.media.length}`
+                : tab.label,
+              icon: tab.icon,
+            }))}
+            value={activeTab}
+            onChange={goTab}
+            accent="emerald"
+          />
         </div>
         {formLoading ? (
           <div className="space-y-3">
@@ -581,11 +567,11 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
           </div>
         ) : (
           <>
+          {/* SegmentedControl bukan pola tab ARIA (tombol biasa, seperti
+              SettingsPage), jadi panel ini tidak lagi role="tabpanel" —
+              aria-labelledby-nya akan menunjuk id yang sudah tak ada. */}
           <motion.div
             key={activeTab}
-            role="tabpanel"
-            id={`hotel-form-panel-${activeTab}`}
-            aria-labelledby={`hotel-form-tab-${activeTab}`}
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
