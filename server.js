@@ -18543,6 +18543,10 @@ const FEATURE_LABELS = {
   open_jadwal: 'Jadwal', open_analytics: 'Analytics',
   open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
   open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
+  // Direktori Hotel: selama gate nikita/bagas (keduanya admin) event TIDAK
+  // terekam (trackEvent klien & server sama-sama skip admin) — label disiapkan
+  // untuk saat gate dibuka ke semua agent.
+  open_hotel_directory: 'Direktori Hotel',
   open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
   open_kurs: 'Kurs',
   // Previously fired but unlabeled (rendered as raw slugs before)
@@ -18619,6 +18623,7 @@ const ACTION_LABELS = {
   brochure_prompt_open_chatgpt: 'Buka ChatGPT (Brosur)',
   landing_config_saved: 'Simpan Konfigurasi Landing',
   portal_magic_link_generated: 'Buat Magic Link Portal',
+  hotel_view: 'Lihat Detail Hotel',
   // Teras community suite
   create_post: 'Buat Kiriman Teras', add_comment: 'Komentar Teras',
   react_post: 'Suka Kiriman Teras', react_comment: 'Suka Komentar Teras',
