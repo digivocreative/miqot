@@ -229,19 +229,21 @@ const HOTEL_HEADER_CITY_LABELS: Record<string, string> = {
   mekkah: 'Mekkah', madinah: 'Madinah', turki: 'Turki', dubai: 'Dubai',
 };
 
-function getHotelPathInfo(): { city: string | null; slug: string | null } {
+function getHotelPathInfo(): { city: string | null; slug: string | null; isMedia: boolean } {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   if (segments[0] === 'dashboard' && segments[1] === 'ai-tools' && segments[2] === 'hotel') {
     const city = decodeURIComponent(segments[3] || '');
     if (HOTEL_HEADER_CITY_LABELS[city]) {
-      return { city, slug: decodeURIComponent(segments[4] || '') || null };
+      const slug = decodeURIComponent(segments[4] || '') || null;
+      return { city, slug, isMedia: Boolean(slug) && segments[5] === 'media' };
     }
   }
-  return { city: null, slug: null };
+  return { city: null, slug: null, isMedia: false };
 }
 
 function hotelHeaderLabel(): string {
-  const { city, slug } = getHotelPathInfo();
+  const { city, slug, isMedia } = getHotelPathInfo();
+  if (isMedia) return 'Foto & Video';
   if (slug) return 'Detail Hotel';
   if (city) return `Hotel ${HOTEL_HEADER_CITY_LABELS[city]}`;
   return 'Direktori Hotel';
@@ -762,6 +764,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   // Direktori Hotel: mundur bertahap detail → daftar kota → kategori → Tools
                   if (aiSub === 'hotel') {
                     const hotelPath = getHotelPathInfo();
+                    if (hotelPath.isMedia && hotelPath.slug && hotelPath.city) {
+                      navigatePath(`/dashboard/ai-tools/hotel/${hotelPath.city}/${encodeURIComponent(hotelPath.slug)}`);
+                      return;
+                    }
                     if (hotelPath.slug && hotelPath.city) {
                       navigatePath(`/dashboard/ai-tools/hotel/${hotelPath.city}`);
                       return;

@@ -61,7 +61,8 @@ export const HOTEL_CITY_LANDMARKS: Record<string, string> = {
 type View =
   | { kind: 'kategori' }
   | { kind: 'list'; city: string }
-  | { kind: 'detail'; slug: string; city: string };
+  | { kind: 'detail'; slug: string; city: string }
+  | { kind: 'media'; slug: string; city: string };
 
 // View diturunkan dari URL (/dashboard/ai-tools/hotel[/:city[/:slug]]) supaya
 // tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
@@ -71,6 +72,7 @@ function readHotelView(): View {
   const city = decodeURIComponent(segments[3] || '');
   if (HOTEL_CITIES.includes(city)) {
     const slug = decodeURIComponent(segments[4] || '');
+    if (slug && segments[5] === 'media') return { kind: 'media', city, slug };
     if (slug) return { kind: 'detail', city, slug };
     return { kind: 'list', city };
   }
@@ -217,7 +219,9 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   }, []);
 
   // Kunci primitif, bukan objek view — readHotelView membuat objek baru tiap render.
-  const detailSlug = view.kind === 'detail' ? view.slug : null;
+  // Halaman media ikut memakai detail yang sama; karena slug-nya identik, pindah
+  // detail↔media TIDAK memicu fetch ulang dan mediaIndex terpilih ikut terbawa.
+  const detailSlug = view.kind === 'detail' || view.kind === 'media' ? view.slug : null;
   const listCity = view.kind === 'list' ? view.city : null;
 
   // Ganti kota (termasuk via back/forward browser) = mulai dari saringan kosong.
@@ -298,6 +302,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const viewKey =
     view.kind === 'kategori' ? 'kategori'
     : view.kind === 'list' ? `list-${view.city}`
+    : view.kind === 'media' ? `media-${view.slug}`
     : `detail-${view.slug}`;
 
   if (loadError) {
@@ -478,23 +483,22 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const media = detail?.media || [];
   const activeMedia = media[mediaIndex] || null;
   const videos = media.filter(m => m.type === 'video');
+  const mediaPath = `/dashboard/ai-tools/hotel/${view.city}/${encodeURIComponent(view.slug)}/media`;
+  const openMedia = (index: number) => { setMediaIndex(index); onNavigate(mediaPath); };
 
-  // Tombol back detail → daftar ada di header DashboardLayout.
-  return (
-    <HotelViewShell viewKey={viewKey}>
-      {detailError && (
-        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
-          {detailError}
-        </div>
-      )}
-
-      {!detail && !detailError && <SkeletonDetail />}
-
-      {detail && (
-        <>
-          {/* Galeri */}
-          <div className="mt-3 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm bg-white dark:bg-slate-800">
-            <div className="relative h-56 bg-gray-100 dark:bg-slate-700">
+  // ── View: Semua Media ──
+  if (view.kind === 'media') {
+    return (
+      <HotelViewShell viewKey={viewKey}>
+        {detailError && (
+          <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+            {detailError}
+          </div>
+        )}
+        {!detail && !detailError && <SkeletonDetail />}
+        {detail && (
+          <>
+            <div className="relative h-64 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 shadow-sm">
               {activeMedia ? (
                 activeMedia.type === 'video' ? (
                   <PlyrVideo src={activeMedia.url} mode="fit" className="h-full w-full" ariaLabel={`Video ${detail.name}`} />
@@ -512,20 +516,22 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                 </span>
               )}
             </div>
-            {media.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto p-2.5">
+
+            {media.length > 0 && (
+              <div className="mt-3 grid grid-cols-3 gap-2">
                 {media.map((item, index) => (
                   <button
                     key={item.url}
                     onClick={() => setMediaIndex(index)}
                     aria-label={item.type === 'video' ? `Putar video ${index + 1}` : `Lihat foto ${index + 1}`}
-                    className={`relative h-12 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${
+                    aria-current={index === mediaIndex}
+                    className={`relative aspect-square overflow-hidden rounded-xl border-2 transition-all active:scale-[0.97] ${
                       index === mediaIndex ? 'border-teal-500' : 'border-transparent'
                     }`}
                   >
                     {item.type === 'video' ? (
                       <div className="flex h-full w-full items-center justify-center bg-slate-800">
-                        <Play size={14} className="text-white" />
+                        <Play size={18} className="text-white" />
                       </div>
                     ) : (
                       <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -534,21 +540,104 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                 ))}
               </div>
             )}
+
+            {media.length === 0 && (
+              <div className="py-10 text-center">
+                <ImageOff size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
+                <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">Hotel ini belum punya foto atau video.</p>
+              </div>
+            )}
+          </>
+        )}
+      </HotelViewShell>
+    );
+  }
+
+  // Tombol back detail → daftar ada di header DashboardLayout.
+  return (
+    <HotelViewShell viewKey={viewKey}>
+      {detailError && (
+        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+          {detailError}
+        </div>
+      )}
+
+      {!detail && !detailError && <SkeletonDetail />}
+
+      {detail && (
+        <>
+          {/* Galeri: satu cover besar + tiga mini di bawahnya (pola tiket.com);
+              mini terakhir menjadi pintu "Lihat semua" ke halaman media. */}
+          <div className="mt-3">
+            <button
+              onClick={() => openMedia(0)}
+              disabled={media.length === 0}
+              aria-label={media.length ? `Lihat semua media ${detail.name}` : undefined}
+              className="relative block h-56 w-full overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 shadow-sm transition-all enabled:hover:shadow-lg enabled:active:scale-[0.99] disabled:cursor-default"
+            >
+              {media[0] ? (
+                media[0].type === 'video' ? (
+                  <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                    <Play size={32} className="text-white" />
+                  </div>
+                ) : (
+                  <img src={media[0].url} alt={detail.name} className="h-full w-full object-cover" />
+                )
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <ImageOff size={32} className="text-gray-300 dark:text-slate-500" />
+                </div>
+              )}
+            </button>
+
+            {media.length > 1 && (
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {media.slice(1, 4).map((item, index) => {
+                  const mediaIdx = index + 1;
+                  const isLastSlot = index === Math.min(media.length - 2, 2);
+                  const hiddenCount = media.length - 4;
+                  return (
+                    <button
+                      key={item.url}
+                      onClick={() => openMedia(mediaIdx)}
+                      aria-label={isLastSlot ? `Lihat semua media ${detail.name}` : `Lihat media ${mediaIdx + 1}`}
+                      className="relative h-20 overflow-hidden rounded-xl border border-gray-100 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 transition-all hover:shadow-md active:scale-[0.97]"
+                    >
+                      {item.type === 'video' ? (
+                        <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                          <Play size={18} className="text-white" />
+                        </div>
+                      ) : (
+                        <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      )}
+                      {isLastSlot && (
+                        <span className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 px-1 text-center text-[11px] font-bold leading-tight text-white">
+                          Lihat semua
+                          {hiddenCount > 0 && <span className="text-[10px] font-semibold text-white/80">+{hiddenCount} lagi</span>}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Identitas */}
           <div className="mt-4">
-            <span className="inline-flex items-center gap-1 rounded-full border border-teal-100 dark:border-teal-800/40 bg-teal-50 dark:bg-teal-900/20 px-2.5 py-0.5 text-[10px] font-semibold text-teal-600 dark:text-teal-400">
-              <Building2 size={10} />
-              {HOTEL_CITY_LABELS[detail.city]}
-            </span>
-            <h1 className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{detail.name}</h1>
-            {detail.stars ? (
-              <div className="mt-1 flex items-center gap-2">
-                <StarRow stars={detail.stars} />
-                <span className="text-xs text-gray-500 dark:text-slate-400">Hotel bintang {detail.stars}</span>
-              </div>
-            ) : null}
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{detail.name}</h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full border border-teal-100 dark:border-teal-800/40 bg-teal-50 dark:bg-teal-900/20 px-2.5 py-0.5 text-[10px] font-semibold text-teal-600 dark:text-teal-400">
+                <Building2 size={10} />
+                {HOTEL_CITY_LABELS[detail.city]}
+              </span>
+              {detail.stars ? (
+                <>
+                  <StarRow stars={detail.stars} />
+                  <span className="text-xs text-gray-500 dark:text-slate-400">Hotel bintang {detail.stars}</span>
+                </>
+              ) : null}
+            </div>
           </div>
 
           {detail.distance_label && landmark && (
