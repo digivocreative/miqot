@@ -2207,8 +2207,12 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await card.waitFor();
       await card.getByText('Lampiran teks', { exact: true }).waitFor();
       await card.getByText('Panduan Manasik Ringkas', { exact: true }).waitFor();
-      // Jumlah karakter memakai pemisah ribuan lokal id-ID.
-      await card.getByText('1.240 karakter', { exact: true }).waitFor();
+      // Baris kaki kartu menaksir LAMA BACA, bukan jumlah karakter: 1.240
+      // karakter / 1.200 per menit = 1 menit. Jumlah karakternya sendiri hanya
+      // muncul di header sheet (diuji di bawah, setelah kartu diklik).
+      await card.getByText('± 1 menit baca', { exact: true }).waitFor();
+      assert.equal(await card.getByText('1.240 karakter', { exact: true }).count(), 0,
+        'kartu feed tidak lagi menampilkan jumlah karakter');
       // Feed TIDAK boleh menarik body: yang tampil di kartu murni cuplikan.
       assert.equal(
         matchingRequests(api, 'GET', '/api/community/posts/post-snippet/snippet').length,

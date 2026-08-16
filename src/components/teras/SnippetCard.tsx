@@ -1,12 +1,19 @@
 import { Copy, FileText, Loader2 } from 'lucide-react';
 
+import { communitySnippetReadingMinutes } from '../../../lib/community-snippet.js';
+
 /**
  * Kartu cuplikan lampiran teks di linimasa & halaman detail.
  *
  * Skin-nya sengaja identik dengan LinkPreviewCard (eyebrow uppercase → judul
  * tebal → cuplikan redup, dibungkus rounded-2xl bergaris tipis) supaya feed
  * tidak kedatangan bahasa visual baru hanya karena ada satu jenis lampiran
- * lagi. Yang membedakan cuma baris kaki: jumlah karakter + aksi Salin.
+ * lagi. Yang membedakan cuma baris kaki: taksiran lama baca + aksi Salin.
+ *
+ * Baris kaki menyebut MENIT, bukan jumlah karakter: pembaca sedang memutuskan
+ * "buka sekarang atau nanti?", dan "1.240 karakter" tidak menjawab itu — tak
+ * ada yang bisa menaksir 1.240 karakter itu berapa lama. Jumlah karakter tetap
+ * hidup di header SnippetSheet, tempat pembaca sudah terlanjur membuka.
  *
  * Baris kaki DIKELUARKAN dari elemen tombol utama — bukan disarangkan di
  * dalamnya. `<button>` di dalam `<button>` bukan HTML yang sah, dan versi
@@ -67,8 +74,8 @@ export default function SnippetCard({
         </div>
       </button>
       <div className="flex items-center gap-2 border-t border-gray-100 px-3.5 py-2.5 dark:border-slate-700/60">
-        <span className="text-[11px] font-semibold tabular-nums text-gray-400 dark:text-slate-500">
-          {charCount.toLocaleString('id-ID')} karakter
+        <span className="text-[11px] font-medium tabular-nums text-gray-400 dark:text-slate-500">
+          ± {communitySnippetReadingMinutes(charCount)} menit baca
         </span>
         <span className="flex-1" />
         <button
@@ -82,7 +89,7 @@ export default function SnippetCard({
           // menarik body penuh lebih dulu, dan itu bisa makan waktu — makanya
           // ada keadaan sibuk di sini.
           title="Salin seluruh teks lampiran"
-          className="-my-1.5 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[11px] font-bold text-teal-600 transition-colors hover:bg-teal-50 disabled:opacity-45 dark:text-teal-400 dark:hover:bg-teal-900/20"
+          className="-my-1.5 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold text-teal-600 transition-colors hover:bg-teal-50 disabled:opacity-45 dark:text-teal-400 dark:hover:bg-teal-900/20"
         >
           {copyBusy ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
           Salin
