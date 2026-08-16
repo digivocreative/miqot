@@ -1259,7 +1259,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
               type="text"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              placeholder="Cari nama, WA, kode, paspor, paket..."
+              placeholder="Cari..."
               className="flex-1 h-9 bg-transparent text-xs text-gray-800 dark:text-white placeholder:text-gray-400 outline-none min-w-0"
             />
             <button
