@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronDown, Search,
+  Loader2, Play, ChevronDown, Search, Check,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
@@ -184,6 +184,14 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Simpan TIDAK memulangkan ke daftar (permintaan user) — konfirmasi muncul
+  // sebagai pita hijau sekilas di bar aksi, lalu hilang sendiri.
+  const [saveOk, setSaveOk] = useState(false);
+  const saveOkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Setelah Tambah sukses kita pindah ke URL edit hotel baru. Datanya sudah di
+  // tangan, jadi efek editSlug tak perlu memuat ulang — tanpa ini form berkedip
+  // skeleton dan terlihat seperti berpindah halaman.
+  const skipEditFetchRef = useRef<string | null>(null);
   const [facilityDraft, setFacilityDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -317,8 +325,17 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     setSaveError(null);
   }, [isCreate]);
 
+  useEffect(() => () => {
+    if (saveOkTimerRef.current) clearTimeout(saveOkTimerRef.current);
+  }, []);
+
   useEffect(() => {
     if (!editSlug) return;
+    // Baru saja dibuat lewat form ini — form sudah memegang baris tersimpan.
+    if (skipEditFetchRef.current === editSlug) {
+      skipEditFetchRef.current = null;
+      return;
+    }
     let cancelled = false;
     setForm(emptyForm());
     setEditingId(null);
@@ -430,6 +447,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     }
     setSaving(true);
     setSaveError(null);
+    setSaveOk(false);
     const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
     const body = {
       name: form.name,
@@ -457,7 +475,22 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan hotel');
       // Tersimpan → bukan lagi unggahan yatim; jangan dibuang saat form ditutup.
       pendingUploadsRef.current.clear();
-      onNavigate('/dashboard/hotels');
+      // Form disegarkan dari baris hasil simpan, bukan dibiarkan apa adanya:
+      // server menormalkan isian (trim, jarak dipaksa null untuk Turki/Dubai),
+      // jadi yang tampil = yang benar-benar tersimpan.
+      setForm(formFromDetail(json.data));
+      setEditingId(json.data.id);
+      // Tambah → pindah ke URL edit hotel baru (replace, tanpa muat ulang):
+      // tetap di halaman yang sama, dan klik Simpan berikutnya jadi PUT
+      // sehingga tidak melahirkan hotel kembar.
+      if (!editSlug) {
+        skipEditFetchRef.current = json.data.slug;
+        const base = `/dashboard/hotels/edit/${encodeURIComponent(json.data.slug)}`;
+        onNavigate(activeTab === 'detail' ? base : `${base}/${activeTab}`, { replace: true });
+      }
+      setSaveOk(true);
+      if (saveOkTimerRef.current) clearTimeout(saveOkTimerRef.current);
+      saveOkTimerRef.current = setTimeout(() => setSaveOk(false), 2500);
       refetch();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal menyimpan hotel');
@@ -493,6 +526,44 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     const landmark = HOTEL_CITY_LANDMARKS[form.city];
     return (
       <HotelViewShell viewKey="kelola-form">
+        {/* Tab menempel tepat di bawah header DashboardLayout dan memakai
+            material yang sama supaya terbaca sebagai satu chrome. Offset 61px =
+            tinggi header sub-halaman (py-3 + chip 36px + border), diukur di
+            browser — BUKAN 53px yang dipakai SettingsPage/StatistikPage: angka
+            itu peninggalan header lama dan kini kependekan 8px. */}
+        <div
+          role="tablist"
+          aria-label="Bagian form hotel"
+          className="sticky top-[61px] z-20 -mx-4 -mt-4 mb-4 flex gap-5 border-b border-gray-100 bg-white/90 px-4 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
+        >
+          {KELOLA_TABS.map(tab => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                id={`hotel-form-tab-${tab.id}`}
+                aria-selected={active}
+                aria-controls={`hotel-form-panel-${tab.id}`}
+                onClick={() => goTab(tab.id)}
+                className={`-mb-px shrink-0 border-b-2 px-0.5 py-3 text-[13px] font-bold transition-colors ${
+                  active
+                    ? 'border-emerald-500 text-gray-900 dark:border-emerald-400 dark:text-white'
+                    : 'border-transparent text-gray-400 dark:text-slate-500'
+                }`}
+              >
+                {tab.label}
+                {/* Isi tab lain tak terlihat — hitungan media jadi penandanya. */}
+                {tab.id === 'media' && form.media.length > 0 && (
+                  <span className={`ml-1.5 text-[11px] font-semibold ${active ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-slate-600'}`}>
+                    · {form.media.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
         {formLoading ? (
           <div className="space-y-3">
             {[0, 1, 2].map(i => (
@@ -500,7 +571,19 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             ))}
           </div>
         ) : (
-          <div className="space-y-6">
+          <>
+          <motion.div
+            key={activeTab}
+            role="tabpanel"
+            id={`hotel-form-panel-${activeTab}`}
+            aria-labelledby={`hotel-form-tab-${activeTab}`}
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="space-y-6"
+          >
+            {activeTab === 'detail' ? (
+            <>
             {/* INFO DASAR */}
             <section className="space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Info Dasar</h3>
@@ -677,10 +760,10 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 </p>
               </div>
             </section>
-
-            {/* FOTO & VIDEO */}
+            </>
+            ) : (
+            /* MEDIA — tanpa judul seksi: label tab sudah menyebutkannya. */
             <section className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Foto & Video</h3>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -743,29 +826,43 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               )}
             </section>
 
+            )}
+          </motion.div>
+
+          {/* Action bar menempel di dasar layar (pola JamaahEditPage) supaya
+              Simpan terjangkau dari tab mana pun tanpa scroll ke dasar halaman.
+              Error ikut pindah ke sini agar tak pernah muncul di luar layar. */}
+          <div className="sticky bottom-0 -mx-4 mt-6 border-t border-gray-100 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
             {saveError && (
-              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+              <div className="mb-2.5 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
                 {saveError}
               </div>
             )}
-
-            <div className="space-y-2">
+            {saveOk && !saveError && (
+              <div className="mb-2.5 flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-400">
+                <Check size={13} strokeWidth={2.5} />
+                Perubahan tersimpan.
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => onNavigate('/dashboard/hotels')}
+                disabled={saving}
+                className="shrink-0 rounded-xl bg-gray-100 px-5 py-3 text-[13px] font-semibold text-gray-600 transition-colors hover:bg-gray-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Batal
+              </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {saving && <Loader2 size={16} className="animate-spin" />}
                 {editSlug ? 'Simpan Perubahan' : 'Simpan Hotel'}
               </button>
-              <button
-                onClick={() => onNavigate('/dashboard/hotels')}
-                className="w-full py-2 text-[13px] font-semibold text-gray-500 dark:text-slate-400"
-              >
-                Batal
-              </button>
             </div>
           </div>
+          </>
         )}
       </HotelViewShell>
     );
