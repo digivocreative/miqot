@@ -490,7 +490,9 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                     >
                       <Star
                         size={24}
-                        className={form.stars && i <= form.stars ? 'text-amber-400 fill-amber-400' : 'text-gray-200 dark:text-slate-700'}
+                        // fill lewat atribut (bukan kelas fill-*) — lihat catatan StarRow.
+                        fill={form.stars && i <= form.stars ? 'currentColor' : 'none'}
+                        className={form.stars && i <= form.stars ? 'text-amber-400' : 'text-gray-200 dark:text-slate-700'}
                       />
                     </button>
                   ))}

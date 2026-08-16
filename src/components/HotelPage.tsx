@@ -91,16 +91,23 @@ async function fetchHotelJson<T>(url: string): Promise<T> {
 
 // Hanya bintang terisi (tanpa slot abu-abu — terlihat kusam terutama di dark
 // mode), solid penuh tanpa stroke — outline terlihat "kurang menarik" (feedback).
+//
+// Warna WAJIB lewat `fill="currentColor"` + text-amber-400, BUKAN kelas
+// `fill-amber-400`: kelas fill-* itu baru lahir bersama fitur hotel, sehingga
+// perangkat yang service worker-nya masih memegang CSS lama merender bintang
+// tanpa warna isi — tak berwarna saat masih ada stroke, hilang sama sekali
+// setelah stroke dinolkan. `text-amber-400` sudah ada di CSS lama.
 export function StarRow({ stars, size = 13 }: { stars: number | null; size?: number }) {
   if (!stars) return null;
   return (
-    <div className="flex items-center gap-[3px]">
+    <div className="flex items-center gap-0.5">
       {Array.from({ length: Math.min(stars, 5) }, (_, i) => (
         <Star
           key={i}
           size={size}
           strokeWidth={0}
-          className="fill-amber-400 drop-shadow-sm"
+          fill="currentColor"
+          className="text-amber-400"
         />
       ))}
     </div>
