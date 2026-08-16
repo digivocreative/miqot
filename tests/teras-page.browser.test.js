@@ -2193,6 +2193,15 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
           preview,
           char_count: 1240,
         },
+      }), makePost({
+        // Lampiran TANPA judul — satu-satunya kartu yang masih memakai eyebrow.
+        id: 'post-snippet-tanpa-judul',
+        body: 'Ini catatan tanpa judul',
+        snippet: {
+          title: null,
+          preview: 'Cuplikan lampiran yang tidak diberi judul oleh penulisnya.',
+          char_count: 320,
+        },
       })],
       snippetBodies: {
         'post-snippet': { title: 'Panduan Manasik Ringkas', body: fullBody, char_count: 1240 },
@@ -2205,14 +2214,25 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
 
       const card = article.locator('[data-teras-snippet-card]');
       await card.waitFor();
-      await card.getByText('Lampiran teks', { exact: true }).waitFor();
       await card.getByText('Panduan Manasik Ringkas', { exact: true }).waitFor();
-      // Baris kaki kartu menaksir LAMA BACA, bukan jumlah karakter: 1.240
-      // karakter / 1.200 per menit = 1 menit. Jumlah karakternya sendiri hanya
-      // muncul di header sheet (diuji di bawah, setelah kartu diklik).
-      await card.getByText('± 1 menit baca', { exact: true }).waitFor();
-      assert.equal(await card.getByText('1.240 karakter', { exact: true }).count(), 0,
-        'kartu feed tidak lagi menampilkan jumlah karakter');
+      // Eyebrow "Lampiran teks" HANYA milik kartu tanpa judul: begitu ada
+      // judul, judullah yang menjelaskan kartu ini benda apa, dan ikon di
+      // sebelahnya yang menandai jenisnya. Diuji dua arah — kartu tanpa judul
+      // di bawah — karena arah yang satu saja masih hijau kalau eyebrow-nya
+      // hilang sama sekali (atau tak pernah bersyarat).
+      assert.equal(await card.getByText('Lampiran teks', { exact: true }).count(), 0,
+        'kartu berjudul tidak boleh memakai eyebrow');
+      // Kartu tidak lagi punya baris kaki: tanpa jumlah karakter, tanpa
+      // taksiran lama baca, dan tanpa aksi Salin (Salin hidup di sheet).
+      for (const absent of ['1.240 karakter', '± 1 menit baca', 'Salin']) {
+        assert.equal(await card.getByText(absent, { exact: true }).count(), 0,
+          `kartu feed tidak boleh lagi menampilkan "${absent}"`);
+      }
+
+      const kartuTanpaJudul = app.page
+        .locator('article').filter({ hasText: 'Ini catatan tanpa judul' })
+        .locator('[data-teras-snippet-card]');
+      await kartuTanpaJudul.getByText('Lampiran teks', { exact: true }).waitFor();
       // Feed TIDAK boleh menarik body: yang tampil di kartu murni cuplikan.
       assert.equal(
         matchingRequests(api, 'GET', '/api/community/posts/post-snippet/snippet').length,

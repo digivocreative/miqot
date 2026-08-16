@@ -2075,8 +2075,6 @@ export default function TerasPage({
   const [snippetLoading, setSnippetLoading] = useState(false);
   const [snippetError, setSnippetError] = useState<string | null>(null);
   const snippetControllerRef = useRef<AbortController | null>(null);
-  // Id kiriman yang tombol Salin-nya sedang menarik body dari server.
-  const [snippetCopyBusyId, setSnippetCopyBusyId] = useState<string | null>(null);
 
   /** Satu-satunya jalan mendapat body lampiran; feed tidak pernah membawanya. */
   const fetchSnippetBody = useCallback(async (postId: string, signal: AbortSignal) => {
@@ -2153,32 +2151,6 @@ export default function TerasPage({
       showToast('Gagal menyalin teks', 'error');
     }
   }, [showToast]);
-
-  /**
-   * Salin dari KARTU feed: body ditarik dulu, baru disalin. Menyalin
-   * `preview` yang ada di kartu itu bug senyap — agent baru sadar teksnya
-   * terpotong setelah menempelkannya ke WhatsApp.
-   *
-   * Catatan: karena ada `await` sebelum clipboard ditulis, Safari bisa
-   * menganggapnya di luar gestur pengguna dan menolak. Itu berakhir sebagai
-   * toast galat, dan jalur yang selalu berhasil tetap tersedia: buka sheet
-   * (body sudah termuat di sana, jadi Salin menulis dalam gestur yang sama).
-   */
-  const copySnippetFromCard = useCallback((post: CommunityPost) => {
-    if (!post.snippet || snippetCopyBusyId) return;
-    setSnippetCopyBusyId(post.id);
-    void (async () => {
-      const controller = new AbortController();
-      try {
-        const loaded = await fetchSnippetBody(post.id, controller.signal);
-        await copySnippetText(loaded);
-      } catch (copyError) {
-        showToast(errorMessage(copyError, 'Gagal memuat lampiran teks'), 'error');
-      } finally {
-        setSnippetCopyBusyId(null);
-      }
-    })();
-  }, [snippetCopyBusyId, fetchSnippetBody, copySnippetText, showToast]);
 
   /** HANYA `text` — judul/URL sengaja tidak dikirim; lampiran bukan tautan. */
   const shareSnippetText = useCallback(async (text: string) => {
@@ -6576,10 +6548,7 @@ export default function TerasPage({
                       <SnippetCard
                         title={post.snippet.title}
                         preview={post.snippet.preview}
-                        charCount={post.snippet.char_count}
-                        copyBusy={snippetCopyBusyId === post.id}
                         onOpen={() => openSnippetSheet(post)}
-                        onCopy={() => copySnippetFromCard(post)}
                       />
                     )}
 

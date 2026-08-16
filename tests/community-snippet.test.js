@@ -7,7 +7,6 @@ import {
   COMMUNITY_SNIPPET_PREVIEW_CHARS,
   buildCommunitySnippetPreview,
   communitySnippetCardPayload,
-  communitySnippetReadingMinutes,
   normalizeCommunitySnippetInput,
 } from '../lib/community-snippet.js';
 
@@ -226,27 +225,3 @@ test('communitySnippetCardPayload: nilai kolom tercemar dijinakkan', () => {
   );
 });
 
-test('communitySnippetReadingMinutes: lantai 1 menit, pembulatan ke terdekat', () => {
-  // Lantai: lampiran sependek apa pun tetap "1 menit", bukan 0 (yang berbunyi
-  // seperti galat di kartu feed).
-  assert.equal(communitySnippetReadingMinutes(1), 1);
-  assert.equal(communitySnippetReadingMinutes(600), 1);
-  assert.equal(communitySnippetReadingMinutes(1200), 1);
-  // Pembulatan ke TERDEKAT, bukan ke atas: 1.800 karakter = 1,5 menit -> 2,
-  // sedangkan 1.700 (1,42) masih 1.
-  assert.equal(communitySnippetReadingMinutes(1700), 1);
-  assert.equal(communitySnippetReadingMinutes(1800), 2);
-  // Lampiran terpanjang yang diizinkan tidak boleh melar jadi angka aneh.
-  assert.equal(communitySnippetReadingMinutes(COMMUNITY_SNIPPET_MAX_CHARS), 8);
-});
-
-test('communitySnippetReadingMinutes: nilai tercemar tidak melahirkan NaN', () => {
-  // char_count kartu feed berasal dari kolom DB yang sudah pernah tercemar
-  // (lihat communitySnippetCardPayload) — kartu tidak boleh menulis "± NaN".
-  assert.equal(communitySnippetReadingMinutes(0), 1);
-  assert.equal(communitySnippetReadingMinutes(-500), 1);
-  assert.equal(communitySnippetReadingMinutes(NaN), 1);
-  assert.equal(communitySnippetReadingMinutes(Infinity), 1);
-  assert.equal(communitySnippetReadingMinutes(undefined), 1);
-  assert.equal(communitySnippetReadingMinutes('900'), 1);
-});

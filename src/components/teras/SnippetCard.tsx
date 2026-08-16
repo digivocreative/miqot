@@ -1,45 +1,31 @@
-import { Copy, FileText, Loader2 } from 'lucide-react';
-
-import { communitySnippetReadingMinutes } from '../../../lib/community-snippet.js';
+import { FileText } from 'lucide-react';
 
 /**
  * Kartu cuplikan lampiran teks di linimasa & halaman detail.
  *
- * Skin-nya sengaja identik dengan LinkPreviewCard (eyebrow uppercase → judul
- * tebal → cuplikan redup, dibungkus rounded-2xl bergaris tipis) supaya feed
- * tidak kedatangan bahasa visual baru hanya karena ada satu jenis lampiran
- * lagi. Yang membedakan cuma baris kaki: taksiran lama baca + aksi Salin.
+ * Skin-nya sengaja identik dengan LinkPreviewCard (judul tebal → cuplikan
+ * redup, dibungkus rounded-2xl bergaris tipis) supaya feed tidak kedatangan
+ * bahasa visual baru hanya karena ada satu jenis lampiran lagi.
  *
- * Baris kaki menyebut MENIT, bukan jumlah karakter: pembaca sedang memutuskan
- * "buka sekarang atau nanti?", dan "1.240 karakter" tidak menjawab itu — tak
- * ada yang bisa menaksir 1.240 karakter itu berapa lama. Jumlah karakter tetap
- * hidup di header SnippetSheet, tempat pembaca sudah terlanjur membuka.
+ * Ikon dokumen muncul TEPAT SEKALI, dan tempatnya bergantung pada ada-tidaknya
+ * judul: bersanding dengan judul kalau ada, atau memimpin baris eyebrow
+ * "Lampiran teks" kalau tidak. Eyebrow itu memang hanya untuk kartu tanpa
+ * judul — ia label darurat yang menjelaskan kartu ini benda apa; begitu ada
+ * judul, judullah yang menjelaskan, dan eyebrow tinggal jadi baris ketiga yang
+ * mengulang hal yang sudah ditandai ikon.
  *
- * Baris kaki DIKELUARKAN dari elemen tombol utama — bukan disarangkan di
- * dalamnya. `<button>` di dalam `<button>` bukan HTML yang sah, dan versi
- * `<span role="button">` menuntut kita menambal sendiri Enter/Space, fokus,
- * serta hentikan-rambat; memisahkan dua area yang memang punya dua aksi
- * berbeda lebih jujur untuk pembaca layar sekaligus lebih sedikit kode.
+ * Kartu ini SATU tombol utuh tanpa baris kaki: tidak ada aksi kedua yang perlu
+ * dijauhkan dari aksi buka. Menyalin lampiran hidup di sheet, tempat body
+ * penuhnya memang sudah termuat.
  */
 
 interface SnippetCardProps {
   title: string | null;
   preview: string;
-  charCount: number;
-  /** Salin sedang mengambil body penuh dari server (cuplikan tidak cukup). */
-  copyBusy?: boolean;
   onOpen: () => void;
-  onCopy: () => void;
 }
 
-export default function SnippetCard({
-  title,
-  preview,
-  charCount,
-  copyBusy = false,
-  onOpen,
-  onCopy,
-}: SnippetCardProps) {
+export default function SnippetCard({ title, preview, onOpen }: SnippetCardProps) {
   return (
     <div
       data-teras-snippet-card
@@ -60,12 +46,16 @@ export default function SnippetCard({
         className="block w-full min-w-0 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-900"
       >
         <div className="px-3.5 py-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">
-            <FileText size={12} /> Lampiran teks
-          </div>
-          {title && (
-            <div className="mt-0.5 line-clamp-2 text-[14px] font-bold leading-[1.4] text-gray-900 dark:text-white">
-              {title}
+          {title ? (
+            <div className="flex items-start gap-1.5 text-[14px] font-bold leading-[1.4] text-gray-900 dark:text-white">
+              {/* items-start + offset kecil: pada judul dua baris, ikon duduk
+                  di baris PERTAMA, bukan melayang di tengah blok. */}
+              <FileText size={14} className="mt-[3px] shrink-0 text-gray-400 dark:text-slate-500" />
+              <span className="line-clamp-2 min-w-0">{title}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">
+              <FileText size={12} /> Lampiran teks
             </div>
           )}
           <div className="mt-1 line-clamp-3 whitespace-pre-wrap text-[13px] leading-[1.5] text-gray-500 dark:text-slate-400">
@@ -73,28 +63,6 @@ export default function SnippetCard({
           </div>
         </div>
       </button>
-      <div className="flex items-center gap-2 border-t border-gray-100 px-3.5 py-2.5 dark:border-slate-700/60">
-        <span className="text-[11px] font-medium tabular-nums text-gray-400 dark:text-slate-500">
-          ± {communitySnippetReadingMinutes(charCount)} menit baca
-        </span>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={event => {
-            event.stopPropagation();
-            onCopy();
-          }}
-          disabled={copyBusy}
-          // Menyalin lampiran BUKAN menyalin cuplikan di kartu ini: induk
-          // menarik body penuh lebih dulu, dan itu bisa makan waktu — makanya
-          // ada keadaan sibuk di sini.
-          title="Salin seluruh teks lampiran"
-          className="-my-1.5 flex min-h-11 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold text-teal-600 transition-colors hover:bg-teal-50 disabled:opacity-45 dark:text-teal-400 dark:hover:bg-teal-900/20"
-        >
-          {copyBusy ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
-          Salin
-        </button>
-      </div>
     </div>
   );
 }
