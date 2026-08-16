@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
-  Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
+  Plus, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
   Loader2, Play, ChevronDown, Search, CheckCircle2,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -1035,8 +1035,16 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
         {filteredHotels.map(hotel => (
           <div
             key={hotel.id}
-            className="flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm"
+            className="flex items-center gap-1.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm"
           >
+            {/* Barisnya sendiri yang membuka Edit — tombol pensil dibuang atas
+                permintaan user. Hapus tetap saudara (bukan anak) karena button
+                tidak boleh bersarang di dalam button. */}
+            <button
+              onClick={() => onNavigate(`/dashboard/hotels/edit/${encodeURIComponent(hotel.slug)}`)}
+              aria-label={`Edit ${hotel.name}`}
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl p-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-700/40"
+            >
             <div className="h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
               {hotel.cover ? (
                 <img src={hotel.cover} alt={hotel.name} className="h-full w-full object-cover" loading="lazy" />
@@ -1055,22 +1063,14 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <button
-                onClick={() => onNavigate(`/dashboard/hotels/edit/${encodeURIComponent(hotel.slug)}`)}
-                aria-label={`Edit ${hotel.name}`}
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                <Pencil size={14} />
-              </button>
-              <button
-                onClick={() => setDeleteTarget(hotel)}
-                aria-label={`Hapus ${hotel.name}`}
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-500 transition-colors hover:bg-red-100 active:scale-95 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
+            </button>
+            <button
+              onClick={() => setDeleteTarget(hotel)}
+              aria-label={`Hapus ${hotel.name}`}
+              className="mr-2.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-500 transition-colors hover:bg-red-100 active:scale-95 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
         ))}
       </div>
