@@ -137,6 +137,30 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
     return () => player.destroy();
   }, [mode]);
 
+  // Rasio dipegang WRAPPER, bukan hanya elemen video — skeleton (inset-0)
+  // dan kotak media dengan demikian SELALU berukuran sama: tidak ada fase di
+  // mana skeleton tampil dengan rasio lain lalu melompat saat video/poster
+  // menegakkan ukurannya sendiri (termasuk sebelum Plyr sempat membungkus
+  // video). fit: lebar px definit + rasio (max-width menjaga kolom sempit);
+  // strip: tinggi 100% dari rail + rasio menurunkan lebar; fill/viewer:
+  // ukurannya milik parent/viewport, rasio wrapper justru salah di sana.
+  // Tanpa dimensi (media lama / capture gagal): beri tinggi minimum ala
+  // PostImage selama belum settle supaya lompatannya kecil, bukan dari nol.
+  const wrapperStyle: CSSProperties = {
+    ...(minWidth ? { '--teras-plyr-minw': minWidth } : {}),
+    ...(width && height && (mode === 'fit' || mode === 'strip')
+      ? {
+        aspectRatio: `${width} / ${height}`,
+        ...(mode === 'fit'
+          ? { width: `${Math.round(width * Math.min(1, FIT_MAX_HEIGHT_PX / height))}px`, maxWidth: '100%' }
+          : {}),
+      }
+      : {}),
+    ...(!(width && height) && mode === 'fit' && showSkeleton && !settled
+      ? { minHeight: '16rem' }
+      : {}),
+  } as CSSProperties;
+
   return (
     <div
       // Penanda "ini area media, bukan latar" — Plyr menumpuk poster & kontrol
@@ -145,7 +169,7 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
       // klik mana yang menutup popup.
       data-media-content="video"
       className={`teras-plyr teras-plyr-${mode} relative${className ? ` ${className}` : ''}`}
-      style={minWidth ? ({ '--teras-plyr-minw': minWidth } as CSSProperties) : undefined}
+      style={wrapperStyle}
     >
       <video
         ref={videoRef}

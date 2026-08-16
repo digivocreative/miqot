@@ -903,6 +903,12 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await renderedVideo.waitFor();
       assert.equal(await renderedVideo.getAttribute('poster'), 'https://cdn.example.test/community/media-2.jpg');
       assert.equal(await renderedVideo.evaluate(el => el.style.aspectRatio), '64 / 48');
+      // Rasio juga dipegang wrapper (kotak skeleton) — skeleton dan media
+      // tidak boleh pernah berukuran beda lalu melompat saat poster tiba.
+      assert.equal(
+        await createdArticle.locator('[data-media-content="video"]').evaluate(el => el.style.aspectRatio),
+        '64 / 48',
+      );
 
       // Skeleton placeholder hadir di area media dan memudar setelah poster
       // termuat — kontrak anti-"ngejedug": tidak ada pop-in tanpa shimmer,
