@@ -130,15 +130,11 @@ const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
 
 function SkeletonKategori() {
   return (
-    <>
-      <div className={`h-4 w-28 rounded ${SKELETON_BLOCK}`} />
-      <div className={`mt-2 h-3 w-56 rounded ${SKELETON_BLOCK}`} />
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        {[0, 1, 2, 3].map(i => (
-          <div key={i} className={`h-40 rounded-2xl ${SKELETON_BLOCK}`} />
-        ))}
-      </div>
-    </>
+    <div className="flex flex-col gap-3">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className={`h-40 rounded-2xl ${SKELETON_BLOCK}`} />
+      ))}
+    </div>
   );
 }
 
@@ -275,14 +271,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   if (view.kind === 'kategori') {
     return (
       <HotelViewShell viewKey={viewKey}>
-        <div>
-          <h2 className="text-base font-bold text-gray-900 dark:text-white">Pilih kategori</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-            Lihat info hotel, jarak ke masjid, dan foto/video per kota.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="flex flex-col gap-3">
           {HOTEL_CITIES.map(city => {
             const bannerSrc = banners[city] || coverByCity[city];
             return (
