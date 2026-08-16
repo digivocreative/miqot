@@ -132,12 +132,26 @@ function createProfileApi({
 
     if (record.method === 'POST' && record.pathname === '/api/community/posts') {
       api.createSequence += 1;
+      // Komposer SELALU mengirim `segments[]` (satu elemen untuk kiriman
+      // biasa) sejak rekonsiliasi utas, dan server membalas segmen pertama.
+      // Membaca `body` dari akar payload — bentuk pra-utas — membuat stub ini
+      // membalas kiriman berisi string kosong: kirimannya tetap dirender, cuma
+      // tanpa teks, jadi kegagalannya muncul sebagai locator timeout 30 detik
+      // di tes yang menunggu teksnya, bukan sebagai galat yang menunjuk ke
+      // sini. Bentuk lama tetap diterima sebagai fallback supaya stub ini masih
+      // bisa dipakai memalsukan respons gaya lama.
+      const parsed = JSON.parse(request.postData() || '{}');
+      const segments = Array.isArray(parsed.segments) ? parsed.segments : null;
+      const firstSegment = segments?.[0] || parsed;
       // Sengaja TIDAK dimasukkan ke generalPosts: post ini tetap "pending"
       // (belum pernah dikonfirmasi respons feed) persis seperti sesaat setelah
       // membuat kiriman di lapangan.
       const created = makePost({
         id: `created-${api.createSequence}`,
-        body: JSON.parse(request.postData() || '{}').body || '',
+        body: firstSegment.body || '',
+        media: clone(firstSegment.media || []),
+        photo_url: firstSegment.photo_url || null,
+        thread_count: segments ? segments.length : 1,
         created_at: new Date(Date.parse('2026-07-18T09:00:00.000Z') + api.createSequence * 1000).toISOString(),
         author: { name: api.agent.name, slug: api.agent.slug, photo: api.agent.photo },
         is_own: true,
