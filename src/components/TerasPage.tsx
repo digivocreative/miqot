@@ -2147,11 +2147,15 @@ export default function TerasPage({
    * "Tersalin" — jadi kegagalan di sini tidak cukup berakhir sebagai toast,
    * ia harus terbaca oleh pemanggil.
    */
-  const copySnippetText = useCallback(async (text: string) => {
+  const copySnippetText = useCallback(async (text: string, { toastOnSuccess = true } = {}) => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API tidak tersedia');
       await navigator.clipboard.writeText(text);
-      showToast('Teks disalin', 'success');
+      // Tombol sheet mematikan toast ini: ia sudah berubah jadi "Tersalin"
+      // sendiri, dan toast-nya muncul menimpa tombol itu. Jalur Bagikan
+      // (fallback share -> salin) TETAP butuh toast — di sana tidak ada apa
+      // pun yang memberi tahu bahwa teksnya berpindah ke clipboard.
+      if (toastOnSuccess) showToast('Teks disalin', 'success');
       trackEvent('action', 'teras_snippet_copy');
       return true;
     } catch {
@@ -6932,7 +6936,9 @@ export default function TerasPage({
         onClose={closeSnippetSheet}
         // Body belum tiba -> false, bukan lempar: tombolnya memang sudah
         // disabled, dan sheet cuma perlu tahu "tidak jadi tersalin".
-        onCopy={() => (snippetBody ? copySnippetText(snippetBody) : Promise.resolve(false))}
+        onCopy={() => (snippetBody
+          ? copySnippetText(snippetBody, { toastOnSuccess: false })
+          : Promise.resolve(false))}
         onShare={() => { if (snippetBody) void shareSnippetText(snippetBody); }}
       />
       {shareSheet}

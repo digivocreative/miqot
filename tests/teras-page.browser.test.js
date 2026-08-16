@@ -2224,6 +2224,11 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         fullBody,
         'yang tersalin harus body PENUH, bukan cuplikan kartu',
       );
+      // Toast sukses SENGAJA dimatikan untuk jalur ini: ia muncul menimpa
+      // tombol yang baru saja berubah jadi "Tersalin", jadi pesannya dobel
+      // sekaligus menutupi animasinya. Toast galat tetap ada (diuji terpisah).
+      assert.equal(await app.page.getByText('Teks disalin', { exact: true }).count(), 0,
+        'salin dari sheet tidak boleh memunculkan toast sukses');
 
       // Tombol tidak boleh macet di keadaan sukses — agent yang ingin
       // menyalin ulang harus menemukannya kembali seperti semula.

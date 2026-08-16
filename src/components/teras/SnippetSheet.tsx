@@ -54,7 +54,20 @@ interface SnippetSheetProps {
  * untuk terbaca, cukup pendek supaya tombol tidak tampak macet di keadaan
  * sukses saat agent ingin menyalin ulang.
  */
-const COPIED_RESET_MS = 1800;
+const COPIED_RESET_MS = 1200;
+
+/**
+ * Pergantian ikon salin <-> centang.
+ *
+ * `AnimatePresence mode="wait"` MENDERETKAN keluar lalu masuk, jadi yang
+ * terasa oleh mata adalah exit + enter, bukan yang lebih panjang di antaranya.
+ * Itu sebabnya exit-nya tween 80ms yang tegas — spring untuk exit terasa lambat
+ * justru karena ia mengendap pelan menuju nol. Yang bermain hanya bagian masuk:
+ * spring kaku dengan damping rendah supaya centangnya MENYENTAK melewati
+ * ukuran akhirnya sedikit, lalu mengunci.
+ */
+const ICON_EXIT = { duration: 0.08, ease: 'easeIn' } as const;
+const ICON_ENTER = { type: 'spring', stiffness: 900, damping: 16, mass: 0.45 } as const;
 
 export default function SnippetSheet({
   source,
@@ -71,6 +84,7 @@ export default function SnippetSheet({
   const triggerRef = useRef<HTMLElement | null>(null);
   const open = source !== null;
   const [copied, setCopied] = useState(false);
+  const [copyPulse, setCopyPulse] = useState(0);
   const copiedTimerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
@@ -91,6 +105,9 @@ export default function SnippetSheet({
   const handleCopy = useCallback(async () => {
     if (await onCopy() !== true) return;
     setCopied(true);
+    // Penghitung, bukan boolean: menyalin ulang saat masih "Tersalin" tidak
+    // mengubah `copied`, jadi riaknya tidak akan main lagi tanpa kunci baru.
+    setCopyPulse(pulse => pulse + 1);
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => {
       copiedTimerRef.current = null;
@@ -209,25 +226,40 @@ export default function SnippetSheet({
                 {/* size 14 mengikuti aksi kanan header Teras (toggle mode gelap
                     & lonceng), bukan 16 milik chevron back. */}
                 <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 ${
+                  className={`relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg transition-colors duration-150 group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 ${
                     copied
                       ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
                       : 'bg-gray-100/80 text-gray-500 group-hover:bg-gray-200 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700'
                   }`}
                 >
+                  {/* Riak sekali-jalan: yang membuat keberhasilan TERASA,
+                      bukan sekadar terbaca. Digambar di belakang ikon dan
+                      selesai dalam 0,35 dtk. */}
+                  {copied && !reduceMotion && (
+                    <motion.span
+                      key={copyPulse}
+                      aria-hidden="true"
+                      className="absolute inset-0 rounded-lg bg-emerald-400/50"
+                      initial={{ scale: 0.5, opacity: 0.8 }}
+                      animate={{ scale: 2, opacity: 0 }}
+                      transition={{ duration: 0.35, ease: 'easeOut' }}
+                    />
+                  )}
                   {/* mode="wait": ikon lama keluar dulu, baru yang baru masuk —
                       kalau tumpang-tindih, dua ikon sempat terlihat di kotak
                       32px yang sama. */}
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
                       key={copied ? 'tersalin' : 'salin'}
-                      className="flex"
-                      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.4, rotate: -25 }}
-                      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: 0 }}
-                      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.4, rotate: 20 }}
-                      transition={reduceMotion
-                        ? { duration: 0 }
-                        : { type: 'spring', stiffness: 520, damping: 24, mass: 0.6 }}
+                      className="relative flex"
+                      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.3 }}
+                      animate={reduceMotion
+                        ? { opacity: 1 }
+                        : { opacity: 1, scale: 1, transition: ICON_ENTER }}
+                      exit={reduceMotion
+                        ? { opacity: 0 }
+                        : { opacity: 0, scale: 0.3, transition: ICON_EXIT }}
+                      transition={reduceMotion ? { duration: 0 } : undefined}
                     >
                       {copied ? <Check size={14} strokeWidth={3} /> : <Copy size={14} />}
                     </motion.span>
@@ -323,12 +355,14 @@ export default function SnippetSheet({
                   <motion.span
                     key={copied ? 'tersalin' : 'salin'}
                     className="flex items-center gap-1.5"
-                    initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
-                    animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                    exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -12 }}
-                    transition={reduceMotion
-                      ? { duration: 0 }
-                      : { type: 'spring', stiffness: 480, damping: 30, mass: 0.6 }}
+                    initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.85 }}
+                    animate={reduceMotion
+                      ? { opacity: 1 }
+                      : { opacity: 1, y: 0, scale: 1, transition: ICON_ENTER }}
+                    exit={reduceMotion
+                      ? { opacity: 0 }
+                      : { opacity: 0, y: -10, scale: 0.85, transition: ICON_EXIT }}
+                    transition={reduceMotion ? { duration: 0 } : undefined}
                   >
                     {copied ? (
                       <>
