@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2, Search, Star, Footprints, MapPin, Lock,
   Play, ImageOff,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
@@ -88,18 +89,88 @@ async function fetchHotelJson<T>(url: string): Promise<T> {
   return json.data as T;
 }
 
+// Hanya bintang terisi (tanpa slot abu-abu — terlihat kusam terutama di dark
+// mode); stroke amber-500 di atas fill amber-400 memberi sedikit kedalaman.
 export function StarRow({ stars, size = 13 }: { stars: number | null; size?: number }) {
   if (!stars) return null;
   return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map(i => (
+    <div className="flex items-center gap-[3px]">
+      {Array.from({ length: Math.min(stars, 5) }, (_, i) => (
         <Star
           key={i}
           size={size}
-          className={i <= stars ? 'text-amber-400 fill-amber-400' : 'text-gray-200 dark:text-slate-700 fill-gray-200 dark:fill-slate-700'}
+          strokeWidth={1.5}
+          className="text-amber-500 fill-amber-400 drop-shadow-sm"
         />
       ))}
     </div>
+  );
+}
+
+// Shell transisi antar-view (kategori/daftar/detail): fade + geser halus per
+// aturan DS (280-450ms, easing [0.22,1,0.36,1]). Kunci = identitas view, dan
+// skeleton memakai kunci yang SAMA dengan konten finalnya supaya pergantian
+// skeleton → data tidak memicu animasi kedua.
+export function HotelViewShell({ viewKey, children }: { viewKey: string; children: ReactNode }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      key={viewKey}
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="px-4 pt-4 pb-8"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
+
+function SkeletonKategori() {
+  return (
+    <>
+      <div className={`h-4 w-28 rounded ${SKELETON_BLOCK}`} />
+      <div className={`mt-2 h-3 w-56 rounded ${SKELETON_BLOCK}`} />
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className={`h-40 rounded-2xl ${SKELETON_BLOCK}`} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SkeletonList() {
+  return (
+    <>
+      <div className={`h-[42px] rounded-xl ${SKELETON_BLOCK}`} />
+      <div className="space-y-3 mt-3">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
+            <div className="h-[84px] w-[84px] shrink-0 rounded-xl bg-gray-100 dark:bg-slate-700 animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3.5 w-3/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+              <div className="h-3 w-2/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+              <div className="h-3 w-1/3 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SkeletonDetail() {
+  return (
+    <>
+      <div className={`mt-3 h-56 rounded-2xl ${SKELETON_BLOCK}`} />
+      <div className={`mt-4 h-4 w-20 rounded-full ${SKELETON_BLOCK}`} />
+      <div className={`mt-2 h-6 w-3/4 rounded ${SKELETON_BLOCK}`} />
+      <div className={`mt-3 h-12 rounded-xl ${SKELETON_BLOCK}`} />
+      <div className={`mt-4 h-24 rounded-2xl ${SKELETON_BLOCK}`} />
+    </>
   );
 }
 
@@ -176,30 +247,34 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
       .filter(h => !q || h.name.toLowerCase().includes(q));
   }, [hotels, view, query]);
 
+  const viewKey =
+    view.kind === 'kategori' ? 'kategori'
+    : view.kind === 'list' ? `list-${view.city}`
+    : `detail-${view.slug}`;
+
   if (loadError) {
     return (
-      <div className="px-4 pt-4 pb-8">
+      <HotelViewShell viewKey="error">
         <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {loadError}
         </div>
-      </div>
+      </HotelViewShell>
     );
   }
 
+  // Skeleton mengikuti bentuk view tujuan (termasuk deep link ke daftar/detail).
   if (!hotels) {
     return (
-      <div className="px-4 pt-4 pb-8 space-y-3">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="h-24 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-        ))}
-      </div>
+      <HotelViewShell viewKey={viewKey}>
+        {view.kind === 'kategori' ? <SkeletonKategori /> : view.kind === 'list' ? <SkeletonList /> : <SkeletonDetail />}
+      </HotelViewShell>
     );
   }
 
   // ── View: Pilih Kategori ──
   if (view.kind === 'kategori') {
     return (
-      <div className="px-4 pt-4 pb-8">
+      <HotelViewShell viewKey={viewKey}>
         <div>
           <h2 className="text-base font-bold text-gray-900 dark:text-white">Pilih kategori</h2>
           <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
@@ -231,7 +306,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             );
           })}
         </div>
-      </div>
+      </HotelViewShell>
     );
   }
 
@@ -239,14 +314,14 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // Judul & tombol back kota ada di header DashboardLayout ("Hotel Madinah").
   if (view.kind === 'list') {
     return (
-      <div className="px-4 pt-4 pb-8">
+      <HotelViewShell viewKey={viewKey}>
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Cari..."
-            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
           />
         </div>
 
@@ -299,7 +374,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             </button>
           ))}
         </div>
-      </div>
+      </HotelViewShell>
     );
   }
 
@@ -311,19 +386,14 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
   // Tombol back detail → daftar ada di header DashboardLayout.
   return (
-    <div className="px-4 pt-4 pb-8">
+    <HotelViewShell viewKey={viewKey}>
       {detailError && (
         <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {detailError}
         </div>
       )}
 
-      {!detail && !detailError && (
-        <div className="mt-3 space-y-3">
-          <div className="h-56 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-          <div className="h-24 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
-        </div>
-      )}
+      {!detail && !detailError && <SkeletonDetail />}
 
       {detail && (
         <>
@@ -465,6 +535,6 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
           )}
         </>
       )}
-    </div>
+    </HotelViewShell>
   );
 }

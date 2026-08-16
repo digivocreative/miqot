@@ -6,7 +6,7 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
 import {
-  HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS,
+  HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
   type HotelListItem, type HotelDetail, type HotelMediaItem,
 } from './HotelPage';
 
@@ -386,7 +386,7 @@ export default function HotelKelolaPage() {
     const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
     const landmark = HOTEL_CITY_LANDMARKS[form.city];
     return (
-      <div className="px-4 pt-4 pb-8">
+      <HotelViewShell viewKey="kelola-form">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setView({ kind: 'list' })}
@@ -672,7 +672,7 @@ export default function HotelKelolaPage() {
             </div>
           </div>
         )}
-      </div>
+      </HotelViewShell>
     );
   }
 
@@ -682,8 +682,11 @@ export default function HotelKelolaPage() {
     .filter(h => cityFilter === 'semua' || h.city === cityFilter)
     .filter(h => !q || h.name.toLowerCase().includes(q));
 
+  // Modal hapus di luar shell: ancestor ber-transform (animasi masuk) membuat
+  // position:fixed overlay terkurung di dalamnya.
   return (
-    <div className="px-4 pt-4 pb-8">
+    <>
+    <HotelViewShell viewKey="kelola-list">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-gray-900 dark:text-white">Kelola Hotel</h2>
@@ -877,8 +880,9 @@ export default function HotelKelolaPage() {
           </div>
         ))}
       </div>
+    </HotelViewShell>
 
-      {deleteTarget && (
+    {deleteTarget && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center px-4"
           onClick={() => !deleting && setDeleteTarget(null)}
@@ -917,6 +921,6 @@ export default function HotelKelolaPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
