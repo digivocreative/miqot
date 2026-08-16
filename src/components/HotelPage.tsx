@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Building2, Search, Star, Footprints, MapPin, Lock,
+  Building2, Search, Star, Footprints, MapPin, Lock, SlidersHorizontal,
   Play, ImageOff,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -8,6 +8,7 @@ import { parseHotelDistanceMeters, hotelAreaCity } from '../../lib/hotel-directo
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
+import HotelFilterSheet from './HotelFilterSheet';
 
 export interface HotelListItem {
   id: string;
@@ -137,10 +138,6 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
 const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
 
 // Chip saringan daftar — mengikuti pola pill filter panel Kelola (aktif emerald).
-// h-9 menyamai tinggi kotak cari — keduanya berbagi satu baris.
-const CHIP_CLASS = 'h-9 shrink-0 inline-flex items-center gap-1 rounded-full px-3 text-[11px] font-semibold transition-all active:scale-95';
-const CHIP_ACTIVE = 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20';
-const CHIP_IDLE = 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700';
 
 function SkeletonKategori() {
   return (
@@ -195,6 +192,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const [starFilter, setStarFilter] = useState<number | null>(null);
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [sortByDistance, setSortByDistance] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [banners, setBanners] = useState<Record<string, string | null>>({});
 
@@ -228,6 +226,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     setStarFilter(null);
     setAreaFilter(null);
     setSortByDistance(false);
+    setFilterOpen(false);
   }, [listCity]);
   useEffect(() => {
     if (!detailSlug) return;
@@ -276,6 +275,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
   const canSortByDistance = cityPool.some(h => parseHotelDistanceMeters(h.distance_label) !== null);
   const hasFilterChips = canSortByDistance || starOptions.length > 0 || areaOptions.length > 0;
+  const activeFilterCount = (sortByDistance ? 1 : 0) + (starFilter !== null ? 1 : 0) + (areaFilter !== null ? 1 : 0);
 
   const cityHotels = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -356,12 +356,11 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   if (view.kind === 'list') {
     return (
       <HotelViewShell viewKey={viewKey}>
-        {/* Pencarian dan saringan berbagi SATU baris. Chip menjawab pertanyaan
-            jamaah yang paling sering ("bintang berapa?", "paling dekat masjid?",
-            kota tur "di mana?") dan hanya muncul bila datanya memang memilah;
-            tanpa chip, kotak cari kembali selebar layar. */}
+        {/* Pencarian + satu tombol Filter (opsinya di bottom sheet). Tombol
+            hanya muncul bila datanya memang memilah — Dubai yang berisi satu
+            hotel tidak diberi tombol yang tak menyaring apa pun. */}
         <div className="flex items-center gap-2">
-          <div className={`relative ${hasFilterChips ? 'w-36 shrink-0' : 'flex-1'}`}>
+          <div className="relative flex-1">
             <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               value={query}
@@ -372,48 +371,23 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
           </div>
 
           {hasFilterChips && (
-            // min-w-0 wajib: tanpa itu chip memaksa baris melebar dan mendorong
-            // kotak cari keluar layar, bukan menggeser isinya sendiri.
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-              {canSortByDistance && (
-                <button
-                  onClick={() => setSortByDistance(v => !v)}
-                  aria-pressed={sortByDistance}
-                  className={`${CHIP_CLASS} ${sortByDistance ? CHIP_ACTIVE : CHIP_IDLE}`}
-                >
-                  <Footprints size={11} />
-                  Terdekat
-                </button>
+            <button
+              onClick={() => setFilterOpen(true)}
+              aria-haspopup="dialog"
+              className={`h-9 shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold transition-all active:scale-95 ${
+                activeFilterCount > 0
+                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                  : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700'
+              }`}
+            >
+              <SlidersHorizontal size={14} />
+              Filter
+              {activeFilterCount > 0 && (
+                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/25 px-1 text-[10px] font-bold">
+                  {activeFilterCount}
+                </span>
               )}
-              {starOptions.map(star => {
-                const active = starFilter === star;
-                return (
-                  <button
-                    key={star}
-                    onClick={() => setStarFilter(active ? null : star)}
-                    aria-pressed={active}
-                    className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
-                  >
-                    {star}
-                    <Star size={10} strokeWidth={0} fill="currentColor" className={active ? '' : 'text-amber-400'} />
-                  </button>
-                );
-              })}
-              {areaOptions.map(area => {
-                const active = areaFilter === area;
-                return (
-                  <button
-                    key={area}
-                    onClick={() => setAreaFilter(active ? null : area)}
-                    aria-pressed={active}
-                    className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
-                  >
-                    <MapPin size={11} />
-                    {area}
-                  </button>
-                );
-              })}
-            </div>
+            </button>
           )}
         </div>
 
@@ -472,6 +446,25 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             </button>
           ))}
         </div>
+
+        {filterOpen && (
+          <HotelFilterSheet
+            landmark={HOTEL_CITY_LANDMARKS[view.city]}
+            canSortByDistance={canSortByDistance}
+            starOptions={starOptions}
+            areaOptions={areaOptions}
+            sortByDistance={sortByDistance}
+            starFilter={starFilter}
+            areaFilter={areaFilter}
+            resultCount={cityHotels.length}
+            activeCount={activeFilterCount}
+            onChangeSort={setSortByDistance}
+            onChangeStar={setStarFilter}
+            onChangeArea={setAreaFilter}
+            onReset={() => { setSortByDistance(false); setStarFilter(null); setAreaFilter(null); }}
+            onClose={() => setFilterOpen(false)}
+          />
+        )}
       </HotelViewShell>
     );
   }
