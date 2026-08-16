@@ -8,8 +8,9 @@ import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/
 import { buildBerangkatGroups, fmtTglLong } from '../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup } from '../../lib/berangkat-groups.js';
 import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
-import { buildManasikSessions, wibTodayKey, MANASIK_WINDOW_DAYS } from '../../lib/manasik-sessions.js';
+import { buildManasikSessions, pickDefaultSection, wibTodayKey, MANASIK_WINDOW_DAYS } from '../../lib/manasik-sessions.js';
 import type { ManasikSession } from '../../lib/manasik-sessions.js';
+import { BERANGKAT_MENDATANG_WINDOW_DAYS } from '../../lib/laporan-stats.js';
 import { ManasikSessionSummaryRow, ManasikSessionDetail } from './berangkat/ManasikSessionViews';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
@@ -159,7 +160,10 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   // Satu pasang state untuk KEDUA tab: sheet cuma bisa dibuka dari tab yang
   // aktif, dan selama sheet terbuka kartu di belakang `inert` sehingga tab tak
   // bisa berganti. Yang bercabang cuma pencariannya, di bawah.
-  const [activeSection, setActiveSection] = useState<SectionKey>('berangkat');
+  // null = pengguna belum memilih tab; yang efektif diturunkan dari data di
+  // currentSection bawah — bukan dipaku 'berangkat' — supaya tab yang tampil
+  // duluan selalu yang ada isinya.
+  const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
   const [showAllList, setShowAllList] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -200,7 +204,12 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     () => buildManasikSessions(berangkatGroups, wibTodayKey()),
     [berangkatGroups],
   );
-  const isManasik = activeSection === 'manasik';
+  // Tab default = yang ada datanya (berangkat menang bila keduanya isi); null
+  // berarti dua-duanya kosong dan dipakai sebagai gerbang render section di
+  // bawah — strip tab tak dirender sama sekali, biar kalendernya saja.
+  const defaultSection = pickDefaultSection(berangkatGroups, manasikSessions);
+  const currentSection: SectionKey | null = activeSection ?? defaultSection;
+  const isManasik = currentSection === 'manasik';
   const listLength = isManasik ? manasikSessions.length : berangkatGroups.length;
   const previewCount = Math.min(3, listLength);
 
@@ -208,12 +217,12 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   // lain tak boleh ikut cocok. Keduanya memakai HASIL pencarian, bukan kunci
   // mentah — lihat catatan di anySheetOpen di bawah.
   const selectedGroup = useMemo(
-    () => (activeSection === 'berangkat' ? berangkatGroups.find(g => g.key === selectedKey) || null : null),
-    [activeSection, berangkatGroups, selectedKey],
+    () => (currentSection === 'berangkat' ? berangkatGroups.find(g => g.key === selectedKey) || null : null),
+    [currentSection, berangkatGroups, selectedKey],
   );
   const selectedSession: ManasikSession | null = useMemo(
-    () => (activeSection === 'manasik' ? manasikSessions.find(s => s.key === selectedKey) || null : null),
-    [activeSection, manasikSessions, selectedKey],
+    () => (currentSection === 'manasik' ? manasikSessions.find(s => s.key === selectedKey) || null : null),
+    [currentSection, manasikSessions, selectedKey],
   );
 
   // Ganti tab = buang state sheet milik tab lama. Ditulis di handler, bukan
@@ -255,7 +264,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   // Pakai selectedGroup/selectedSession (HASIL pencarian), bukan selectedKey
   // mentah: kunci yang tak cocok dengan apa pun tidak boleh mengunci halaman
   // tanpa ada sheet yang muncul. Sejak ada dua tab, kunci milik tab lain juga
-  // masuk kategori itu — pencariannya sudah dipagari activeSection di atas.
+  // masuk kategori itu — pencariannya sudah dipagari currentSection di atas.
   // Syarat di sini harus sama persis dengan syarat render.
   const anySheetOpen = selectedDay !== null || showAllList || !!selectedGroup || !!selectedSession;
   const daySheetOpen = selectedDay !== null;
@@ -528,13 +537,13 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
               </div>
             ))}
           </div>
-        ) : berangkatGroups.length > 0 ? (
+        ) : defaultSection !== null ? (
           <>
             <div className="px-4 pt-3 pb-2 border-t border-gray-100 dark:border-slate-700">
               <div className="flex w-full gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-900">
                 {SECTION_ORDER.map(section => {
                   const { label, Icon } = SECTION_CONFIG[section];
-                  const isActive = activeSection === section;
+                  const isActive = currentSection === section;
                   return (
                     <button
                       key={section}
@@ -554,9 +563,11 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                 })}
               </div>
             </div>
-            {isManasik && manasikSessions.length === 0 ? (
+            {listLength === 0 ? (
               <p className="px-4 pb-3 text-[11px] text-gray-400 dark:text-slate-500">
-                Belum ada manasik dalam {MANASIK_WINDOW_DAYS} hari ke depan
+                {isManasik
+                  ? <>Belum ada manasik dalam {MANASIK_WINDOW_DAYS} hari ke depan</>
+                  : <>Belum ada keberangkatan dalam {BERANGKAT_MENDATANG_WINDOW_DAYS} hari ke depan</>}
               </p>
             ) : (
               <div className="divide-y divide-gray-50 dark:divide-slate-700/50">

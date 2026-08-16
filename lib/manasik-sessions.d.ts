@@ -17,3 +17,7 @@ export const MANASIK_WINDOW_DAYS: number;
 export function normalizeManasikJam(value: string | null | undefined): string | null;
 export function wibTodayKey(now?: Date): string;
 export function buildManasikSessions(groups: BerangkatGroup[], todayStr: string): ManasikSession[];
+export function pickDefaultSection(
+  berangkatGroups: readonly BerangkatGroup[] | null | undefined,
+  manasikSessions: readonly ManasikSession[] | null | undefined,
+): 'berangkat' | 'manasik' | null;

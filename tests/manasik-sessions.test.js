@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildManasikSessions,
   normalizeManasikJam,
+  pickDefaultSection,
   wibTodayKey,
   MANASIK_WINDOW_DAYS,
   MANASIK_MAX_LEAD_DAYS,
@@ -175,6 +176,37 @@ test('tour_leaders membuang yang null — placeholder sudah dibuang cleanTourLea
     { ...grp({ paket: 'PAKET A', manasik_tgl: plusDays(3) }), tour_leader: null },
   ], TODAY);
   assert.deepEqual(tanpaTl[0].tour_leaders, []);
+});
+
+// ── pickDefaultSection: tab default kartu kalender ──
+// Permintaan user 2026-08-16: tab yang tampil harus yang ADA datanya. Hari ini
+// manasik diturunkan dari grup berangkat sehingga "berangkat kosong, manasik
+// isi" belum bisa terjadi — tapi aturannya ditulis dari kedua daftar, bukan
+// dari asumsi derivasi itu, supaya tetap benar kalau sumber manasik berubah.
+
+test('pickDefaultSection memilih berangkat selama ada datanya', () => {
+  const group = grp({ paket: 'REGULER 9HR', manasik_tgl: plusDays(3) });
+  const sessions = buildManasikSessions([group], TODAY);
+  assert.equal(pickDefaultSection([group], sessions), 'berangkat');
+  assert.equal(pickDefaultSection([group], []), 'berangkat');
+});
+
+test('pickDefaultSection jatuh ke manasik saat berangkat kosong tapi manasik isi', () => {
+  // Skenario yang diminta user: "tidak ada jamaah yang berangkat, namun di
+  // manasik ada → yang ditampilkan adalah tab Manasik".
+  const sessions = buildManasikSessions([
+    grp({ paket: 'REGULER 9HR', manasik_tgl: plusDays(3) }),
+  ], TODAY);
+  assert.equal(pickDefaultSection([], sessions), 'manasik');
+});
+
+test('pickDefaultSection null saat dua-duanya kosong — section tak dirender', () => {
+  // "Jika dua-duanya kosong, tidak perlu munculin 2 tab tersebut, biar
+  // calendar saja" — null-lah yang dipakai komponen sebagai gerbang render.
+  assert.equal(pickDefaultSection([], []), null);
+  // Masukan cacat (fetch gagal → state belum berupa array) luruh ke null juga,
+  // bukan melempar — section pelengkap tak boleh merusak kartu kalender.
+  assert.equal(pickDefaultSection(null, undefined), null);
 });
 
 test('shares_date menandai sesi yang berbagi tanggal dengan sesi lain', () => {
