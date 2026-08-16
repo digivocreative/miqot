@@ -84,7 +84,6 @@ import {
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
 import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem } from './lib/hotel-directory.js';
 import {
-  extractCommunityMentions,
   unrecordedMentionRows,
   COMMUNITY_MENTION_LIMIT,
 } from './lib/community-mentions.js';
@@ -96,6 +95,7 @@ import {
 import { resolveRootPostId, buildAncestorChain } from './lib/community-thread.js';
 import { validateCommunityEdit } from './lib/community-edit.js';
 import { canPinCommunityPost } from './lib/community-pin.js';
+import { buildCommunityTeaserPosts } from './lib/community-teaser.js';
 import {
   communityPollPayload,
   isCommunityPollClosed,
@@ -5285,7 +5285,7 @@ async function loadCommunityTeaserSharedData() {
     runCommunityRootQuery(withThread => {
       let query = supabase
         .from('community_posts')
-        .select('id, body, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, photo)')
+        .select('id, body, photo_url, created_at, agent_id, agent:agents!community_posts_agent_id_fkey(name, photo)')
         .is('deleted_at', null);
       if (withThread) query = query.is('parent_post_id', null);
       return query
@@ -5306,12 +5306,10 @@ async function loadCommunityTeaserSharedData() {
   if (latestResult.error) throw latestResult.error;
   if (todayResult.error) throw todayResult.error;
 
-  const latestPosts = latestResult.data || [];
-  const latestPost = latestPosts[0];
-  const latestAuthor = latestPost ? communityAuthorProfile(latestPost.agent) : null;
+  const latestRows = latestResult.data || [];
   const recentAvatars = [];
   const recentAgentIds = new Set();
-  for (const post of latestPosts) {
+  for (const post of latestRows) {
     if (recentAgentIds.has(post.agent_id)) continue;
     recentAgentIds.add(post.agent_id);
     const author = communityAuthorProfile(post.agent);
@@ -5319,32 +5317,32 @@ async function loadCommunityTeaserSharedData() {
     if (recentAvatars.length === 3) break;
   }
 
-  // Mentions inside the snippet, so the card can render pills with the member's
-  // current display name. Resolved against the snippet (not the full body) so the
-  // payload matches exactly what the card renders after truncation.
-  let latestSnippet = '';
-  let latestMentions = [];
-  if (latestPost) {
-    latestSnippet = Array.from(String(latestPost.body || '')).slice(0, 120).join('');
+  let latestPosts = [];
+  if (latestRows.length > 0) {
     const members = await loadCommunityMembers();
     const memberBySlug = new Map(
       members.filter(m => m.slug && m.name).map(m => [String(m.slug).toLowerCase(), m]),
     );
-    latestMentions = extractCommunityMentions(
-      latestSnippet,
-      memberBySlug.keys(),
-      null,
-      COMMUNITY_MENTION_LIMIT,
-    ).map(slug => ({ slug, name: memberBySlug.get(slug).name }));
+    latestPosts = buildCommunityTeaserPosts(latestRows, {
+      authorProfile: communityAuthorProfile,
+      memberBySlug,
+      limit: 3,
+      snippetLength: 120,
+      mentionLimit: COMMUNITY_MENTION_LIMIT,
+    });
   }
+  const firstPost = latestPosts[0] || null;
 
   const data = {
-    latest: latestPost ? {
-      author: { name: latestAuthor.name, photo: latestAuthor.photo },
-      body_snippet: latestSnippet,
-      mentions: latestMentions,
-      created_at: latestPost.created_at,
+    // `latest` dipertahankan untuk klien lama; klien baru membaca `latest_posts`
+    // dan fallback ke `latest` bila server belum di-deploy.
+    latest: firstPost ? {
+      author: firstPost.author,
+      body_snippet: firstPost.body_snippet,
+      mentions: firstPost.mentions,
+      created_at: firstPost.created_at,
     } : null,
+    latest_posts: latestPosts,
     today_count: Number(todayResult.count) || 0,
     recent_avatars: recentAvatars,
   };
