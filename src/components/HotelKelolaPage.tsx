@@ -195,6 +195,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const [facilityDraft, setFacilityDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteClosing, setDeleteClosing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // URL yang diunggah di sesi form ini dan BELUM tersimpan ke DB. Dibuang saat
   // item dicabut atau form ditinggalkan tanpa simpan, supaya storage bersih.
@@ -499,8 +500,16 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     }
   };
 
+  // Tutup beranimasi (pola AgentManagementPage): 200ms = durasi dc-card-exit.
+  const closeDeleteModal = () => {
+    setDeleteClosing(true);
+    setTimeout(() => { setDeleteTarget(null); setDeleteClosing(false); }, 200);
+  };
+
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    // deleteClosing ikut dijaga: selama animasi keluar targetnya masih terpasang
+    // tapi barisnya sudah dihapus — klik kedua akan mengirim DELETE yatim.
+    if (!deleteTarget || deleting || deleteClosing) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/hotels/${deleteTarget.id}`, {
@@ -509,11 +518,11 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menghapus hotel');
-      setDeleteTarget(null);
+      closeDeleteModal();
       refetch();
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Gagal menghapus hotel');
-      setDeleteTarget(null);
+      closeDeleteModal();
     } finally {
       setDeleting(false);
     }
@@ -1078,12 +1087,12 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
 
     {deleteTarget && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center px-4"
-          onClick={() => !deleting && setDeleteTarget(null)}
+          className={`fixed inset-0 z-[60] flex items-center justify-center px-4 ${deleteClosing ? 'dc-backdrop-exit' : 'dc-backdrop-enter'}`}
+          onClick={() => !deleting && closeDeleteModal()}
           style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' } as React.CSSProperties}
         >
           <div
-            className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5"
+            className={`w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5 ${deleteClosing ? 'dc-card-exit' : 'dc-card-enter'}`}
             onClick={e => e.stopPropagation()}
           >
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20">
@@ -1093,22 +1102,22 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               Hapus {deleteTarget.name}?
             </h3>
             <p className="mt-1.5 text-center text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-              Semua data, foto, dan video hotel ini akan terhapus permanen dari direktori. Tindakan ini tidak bisa dibatalkan.
+              Foto dan videonya ikut terhapus permanen.
             </p>
             <div className="mt-4 flex gap-2">
               <button
-                onClick={() => setDeleteTarget(null)}
+                onClick={closeDeleteModal}
                 disabled={deleting}
-                className="flex-1 rounded-xl bg-gray-100 dark:bg-slate-700 py-2.5 text-[13px] font-semibold text-gray-700 dark:text-slate-200 transition-colors hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-60"
+                className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 disabled:opacity-60 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600"
               >
                 Batal
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2.5 text-[13px] font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white shadow-md shadow-red-500/20 transition-all hover:bg-red-600 active:scale-95 disabled:opacity-70"
               >
-                {deleting && <Loader2 size={14} className="animate-spin" />}
+                {deleting && <Loader2 size={16} className="animate-spin" />}
                 Ya, Hapus
               </button>
             </div>
