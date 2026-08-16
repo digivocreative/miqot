@@ -30,6 +30,15 @@ const TOOLS: Tool[] = [
     active: true,
   },
   {
+    id: 'hotel',
+    name: 'Hotel',
+    desc: 'Direktori & informasi seputar hotel',
+    icon: Building2,
+    color: 'teal',
+    route: 'hotel',
+    active: true,
+  },
+  {
     id: 'compare',
     name: 'Bandingkan Paket',
     desc: 'Temukan perbedaan dari 2 paket umroh',
@@ -45,15 +54,6 @@ const TOOLS: Tool[] = [
     icon: Banknote,
     color: 'amber',
     route: 'kurs',
-    active: true,
-  },
-  {
-    id: 'hotel',
-    name: 'Direktori Hotel',
-    desc: 'Info, jarak & foto hotel Mekkah, Madinah, Turki, Dubai',
-    icon: Building2,
-    color: 'teal',
-    route: 'hotel',
     active: true,
   },
   {
