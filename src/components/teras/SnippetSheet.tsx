@@ -132,13 +132,24 @@ export default function SnippetSheet({
         >
           <header className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/95">
             <div className="mx-auto grid w-full max-w-2xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+              {/* Pola tombol ikon header dashboard (DashboardLayout ~713): hit-area
+                  44px TRANSPARAN membungkus chip yang terlihat. Ukurannya ikut
+                  varian COMPACT — `compactHeader = activeTab === 'teras'`, jadi
+                  chip Teras adalah 32px rounded-lg, bukan 36px rounded-xl.
+                  Margin negatifnya sengaja hanya horizontal: `-m-1.5` seperti di
+                  dashboard akan memendekkan baris header sheet ini jadi 32px,
+                  padahal sheet saudaranya (komposer, editor lampiran) semua
+                  berbaris 44px. -mx-1.5 membuat tepi kiri chip jatuh persis di
+                  px-4 kontainer. */}
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Tutup lampiran teks"
-                className="-ml-2 flex h-11 w-11 items-center justify-center justify-self-start rounded-full text-gray-600 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="group -mx-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-start focus-visible:outline-none"
               >
-                <ChevronLeft size={20} />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100/80 text-gray-600 transition-all group-hover:bg-gray-200 group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700">
+                  <ChevronLeft size={16} strokeWidth={2.5} />
+                </span>
               </button>
               <h2
                 id="teras-snippet-sheet-title"
@@ -152,9 +163,13 @@ export default function SnippetSheet({
                 disabled={!body}
                 aria-label="Salin teks lampiran"
                 title={body ? 'Salin teks lampiran' : 'Menunggu teks selesai dimuat'}
-                className="-mr-2 flex h-11 w-11 items-center justify-center justify-self-end rounded-full text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="group -mx-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-end disabled:opacity-40 focus-visible:outline-none"
               >
-                <Copy size={17} />
+                {/* size 14 mengikuti aksi kanan header Teras (toggle mode gelap
+                    & lonceng), bukan 16 milik chevron back. */}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100/80 text-gray-500 transition-all group-hover:bg-gray-200 group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700">
+                  <Copy size={14} />
+                </span>
               </button>
             </div>
           </header>
