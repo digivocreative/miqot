@@ -450,13 +450,9 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                     {hotel.area}
                   </span>
                 ) : null}
-                {/* Hotel tanpa media tidak diberi badge apa pun (feedback user):
-                    itu urusan admin, bukan informasi yang berguna bagi agent. */}
-                {hotel.photo_count + hotel.video_count > 0 && (
-                  <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
-                    {hotel.photo_count} foto · {hotel.video_count} video
-                  </p>
-                )}
+                {/* Kelengkapan media TIDAK ditampilkan di baris daftar (feedback
+                    user, dua kali): itu urusan admin — panel Kelola yang
+                    menandainya, bukan layar agent yang sedang mencari hotel. */}
               </div>
             </button>
           ))}
