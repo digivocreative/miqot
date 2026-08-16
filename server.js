@@ -82,7 +82,7 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
-import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem, normalizeHotelMediaInput, HOTEL_CITIES } from './lib/hotel-directory.js';
+import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem, normalizeHotelMediaInput, hotelMediaUrlsRemoved, HOTEL_CITIES } from './lib/hotel-directory.js';
 import {
   unrecordedMentionRows,
   COMMUNITY_MENTION_LIMIT,
@@ -7332,6 +7332,69 @@ function hotelMediaPublicPrefixes() {
   return prefixes;
 }
 
+// Prefix CDN Bunny untuk media hotel — satu-satunya wilayah yang boleh
+// disentuh pembersihan storage direktori.
+function hotelCdnMediaPrefix() {
+  return getBunnyEnabled() ? `https://${BUNNY_CDN_HOSTNAME}/${HOTEL_MEDIA_FOLDER}/` : null;
+}
+
+// Semua URL media hotel yang masih direferensikan DB (media semua hotel +
+// banner kategori). Penjaga pembersihan: file hanya boleh dihapus bila tidak
+// ada referensi tersisa di snapshot ini.
+const HOTEL_MEDIA_SCAN_LIMIT = 5000;
+
+async function hotelMediaUrlsInUse() {
+  const inUse = new Set();
+  const { data: hotelRows, error } = await supabase
+    .from('hotels')
+    .select('media')
+    .limit(HOTEL_MEDIA_SCAN_LIMIT);
+  if (error) throw error;
+  // Snapshot terpotong = tak bisa membuktikan file sudah yatim. Lempar supaya
+  // pemanggil membatalkan pembersihan (lebih baik sisa file daripada salah hapus).
+  if ((hotelRows?.length || 0) >= HOTEL_MEDIA_SCAN_LIMIT) {
+    throw new Error('snapshot referensi media terpotong');
+  }
+  for (const row of hotelRows || []) {
+    if (!Array.isArray(row?.media)) continue;
+    for (const item of row.media) {
+      if (typeof item?.url === 'string' && item.url) inUse.add(item.url);
+    }
+  }
+  const { data: bannerRows, error: bannerError } = await supabase
+    .from('hotel_city_banners')
+    .select('image_url');
+  if (bannerError) {
+    // Pra-migrasi banner: tabel belum ada = tidak ada referensi banner.
+    if (!hotelBannerTableMissing(bannerError)) throw bannerError;
+  } else {
+    for (const row of bannerRows || []) {
+      if (typeof row?.image_url === 'string' && row.image_url) inUse.add(row.image_url);
+    }
+  }
+  return inUse;
+}
+
+// Best-effort SETELAH mutasi DB commit: hapus file Bunny yang jadi yatim.
+// Tidak pernah melempar — gagal bersih-bersih tak boleh menggagalkan respons.
+async function cleanupHotelMediaUrls(urls, logContext) {
+  try {
+    const prefix = hotelCdnMediaPrefix();
+    if (!prefix) return;
+    const candidates = [...new Set(urls)].filter((url) => typeof url === 'string' && url.startsWith(prefix));
+    if (!candidates.length) return;
+    const inUse = await hotelMediaUrlsInUse();
+    const cdnPrefix = `https://${BUNNY_CDN_HOSTNAME}/`;
+    await Promise.all(candidates.filter((url) => !inUse.has(url)).map((url) =>
+      bunnyDelete(url.slice(cdnPrefix.length)).catch((err) => {
+        console.warn(`[hotel] gagal hapus file Bunny (${logContext}):`, err?.message || err);
+      })
+    ));
+  } catch (err) {
+    console.warn(`[hotel] lewati pembersihan media (${logContext}):`, err?.message || err);
+  }
+}
+
 // Tabel hotels belum dimigrasi → 503 dengan pesan jelas, bukan 500 misterius.
 function hotelTableMissing(error) {
   const code = String(error?.code || '');
@@ -7410,6 +7473,18 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
     if (!HOTEL_CITIES.includes(city)) {
       return res.status(400).json({ error: 'Kategori tidak dikenal' });
     }
+    // Banner lama dibaca dulu — yang diganti/dihapus ikut dibersihkan dari
+    // Bunny setelah mutasi commit (best-effort, penjaga referensi di helper).
+    const { data: oldBanner, error: oldBannerError } = await supabase
+      .from('hotel_city_banners')
+      .select('image_url')
+      .eq('city', city)
+      .maybeSingle();
+    if (oldBannerError) {
+      if (hotelBannerTableMissing(oldBannerError)) return res.status(503).json({ error: HOTEL_BANNER_MIGRATION_ERROR });
+      throw oldBannerError;
+    }
+    const oldBannerUrl = typeof oldBanner?.image_url === 'string' ? oldBanner.image_url : null;
     const rawUrl = req.body?.image_url;
     if (rawUrl === null || rawUrl === undefined || rawUrl === '') {
       const { error } = await supabase.from('hotel_city_banners').delete().eq('city', city);
@@ -7417,6 +7492,7 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
         if (hotelBannerTableMissing(error)) return res.status(503).json({ error: HOTEL_BANNER_MIGRATION_ERROR });
         throw error;
       }
+      if (oldBannerUrl) void cleanupHotelMediaUrls([oldBannerUrl], 'hapus banner');
       return res.json({ success: true, data: { city, image_url: null } });
     }
     const normalized = normalizeHotelMediaInput(
@@ -7433,6 +7509,9 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
     if (error) {
       if (hotelBannerTableMissing(error)) return res.status(503).json({ error: HOTEL_BANNER_MIGRATION_ERROR });
       throw error;
+    }
+    if (oldBannerUrl && oldBannerUrl !== normalized[0].url) {
+      void cleanupHotelMediaUrls([oldBannerUrl], 'ganti banner');
     }
     res.json({ success: true, data: { city, image_url: normalized[0].url } });
   } catch (err) {
@@ -7496,8 +7575,21 @@ app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (re
     if (!isCommunityUuid(req.params.id)) {
       return res.status(400).json({ error: 'ID hotel tidak valid' });
     }
-    const result = buildHotelPayload(req.body, { mediaPrefixes: hotelMediaPublicPrefixes() });
+    const mediaPrefixes = hotelMediaPublicPrefixes();
+    const result = buildHotelPayload(req.body, { mediaPrefixes });
     if (!result.ok) return res.status(400).json({ error: result.error });
+
+    // Media lama dibaca SEBELUM update — media yang dibuang lewat form ikut
+    // dihapus dari Bunny agar tidak menumpuk jadi file yatim di storage.
+    const { data: oldRow, error: oldRowError } = await supabase
+      .from('hotels')
+      .select('media')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (oldRowError) {
+      if (hotelTableMissing(oldRowError)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw oldRowError;
+    }
 
     // Slug sengaja TIDAK ikut berubah saat rename — dipakai sebagai identitas URL.
     const { data, error } = await supabase
@@ -7511,10 +7603,35 @@ app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (re
       throw error;
     }
     if (!data) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+    const removed = hotelMediaUrlsRemoved(oldRow?.media, data.media, mediaPrefixes);
+    if (removed.length) void cleanupHotelMediaUrls(removed, 'edit hotel');
     res.json({ success: true, data });
   } catch (err) {
     console.error('[hotel] update error:', err?.message || err);
     res.status(500).json({ error: 'Gagal menyimpan hotel' });
+  }
+});
+
+// Buang media yang sudah terunggah tapi TIDAK jadi tersimpan (item dicabut
+// dari form, atau form ditinggalkan) supaya tidak jadi file yatim di Bunny.
+// Harus terdaftar SEBELUM /api/hotels/:id — 'media' bukan id hotel.
+// Fail-closed: file yang masih direferensikan hotel/banner tidak akan terhapus
+// (penjaga di cleanupHotelMediaUrls), jadi aman dipanggil setelah simpan.
+app.delete('/api/hotels/media', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    const normalized = normalizeHotelMediaInput(
+      [{ type: req.body?.type, url: req.body?.url }],
+      hotelMediaPublicPrefixes()
+    );
+    if (!normalized || normalized.length !== 1) {
+      return res.status(400).json({ error: 'URL media tidak valid' });
+    }
+    await cleanupHotelMediaUrls([normalized[0].url], 'batal unggah');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[hotel] media discard error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menghapus media' });
   }
 });
 
@@ -7539,16 +7656,8 @@ app.delete('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async 
     if (deleteError) throw deleteError;
 
     // Best-effort: bersihkan file Bunny milik hotel ini (kaskade media).
-    if (getBunnyEnabled() && Array.isArray(row.media)) {
-      const cdnPrefix = `https://${BUNNY_CDN_HOSTNAME}/`;
-      for (const item of row.media) {
-        const url = typeof item?.url === 'string' ? item.url : '';
-        if (!url.startsWith(`${cdnPrefix}${HOTEL_MEDIA_FOLDER}/`)) continue;
-        bunnyDelete(url.slice(cdnPrefix.length)).catch((cleanupErr) => {
-          console.warn('[hotel] gagal hapus file Bunny:', cleanupErr?.message || cleanupErr);
-        });
-      }
-    }
+    const removed = hotelMediaUrlsRemoved(row.media, [], hotelMediaPublicPrefixes());
+    if (removed.length) void cleanupHotelMediaUrls(removed, 'hapus hotel');
     res.json({ success: true });
   } catch (err) {
     console.error('[hotel] delete error:', err?.message || err);

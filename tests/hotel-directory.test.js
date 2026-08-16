@@ -10,6 +10,7 @@ import {
   normalizeHotelMediaInput,
   buildHotelPayload,
   hotelListItem,
+  hotelMediaUrlsRemoved,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
@@ -280,4 +281,41 @@ test('hotelListItem: proyeksi ringan dengan cover foto pertama dan hitungan medi
   const nullMedia = hotelListItem({ ...row, media: null });
   assert.equal(nullMedia.cover, null);
   assert.equal(nullMedia.video_count, 0);
+});
+
+test('hotelMediaUrlsRemoved: hanya URL yang hilang dari daftar baru DAN di bawah prefix media hotel', () => {
+  const oldMedia = [
+    { type: 'image', url: IMG_URL },
+    { type: 'image', url: IMG_URL_2 },
+    { type: 'video', url: VID_URL },
+  ];
+
+  // Sisa satu foto → dua sisanya jadi yatim.
+  assert.deepEqual(
+    hotelMediaUrlsRemoved(oldMedia, [{ type: 'image', url: IMG_URL }], PREFIXES),
+    [IMG_URL_2, VID_URL]
+  );
+
+  // Urutan berubah tapi isi sama = tidak ada yang dihapus (kasus "Jadikan Cover").
+  assert.deepEqual(
+    hotelMediaUrlsRemoved(oldMedia, [{ type: 'video', url: VID_URL }, { type: 'image', url: IMG_URL_2 }, { type: 'image', url: IMG_URL }], PREFIXES),
+    []
+  );
+
+  // Hapus hotel: daftar baru kosong → semua media hotel ikut.
+  assert.deepEqual(hotelMediaUrlsRemoved(oldMedia, [], PREFIXES), [IMG_URL, IMG_URL_2, VID_URL]);
+
+  // File di LUAR prefix media hotel tidak pernah ikut terhapus.
+  const foreign = 'https://cdn.example.b-cdn.net/community/other-abc.jpg';
+  assert.deepEqual(hotelMediaUrlsRemoved([{ type: 'image', url: foreign }], [], PREFIXES), []);
+
+  // Tanpa prefix (Bunny mati) = tidak ada kandidat sama sekali — fail-closed.
+  assert.deepEqual(hotelMediaUrlsRemoved(oldMedia, [], []), []);
+
+  // Duplikat URL di baris lama hanya dilaporkan sekali; input non-array aman.
+  assert.deepEqual(
+    hotelMediaUrlsRemoved([{ type: 'image', url: IMG_URL }, { type: 'image', url: IMG_URL }], [], PREFIXES),
+    [IMG_URL]
+  );
+  assert.deepEqual(hotelMediaUrlsRemoved(null, null, PREFIXES), []);
 });

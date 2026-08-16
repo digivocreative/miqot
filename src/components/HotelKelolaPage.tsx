@@ -103,6 +103,17 @@ function resizeHotelPhoto(file: File): Promise<Blob> {
   });
 }
 
+// Buang file yang terunggah tapi tak jadi dipakai. Server menolak menghapus
+// file yang masih direferensikan hotel/banner, jadi aman dipanggil longgar.
+function discardHotelMedia(type: 'image' | 'video', url: string): void {
+  void fetch('/api/hotels/media', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ type, url }),
+    keepalive: true,
+  }).catch(() => { /* best-effort: sisa file akan tersapu saat hotel disimpan/dihapus */ });
+}
+
 async function uploadHotelMedia(blob: Blob): Promise<string> {
   const res = await fetch('/api/hotels/media', {
     method: 'POST',
@@ -150,6 +161,9 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // URL yang diunggah di sesi form ini dan BELUM tersimpan ke DB. Dibuang saat
+  // item dicabut atau form ditinggalkan tanpa simpan, supaya storage bersih.
+  const pendingUploadsRef = useRef<Map<string, 'image' | 'video'>>(new Map());
   // Banner kartu kategori di Direktori Hotel (agent-facing).
   // Jarang diubah → default terlipat agar daftar hotel tidak terdorong ke bawah.
   const [showBanners, setShowBanners] = useState(false);
@@ -239,6 +253,19 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   // Kunci primitif, bukan objek view — readKelolaView membuat objek baru tiap render.
   const editSlug = view.kind === 'edit' ? view.slug : null;
   const isCreate = view.kind === 'create';
+  const inForm = view.kind !== 'list';
+
+  // Meninggalkan form (Batal, back header, pindah tab) membuang unggahan yang
+  // belum tersimpan. Setelah Simpan sukses daftarnya sudah dikosongkan, jadi
+  // yang tersisa di sini memang benar-benar yatim.
+  useEffect(() => {
+    if (!inForm) return;
+    const pending = pendingUploadsRef.current;
+    return () => {
+      for (const [url, type] of pending) discardHotelMedia(type, url);
+      pending.clear();
+    };
+  }, [inForm]);
 
   useEffect(() => {
     if (!isCreate) return;
@@ -298,6 +325,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       try {
         const blob = isImage ? await resizeHotelPhoto(file) : file;
         const url = await uploadHotelMedia(blob);
+        pendingUploadsRef.current.set(url, isImage ? 'image' : 'video');
         setForm(prev => ({
           ...prev,
           media: prev.media.map(m => (m.key === key ? { ...m, url, status: 'done' as const } : m)),
@@ -317,6 +345,13 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     setForm(prev => {
       const target = prev.media.find(m => m.key === key);
       if (target && target.previewUrl.startsWith('blob:')) URL.revokeObjectURL(target.previewUrl);
+      // Unggahan sesi ini yang dicabut sebelum simpan langsung dibuang dari
+      // storage. Media lama (sudah tersimpan) menunggu Simpan — server yang
+      // membersihkan setelah baris DB benar-benar berubah.
+      if (target?.url && pendingUploadsRef.current.has(target.url)) {
+        discardHotelMedia(pendingUploadsRef.current.get(target.url)!, target.url);
+        pendingUploadsRef.current.delete(target.url);
+      }
       return { ...prev, media: prev.media.filter(m => m.key !== key) };
     });
   };
@@ -374,6 +409,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan hotel');
+      // Tersimpan → bukan lagi unggahan yatim; jangan dibuang saat form ditutup.
+      pendingUploadsRef.current.clear();
       onNavigate('/dashboard/hotels');
       refetch();
     } catch (err) {
