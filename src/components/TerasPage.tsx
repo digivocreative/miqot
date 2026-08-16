@@ -43,7 +43,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { videoPreviewSrc, videoPreviewFallbackSrc } from '../lib/videoPoster';
+import { videoPreviewSrc, videoPreviewFallbackSrc, captureVideoPoster } from '../lib/videoPoster';
 import { timeAgo } from '../lib/communityNotifications';
 import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
 import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
@@ -174,6 +174,11 @@ type CommunityParentAuthor =
 interface CommunityMedia {
   type: CommunityMediaType;
   url: string;
+  /** Video saja: poster JPEG hasil frame-grab composer. */
+  poster?: string;
+  /** Video saja: dimensi asli — aspect-ratio benar sebelum metadata termuat. */
+  width?: number;
+  height?: number;
 }
 
 interface QuotedPostPreview {
@@ -237,6 +242,12 @@ interface ComposerMedia {
   status: 'processing' | 'ready' | 'uploading' | 'error';
   url?: string;
   error?: string;
+  /** Video: poster hasil frame-grab lokal, diunggah bersama videonya. */
+  posterBlob?: Blob;
+  posterUploadId?: string;
+  posterUrl?: string;
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -500,6 +511,49 @@ async function mapWithConcurrency<T, R>(
   const failedWorker = settledWorkers.find(result => result.status === 'rejected');
   if (failedWorker?.status === 'rejected') throw failedWorker.reason;
   return results;
+}
+
+/** Bentuk item media utk payload posting — poster/dimensi hanya utk video. */
+function composerMediaPayload(item: ComposerMedia, url: string, posterUrl?: string): CommunityMedia {
+  return {
+    type: item.type,
+    url,
+    ...(item.type === 'video' && posterUrl ? { poster: posterUrl } : {}),
+    ...(item.type === 'video' && item.width && item.height
+      ? { width: item.width, height: item.height }
+      : {}),
+  };
+}
+
+/**
+ * Unggah poster hasil frame-grab. Poster adalah peningkatan progresif:
+ * kegagalannya TIDAK boleh menggagalkan posting (return null), kecuali
+ * pembatalan dari pengguna (abort) yang memang harus merambat.
+ */
+async function uploadComposerPoster(item: ComposerMedia, signal?: AbortSignal): Promise<string | null> {
+  if (item.type !== 'video' || !item.posterBlob || !item.posterUploadId) return null;
+  if (item.posterUrl) return item.posterUrl;
+  try {
+    const upload = await requestJson<never>(
+      '/api/community/media',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': item.posterBlob.type || 'image/jpeg',
+          'X-Upload-ID': item.posterUploadId,
+          ...getAuthHeaders(),
+        },
+        body: item.posterBlob,
+        ...(signal ? { signal } : {}),
+      },
+      'Gagal mengunggah poster video',
+      MEDIA_UPLOAD_TIMEOUT_MS,
+    );
+    return typeof upload.url === 'string' && upload.url ? upload.url : null;
+  } catch (posterError) {
+    if (posterError instanceof Error && posterError.name === 'AbortError') throw posterError;
+    return null;
+  }
 }
 
 // Perangkat sentuh (ponsel/tablet) memakai papan ketik lunak tanpa tombol
@@ -889,14 +943,27 @@ function QuotedPostCard({
             >
               {item.type === 'video' ? (
                 <>
-                  <video
-                    src={videoPreviewSrc(item.url)}
-                    preload="metadata"
-                    muted
-                    playsInline
-                    aria-hidden="true"
-                    className="block h-full w-auto max-w-[60vw] bg-black object-contain"
-                  />
+                  {item.poster ? (
+                    // Poster JPEG selalu ter-paint — tidak seperti <video>
+                    // preload="metadata" yang tampil hitam di perangkat hemat
+                    // data. <video> tinggal jalur mundur media lama tanpa poster.
+                    <img
+                      src={item.poster}
+                      alt=""
+                      loading="lazy"
+                      aria-hidden="true"
+                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+                    />
+                  ) : (
+                    <video
+                      src={videoPreviewSrc(item.url)}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      aria-hidden="true"
+                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+                    />
+                  )}
                   <span className="absolute inset-0 flex items-center justify-center">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white">
                       <Play size={14} fill="currentColor" />
@@ -1180,6 +1247,9 @@ function PostMediaRail({
             ariaLabel={`Video ${index + 1} dari ${media.length} kiriman ${authorName}`}
             mode={mode === 'single' ? 'fit' : mode === 'carousel' ? 'strip' : 'fill'}
             minWidth={mode === 'carousel' ? '14rem' : undefined}
+            poster={item.poster}
+            width={item.width}
+            height={item.height}
           />
           <button
             type="button"
@@ -2628,7 +2698,9 @@ export default function TerasPage({
         type: isImage ? 'image' : 'video',
         previewUrl: URL.createObjectURL(file),
         uploadBlob: file,
-        status: isImage ? 'processing' : 'ready',
+        // Video ikut 'processing': frame-grab poster + dimensi dulu. Gagal
+        // capture bukan galat — item tetap jadi 'ready' tanpa poster.
+        status: 'processing',
       });
     }
 
@@ -2648,6 +2720,23 @@ export default function TerasPage({
     const stillPresent = (mediaId: string) => (
       findComposerSegment(segmentKey)?.media.some(item => item.id === mediaId) === true
     );
+
+    await mapWithConcurrency(additions.filter(item => item.type === 'video'), 1, async item => {
+      const captured = await captureVideoPoster(item.uploadBlob);
+      if (!stillPresent(item.id)) return;
+      updateSegmentMedia(segmentKey, items => items.map(currentItem => currentItem.id === item.id
+        ? {
+          ...currentItem,
+          status: 'ready' as const,
+          ...(captured ? {
+            posterBlob: captured.blob,
+            posterUploadId: window.crypto.randomUUID(),
+            width: captured.width,
+            height: captured.height,
+          } : {}),
+        }
+        : currentItem));
+    });
 
     await mapWithConcurrency(additions.filter(item => item.type === 'image'), 1, async item => {
       const sourceFile = item.uploadBlob as File;
@@ -2736,7 +2825,9 @@ export default function TerasPage({
         type: isImage ? 'image' : 'video',
         previewUrl: URL.createObjectURL(file),
         uploadBlob: file,
-        status: isImage ? 'processing' : 'ready',
+        // Sama seperti composer kiriman: video 'processing' dulu untuk
+        // frame-grab poster; capture gagal tetap berakhir 'ready' tanpa poster.
+        status: 'processing',
       });
     }
 
@@ -2751,6 +2842,22 @@ export default function TerasPage({
     clearCommentRequestIds(postId);
     setCommentPanelMedia(postId, items => [...items, ...additions]);
     setCommentPanelError(postId, validationErrors.length > 0 ? validationErrors.join('. ') : null);
+
+    await mapWithConcurrency(additions.filter(item => item.type === 'video'), 1, async item => {
+      const captured = await captureVideoPoster(item.uploadBlob);
+      setCommentPanelMedia(postId, items => items.map(currentItem => currentItem.id === item.id
+        ? {
+          ...currentItem,
+          status: 'ready' as const,
+          ...(captured ? {
+            posterBlob: captured.blob,
+            posterUploadId: window.crypto.randomUUID(),
+            width: captured.width,
+            height: captured.height,
+          } : {}),
+        }
+        : currentItem));
+    });
 
     await mapWithConcurrency(additions.filter(item => item.type === 'image'), 1, async item => {
       const sourceFile = item.uploadBlob as File;
@@ -2817,7 +2924,7 @@ export default function TerasPage({
 
       const uploadedFlat = await mapWithConcurrency(flatMedia, 2, async ({ segmentKey, item }) => {
         if (item.url) {
-          return { segmentKey, media: { type: item.type, url: item.url } satisfies CommunityMedia };
+          return { segmentKey, media: composerMediaPayload(item, item.url, item.posterUrl) };
         }
 
         setItemStatus(segmentKey, item.id, { status: 'uploading' });
@@ -2837,8 +2944,14 @@ export default function TerasPage({
           MEDIA_UPLOAD_TIMEOUT_MS,
         );
         if (typeof upload.url !== 'string' || !upload.url) throw new Error('URL media tidak tersedia');
-        setItemStatus(segmentKey, item.id, { status: 'ready', url: upload.url, error: undefined });
-        return { segmentKey, media: { type: item.type, url: upload.url } satisfies CommunityMedia };
+        const posterUrl = await uploadComposerPoster(item, controller.signal);
+        setItemStatus(segmentKey, item.id, {
+          status: 'ready',
+          url: upload.url,
+          ...(posterUrl ? { posterUrl } : {}),
+          error: undefined,
+        });
+        return { segmentKey, media: composerMediaPayload(item, upload.url, posterUrl ?? undefined) };
       });
 
       const uploadedBySegmentKey = new Map<string, CommunityMedia[]>();
@@ -3754,7 +3867,7 @@ export default function TerasPage({
     }));
     try {
       const uploadedMedia = await mapWithConcurrency(mediaSnapshot, 2, async item => {
-        if (item.url) return { type: item.type, url: item.url } satisfies CommunityMedia;
+        if (item.url) return composerMediaPayload(item, item.url, item.posterUrl);
 
         setCommentPanelMedia(postId, items => items.map(currentItem => currentItem.id === item.id
           ? { ...currentItem, status: 'uploading' as const }
@@ -3774,10 +3887,17 @@ export default function TerasPage({
           MEDIA_UPLOAD_TIMEOUT_MS,
         );
         if (typeof upload.url !== 'string' || !upload.url) throw new Error('URL media tidak tersedia');
+        const posterUrl = await uploadComposerPoster(item);
         setCommentPanelMedia(postId, items => items.map(currentItem => currentItem.id === item.id
-          ? { ...currentItem, status: 'ready' as const, url: upload.url, error: undefined }
+          ? {
+            ...currentItem,
+            status: 'ready' as const,
+            url: upload.url,
+            ...(posterUrl ? { posterUrl } : {}),
+            error: undefined,
+          }
           : currentItem));
-        return { type: item.type, url: upload.url } satisfies CommunityMedia;
+        return composerMediaPayload(item, upload.url, posterUrl ?? undefined);
       });
 
       const commentMentions = extractMentionSlugs(body, memberSlugs);
@@ -4523,6 +4643,8 @@ export default function TerasPage({
                 src={item.previewUrl}
                 ariaLabel={`Pratinjau video ${index + 1}`}
                 mode={media.length === 1 ? 'fit' : 'strip'}
+                width={item.width}
+                height={item.height}
               />
             ) : (
               <img
@@ -5252,6 +5374,9 @@ export default function TerasPage({
                     startTime={mediaViewer.startTime}
                     autoPlay={mediaViewer.autoPlay}
                     startMuted={mediaViewer.muted}
+                    poster={mediaViewer.media[mediaViewer.index].poster}
+                    width={mediaViewer.media[mediaViewer.index].width}
+                    height={mediaViewer.media[mediaViewer.index].height}
                   />
                 ) : (
                   <motion.img

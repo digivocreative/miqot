@@ -21,6 +21,11 @@ interface PlyrVideoProps {
   autoPlay?: boolean;
   /** Preserve the source player's mute state on resume. */
   startMuted?: boolean;
+  /** Poster JPEG hasil frame-grab composer — thumbnail tanpa decode video. */
+  poster?: string;
+  /** Dimensi asli video: aspect-ratio benar SEBELUM metadata/poster termuat. */
+  width?: number;
+  height?: number;
 }
 
 // Narrow players (portrait video) can't fit the full control set — the
@@ -34,7 +39,7 @@ const CONTROLS_BY_MODE: Record<PlyrVideoProps['mode'], string[]> = {
   viewer: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
 };
 
-export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, startTime, autoPlay, startMuted }: PlyrVideoProps) {
+export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, startTime, autoPlay, startMuted, poster, width, height }: PlyrVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Read at mount only — a fresh viewer instance carries the resume position.
   const startTimeRef = useRef(startTime);
@@ -96,13 +101,18 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
     >
       <video
         ref={videoRef}
-        src={posterFragmentFailed ? src : videoPreviewSrc(src)}
+        // Dengan poster sungguhan, trik fragment `#t=` tidak dibutuhkan (dan
+        // hanya menambah range-request); fragment tinggal jalur mundur untuk
+        // media lama yang belum punya poster.
+        src={poster || posterFragmentFailed ? src : videoPreviewSrc(src)}
+        poster={poster}
         playsInline
         preload="metadata"
         controls
         aria-label={ariaLabel}
+        style={width && height ? { aspectRatio: `${width} / ${height}` } : undefined}
         onError={() => {
-          if (!posterFragmentFailed && videoPreviewFallbackSrc(src)) setPosterFragmentFailed(true);
+          if (!poster && !posterFragmentFailed && videoPreviewFallbackSrc(src)) setPosterFragmentFailed(true);
         }}
       />
     </div>

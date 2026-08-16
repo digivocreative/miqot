@@ -43,6 +43,7 @@ import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
+import { findRejectedVideoCodec } from './lib/community-video.js';
 import {
   MAINTENANCE_ACCESS_COOKIE,
   createMaintenanceGate,
@@ -4680,7 +4681,12 @@ const COMMUNITY_MEDIA_MIME_TYPES = Object.freeze({
   'image/png': { type: 'image', ext: 'png', maxBytes: COMMUNITY_IMAGE_MAX_BYTES },
   'image/webp': { type: 'image', ext: 'webp', maxBytes: COMMUNITY_IMAGE_MAX_BYTES },
   'video/mp4': { type: 'video', ext: 'mp4', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
-  'video/quicktime': { type: 'video', ext: 'mov', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
+  // MOV (QuickTime H.264) sengaja DISIMPAN sebagai .mp4: byte-nya tetap
+  // terputar (browser mengendus kontainer, bukan ekstensi), sedangkan CDN
+  // menyajikan header per-ekstensi — .mov dapat video/quicktime + no-cache
+  // tanpa CORS, .mp4 dapat video/mp4 + cache 30 hari. Codec non-H.264 di
+  // dalam MOV ditolak terpisah oleh findRejectedVideoCodec.
+  'video/quicktime': { type: 'video', ext: 'mp4', storageMime: 'video/mp4', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
   'video/webm': { type: 'video', ext: 'webm', maxBytes: COMMUNITY_VIDEO_MAX_BYTES },
 });
 const communityMediaBodyParser = express.raw({
@@ -5077,7 +5083,15 @@ function normalizeStoredCommunityMedia(value, photoUrl = null) {
       if (!['image', 'video'].includes(item.type) || typeof item.url !== 'string') continue;
       const url = item.url.trim();
       if (!url) continue;
-      normalized.push({ type: item.type, url });
+      const entry = { type: item.type, url };
+      if (item.type === 'video') {
+        if (typeof item.poster === 'string' && item.poster.trim()) entry.poster = item.poster.trim();
+        if (Number.isSafeInteger(item.width) && Number.isSafeInteger(item.height) && item.width > 0 && item.height > 0) {
+          entry.width = item.width;
+          entry.height = item.height;
+        }
+      }
+      normalized.push(entry);
       if (normalized.length === COMMUNITY_MAX_MEDIA_ITEMS) break;
     }
   }
@@ -5247,6 +5261,20 @@ function normalizeCommunityMediaInput(value, publicUrlPrefixes, agentSlug) {
   }
   if (!expectedPrefixes.length) return null;
 
+  const validateOwnedUrl = (rawUrl, extensionPattern) => {
+    let candidate;
+    try {
+      candidate = new URL(rawUrl);
+    } catch {
+      return false;
+    }
+    const matchesPrefix = expectedPrefixes.some(prefix => (
+      candidate.origin === prefix.origin && candidate.pathname.startsWith(prefix.agentPath)
+    ));
+    if (!matchesPrefix || candidate.search || candidate.hash) return false;
+    return extensionPattern.test(candidate.pathname.toLowerCase());
+  };
+
   const normalized = [];
   const seenUrls = new Set();
   for (const item of value) {
@@ -5254,25 +5282,34 @@ function normalizeCommunityMediaInput(value, publicUrlPrefixes, agentSlug) {
     if (!['image', 'video'].includes(item.type) || typeof item.url !== 'string') return null;
 
     const url = item.url.trim();
-    let candidate;
-    try {
-      candidate = new URL(url);
-    } catch {
-      return null;
-    }
-    const matchesPrefix = expectedPrefixes.some(prefix => (
-      candidate.origin === prefix.origin && candidate.pathname.startsWith(prefix.agentPath)
-    ));
-    if (!matchesPrefix || candidate.search || candidate.hash) return null;
-
-    const path = candidate.pathname.toLowerCase();
-    const hasExpectedExtension = item.type === 'image'
-      ? /\.(?:jpe?g|png|webp)$/.test(path)
-      : /\.(?:mp4|mov|webm)$/.test(path);
-    if (!hasExpectedExtension || seenUrls.has(url)) return null;
-
+    const hasValidUrl = item.type === 'image'
+      ? validateOwnedUrl(url, /\.(?:jpe?g|png|webp)$/)
+      : validateOwnedUrl(url, /\.(?:mp4|mov|webm)$/);
+    if (!hasValidUrl || seenUrls.has(url)) return null;
     seenUrls.add(url);
-    normalized.push({ type: item.type, url });
+
+    const entry = { type: item.type, url };
+    if (item.type === 'video') {
+      // Metadata opsional dari composer: poster JPEG hasil frame-grab (untuk
+      // thumbnail tanpa decode video) dan dimensi asli (untuk aspect-ratio
+      // sebelum metadata video termuat). Nilai janggal menolak seluruh payload
+      // — konsisten dengan validasi ketat lainnya di fungsi ini.
+      if (item.poster !== undefined) {
+        if (typeof item.poster !== 'string' || !validateOwnedUrl(item.poster.trim(), /\.jpe?g$/)) return null;
+        entry.poster = item.poster.trim();
+      }
+      if (item.width !== undefined || item.height !== undefined) {
+        const width = Number(item.width);
+        const height = Number(item.height);
+        if (
+          !Number.isSafeInteger(width) || !Number.isSafeInteger(height)
+          || width < 1 || height < 1 || width > 8192 || height > 8192
+        ) return null;
+        entry.width = width;
+        entry.height = height;
+      }
+    }
+    normalized.push(entry);
   }
   return normalized;
 }
@@ -7362,21 +7399,26 @@ app.post('/api/community/media', authMiddleware, prepareCommunityMediaUpload, pa
     if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
       return res.status(400).json({ error: 'Isi file media tidak valid' });
     }
+    if (['video/mp4', 'video/quicktime'].includes(mime)) {
+      const rejectedCodec = findRejectedVideoCodec(buffer);
+      if (rejectedCodec) return res.status(415).json({ error: rejectedCodec.message });
+    }
 
+    const storageMime = mediaConfig.storageMime || mime;
     const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
     const fileName = `community/${agent.slug}-${uploadId}-${contentHash}.${mediaConfig.ext}`;
     let publicUrl;
     if (getBunnyEnabled()) {
       // PUT is idempotent and the content hash is in the path, so a retried
       // upload of the same bytes simply overwrites the identical object.
-      await bunnyUpload(fileName, buffer, mime);
+      await bunnyUpload(fileName, buffer, storageMime);
       publicUrl = `https://${BUNNY_CDN_HOSTNAME}/${fileName}`;
     } else {
       console.warn('[community] Bunny CDN belum dikonfigurasi — media diunggah ke Supabase Storage');
       const { error: uploadError } = await supabase.storage
         .from('agent-photos')
         .upload(fileName, buffer, {
-          contentType: mime,
+          contentType: storageMime,
           cacheControl: '31536000',
           upsert: false,
         });
@@ -8259,6 +8301,16 @@ async function communityMediaUrlStillReferenced(url) {
       .select('id', { count: 'exact', head: true })
       .is('deleted_at', null)
       .contains('media', JSON.stringify([{ url }])),
+    // File yang sama bisa dirujuk sebagai poster video (key `poster`,
+    // bukan `url`) oleh baris hidup lain.
+    supabase.from('community_posts')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .contains('media', JSON.stringify([{ poster: url }])),
+    supabase.from('community_post_comments')
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .contains('media', JSON.stringify([{ poster: url }])),
   ]);
   let referenced = 0;
   for (const result of results) {
@@ -8348,6 +8400,9 @@ async function purgeDeletedCommunityMedia() {
         const urls = new Set();
         for (const item of Array.isArray(row.media) ? row.media : []) {
           if (item && typeof item.url === 'string') urls.add(item.url);
+          // Poster video adalah file storage tersendiri — tanpa ini ia yatim
+          // permanen di CDN setiap kali kirimannya dihapus.
+          if (item && typeof item.poster === 'string' && item.poster) urls.add(item.poster);
         }
         if (hasPhotoUrl && typeof row.photo_url === 'string' && row.photo_url) urls.add(row.photo_url);
 

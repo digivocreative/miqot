@@ -842,6 +842,62 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('video terdecode ikut mengunggah poster frame-grab + dimensi di payload', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi();
+    const app = await openApp({ api });
+    try {
+      // WebM VP8 64×48 sungguhan (6 frame, 1 dtk) — beda dengan byte ftyp
+      // sintetis di test sebelumnya, ini TERDECODE oleh Chromium sehingga
+      // captureVideoPoster menghasilkan poster; test sebelumnya justru menjaga
+      // jalur mundur (capture gagal → posting tetap jalan tanpa poster).
+      const sourceVideo = Buffer.from(
+        'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAKBEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEnTbuMU6uEHFO7a1OsggJr7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuMS4xMDBXQYxMYXZmNjEuMS4xMDBEiYhAj0AAAAAAABZUrmvMrgEAAAAAAABD14EBc8WI6wwTTHieDMacgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QJ7yGq4JSwgUC6gTCagQJVsIhVt4ECVbiBAhJUw2f6c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS4xLjEwMHNz1WPAi2PFiOsME0x4ngzGZ8igRaOHRU5DT0RFUkSHk0xhdmM2MS4zLjEwMCBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QL/ngQCjwoEAAIBQAwCdASpAADAAAEcIhYWIhYSIAgICdaoD+AIHCNVnmY830gD++7Ar/2M36M36M39gD/+H/fw/7+H/f/DpAKOWgQCnANEBAAEQEAAYABhYL/QACIwAAKOWgQFNANEBAAEQEAAYABhYL/QACIwAAKOWgQH0ANEBAAEQEAAYABhYL/QACIwAAKOWgQKbANEBAAEQEAAYABhYL/QACIwAAKOWgQNBANEBAAEQEAAYABhYL/QACIwAABxTu2uRu4+zgQC3iveBAfGCAabwgQM=',
+        'base64',
+      );
+      const fileChooserPromise = app.page.waitForEvent('filechooser');
+      await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles({
+        name: 'clip.webm',
+        mimeType: 'video/webm',
+        buffer: sourceVideo,
+      });
+
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.getByLabel('Pratinjau video 1').waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Video dengan poster');
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const uploads = matchingRequests(api, 'POST', '/api/community/media');
+      assert.equal(uploads.length, 2, 'video + poster JPEG harus terunggah');
+      assert.equal(uploads[0].contentType, 'video/webm');
+      assert.deepEqual(uploads[0].bodyBuffer, sourceVideo);
+      assert.equal(uploads[1].contentType, 'image/jpeg');
+      assert.deepEqual([...uploads[1].bodyBuffer.subarray(0, 3)], [0xff, 0xd8, 0xff],
+        'poster harus JPEG asli (magic bytes)');
+
+      const postRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
+      assert.deepEqual(postRequest.body.segments[0].media, [{
+        type: 'video',
+        url: 'https://cdn.example.test/community/media-1.mp4',
+        poster: 'https://cdn.example.test/community/media-2.jpg',
+        width: 64,
+        height: 48,
+      }]);
+
+      // Feed memakai poster + aspect-ratio dari dimensi tersimpan — kontrak
+      // anti "kotak hitam 300×150" di perangkat yang tak mem-preload video.
+      const createdArticle = app.page.locator('article').filter({ hasText: 'Video dengan poster' });
+      const renderedVideo = createdArticle.getByLabel('Video 1 dari 1 kiriman Nikita Test');
+      await renderedVideo.waitFor();
+      assert.equal(await renderedVideo.getAttribute('poster'), 'https://cdn.example.test/community/media-2.jpg');
+      assert.equal(await renderedVideo.evaluate(el => el.style.aspectRatio), '64 / 48');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('Threads-style feed fills the wide column and mixed media carousel stays fluid without page overflow', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({
