@@ -247,6 +247,24 @@ function hotelHeaderLabel(): string {
   return 'Direktori Hotel';
 }
 
+// Sub-view panel Kelola Hotel (/dashboard/hotels[/tambah|/edit/:slug]) —
+// judul & back bertahap di header, tanpa baris back internal di halaman.
+function getHotelsKelolaSub(): 'tambah' | 'edit' | null {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  if (segments[0] === 'dashboard' && segments[1] === 'hotels') {
+    if (segments[2] === 'tambah') return 'tambah';
+    if (segments[2] === 'edit' && segments[3]) return 'edit';
+  }
+  return null;
+}
+
+function hotelsHeaderLabel(): string {
+  const sub = getHotelsKelolaSub();
+  if (sub === 'tambah') return 'Tambah Hotel';
+  if (sub === 'edit') return 'Edit Hotel';
+  return 'Hotels';
+}
+
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
@@ -265,6 +283,7 @@ function getCurrentDocumentTitle(): string {
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
   if (sub === 'hotel') return hotelHeaderLabel();
+  if (getHotelsKelolaSub()) return hotelsHeaderLabel();
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
@@ -603,6 +622,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Brosur Jadwal'
       : (activeTab === 'ai-tools' && aiSub === 'kalkulasi')
       ? 'Kalkulasi'
+      : (activeTab === 'hotels')
+      ? hotelsHeaderLabel()
       : TAB_TITLES[activeTab] || 'Dashboard';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -766,6 +787,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   setTimeout(() => setActiveTab('ai-tools'), 0);
                   return;
                 }
+                // Panel Kelola Hotel: form tambah/edit → daftar kelola
+                if (activeTab === 'hotels' && getHotelsKelolaSub()) {
+                  navigatePath('/dashboard/hotels');
+                  return;
+                }
                 navigateTab('home');
               }}
               // Hit-area 44px (aturan a11y desain) dengan chip visual tetap
@@ -851,7 +877,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <activeCard.icon size={compactHeader ? 14 : 16} className={activeCard.color} />
                       </div>
                     )}
-                    <h1 className={`${compactHeader ? 'text-[13px]' : 'text-sm'} font-bold text-gray-800 dark:text-white truncate`}>{activeCard?.label}</h1>
+                    <h1 className={`${compactHeader ? 'text-[13px]' : 'text-sm'} font-bold text-gray-800 dark:text-white truncate`}>{activeTab === 'hotels' ? hotelsHeaderLabel() : activeCard?.label}</h1>
                   </>
                 );
               })()}
@@ -1073,7 +1099,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
 
           {activeTab === 'hotels' && isAdmin && hotelEnabled && (
-            <HotelKelolaPage />
+            <HotelKelolaPage onNavigate={navigatePath} />
           )}
 
           {activeTab === 'ai-tools' && (() => {

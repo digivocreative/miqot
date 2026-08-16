@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronLeft, ChevronDown, Search,
+  Loader2, Play, ChevronDown, Search,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
@@ -121,10 +121,22 @@ async function uploadHotelMedia(blob: Blob): Promise<string> {
   return json.url;
 }
 
-type KelolaView = { kind: 'list' } | { kind: 'form'; hotel: HotelListItem | null };
+type KelolaView = { kind: 'list' } | { kind: 'create' } | { kind: 'edit'; slug: string };
 
-export default function HotelKelolaPage() {
-  const [view, setView] = useState<KelolaView>({ kind: 'list' });
+// View diturunkan dari URL (/dashboard/hotels[/tambah|/edit/:slug]) supaya
+// tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
+// pola sama dengan readHotelView di HotelPage (keluhan "navigasi double").
+function readKelolaView(): KelolaView {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  if (segments[2] === 'tambah') return { kind: 'create' };
+  const slug = decodeURIComponent(segments[3] || '');
+  if (segments[2] === 'edit' && slug) return { kind: 'edit', slug };
+  return { kind: 'list' };
+}
+
+export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: string) => void }) {
+  // Re-render tiap navigasi datang dari pathTick DashboardLayout.
+  const view = readKelolaView();
   const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState<string>('semua');
@@ -224,29 +236,36 @@ export default function HotelKelolaPage() {
     }
   };
 
-  const openCreate = () => {
+  // Kunci primitif, bukan objek view — readKelolaView membuat objek baru tiap render.
+  const editSlug = view.kind === 'edit' ? view.slug : null;
+  const isCreate = view.kind === 'create';
+
+  useEffect(() => {
+    if (!isCreate) return;
     setForm(emptyForm());
     setEditingId(null);
     setSaveError(null);
-    setView({ kind: 'form', hotel: null });
-  };
+  }, [isCreate]);
 
-  const openEdit = async (hotel: HotelListItem) => {
+  useEffect(() => {
+    if (!editSlug) return;
+    let cancelled = false;
+    setForm(emptyForm());
+    setEditingId(null);
     setSaveError(null);
     setFormLoading(true);
-    setEditingId(hotel.id);
-    setView({ kind: 'form', hotel });
-    try {
-      const res = await fetch(`/api/hotels/${encodeURIComponent(hotel.slug)}`, { headers: getAuthHeaders() });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat data hotel');
-      setForm(formFromDetail(json.data));
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Gagal memuat data hotel');
-    } finally {
-      setFormLoading(false);
-    }
-  };
+    fetch(`/api/hotels/${encodeURIComponent(editSlug)}`, { headers: getAuthHeaders() })
+      .then(async res => {
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat data hotel');
+        if (cancelled) return;
+        setForm(formFromDetail(json.data));
+        setEditingId(json.data.id);
+      })
+      .catch(err => { if (!cancelled) setSaveError(err instanceof Error ? err.message : 'Gagal memuat data hotel'); })
+      .finally(() => { if (!cancelled) setFormLoading(false); });
+    return () => { cancelled = true; };
+  }, [editSlug]);
 
   const handleMediaSelection = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -320,6 +339,9 @@ export default function HotelKelolaPage() {
   };
 
   const handleSave = async () => {
+    // Mode edit tapi detail belum/gagal termuat → tanpa editingId permintaan
+    // akan jatuh ke POST dan MENDUPLIKASI hotel. Tahan di sini (fail-closed).
+    if (editSlug && !editingId) { setSaveError('Data hotel belum termuat. Muat ulang halaman ini.'); return; }
     if (!form.name.trim()) { setSaveError('Nama hotel wajib diisi.'); return; }
     if (form.media.some(m => m.status === 'uploading')) {
       setSaveError('Tunggu unggahan media selesai dulu.');
@@ -352,7 +374,7 @@ export default function HotelKelolaPage() {
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan hotel');
-      setView({ kind: 'list' });
+      onNavigate('/dashboard/hotels');
       refetch();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal menyimpan hotel');
@@ -382,32 +404,20 @@ export default function HotelKelolaPage() {
   };
 
   // ── View: Form Tambah/Edit ──
-  if (view.kind === 'form') {
+  // Judul & tombol back form ada di header DashboardLayout ("Tambah/Edit Hotel").
+  if (view.kind !== 'list') {
     const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
     const landmark = HOTEL_CITY_LANDMARKS[form.city];
     return (
       <HotelViewShell viewKey="kelola-form">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setView({ kind: 'list' })}
-            aria-label="Kembali ke daftar kelola"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            <ChevronLeft size={16} strokeWidth={2.5} />
-          </button>
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white">
-            {editingId ? 'Edit Hotel' : 'Tambah Hotel'}
-          </h2>
-        </div>
-
         {formLoading ? (
-          <div className="mt-4 space-y-3">
+          <div className="space-y-3">
             {[0, 1, 2].map(i => (
               <div key={i} className="h-20 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
             ))}
           </div>
         ) : (
-          <div className="mt-4 space-y-6">
+          <div className="space-y-6">
             {/* INFO DASAR */}
             <section className="space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Info Dasar</h3>
@@ -661,10 +671,10 @@ export default function HotelKelolaPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {saving && <Loader2 size={16} className="animate-spin" />}
-                {editingId ? 'Simpan Perubahan' : 'Simpan Hotel'}
+                {editSlug ? 'Simpan Perubahan' : 'Simpan Hotel'}
               </button>
               <button
-                onClick={() => setView({ kind: 'list' })}
+                onClick={() => onNavigate('/dashboard/hotels')}
                 className="w-full py-2 text-[13px] font-semibold text-gray-500 dark:text-slate-400"
               >
                 Batal
@@ -695,7 +705,7 @@ export default function HotelKelolaPage() {
           </p>
         </div>
         <button
-          onClick={openCreate}
+          onClick={() => onNavigate('/dashboard/hotels/tambah')}
           className="flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-95"
         >
           <Plus size={14} strokeWidth={2.5} />
@@ -863,7 +873,7 @@ export default function HotelKelolaPage() {
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <button
-                onClick={() => openEdit(hotel)}
+                onClick={() => onNavigate(`/dashboard/hotels/edit/${encodeURIComponent(hotel.slug)}`)}
                 aria-label={`Edit ${hotel.name}`}
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
               >
