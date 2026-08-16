@@ -19,6 +19,7 @@ import { getTodaysBirthdays } from './lib/birthdays.js';
 import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { buildNotifierPackagesUrl } from './lib/notifier-package-source.js';
 import { classifyJamaahSyncHealth, isSyncStuck } from './lib/jamaah-sync-health.js';
+import { dedupeJamaahSyncEvents, hasJamaahSyncEvents, toMoney } from './lib/jamaah-sync-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'data', 'notifier-state.json');
@@ -2008,7 +2009,14 @@ function buildJamaahBaruMessage(agentName, jamaahList) {
       j.tglBerangkat ? `berangkat ${formatTanggalMaybe(j.tglBerangkat)}` : null,
       j.idUmroh ? `ID <code>${escHtml(j.idUmroh)}</code>` : null,
     ].filter(Boolean).join(' • ');
-    return `→ <b>${formatPersonName(j.nama)}</b>${meta ? `\n   ${meta}` : ''}`;
+    // Jamaah baru yang datang bersama DP-nya tidak lagi memicu notif cicilan
+    // terpisah di siklus yang sama — tampilkan pembayarannya di sini.
+    const bayar = toMoney(j.bayar);
+    const sisa = toMoney(j.sisa);
+    const pay = bayar > 0
+      ? `\n   DP <b>${fmtRpShort(bayar)}</b> • ${sisa > 0 ? `sisa ${fmtRpShort(sisa)}` : 'LUNAS'}`
+      : '';
+    return `→ <b>${formatPersonName(j.nama)}</b>${meta ? `\n   ${meta}` : ''}${pay}`;
   });
   appendRemaining(lines, jamaahList.length, shown.length);
 
@@ -2049,9 +2057,50 @@ function buildPembayaranMessage(agentName, pembayaranList, kind) {
     '👥 <i>Gunakan tombol di bawah untuk cek detail jamaah.</i>';
 }
 
+// Majukan watermark notifikasi untuk event yang sudah TERKIRIM (atau sengaja
+// di-skip). Watermark-lah yang mencegah dobel kirim — dan selama belum maju,
+// event yang gagal/tertunda akan terdeteksi ulang di siklus berikutnya, bukan
+// hilang permanen. Gagal update di sini hanya berisiko notif dobel sekali
+// (at-least-once), bukan kehilangan data.
+let jamaahNotifWatermarkWritable = true;
+
+async function commitJamaahNotifWatermarks(agentId, { jamaahBaru = [], pembayaran = [] }) {
+  if (!supabaseAdmin || !jamaahNotifWatermarkWritable) return;
+  const nowIso = new Date().toISOString();
+  const apply = async (event, patch) => {
+    if (!event?.idUmroh || !event?.jmId) return;
+    const { error } = await supabaseAdmin
+      .from('jamaah')
+      .update(patch)
+      .eq('agent_id', agentId)
+      .eq('id_umroh', event.idUmroh)
+      .eq('jm_id', event.jmId);
+    if (!error) return;
+    if (error.code === '42703') {
+      // Kolom watermark belum dimigrasi — berhenti mencoba (mode lama).
+      if (jamaahNotifWatermarkWritable) {
+        jamaahNotifWatermarkWritable = false;
+        warn('[jamaah-sync-notif] Migrasi kolom notif jamaah belum diterapkan — watermark notifikasi nonaktif');
+      }
+      return;
+    }
+    warn(`[jamaah-sync-notif] watermark update failed for ${event.idUmroh}/${event.jmId}:`, error.message);
+  };
+  for (const e of jamaahBaru) {
+    await apply(e, { notif_new_sent_at: nowIso, notif_last_bayar: toMoney(e.bayar) });
+  }
+  for (const e of pembayaran) {
+    await apply(e, { notif_last_bayar: toMoney(e.totalBayar) });
+  }
+}
+
 async function notifyJamaahSyncEvents(agentId, events) {
   try {
     if (!supabaseAdmin || !events) return;
+    // Jalur legacy mendeteksi per-batch (Phase 1 + Phase 2) sebelum satu kali
+    // kirim — dengan watermark, pax yang sama bisa terdeteksi dua kali.
+    const cleanEvents = dedupeJamaahSyncEvents(events);
+    if (!hasJamaahSyncEvents(cleanEvents)) return;
 
     const { data: agent, error } = await supabaseAdmin
       .from('agents')
@@ -2059,32 +2108,63 @@ async function notifyJamaahSyncEvents(agentId, events) {
       .eq('id', agentId)
       .single();
 
+    // Gagal baca agent = transient: JANGAN majukan watermark, biar refire.
     if (error || !agent) return;
-    if (!agent.telegram_chat_id) return;
 
     const prefs = agent.notification_prefs || {};
-    const messages = [];
+    const reachable = !!agent.telegram_chat_id;
+    const plans = [];
+    const skipped = { jamaahBaru: [], pembayaran: [] };
 
-    if ((events.jamaahBaru || []).length > 0 && prefEnabled(prefs, 'jamaah_baru')) {
-      messages.push(buildJamaahBaruMessage(agent.name, events.jamaahBaru));
+    if ((cleanEvents.jamaahBaru || []).length > 0) {
+      if (reachable && prefEnabled(prefs, 'jamaah_baru')) {
+        plans.push({
+          message: buildJamaahBaruMessage(agent.name, cleanEvents.jamaahBaru),
+          watermark: { jamaahBaru: cleanEvents.jamaahBaru },
+        });
+      } else {
+        skipped.jamaahBaru.push(...cleanEvents.jamaahBaru);
+      }
     }
-    if ((events.pembayaranCicilan || []).length > 0 && prefEnabled(prefs, 'pembayaran_cicilan', 'pembayaran_masuk')) {
-      messages.push(buildPembayaranMessage(agent.name, events.pembayaranCicilan, 'cicilan'));
+    if ((cleanEvents.pembayaranCicilan || []).length > 0) {
+      if (reachable && prefEnabled(prefs, 'pembayaran_cicilan', 'pembayaran_masuk')) {
+        plans.push({
+          message: buildPembayaranMessage(agent.name, cleanEvents.pembayaranCicilan, 'cicilan'),
+          watermark: { pembayaran: cleanEvents.pembayaranCicilan },
+        });
+      } else {
+        skipped.pembayaran.push(...cleanEvents.pembayaranCicilan);
+      }
     }
-    if ((events.pembayaranPelunasan || []).length > 0 && prefEnabled(prefs, 'pembayaran_pelunasan', 'pembayaran_masuk')) {
-      messages.push(buildPembayaranMessage(agent.name, events.pembayaranPelunasan, 'pelunasan'));
+    if ((cleanEvents.pembayaranPelunasan || []).length > 0) {
+      if (reachable && prefEnabled(prefs, 'pembayaran_pelunasan', 'pembayaran_masuk')) {
+        plans.push({
+          message: buildPembayaranMessage(agent.name, cleanEvents.pembayaranPelunasan, 'pelunasan'),
+          watermark: { pembayaran: cleanEvents.pembayaranPelunasan },
+        });
+      } else {
+        skipped.pembayaran.push(...cleanEvents.pembayaranPelunasan);
+      }
     }
 
-    for (const message of messages) {
-      if (!message) continue;
-      await sendTelegramToAgent(agent.telegram_chat_id, message, {
+    // Skip yang DISENGAJA (pref dimatikan / Telegram belum terhubung) tetap
+    // memajukan watermark — kalau tidak, event menumpuk bertahun-tahun dan
+    // banjir begitu pref dinyalakan / chat terhubung.
+    await commitJamaahNotifWatermarks(agentId, skipped);
+
+    for (const plan of plans) {
+      if (!plan.message) continue;
+      await sendTelegramToAgent(agent.telegram_chat_id, plan.message, {
         reply_markup: buildJamaahKeyboard(),
       });
+      // Watermark maju HANYA setelah kirim sukses; gagal kirim melempar ke
+      // catch di bawah sehingga pesan berikutnya ikut tertunda (refire utuh).
+      await commitJamaahNotifWatermarks(agentId, plan.watermark);
       await sleep(300);
     }
 
-    if (messages.length > 0) {
-      log(`✅ Jamaah sync notif sent to ${agent.slug}: ${messages.length} message(s)`);
+    if (plans.length > 0) {
+      log(`✅ Jamaah sync notif sent to ${agent.slug}: ${plans.length} message(s)`);
     }
   } catch (err) {
     warn(`[jamaah-sync-notif] Error for ${agentId}:`, err.message);

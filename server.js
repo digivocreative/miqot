@@ -42,6 +42,7 @@ import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgP
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
+import { computeJamaahSyncEvents, emptyJamaahSyncEvents, hasJamaahSyncEvents, mergeJamaahSyncEvents, jamaahRowKey, toMoney, hasJamaahPayment, datePlusDaysKey, isFutureRelevantJamaah } from './lib/jamaah-sync-events.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
 import { findRejectedVideoCodec } from './lib/community-video.js';
 import {
@@ -11627,45 +11628,15 @@ function buildRows(items, agentId, now) {
   return Array.from(map.values());
 }
 
-function emptyJamaahSyncEvents() {
-  return { jamaahBaru: [], pembayaranCicilan: [], pembayaranPelunasan: [] };
-}
-
-function hasJamaahSyncEvents(events) {
-  return !!(
-    events?.jamaahBaru?.length ||
-    events?.pembayaranCicilan?.length ||
-    events?.pembayaranPelunasan?.length
-  );
-}
-
-function mergeJamaahSyncEvents(target, source) {
-  if (!source) return target;
-  target.jamaahBaru.push(...(source.jamaahBaru || []));
-  target.pembayaranCicilan.push(...(source.pembayaranCicilan || []));
-  target.pembayaranPelunasan.push(...(source.pembayaranPelunasan || []));
-  return target;
-}
-
-function jamaahRowKey(row) {
-  if (!row?.id_umroh || !row?.jm_id) return null;
-  return `${String(row.id_umroh).trim().toLowerCase()}|${String(row.jm_id).trim().toLowerCase()}`;
-}
+// emptyJamaahSyncEvents / hasJamaahSyncEvents / mergeJamaahSyncEvents /
+// jamaahRowKey / toMoney / hasJamaahPayment kini diimpor dari
+// lib/jamaah-sync-events.js (dipisah agar deteksi event bisa diuji murni).
 
 function jamaahCleanupIdentityKey(row) {
   const jmId = String(row?.jm_id || row?.id_jamaah || '').trim().toLowerCase();
   if (jmId && /^jm/i.test(jmId)) return `jm:${jmId}`;
   const nama = String(row?.nama || '').trim().toLowerCase();
   return nama ? `nm:${nama}` : '';
-}
-
-function toMoney(value) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function hasJamaahPayment(row) {
-  return toMoney(row?.bayar) > 0;
 }
 
 function isLegacyGrossUmrahDetailPayment(row, nextBayar) {
@@ -11772,17 +11743,6 @@ async function preserveSuspiciousAwapiPayments(agentId, rows) {
   return { rows: guardedRows, guardedCount, neutralizedCount, normalizedLunasCount, allocatedPartialCount, unresolved: [] };
 }
 
-function datePlusDaysKey(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function isFutureRelevantJamaah(row, cutoffStr) {
-  if (!row?.tgl_berangkat) return true;
-  return String(row.tgl_berangkat).slice(0, 10) >= cutoffStr;
-}
-
 async function hasJamaahNotificationBaseline(agentId, agent) {
   if (agent?.last_jamaah_sync_at) return true;
   const { data: syncRow, error: syncErr } = await supabase
@@ -11805,6 +11765,24 @@ async function hasJamaahNotificationBaseline(agentId, agent) {
   return (count || 0) > 0;
 }
 
+// Kolom watermark notifikasi (notif_new_sent_at, notif_last_bayar) butuh
+// migrasi DDL manual. Probe sekali per proses; sebelum migrasi diterapkan,
+// deteksi jalan di mode lama (tanpa refire-protection) dan log peringatan.
+let jamaahNotifWatermarkReady = null;
+
+async function ensureJamaahNotifWatermarkProbe() {
+  if (jamaahNotifWatermarkReady !== null) return jamaahNotifWatermarkReady;
+  const { error } = await supabase
+    .from('jamaah')
+    .select('notif_new_sent_at, notif_last_bayar')
+    .limit(1);
+  jamaahNotifWatermarkReady = !error;
+  if (error) {
+    console.warn('[Sync/events] Migrasi kolom notif jamaah (notif_new_sent_at/notif_last_bayar) belum diterapkan — notifikasi memakai deteksi lama. Jalankan SQL migrasi lalu restart server.');
+  }
+  return jamaahNotifWatermarkReady;
+}
+
 async function fetchExistingJamaahByBooking(agentId, rows) {
   const bookingIds = [...new Set(
     (rows || [])
@@ -11812,13 +11790,16 @@ async function fetchExistingJamaahByBooking(agentId, rows) {
       .filter(Boolean)
       .map(v => String(v))
   )];
+  const withWatermark = await ensureJamaahNotifWatermarkProbe();
+  const selectCols = 'id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen'
+    + (withWatermark ? ', notif_new_sent_at, notif_last_bayar' : '');
   const existingByKey = new Map();
   const CHUNK = 100;
   for (let i = 0; i < bookingIds.length; i += CHUNK) {
     const ids = bookingIds.slice(i, i + CHUNK);
     const { data, error } = await supabase
       .from('jamaah')
-      .select('id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen')
+      .select(selectCols)
       .eq('agent_id', agentId)
       .in('id_umroh', ids);
     if (error) {
@@ -11831,6 +11812,21 @@ async function fetchExistingJamaahByBooking(agentId, rows) {
     }
   }
   return existingByKey;
+}
+
+// Agent baseline (sync pertama, allowNewJamaah=false): tandai semua row sebagai
+// "sudah dikenal" tanpa notifikasi — kalau tidak, siklus kedua akan mengumumkan
+// seluruh armada sebagai jamaah baru karena watermark-nya masih NULL.
+async function markAgentJamaahNotifBaseline(agentId, label) {
+  if (!(await ensureJamaahNotifWatermarkProbe())) return;
+  const { error } = await supabase
+    .from('jamaah')
+    .update({ notif_new_sent_at: new Date().toISOString() })
+    .eq('agent_id', agentId)
+    .is('notif_new_sent_at', null);
+  if (error) {
+    console.warn(`[Sync/events] ${label}: baseline notif mark failed:`, error.message);
+  }
 }
 
 async function preserveLegacyUmrohRawDataForRows(agentId, rows) {
@@ -11865,84 +11861,24 @@ function splitLegacyRowsByPaymentPayload(rows) {
   return [withPayment, enrichmentOnly].filter(group => group.length > 0);
 }
 
+// Wrapper tipis: ambil row existing per booking, lalu serahkan ke fungsi murni
+// computeJamaahSyncEvents (lib/jamaah-sync-events.js). Semua aturan deteksi —
+// gate booking-level utk jamaah baru, watermark refire, dedup per-pax, buffer
+// pembayaran pasca-berangkat — hidup (dan diuji) di lib tersebut.
 async function detectUmrohJamaahSyncEvents(agentId, rows, options = {}) {
-  const deduped = new Map();
-  for (const row of rows || []) {
-    const key = jamaahRowKey(row);
-    if (key) deduped.set(key, row);
-  }
-  const incomingRows = Array.from(deduped.values());
+  const incomingRows = Array.isArray(rows) ? rows : [];
   if (incomingRows.length === 0) return emptyJamaahSyncEvents();
 
+  const watermarkEnabled = await ensureJamaahNotifWatermarkProbe();
   const existingByKey = await fetchExistingJamaahByBooking(agentId, incomingRows);
-  const events = emptyJamaahSyncEvents();
-  const newCutoffStr = datePlusDaysKey(options.now || new Date(), 0);
-  const paymentCutoffStr = datePlusDaysKey(options.now || new Date(), options.paymentBufferDays ?? 7);
-  const allowNewJamaah = options.allowNewJamaah !== false;
-  const seenPaymentEvents = new Set();
-
-  for (const row of incomingRows) {
-    const key = jamaahRowKey(row);
-    const existing = key ? existingByKey.get(key) : null;
-
-    if (!existing) {
-      if (allowNewJamaah && hasJamaahPayment(row) && isFutureRelevantJamaah(row, newCutoffStr)) {
-        events.jamaahBaru.push({
-          nama: row.nama,
-          paket: row.paket,
-          idUmroh: row.id_umroh,
-          jmId: row.jm_id,
-          tglBerangkat: row.tgl_berangkat,
-          tglDaftar: row.tgl_daftar,
-          bayar: toMoney(row.bayar),
-          sisa: toMoney(row.sisa),
-        });
-      }
-      continue;
-    }
-
-    if (!isFutureRelevantJamaah(row, paymentCutoffStr)) continue;
-
-    const bayarBefore = toMoney(existing.bayar);
-    const bayarAfter = toMoney(row.bayar);
-    const sisaBefore = toMoney(existing.sisa);
-    const hasKnownSisaAfter = row.sisa !== null && row.sisa !== undefined;
-    const sisaAfter = hasKnownSisaAfter ? toMoney(row.sisa) : sisaBefore;
-    const jumlah = Math.max(0, bayarAfter - bayarBefore);
-    const sisaDecreased = hasKnownSisaAfter && sisaBefore > 0 && sisaAfter < sisaBefore;
-    const becameLunas = hasKnownSisaAfter && sisaBefore > 0 && sisaAfter <= 0;
-    const paidFromEmptyToLunas = hasKnownSisaAfter && bayarBefore <= 0 && jumlah > 0 && sisaAfter <= 0;
-
-    if (jumlah <= 0) continue;
-
-    const event = {
-      nama: row.nama || existing.nama,
-      paket: row.paket || existing.paket,
-      idUmroh: row.id_umroh,
-      jmId: row.jm_id,
-      tglBerangkat: row.tgl_berangkat || existing.tgl_berangkat,
-      jumlah,
-      totalBayar: bayarAfter,
-      sisa: sisaAfter,
-      isLunas: sisaAfter <= 0,
-    };
-
-    const kind = becameLunas || paidFromEmptyToLunas ? 'pelunasan' : 'cicilan';
-    const eventKey = [
-      kind,
-      row.id_umroh || row.jm_id || row.nama,
-      jumlah,
-      bayarAfter,
-      sisaAfter,
-    ].join('|');
-    if (seenPaymentEvents.has(eventKey)) continue;
-    seenPaymentEvents.add(eventKey);
-
-    if (kind === 'pelunasan') events.pembayaranPelunasan.push(event);
-    else if (sisaAfter > 0 && sisaDecreased) events.pembayaranCicilan.push(event);
-  }
-
-  return events;
+  return computeJamaahSyncEvents({
+    incomingRows,
+    existingByKey,
+    allowNewJamaah: options.allowNewJamaah !== false,
+    watermarkEnabled,
+    now: options.now || new Date(),
+    paymentBufferDays: options.paymentBufferDays ?? 7,
+  });
 }
 
 function jakartaLocalDate(date = new Date()) {
@@ -12178,9 +12114,15 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
     throw new Error(firstUpsertError ? `${outcome.reason}: ${firstUpsertError}` : outcome.reason);
   }
 
+  if (!allowNewJamaahNotify) {
+    await markAgentJamaahNotifBaseline(agentId, `api/${context}/${slug}`);
+  }
+
   // Fire notifications only on a fully successful sync. On a partial cycle we
-  // keep the rows we did fetch and retry next cycle; we never notify on
-  // half-complete data (preserves Pattern 8 intent).
+  // keep the rows we did fetch; the notif watermark (lib/jamaah-sync-events.js)
+  // makes the skipped events re-fire on the next full cycle instead of being
+  // permanently absorbed by the upsert (preserves Pattern 8 intent, fixes the
+  // silent-loss half of Pattern 9).
   if (outcome.shouldNotify) {
     queueJamaahSyncNotifications(agentId, syncEvents, `api/${context}/${slug}`);
   }
@@ -13019,6 +12961,9 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
   } finally {
     console.log(`[Sync] ${slug}: sync complete — ${totalItems} total items`);
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: totalItems, lastSync: now });
+    if (!allowNewJamaahNotify) {
+      await markAgentJamaahNotifBaseline(agentId, `manual/${slug}`);
+    }
     queueJamaahSyncNotifications(agentId, syncEvents, `manual/${slug}`);
     // Persist sync timestamp at agent level — skip_noop_update trigger blocks
     // jamaah.synced_at advancement on cycles where no row content changed.
@@ -24035,6 +23980,9 @@ async function syncOneAgent(agent) {
     }
 
     console.log(`[SYNC] ${slug}: total ${totalSynced} umroh synced`);
+    if (!allowNewJamaahNotify) {
+      await markAgentJamaahNotifBaseline(agentId, `bg/${slug}`);
+    }
     queueJamaahSyncNotifications(agentId, syncEvents, `bg/${slug}`);
     {
       const { error: umrohBumpErr } = await supabase.from('agents').update({ last_jamaah_sync_at: syncTime }).eq('id', agentId);
