@@ -166,7 +166,6 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
             <div className="ml-auto h-[18px] w-16 rounded-full bg-gray-200 dark:bg-slate-700" />
           </div>
           <div className="mt-2 h-[26px] rounded bg-gray-200/80 dark:bg-slate-700/80" />
-          <div className="mt-1.5 h-2.5 w-28 rounded bg-gray-200/60 dark:bg-slate-700/60" />
         </div>
       ) : (
         <>
@@ -198,73 +197,56 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
           </div>
 
           {activePost ? (
-            <>
-              {/* aria-live off: pergantian frame tiap 4,5 dtk jangan membanjiri
-                  screen reader; isi lengkap tetap terbaca di halaman Teras. */}
-              <div className="relative mt-2 h-[26px] overflow-hidden" aria-live="off">
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.div
-                    key={activeIndex}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.3, ease: 'easeOut' }}
-                    className="absolute inset-0 flex min-w-0 items-center gap-2"
-                  >
-                    <TeaserAvatar avatar={activePost.author} size="latest" />
-                    {/* Preview yang memuat @mention dibedakan: penanda @ + latar
-                        emerald tipis, karena pill mention-nya bisa terpotong ellipsis. */}
-                    {hasMention && (
-                      <AtSign
-                        size={13}
-                        className="shrink-0 text-emerald-600 dark:text-emerald-400"
-                        aria-label="Ada sebutan"
-                      />
-                    )}
-                    <p
-                      className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] ${
-                        hasMention
-                          ? 'rounded-md bg-emerald-50/80 px-1.5 py-0.5 text-emerald-900/80 dark:bg-emerald-500/10 dark:text-emerald-100/80'
-                          : 'text-gray-500 dark:text-slate-400'
-                      }`}
-                    >
-                      <b className={`font-bold ${hasMention ? 'text-emerald-950 dark:text-white' : 'text-gray-900 dark:text-white'}`}>
-                        {activePost.author.name || 'Agent'}
-                      </b>
-                      &nbsp;
-                      <MentionText body={activePost.body_snippet} memberBySlug={mentionBySlug} />
-                    </p>
-                    {activePost.thumb && (
-                      <img
-                        src={activePost.thumb}
-                        alt=""
-                        loading="lazy"
-                        className="h-[26px] w-[26px] flex-none rounded-md border border-white/70 object-cover dark:border-slate-700"
-                        onError={event => { event.currentTarget.style.display = 'none'; }}
-                      />
-                    )}
-                    <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
-                      {timeAgo(activePost.created_at)}
-                    </span>
-                  </motion.div>
-                </AnimatePresence>
-              </div>
-
-              {rotating && (
-                <div className="mt-1.5 flex h-2.5 items-center justify-center gap-1" aria-hidden="true">
-                  {posts.map((post, index) => (
-                    <span
-                      key={post.created_at + index}
-                      className={`h-1 w-1 rounded-full transition-colors duration-300 ${
-                        index === activeIndex
-                          ? 'bg-teal-500 dark:bg-teal-400'
-                          : 'bg-teal-200 dark:bg-teal-800'
-                      }`}
+            // aria-live off: pergantian frame tiap 4,5 dtk jangan membanjiri
+            // screen reader; isi lengkap tetap terbaca di halaman Teras.
+            <div className="relative mt-2 h-[26px] overflow-hidden" aria-live="off">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={activeIndex}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                  className="absolute inset-0 flex min-w-0 items-center gap-2"
+                >
+                  <TeaserAvatar avatar={activePost.author} size="latest" />
+                  {/* Preview yang memuat @mention dibedakan: penanda @ + latar
+                      emerald tipis, karena pill mention-nya bisa terpotong ellipsis. */}
+                  {hasMention && (
+                    <AtSign
+                      size={13}
+                      className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                      aria-label="Ada sebutan"
                     />
-                  ))}
-                </div>
-              )}
-            </>
+                  )}
+                  <p
+                    className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] ${
+                      hasMention
+                        ? 'rounded-md bg-emerald-50/80 px-1.5 py-0.5 text-emerald-900/80 dark:bg-emerald-500/10 dark:text-emerald-100/80'
+                        : 'text-gray-500 dark:text-slate-400'
+                    }`}
+                  >
+                    <b className={`font-bold ${hasMention ? 'text-emerald-950 dark:text-white' : 'text-gray-900 dark:text-white'}`}>
+                      {activePost.author.name || 'Agent'}
+                    </b>
+                    &nbsp;
+                    <MentionText body={activePost.body_snippet} memberBySlug={mentionBySlug} />
+                  </p>
+                  {activePost.thumb && (
+                    <img
+                      src={activePost.thumb}
+                      alt=""
+                      loading="lazy"
+                      className="h-[26px] w-[26px] flex-none rounded-md border border-white/70 object-cover dark:border-slate-700"
+                      onError={event => { event.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
+                  <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
+                    {timeAgo(activePost.created_at)}
+                  </span>
+                </motion.div>
+              </AnimatePresence>
+            </div>
           ) : (
             <div className="mt-2 flex min-w-0 items-center gap-2">
               <Coffee size={17} className="shrink-0 text-teal-600 dark:text-teal-400" />

@@ -21,9 +21,9 @@ Tiga baris di dalam tombol kartu yang sama (tinggi ~88px → ~100px):
    avatar penulis, nama tebal, cuplikan lewat `MentionText` (penanda emerald untuk mention
    dipertahankan), waktu relatif di kanan via `timeAgo` yang sudah ada ("Baru saja" /
    "N menit" / "N jam" / "N hari"), thumbnail 26px rounded bila kiriman punya foto.
-3. **Baris kaki (tipis, hanya saat rotasi aktif):** 3 titik indikator posisi di tengah
-   (titik aktif teal, sisanya teal muda). Label "N kiriman hari ini" DIBUANG atas feedback
-   user 2026-08-16; `today_count` tetap di payload (dipakai badge/masa depan).
+3. **Baris kaki: DIBUANG seluruhnya** — dua putaran feedback user 2026-08-16 (label
+   "N kiriman hari ini" dulu, lalu titik indikator). Kartu final 2 baris: header + ticker.
+   `today_count` tetap di payload untuk kebutuhan lain.
 
 ## Gerak
 
