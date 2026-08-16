@@ -137,7 +137,8 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
 const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
 
 // Chip saringan daftar — mengikuti pola pill filter panel Kelola (aktif emerald).
-const CHIP_CLASS = 'shrink-0 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all active:scale-95';
+// h-9 menyamai tinggi kotak cari — keduanya berbagi satu baris.
+const CHIP_CLASS = 'h-9 shrink-0 inline-flex items-center gap-1 rounded-full px-3 text-[11px] font-semibold transition-all active:scale-95';
 const CHIP_ACTIVE = 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20';
 const CHIP_IDLE = 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700';
 
@@ -274,6 +275,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   }, [cityPool]);
 
   const canSortByDistance = cityPool.some(h => parseHotelDistanceMeters(h.distance_label) !== null);
+  const hasFilterChips = canSortByDistance || starOptions.length > 0 || areaOptions.length > 0;
 
   const cityHotels = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -354,61 +356,66 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   if (view.kind === 'list') {
     return (
       <HotelViewShell viewKey={viewKey}>
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Cari..."
-            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
-          />
-        </div>
-
-        {/* Saringan menjawab pertanyaan jamaah yang paling sering: "bintang
-            berapa?", "yang paling dekat masjid?", dan (kota tur) "di kota mana?".
-            Chip hanya muncul kalau datanya memang memilah. */}
-        {(canSortByDistance || starOptions.length > 0 || areaOptions.length > 0) && (
-          <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1">
-            {canSortByDistance && (
-              <button
-                onClick={() => setSortByDistance(v => !v)}
-                aria-pressed={sortByDistance}
-                className={`${CHIP_CLASS} ${sortByDistance ? CHIP_ACTIVE : CHIP_IDLE}`}
-              >
-                <Footprints size={11} />
-                Terdekat
-              </button>
-            )}
-            {starOptions.map(star => {
-              const active = starFilter === star;
-              return (
-                <button
-                  key={star}
-                  onClick={() => setStarFilter(active ? null : star)}
-                  aria-pressed={active}
-                  className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
-                >
-                  {star}
-                  <Star size={10} strokeWidth={0} fill="currentColor" className={active ? '' : 'text-amber-400'} />
-                </button>
-              );
-            })}
-            {areaOptions.map(area => {
-              const active = areaFilter === area;
-              return (
-                <button
-                  key={area}
-                  onClick={() => setAreaFilter(active ? null : area)}
-                  aria-pressed={active}
-                  className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
-                >
-                  <MapPin size={11} />
-                  {area}
-                </button>
-              );
-            })}
+        {/* Pencarian dan saringan berbagi SATU baris. Chip menjawab pertanyaan
+            jamaah yang paling sering ("bintang berapa?", "paling dekat masjid?",
+            kota tur "di mana?") dan hanya muncul bila datanya memang memilah;
+            tanpa chip, kotak cari kembali selebar layar. */}
+        <div className="flex items-center gap-2">
+          <div className={`relative ${hasFilterChips ? 'w-36 shrink-0' : 'flex-1'}`}>
+            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Cari..."
+              className="h-9 w-full pl-8 pr-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-[13px] focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
+            />
           </div>
-        )}
+
+          {hasFilterChips && (
+            // min-w-0 wajib: tanpa itu chip memaksa baris melebar dan mendorong
+            // kotak cari keluar layar, bukan menggeser isinya sendiri.
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+              {canSortByDistance && (
+                <button
+                  onClick={() => setSortByDistance(v => !v)}
+                  aria-pressed={sortByDistance}
+                  className={`${CHIP_CLASS} ${sortByDistance ? CHIP_ACTIVE : CHIP_IDLE}`}
+                >
+                  <Footprints size={11} />
+                  Terdekat
+                </button>
+              )}
+              {starOptions.map(star => {
+                const active = starFilter === star;
+                return (
+                  <button
+                    key={star}
+                    onClick={() => setStarFilter(active ? null : star)}
+                    aria-pressed={active}
+                    className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
+                  >
+                    {star}
+                    <Star size={10} strokeWidth={0} fill="currentColor" className={active ? '' : 'text-amber-400'} />
+                  </button>
+                );
+              })}
+              {areaOptions.map(area => {
+                const active = areaFilter === area;
+                return (
+                  <button
+                    key={area}
+                    onClick={() => setAreaFilter(active ? null : area)}
+                    aria-pressed={active}
+                    className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
+                  >
+                    <MapPin size={11} />
+                    {area}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {(starFilter !== null || areaFilter !== null || query.trim()) && (
           <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">
