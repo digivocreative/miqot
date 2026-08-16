@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, Share2, Loader2 } from 'lucide-react';
 import PlyrVideo from './PlyrVideo';
+import { canShareFiles, downloadBlob } from '../utils/share';
 
 export interface ViewerMediaItem {
   type: 'image' | 'video';
@@ -39,6 +40,31 @@ const SLIDE_VARIANTS = {
   }),
 };
 
+// Nama berkas yang dikenali manusia saat tersimpan di galeri/Unduhan —
+// bukan hash panjang milik CDN. Ekstensi diambil dari URL, lalu dari MIME
+// bila URL-nya tidak membawa ekstensi.
+function mediaFileName(label: string, index: number, url: string, mime: string): string {
+  const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'media';
+  let ext = '';
+  try {
+    const match = new URL(url).pathname.match(/\.([a-z0-9]{1,5})$/i);
+    if (match) ext = match[1].toLowerCase();
+  } catch { /* URL relatif/aneh — jatuh ke MIME di bawah */ }
+  if (!ext) {
+    ext = mime.includes('png') ? 'png'
+      : mime.includes('webp') ? 'webp'
+      : mime.startsWith('video/') ? 'mp4'
+      : 'jpg';
+  }
+  return `${base}-${index + 1}.${ext}`;
+}
+
+async function fetchMediaBlob(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Media tidak bisa diambil (${res.status})`);
+  return res.blob();
+}
+
 export default function MediaViewerModal({ media, initialIndex = 0, label, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -47,6 +73,8 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, onClo
   // Video hanya diputar otomatis kalau memang item itu yang dibuka: kliknya
   // sendiri sudah gestur "mau nonton". Slide ke item lain mulai dari diam.
   const [autoPlay, setAutoPlay] = useState(() => media[initialIndex]?.type === 'video');
+  const [busy, setBusy] = useState<'download' | 'share' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const navigate = useCallback((delta: number) => {
     setIndex(current => {
@@ -62,6 +90,57 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, onClo
   useEffect(() => {
     setIndex(current => Math.max(0, Math.min(media.length - 1, current)));
   }, [media.length]);
+
+  // Pesan galat menempel pada satu media; pindah item = mulai bersih.
+  useEffect(() => { setActionError(null); }, [index]);
+
+  const handleDownload = useCallback(async () => {
+    const item = media[index];
+    if (!item || busy) return;
+    setBusy('download');
+    setActionError(null);
+    try {
+      const blob = await fetchMediaBlob(item.url);
+      downloadBlob(blob, mediaFileName(label, index, item.url, blob.type));
+    } catch {
+      // Jaringan/CDN bermasalah: buka di tab baru supaya media tetap bisa
+      // disimpan manual, bukan buntu tanpa jalan keluar.
+      setActionError('Gagal mengunduh. Media dibuka di tab baru.');
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, index, label, media]);
+
+  const handleShare = useCallback(async () => {
+    const item = media[index];
+    if (!item || busy) return;
+    setBusy('share');
+    setActionError(null);
+    try {
+      const blob = await fetchMediaBlob(item.url);
+      const file = new File([blob], mediaFileName(label, index, item.url, blob.type), {
+        type: blob.type || 'application/octet-stream',
+      });
+      // Berkas dulu (WhatsApp menerima medianya langsung); hanya kalau
+      // perangkat menolak berkas, bagikan tautannya.
+      if (canShareFiles([file])) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: label, url: item.url });
+        return;
+      }
+      setActionError('Perangkat ini tidak mendukung berbagi langsung — pakai Download.');
+    } catch (err) {
+      // Batal dari share sheet bukan kegagalan.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setActionError('Gagal membagikan media.');
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, index, label, media]);
 
   useLayoutEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -138,17 +217,48 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, onClo
         <span aria-live="polite" className="rounded-full bg-black/45 px-3 py-1.5 text-xs font-bold tabular-nums backdrop-blur-sm">
           {index + 1}/{media.length}
         </span>
-        <button
-          type="button"
-          data-media-viewer-close
-          onClick={onClose}
-          aria-label="Tutup media"
-          title="Tutup"
-          className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          <X size={21} />
-        </button>
+        <div className="pointer-events-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={busy !== null}
+            aria-label="Download media"
+            title="Download"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
+          >
+            {busy === 'download' ? <Loader2 size={19} className="animate-spin" /> : <Download size={19} />}
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            disabled={busy !== null}
+            aria-label="Bagikan media"
+            title="Bagikan"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
+          >
+            {busy === 'share' ? <Loader2 size={19} className="animate-spin" /> : <Share2 size={19} />}
+          </button>
+          <button
+            type="button"
+            data-media-viewer-close
+            onClick={onClose}
+            aria-label="Tutup media"
+            title="Tutup"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <X size={21} />
+          </button>
+        </div>
       </div>
+
+      {actionError && (
+        <p
+          role="status"
+          className="pointer-events-none absolute inset-x-4 top-[max(4.5rem,calc(env(safe-area-inset-top)+3.5rem))] z-30 mx-auto max-w-xs rounded-xl bg-red-500/90 px-3 py-2 text-center text-xs font-medium text-white shadow-lg"
+        >
+          {actionError}
+        </p>
+      )}
 
       <div
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 pb-16 pt-16"
