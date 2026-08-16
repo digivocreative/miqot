@@ -8,6 +8,7 @@ import {
   requireHotelDirectoryAccess,
   slugifyHotelName,
   normalizeHotelMediaInput,
+  hotelMediaCategories,
   buildHotelPayload,
   hotelListItem,
   hotelMediaUrlsRemoved,
@@ -352,4 +353,64 @@ test('hotelAreaCity hanya mengambil kota yang tertulis eksplisit', () => {
   assert.equal(hotelAreaCity(null), null);
   // Koma menggantung tidak menghasilkan kota kosong.
   assert.equal(hotelAreaCity('Ulus (Altındağ),'), null);
+});
+
+// ── Kategori media ───────────────────────────────────────────────────────────
+
+test('media: kategori dipangkas, kosong membuang kuncinya, panjang/non-string ditolak', () => {
+  const withCategory = normalizeHotelMediaInput(
+    [{ type: 'image', url: IMG_URL, category: '  Lobby  ' }],
+    PREFIXES
+  );
+  assert.deepEqual(withCategory, [{ type: 'image', url: IMG_URL, category: 'Lobby' }]);
+
+  // String kosong TIDAK boleh tersimpan sebagai '' — itu melahirkan chip hantu.
+  const blank = normalizeHotelMediaInput([{ type: 'image', url: IMG_URL, category: '   ' }], PREFIXES);
+  assert.deepEqual(blank, [{ type: 'image', url: IMG_URL }]);
+  assert.equal('category' in blank[0], false);
+
+  // Tanpa kategori sama sekali tetap sah (media lama sebelum fitur ini).
+  assert.deepEqual(
+    normalizeHotelMediaInput([{ type: 'image', url: IMG_URL }], PREFIXES),
+    [{ type: 'image', url: IMG_URL }]
+  );
+
+  assert.equal(
+    normalizeHotelMediaInput([{ type: 'image', url: IMG_URL, category: 'x'.repeat(31) }], PREFIXES),
+    null
+  );
+  assert.equal(
+    normalizeHotelMediaInput([{ type: 'image', url: IMG_URL, category: 5 }], PREFIXES),
+    null
+  );
+});
+
+test('hotelMediaCategories: preset dulu sesuai urutannya, sisanya urut kemunculan', () => {
+  const media = [
+    { type: 'image', url: IMG_URL, category: 'Kolam Renang' },
+    { type: 'image', url: IMG_URL_2, category: 'Restoran' },
+    { type: 'video', url: VID_URL, category: 'Lobby' },
+  ];
+  assert.deepEqual(
+    hotelMediaCategories(media),
+    ['Lobby', 'Restoran', 'Kolam Renang'],
+    'preset ikut urutan HOTEL_MEDIA_CATEGORY_PRESETS, bukan urutan media'
+  );
+});
+
+test('hotelMediaCategories: dedup case-insensitive, ejaan preset menang', () => {
+  const media = [
+    { type: 'image', url: IMG_URL, category: 'lobby' },
+    { type: 'image', url: IMG_URL_2, category: 'LOBBY' },
+    { type: 'image', url: IMG_URL, category: 'kolam renang' },
+    { type: 'image', url: IMG_URL_2, category: 'Kolam Renang' },
+  ];
+  assert.deepEqual(hotelMediaCategories(media), ['Lobby', 'kolam renang']);
+});
+
+test('hotelMediaCategories: media tanpa kategori tidak melahirkan entri kosong', () => {
+  assert.deepEqual(hotelMediaCategories([{ type: 'image', url: IMG_URL }]), []);
+  assert.deepEqual(hotelMediaCategories([{ type: 'image', url: IMG_URL, category: '  ' }]), []);
+  assert.deepEqual(hotelMediaCategories(null), []);
+  assert.deepEqual(hotelMediaCategories(undefined), []);
 });
