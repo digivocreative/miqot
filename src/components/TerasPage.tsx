@@ -70,6 +70,8 @@ import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import ComposerSegment from './teras/ComposerSegment';
 import SnippetEditor from './teras/SnippetEditor';
+import SnippetCard from './teras/SnippetCard';
+import SnippetSheet, { type SnippetSheetSource } from './teras/SnippetSheet';
 import CommentThread from './teras/CommentThread';
 import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } from './teras/PollBlock';
 import { AgentAvatar } from './teras/AgentAvatar';
@@ -141,6 +143,13 @@ interface CommunityPost {
   quote_count?: number;
   quoted_post?: QuotedPostPreview | null;
   link_preview?: LinkPreview | null;
+  /**
+   * Kartu cuplikan lampiran teks — TANPA body. Body 10.000 karakter sengaja
+   * tidak ikut payload feed; sheet pembaca menariknya sendiri lewat
+   * `GET /api/community/posts/:id/snippet`. Absen pada item di dalam `thread`
+   * (lampiran milik segmen pertama saja), sama seperti `quoted_post`.
+   */
+  snippet?: CommunitySnippetCard | null;
   poll?: CommunityPoll | null;
   is_own: boolean;
   /** Total segmen utas ini; 0 atau undefined berarti kiriman biasa. */
@@ -203,6 +212,13 @@ interface LinkPreview {
   title?: string;
   description?: string;
   image?: string;
+}
+
+/** Cermin communitySnippetCardPayload (lib/community-snippet.js) — tanpa body. */
+interface CommunitySnippetCard {
+  title: string | null;
+  preview: string;
+  char_count: number;
 }
 
 
@@ -2040,6 +2056,133 @@ export default function TerasPage({
     shareTriggerRef.current = null;
     if (trigger) window.requestAnimationFrame(() => trigger.focus());
   }, []);
+
+  // ---- Pembaca lampiran teks (sheet fullscreen) ----
+  // `snippetSheet` = sumber ringkas dari kartu (judul/cuplikan/penulis) yang
+  // sudah ada di tangan; `snippetBody` = teks penuh yang menyusul dari server.
+  const [snippetSheet, setSnippetSheet] = useState<SnippetSheetSource | null>(null);
+  const [snippetBody, setSnippetBody] = useState<string | null>(null);
+  const [snippetLoading, setSnippetLoading] = useState(false);
+  const [snippetError, setSnippetError] = useState<string | null>(null);
+  const snippetControllerRef = useRef<AbortController | null>(null);
+  // Id kiriman yang tombol Salin-nya sedang menarik body dari server.
+  const [snippetCopyBusyId, setSnippetCopyBusyId] = useState<string | null>(null);
+
+  /** Satu-satunya jalan mendapat body lampiran; feed tidak pernah membawanya. */
+  const fetchSnippetBody = useCallback(async (postId: string, signal: AbortSignal) => {
+    const payload = await requestJson<{ title: string | null; body: string; char_count: number }>(
+      `/api/community/posts/${encodeURIComponent(postId)}/snippet`,
+      { headers: getAuthHeaders(), signal },
+      'Gagal memuat lampiran teks',
+    );
+    // Pesan disamakan PERSIS dengan yang dikirim server pada 404 supaya
+    // pembaca tidak melihat dua kalimat berbeda untuk keadaan yang sama.
+    if (typeof payload.data?.body !== 'string') throw new Error('Lampiran teks tidak ditemukan');
+    return payload.data.body;
+  }, []);
+
+  const loadSnippetBody = useCallback((postId: string) => {
+    snippetControllerRef.current?.abort();
+    const controller = new AbortController();
+    snippetControllerRef.current = controller;
+    setSnippetLoading(true);
+    setSnippetError(null);
+    void (async () => {
+      try {
+        const loaded = await fetchSnippetBody(postId, controller.signal);
+        if (controller.signal.aborted) return;
+        setSnippetBody(loaded);
+      } catch (snippetFetchError) {
+        if (controller.signal.aborted) return;
+        if (snippetFetchError instanceof Error && snippetFetchError.name === 'AbortError') return;
+        // Sheet TIDAK menutup diri: pembaca masih memegang cuplikan, dan
+        // menutup paksa berarti membuang konteks yang sudah dibaca.
+        setSnippetError(errorMessage(snippetFetchError, 'Gagal memuat lampiran teks'));
+      } finally {
+        if (snippetControllerRef.current === controller) {
+          snippetControllerRef.current = null;
+          setSnippetLoading(false);
+        }
+      }
+    })();
+  }, [fetchSnippetBody]);
+
+  const openSnippetSheet = useCallback((post: CommunityPost) => {
+    if (!post.snippet) return;
+    setSnippetSheet({
+      postId: post.id,
+      title: post.snippet.title,
+      preview: post.snippet.preview,
+      charCount: post.snippet.char_count,
+      authorName: post.author.name || (post.is_system ? 'Miqot' : 'Agent'),
+      authorPhoto: post.author.photo,
+      createdAt: post.created_at,
+    });
+    setSnippetBody(null);
+    setSnippetError(null);
+    trackEvent('action', 'teras_snippet_open');
+    loadSnippetBody(post.id);
+  }, [loadSnippetBody]);
+
+  const closeSnippetSheet = useCallback(() => {
+    snippetControllerRef.current?.abort();
+    snippetControllerRef.current = null;
+    setSnippetSheet(null);
+    setSnippetBody(null);
+    setSnippetError(null);
+    setSnippetLoading(false);
+  }, []);
+
+  const copySnippetText = useCallback(async (text: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API tidak tersedia');
+      await navigator.clipboard.writeText(text);
+      showToast('Teks disalin', 'success');
+      trackEvent('action', 'teras_snippet_copy');
+    } catch {
+      showToast('Gagal menyalin teks', 'error');
+    }
+  }, [showToast]);
+
+  /**
+   * Salin dari KARTU feed: body ditarik dulu, baru disalin. Menyalin
+   * `preview` yang ada di kartu itu bug senyap — agent baru sadar teksnya
+   * terpotong setelah menempelkannya ke WhatsApp.
+   *
+   * Catatan: karena ada `await` sebelum clipboard ditulis, Safari bisa
+   * menganggapnya di luar gestur pengguna dan menolak. Itu berakhir sebagai
+   * toast galat, dan jalur yang selalu berhasil tetap tersedia: buka sheet
+   * (body sudah termuat di sana, jadi Salin menulis dalam gestur yang sama).
+   */
+  const copySnippetFromCard = useCallback((post: CommunityPost) => {
+    if (!post.snippet || snippetCopyBusyId) return;
+    setSnippetCopyBusyId(post.id);
+    void (async () => {
+      const controller = new AbortController();
+      try {
+        const loaded = await fetchSnippetBody(post.id, controller.signal);
+        await copySnippetText(loaded);
+      } catch (copyError) {
+        showToast(errorMessage(copyError, 'Gagal memuat lampiran teks'), 'error');
+      } finally {
+        setSnippetCopyBusyId(null);
+      }
+    })();
+  }, [snippetCopyBusyId, fetchSnippetBody, copySnippetText, showToast]);
+
+  /** HANYA `text` — judul/URL sengaja tidak dikirim; lampiran bukan tautan. */
+  const shareSnippetText = useCallback(async (text: string) => {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (shareError) {
+        // Dibatalkan pengguna bukan kegagalan — jangan lanjut menyalin diam-diam.
+        if (shareError instanceof Error && shareError.name === 'AbortError') return;
+      }
+    }
+    await copySnippetText(text);
+  }, [copySnippetText]);
 
   const copyShareLink = useCallback(async () => {
     if (!shareUrl) return;
@@ -6347,7 +6490,11 @@ export default function TerasPage({
                       // kartu tampil, URL yang sama disembunyikan dari teks body.
                       // Penjaga di sini HARUS sama persis dengan penjaga LinkPreviewCard
                       // di bawah supaya keduanya selalu sepakat kartu tampil atau tidak.
-                      const showsPreviewCard = !!post.link_preview && postMedia.length === 0 && !post.quoted_post;
+                      // Syarat HARUS sama persis dengan syarat render kartu
+                      // pratinjau di bawah: kalau tidak, URL dipangkas dari
+                      // teks padahal kartunya tidak muncul — tautannya lenyap
+                      // dari kiriman tanpa jejak.
+                      const showsPreviewCard = !!post.link_preview && postMedia.length === 0 && !post.quoted_post && !post.snippet;
                       const displayBody = showsPreviewCard
                         ? stripUrlFromBody(post.body, post.link_preview!.url)
                         : post.body;
@@ -6406,7 +6553,24 @@ export default function TerasPage({
                       />
                     )}
 
-                    {post.link_preview && postMedia.length === 0 && !post.quoted_post && (
+                    {/* Setelah media & quote, SEBELUM pratinjau tautan. Server
+                        sudah menjamin link_preview null saat lampiran ada
+                        (communityLinkPreviewPayload), tapi urutannya tetap
+                        dibuat benar di sini supaya tampilan tidak bergantung
+                        pada jaminan itu. Segmen lanjutan utas tidak pernah
+                        membawa `snippet`, jadi tidak perlu digerbangi lagi. */}
+                    {post.snippet && (
+                      <SnippetCard
+                        title={post.snippet.title}
+                        preview={post.snippet.preview}
+                        charCount={post.snippet.char_count}
+                        copyBusy={snippetCopyBusyId === post.id}
+                        onOpen={() => openSnippetSheet(post)}
+                        onCopy={() => copySnippetFromCard(post)}
+                      />
+                    )}
+
+                    {post.link_preview && postMedia.length === 0 && !post.quoted_post && !post.snippet && (
                       <LinkPreviewCard preview={post.link_preview} />
                     )}
 
@@ -6769,6 +6933,16 @@ export default function TerasPage({
         onSave={saveSnippetFromEditor}
       />
       {replySheetPortal}
+      <SnippetSheet
+        source={snippetSheet}
+        body={snippetBody}
+        loading={snippetLoading}
+        error={snippetError}
+        onRetry={() => { if (snippetSheet) loadSnippetBody(snippetSheet.postId); }}
+        onClose={closeSnippetSheet}
+        onCopy={() => { if (snippetBody) void copySnippetText(snippetBody); }}
+        onShare={() => { if (snippetBody) void shareSnippetText(snippetBody); }}
+      />
       {shareSheet}
       {mediaViewerSheet}
 

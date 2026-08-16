@@ -107,6 +107,8 @@ function createCommunityApi({
   morePages = new Map(),
   comments = {},
   pollVoters = {},
+  // postId -> { title, body, char_count } untuk GET .../snippet.
+  snippetBodies = {},
   members = [],
   broadcastQuota = {
     unlimited: false,
@@ -125,6 +127,7 @@ function createCommunityApi({
     broadcastQuota: clone(broadcastQuota),
     comments: new Map(Object.entries(comments).map(([postId, value]) => [postId, clone(value)])),
     pollVoters: new Map(Object.entries(pollVoters).map(([postId, value]) => [postId, clone(value)])),
+    snippetBodies: new Map(Object.entries(snippetBodies).map(([postId, value]) => [postId, clone(value)])),
     requests: [],
     createSequence: 0,
     commentSequence: 0,
@@ -234,6 +237,20 @@ function createCommunityApi({
       }
       api.posts = [created, ...api.posts.filter(post => post.id !== created.id)];
       await responseJson(route, { success: true, data: clone(created) });
+      return;
+    }
+
+    // Body lampiran hidup di endpoint terpisah — feed hanya membawa cuplikan,
+    // jadi stub ini harus memisahkannya persis seperti server.
+    const snippetMatch = record.pathname.match(/^\/api\/community\/posts\/([^/]+)\/snippet$/);
+    if (record.method === 'GET' && snippetMatch) {
+      const postId = decodeURIComponent(snippetMatch[1]);
+      const stored = api.snippetBodies.get(postId);
+      if (!stored) {
+        await responseJson(route, { success: false, error: 'Lampiran teks tidak ditemukan' }, 404);
+        return;
+      }
+      await responseJson(route, { success: true, data: clone(stored) });
       return;
     }
 
@@ -2123,6 +2140,71 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await article.getByRole('button', { name: /Makkah dulu/ }).waitFor();
       // Durasi 1 minggu -> sisa waktu ditulis dalam hari.
       await article.getByText('0 suara · Berakhir dalam 7 hari', { exact: true }).waitFor();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('lampiran teks: kartu cuplikan di feed, klik membuka sheet dengan body penuh', { timeout: 30_000 }, async () => {
+    // Cuplikan (feed) dan body penuh (endpoint terpisah) sengaja dibuat
+    // BERBEDA isinya: kalau sheet cuma menampilkan ulang cuplikan, kalimat
+    // penutup di bawah tidak akan pernah muncul dan tes ini merah.
+    const preview = 'Ringkasan manasik untuk jamaah gelombang pertama.\nBaris kedua cuplikan.';
+    const fullBody = `${preview}\n\nBagian ini HANYA ada di body penuh, tidak pernah dikirim di feed.`;
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'post-snippet',
+        body: 'Catatan lengkap manasik, saya lampirkan di bawah',
+        snippet: {
+          title: 'Panduan Manasik Ringkas',
+          preview,
+          char_count: 1240,
+        },
+      })],
+      snippetBodies: {
+        'post-snippet': { title: 'Panduan Manasik Ringkas', body: fullBody, char_count: 1240 },
+      },
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Catatan lengkap manasik' });
+      await article.waitFor();
+
+      const card = article.locator('[data-teras-snippet-card]');
+      await card.waitFor();
+      await card.getByText('Lampiran teks', { exact: true }).waitFor();
+      await card.getByText('Panduan Manasik Ringkas', { exact: true }).waitFor();
+      // Jumlah karakter memakai pemisah ribuan lokal id-ID.
+      await card.getByText('1.240 karakter', { exact: true }).waitFor();
+      // Feed TIDAK boleh menarik body: yang tampil di kartu murni cuplikan.
+      assert.equal(
+        matchingRequests(api, 'GET', '/api/community/posts/post-snippet/snippet').length,
+        0,
+        'kartu feed tidak boleh memanggil endpoint body lampiran',
+      );
+
+      const urlBeforeOpen = app.page.url();
+      await card.getByText('Panduan Manasik Ringkas', { exact: true }).click();
+
+      const sheet = app.page.locator('[data-teras-snippet-sheet]');
+      await sheet.waitFor();
+      // Membuka lampiran BUKAN membuka halaman detail kiriman.
+      assert.equal(app.page.url(), urlBeforeOpen, 'klik kartu lampiran tidak boleh pindah ke halaman detail');
+
+      await sheet.getByRole('heading', { name: 'Panduan Manasik Ringkas' }).waitFor();
+      const sheetBody = sheet.locator('[data-teras-snippet-body]');
+      await sheetBody.waitFor();
+      // Body penuh tiba -> penanda kelengkapan berubah dan kalimat penutup muncul.
+      await sheetBody.and(app.page.locator('[data-complete="true"]')).waitFor({ timeout: 10_000 });
+      const rendered = await sheetBody.innerText();
+      assert.match(rendered, /HANYA ada di body penuh/, 'sheet harus menampilkan body penuh, bukan cuplikan');
+      assert.match(rendered, /Ringkasan manasik untuk jamaah/, 'awal teks harus tetap utuh');
+
+      assert.equal(
+        matchingRequests(api, 'GET', '/api/community/posts/post-snippet/snippet').length,
+        1,
+        'body lampiran diambil tepat sekali saat sheet dibuka',
+      );
     } finally {
       await app.close();
     }
