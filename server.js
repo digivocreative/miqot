@@ -7430,6 +7430,20 @@ function hotelColumnMissing(error) {
 
 const HOTEL_COLUMN_MIGRATION_ERROR = 'Kolom baru direktori hotel belum dimigrasi — jalankan migrasi terakhir';
 
+// Pra-migrasi FAQ (20260816040000_hotel_faq.sql): kolom `faq` belum tentu ada di
+// prod saat kode ini rilis. Menyimpan hotel TIDAK boleh ikut mati karenanya —
+// tulis ulang tanpa kolom itu, persis pola anggun banner kategori.
+function hotelFaqColumnMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return ['PGRST204', 'PGRST205', '42703'].includes(code) && /faq/i.test(message);
+}
+
+function withoutHotelFaq(payload) {
+  const { faq, ...rest } = payload;
+  return rest;
+}
+
 async function requireHotelAgent(req, res) {
   const agent = await getAgentById(req.user.id);
   if (!agent) {
@@ -7580,15 +7594,12 @@ app.post('/api/hotels', dbLoadShedGuard, authMiddleware, adminOnly, async (req, 
     // 'banners' dipesan rute GET/PUT /api/hotels/banners — jangan sampai jadi slug hotel.
     const slug = slugifyHotelName(result.data.name, [...(slugRows || []).map((r) => r.slug), 'banners']);
 
-    const { data, error } = await supabase
-      .from('hotels')
-      .insert({ ...result.data, slug, created_by: agent.id, updated_by: agent.id })
-      .select()
-      .single();
-    if (error) {
-      if (hotelColumnMissing(error)) return res.status(503).json({ error: HOTEL_COLUMN_MIGRATION_ERROR });
-      throw error;
+    const insertRow = { ...result.data, slug, created_by: agent.id, updated_by: agent.id };
+    let { data, error } = await supabase.from('hotels').insert(insertRow).select().single();
+    if (error && hotelFaqColumnMissing(error)) {
+      ({ data, error } = await supabase.from('hotels').insert(withoutHotelFaq(insertRow)).select().single());
     }
+    if (error) throw error;
     res.status(201).json({ success: true, data });
   } catch (err) {
     console.error('[hotel] create error:', err?.message || err);
@@ -7620,12 +7631,17 @@ app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (re
     }
 
     // Slug sengaja TIDAK ikut berubah saat rename — dipakai sebagai identitas URL.
-    const { data, error } = await supabase
+    const updateRow = { ...result.data, updated_by: agent.id, updated_at: new Date().toISOString() };
+    const runUpdate = (row) => supabase
       .from('hotels')
-      .update({ ...result.data, updated_by: agent.id, updated_at: new Date().toISOString() })
+      .update(row)
       .eq('id', req.params.id)
       .select()
       .maybeSingle();
+    let { data, error } = await runUpdate(updateRow);
+    if (error && hotelFaqColumnMissing(error)) {
+      ({ data, error } = await runUpdate(withoutHotelFaq(updateRow)));
+    }
     if (error) {
       if (hotelTableMissing(error)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
       if (hotelColumnMissing(error)) return res.status(503).json({ error: HOTEL_COLUMN_MIGRATION_ERROR });

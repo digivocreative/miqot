@@ -6,19 +6,20 @@ import {
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
+import {
+  HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
+  type HotelListItem, type HotelDetail, type HotelMediaItem, type HotelFaqItemData,
+  HOTEL_FAQ_MAX,
+} from './HotelPage';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 import HotelMediaCategorySheet from './HotelMediaCategorySheet';
 import { HOTEL_MEDIA_CATEGORY_PRESETS, hotelMediaCategories, HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
-import {
-  HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
-  type HotelListItem, type HotelDetail, type HotelMediaItem,
-} from './HotelPage';
 
 const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
+const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide';
 // Label kotak di dalam kartu: lebih kecil dari LABEL_CLASS supaya tiga kotak
 // per platform tidak berteriak, tapi tetap terbaca setelah kotaknya terisi.
 const SUBLABEL_CLASS = 'block text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500';
-const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide';
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
@@ -54,13 +55,14 @@ interface FormState {
   // Disimpan sebagai teks supaya kotak isian boleh kosong/setengah diketik;
   // diubah ke angka saat simpan, di mana lib yang memvalidasinya.
   ratings: Record<string, { score: string; reviews: string; url: string }>;
+  faq: HotelFaqItemData[];
 }
 
 function emptyForm(): FormState {
   return {
     name: '', city: 'mekkah', stars: null,
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
-    description: '', facilities: [], agent_note: '', media: [], ratings: {},
+    description: '', facilities: [], agent_note: '', media: [], ratings: {}, faq: [],
   };
 }
 
@@ -77,6 +79,7 @@ function formFromDetail(detail: HotelDetail): FormState {
     description: detail.description || '',
     facilities: detail.facilities || [],
     agent_note: detail.agent_note || '',
+    faq: (detail.faq || []).map(item => ({ q: item.q, a: item.a })),
     media: (detail.media || []).map((item, index) => ({
       key: `existing-${index}-${item.url}`,
       type: item.type,
@@ -167,6 +170,14 @@ const KELOLA_TABS: { id: KelolaTab; label: string; icon: ElementType }[] = [
   { id: 'detail', label: 'Detail', icon: FileText },
   { id: 'media', label: 'Media', icon: ImagePlus },
 ];
+
+// Tinggi sub-bar tab, DIUKUR di browser (bukan taksiran):
+//   document.querySelector('[aria-label="Bagian form hotel"]').getBoundingClientRect().height
+// → 57.5 sejak tab memakai SegmentedControl (py-2 wadah 16 + track 40.5 +
+// border 1). Dibulatkan KE ATAS: angka yang kekecilan membuat minHeight
+// kepanjangan sehingga action bar jatuh di bawah lipatan — persis bug yang
+// konstanta ini cegah. Ukur ulang kalau padding wadah atau isi track berubah.
+const HOTEL_FORM_TABBAR_H = 58;
 
 // Segmen tab yang tak dikenal (salah ketik, URL lama) jatuh ke Detail tanpa
 // menulis ulang URL — fail-soft, tanpa efek samping saat render.
@@ -514,6 +525,9 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
           url: entry.url?.trim() || null,
         }];
       }),
+      // Baris yang sepenuhnya kosong dibuang di sini juga (server memang
+      // memaafkannya) agar hitungan "n/5" di form tidak menghitung baris hampa.
+      faq: form.faq.filter(item => item.q.trim() || item.a.trim()),
     };
     try {
       const res = await fetch(editingId ? `/api/hotels/${editingId}` : '/api/hotels', {
@@ -612,10 +626,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       : null;
     return (
       <HotelViewShell viewKey="kelola-form">
-        {/* Sub-bar sticky + SegmentedControl = pola baku halaman anak
-            (SettingsPage/StatistikPage). DS menetapkan SegmentedControl untuk
-            mode switch 2-4 opsi; tab garis-bawah custom bukan bagian sistem.
-            Materialnya ikut token Header DS supaya menyatu dengan header. */}
+        {/* Tab menempel tepat di bawah header DashboardLayout dan memakai
+            material yang sama supaya terbaca sebagai satu chrome. */}
         <div
           aria-label="Bagian form hotel"
           style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
@@ -642,7 +654,14 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             ))}
           </div>
         ) : (
-          <>
+          // Tinggi minimum + flex-col menjaga action bar tetap di dasar layar
+          // saat isi tab pendek (Media tanpa foto) — tanpa ini bar berhenti di
+          // tengah halaman dengan ruang kosong menganga di bawahnya. -mb-8
+          // membatalkan pb-8 milik shell supaya bar benar-benar rata bawah.
+          <div
+            className="-mb-8 flex flex-col"
+            style={{ minHeight: `calc(100dvh - ${DASHBOARD_SUBPAGE_HEADER_H + HOTEL_FORM_TABBAR_H + 16}px)` }}
+          >
           {/* SegmentedControl bukan pola tab ARIA (tombol biasa, seperti
               SettingsPage), jadi panel ini tidak lagi role="tabpanel" —
               aria-labelledby-nya akan menunjuk id yang sudah tak ada. */}
@@ -651,7 +670,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="space-y-6"
+            className="flex-1 space-y-6"
           >
             {activeTab === 'detail' ? (
             <>
@@ -880,6 +899,63 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 </div>
               </div>
               <div>
+                <label className={LABEL_CLASS}>
+                  Pertanyaan Umum
+                  <span className="ml-auto text-[10px] font-bold text-gray-400 dark:text-slate-500">
+                    {form.faq.length}/{HOTEL_FAQ_MAX}
+                  </span>
+                </label>
+                <div className="mt-1.5 space-y-2.5">
+                  {form.faq.map((item, index) => (
+                    <div key={index} className="rounded-xl border border-gray-200 dark:border-slate-700 p-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                          Pertanyaan {index + 1}
+                        </span>
+                        <button
+                          onClick={() => setForm(prev => ({ ...prev, faq: prev.faq.filter((_, i) => i !== index) }))}
+                          aria-label={`Hapus pertanyaan ${index + 1}`}
+                          className="ml-auto text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      <input
+                        value={item.q}
+                        onChange={e => setForm(prev => ({
+                          ...prev,
+                          faq: prev.faq.map((f, i) => (i === index ? { ...f, q: e.target.value } : f)),
+                        }))}
+                        placeholder="Misal: Apakah ada makanan Indonesia di hotel ini?"
+                        className={`${INPUT_CLASS} mt-1.5`}
+                      />
+                      <textarea
+                        value={item.a}
+                        onChange={e => setForm(prev => ({
+                          ...prev,
+                          faq: prev.faq.map((f, i) => (i === index ? { ...f, a: e.target.value } : f)),
+                        }))}
+                        rows={3}
+                        placeholder="Jawaban singkat dan pasti…"
+                        className={`${INPUT_CLASS} mt-1.5 resize-none`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                {form.faq.length < HOTEL_FAQ_MAX && (
+                  <button
+                    onClick={() => setForm(prev => ({ ...prev, faq: [...prev.faq, { q: '', a: '' }] }))}
+                    className="mt-2 inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 dark:border-slate-600 px-2.5 py-1 text-xs font-medium text-gray-400 dark:text-slate-500 hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                  >
+                    <Plus size={11} />
+                    Tambah pertanyaan
+                  </button>
+                )}
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                  Tampil sebagai accordion di bawah Fasilitas pada halaman detail.
+                </p>
+              </div>
+              <div>
                 <label className={LABEL_CLASS}>Catatan Agent</label>
                 <textarea
                   value={form.agent_note}
@@ -1021,7 +1097,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               </button>
             </div>
           </div>
-          </>
+          </div>
         )}
 
         {/* Sheet memakai createPortal (ke document.body), jadi kebal jebakan

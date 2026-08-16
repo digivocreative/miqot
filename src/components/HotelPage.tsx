@@ -4,7 +4,7 @@ import {
   Play, ImageOff, Image as ImageIcon, ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories, HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
+import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories, HOTEL_RATING_PLATFORMS, HOTEL_MAX_FAQ_ITEMS } from '../../lib/hotel-directory.js';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
@@ -42,6 +42,15 @@ export interface HotelRatingItem {
   url?: string | null;
 }
 
+export interface HotelFaqItemData {
+  q: string;
+  a: string;
+}
+
+// Diteruskan dari lib/ lewat berkas ini supaya panel Kelola tidak perlu impor
+// kedua ke modul JS tanpa tipe — batas tetap satu sumber di lib/hotel-directory.js.
+export const HOTEL_FAQ_MAX: number = HOTEL_MAX_FAQ_ITEMS;
+
 export interface HotelDetail {
   id: string;
   slug: string;
@@ -59,6 +68,8 @@ export interface HotelDetail {
   media: HotelMediaItem[];
   // Opsional: baris lama / prod pra-migrasi 20260816050000 belum punya kolom ini.
   ratings?: HotelRatingItem[];
+  // Opsional: baris lama / prod pra-migrasi 20260816040000 tidak punya kolom ini.
+  faq?: HotelFaqItemData[];
 }
 
 export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai'] as const;
@@ -139,7 +150,15 @@ export function StarRow({ stars, size = 13 }: { stars: number | null; size?: num
 // aturan DS (280-450ms, easing [0.22,1,0.36,1]). Kunci = identitas view, dan
 // skeleton memakai kunci yang SAMA dengan konten finalnya supaya pergantian
 // skeleton → data tidak memicu animasi kedua.
-export function HotelViewShell({ viewKey, children }: { viewKey: string; children: ReactNode }) {
+// `solid` = lembar putih penuh untuk area konten (permintaan user), meniru
+// tab Teras di DashboardLayout: bg putih + border samping di layar lebar.
+// Panel Kelola sengaja TIDAK memakainya — action bar di sana dijangkar ke
+// minHeight hasil ukur sendiri, jadi menambah minHeight kedua akan menggesernya.
+export function HotelViewShell({ viewKey, children, solid = false }: {
+  viewKey: string;
+  children: ReactNode;
+  solid?: boolean;
+}) {
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
@@ -147,23 +166,112 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
       initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      className="px-4 pt-4 pb-8"
+      className={`px-4 pt-4 pb-8${solid
+        ? ' bg-white dark:bg-slate-900 sm:border-x sm:border-gray-100 dark:sm:border-slate-800'
+        : ''}`}
+      style={solid ? { minHeight: `calc(100dvh - ${DASHBOARD_SUBPAGE_HEADER_H}px)` } : undefined}
     >
       {children}
     </motion.div>
   );
 }
 
-// Deskripsi panjang dipangkas ke 3 baris dengan pudar di tepi bawah, lalu
-// dibuka penuh lewat "Lihat selengkapnya". Tinggi terpangkas DIUKUR dari
-// line-height elemennya sendiri, bukan angka px hafalan — ukuran font/leading
-// boleh berubah tanpa memecahkan potongannya.
+// Daftar FAQ = garis pemisah tipis, TANPA kartu/bingkai (varian pilihan user
+// dari mockup Pencil ~/Downloads/hotel-faq-style.pen). Kartu putih dulu dibuang
+// karena lembar konten sendiri sudah putih — kartu di atasnya jadi rata dan
+// terasa mengambang tanpa maksud. Hanya satu jawaban terbuka pada satu waktu:
+// penanda ada di daftar, bukan di tiap baris, karena itu satu-satunya cara
+// baris lain ikut tertutup.
+function HotelFaqList({ items }: { items: HotelFaqItemData[] }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
+  return (
+    <div className="mt-1">
+      {items.map((item, index) => {
+        const open = openIndex === index;
+        return (
+          <div
+            key={`${index}-${item.q}`}
+            className={index < items.length - 1 ? 'border-b border-gray-100 dark:border-slate-800' : ''}
+          >
+            <button
+              type="button"
+              onClick={() => setOpenIndex(open ? null : index)}
+              aria-expanded={open}
+              className="group flex w-full items-start gap-3 py-3.5 text-left"
+            >
+              <span
+                className={`flex-1 text-sm font-semibold leading-snug transition-colors ${
+                  open
+                    ? 'text-teal-700 dark:text-teal-300'
+                    : 'text-gray-800 group-hover:text-teal-700 dark:text-slate-100 dark:group-hover:text-teal-300'
+                }`}
+              >
+                {item.q}
+              </span>
+              <ChevronDown
+                size={16}
+                className={`mt-0.5 shrink-0 transition-[transform,color] duration-300 ${
+                  open ? 'rotate-180 text-teal-600 dark:text-teal-400' : 'text-gray-400 dark:text-slate-500'
+                }`}
+              />
+            </button>
+            {/* Pola expand FlightStatusCard: height 0→auto dengan overflow
+                terkunci, opacity menyusul sedikit agar teks tidak "melompat". */}
+            <AnimatePresence initial={false}>
+              {open && (
+                <motion.div
+                  key="jawaban"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={reduceMotion ? { duration: 0 } : {
+                    height: { duration: 0.32, ease: [0.22, 1, 0.36, 1] },
+                    opacity: { duration: 0.2, delay: 0.04, ease: 'easeInOut' },
+                  }}
+                  style={{ overflow: 'hidden', willChange: 'height' }}
+                >
+                  <p className="pb-4 text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">
+                    {item.a}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Deskripsi panjang dipangkas ke 3 baris, lalu dibuka penuh lewat "Lihat
+// selengkapnya". Pemangkasnya = `line-clamp` bawaan browser, jadi elipsisnya
+// digambar mesin teks browser itu sendiri — bukan gradien pudar seperti versi
+// lama. Gradien lama berangkat dari `transparent`, yang menurut spesifikasi =
+// rgba(0,0,0,0): di browser yang menginterpolasi gradien tanpa premultiplied
+// alpha, jalur menuju putih/slate lewat hitam dan meninggalkan noda abu-abu —
+// persis "kurang rapih di beberapa browser". Tingginya pun 28px, lebih tinggi
+// dari satu baris (22,75px), sehingga baris ke-3 nyaris tak terbaca.
+// Tinggi terpangkas tetap DIUKUR dari line-height elemennya sendiri, bukan
+// angka px hafalan — ukuran font/leading boleh berubah tanpa memecahkannya.
 const DESCRIPTION_CLAMP_LINES = 3;
+// Kelasnya WAJIB literal — Tailwind memindai teks sumber, `line-clamp-${n}`
+// tidak akan pernah dibangkitkan. Ditaruh berdampingan supaya angkanya tak
+// diam-diam berbeda dari tinggi yang diukur.
+const DESCRIPTION_CLAMP_CLASS = 'line-clamp-3';
+// Satu sumber durasi: transisi tinggi DAN timer pemasangan klem membacanya,
+// jadi keduanya tak bisa melenceng sendiri-sendiri.
+const DESCRIPTION_EXPAND_MS = 320;
 
 function HotelDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const [collapsedHeight, setCollapsedHeight] = useState<number | null>(null);
   const [overflows, setOverflows] = useState(false);
+  // Klem hanya dipasang saat wadah sudah DIAM. Selama animasi tutup teks
+  // dibiarkan utuh dan dipotong overflow wadah, jadi barisnya ikut turun mulus;
+  // kalau diklem sejak frame pertama, teks langsung patah ke 3 baris sementara
+  // wadahnya masih tinggi — terbaca seperti rusak.
+  const [settled, setSettled] = useState(true);
   const textRef = useRef<HTMLParagraphElement>(null);
   const reduceMotion = useReducedMotion();
 
@@ -174,8 +282,10 @@ function HotelDescription({ text }: { text: string }) {
       const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 21;
       const clamped = lineHeight * DESCRIPTION_CLAMP_LINES;
       setCollapsedHeight(clamped);
-      // Toleransi 2px untuk pembulatan sub-piksel: teks 4 baris pas jangan
-      // sampai dianggap kepanjangan dan memunculkan tombol yang tak berguna.
+      // `scrollHeight` tetap tinggi teks PENUH walau line-clamp aktif, jadi
+      // deteksi ini sah di kedua keadaan. Toleransi 2px untuk pembulatan
+      // sub-piksel: teks 3 baris pas jangan sampai dianggap kepanjangan dan
+      // memunculkan tombol yang tak berguna.
       setOverflows(el.scrollHeight > clamped + 2);
     };
     measure();
@@ -185,6 +295,20 @@ function HotelDescription({ text }: { text: string }) {
     return () => observer.disconnect();
   }, [text]);
 
+  // Klem dipasang lagi setelah animasi tutup habis waktunya. Pakai timer, BUKAN
+  // onAnimationComplete framer: animasinya digerakkan requestAnimationFrame,
+  // yang berhenti total saat tab tersembunyi — callback-nya tak pernah datang
+  // dan teks menggantung tanpa klem, terpotong mentah di tepi wadah. Timer tetap
+  // sampai tujuan (sekadar tertunda), jadi keadaan akhirnya selalu sama.
+  useEffect(() => {
+    if (open) return;
+    const id = setTimeout(() => setSettled(true), reduceMotion ? 0 : DESCRIPTION_EXPAND_MS);
+    return () => clearTimeout(id);
+  }, [open, reduceMotion]);
+
+  // Klem tidak menunggu hasil ukur: sejak cat pertama teks sudah 3 baris, jadi
+  // tak ada kedip "penuh dulu baru mengerut" saat halaman dimuat.
+  const clamp = !open && settled;
   const showFull = open || !overflows || collapsedHeight === null;
 
   return (
@@ -192,33 +316,34 @@ function HotelDescription({ text }: { text: string }) {
       {/* Jarak atas ada di WADAH, bukan di <p>: tinggi terpangkas dihitung dari
           tinggi teks murni, jadi margin tidak ikut memakan jatah barisnya. */}
       <motion.div
-        className="relative mt-1.5 overflow-hidden"
+        className="mt-1.5 overflow-hidden"
         animate={{ height: showFull ? 'auto' : collapsedHeight }}
         initial={false}
-        transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+        transition={reduceMotion
+          ? { duration: 0 }
+          : { duration: DESCRIPTION_EXPAND_MS / 1000, ease: [0.22, 1, 0.36, 1] }}
       >
-        <p ref={textRef} className="text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">
+        <p
+          ref={textRef}
+          className={`text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line${
+            clamp ? ` ${DESCRIPTION_CLAMP_CLASS}` : ''
+          }`}
+        >
           {text}
         </p>
-        {/* Pudar hanya saat terpotong — penanda "masih ada lanjutannya". */}
-        <AnimatePresence>
-          {!showFull && (
-            <motion.div
-              key="fade"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-b from-transparent to-white dark:to-slate-900"
-            />
-          )}
-        </AnimatePresence>
       </motion.div>
 
       {overflows && (
         <button
           type="button"
-          onClick={() => setOpen(prev => !prev)}
+          onClick={() => {
+            // Lepas klem SEBELUM tinggi bergerak: framer mengukur tinggi 'auto'
+            // dari teks utuh, dan animasi tutup memotong lewat overflow wadah
+            // (bukan patah ke 3 baris seketika). Klem balik dipasang oleh timer
+            // di efek atas.
+            setSettled(false);
+            setOpen(prev => !prev);
+          }}
           aria-expanded={open}
           className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-teal-700 transition-colors hover:text-teal-800 dark:text-teal-300 dark:hover:text-teal-200"
         >
@@ -462,7 +587,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
   if (loadError) {
     return (
-      <HotelViewShell viewKey="error">
+      <HotelViewShell viewKey="error" solid>
         <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {loadError}
         </div>
@@ -473,7 +598,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // Skeleton mengikuti bentuk view tujuan (termasuk deep link ke daftar/detail).
   if (!hotels) {
     return (
-      <HotelViewShell viewKey={viewKey}>
+      <HotelViewShell viewKey={viewKey} solid>
         {view.kind === 'kategori' ? <SkeletonKategori /> : view.kind === 'list' ? <SkeletonList /> : <SkeletonDetail />}
       </HotelViewShell>
     );
@@ -482,7 +607,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // ── View: Pilih Kategori ──
   if (view.kind === 'kategori') {
     return (
-      <HotelViewShell viewKey={viewKey}>
+      <HotelViewShell viewKey={viewKey} solid>
         <div className="flex flex-col gap-3">
           {HOTEL_CITIES.map(city => {
             const bannerSrc = banners[city] || coverByCity[city];
@@ -499,9 +624,13 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                     <Building2 size={32} className="text-white/70" />
                   </div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-slate-900/60 px-3 py-2">
+                {/* Scrim membias ke atas, bukan bilah pekat — pt-10 memberi
+                    landasan gradasi supaya batasnya tak terlihat sebagai garis.
+                    Nama & jumlah sebaris: items-baseline menyejajarkan garis
+                    alas 14px dan 11px (items-end akan tampak meleset). */}
+                <div className="absolute inset-x-0 bottom-0 flex items-baseline justify-between gap-3 bg-gradient-to-t from-slate-900/85 via-slate-900/60 to-transparent px-3 pb-2 pt-10">
                   <p className="text-sm font-bold text-white">{HOTEL_CITY_LABELS[city]}</p>
-                  <p className="text-[11px] text-white/80">{countsByCity[city]} hotel</p>
+                  <p className="shrink-0 text-[11px] text-white/90">{countsByCity[city]} hotel</p>
                 </div>
               </button>
             );
@@ -515,7 +644,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // Judul & tombol back kota ada di header DashboardLayout ("Hotel Madinah").
   if (view.kind === 'list') {
     return (
-      <HotelViewShell viewKey={viewKey}>
+      <HotelViewShell viewKey={viewKey} solid>
         {/* Pencarian + satu tombol Filter (opsinya di bottom sheet). Tombol
             hanya muncul bila datanya memang memilah — Dubai yang berisi satu
             hotel tidak diberi tombol yang tak menyaring apa pun. */}
@@ -657,7 +786,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
       .filter(e => !activeCategory || (e.item.category || '').toLowerCase() === activeCategory.toLowerCase());
     const photoCount = media.length - videos.length;
     return (
-      <HotelViewShell viewKey={viewKey}>
+      <HotelViewShell viewKey={viewKey} solid>
         {detailError && (
           <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
             {detailError}
@@ -770,7 +899,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
   // Tombol back detail → daftar ada di header DashboardLayout.
   return (
-    <HotelViewShell viewKey={viewKey}>
+    <HotelViewShell viewKey={viewKey} solid>
       {detailError && (
         <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {detailError}
@@ -879,6 +1008,8 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
           {detail.description && (
             <div className="mt-5">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Tentang Hotel</h3>
+              {/* text-sm = token "Body text" DESIGN-SYSTEM.md; text-[13px] lama
+                  di bawah standar dan dikeluhkan terlalu kecil untuk dibaca. */}
               <HotelDescription text={detail.description} />
             </div>
           )}
@@ -896,11 +1027,20 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             </div>
           )}
 
+          {detail.faq && detail.faq.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                Pertanyaan Umum
+              </h3>
+              <HotelFaqList items={detail.faq} />
+            </div>
+          )}
+
           {(detail.address || detail.gmaps_url) && (
             <div className="mt-5">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Lokasi</h3>
               {detail.address && (
-                <p className="mt-1.5 text-[13px] leading-relaxed text-gray-600 dark:text-slate-300">{detail.address}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-gray-600 dark:text-slate-300">{detail.address}</p>
               )}
               {detail.gmaps_url && (
                 <button
