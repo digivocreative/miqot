@@ -116,10 +116,7 @@ function normalizeTeaserData(value: unknown): TerasTeaserData {
   };
 }
 
-// compact: dipakai saat kartu berbagi baris dengan kartu Bani (setengah lebar,
-// bisa sesempit ~160px di layar 370px) — gugus avatar terbaru disembunyikan dan
-// badge unread diringkas jadi angka saja supaya chevron tidak terdorong keluar.
-export default function TerasCard({ onOpen, compact = false }: { onOpen: () => void; compact?: boolean }) {
+export default function TerasCard({ onOpen }: { onOpen: () => void }) {
   const [state, setState] = useState<TerasCardState>({ status: 'loading' });
 
   useEffect(() => {
@@ -192,11 +189,11 @@ export default function TerasCard({ onOpen, compact = false }: { onOpen: () => v
             <span className="text-sm font-extrabold text-gray-900 dark:text-white">Teras</span>
             {unreadCount > 0 && (
               <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white shadow-md shadow-red-500/30">
-                {unreadCount > 9 ? '9+' : unreadCount}{compact ? '' : ' baru'}
+                {unreadCount > 9 ? '9+' : unreadCount} baru
               </span>
             )}
             <span className="flex-1" />
-            {!compact && !!data?.recent_avatars.length && (
+            {!!data?.recent_avatars.length && (
               <span className="flex flex-none items-center" aria-label="Agent terbaru">
                 {data.recent_avatars.slice(0, 3).map((avatar, index) => (
                   <TeaserAvatar

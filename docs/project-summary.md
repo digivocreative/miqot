@@ -343,11 +343,11 @@ Itinerary AI cache (`itineraries` table, dipakai kartu "Urutan Perjalanan", view
 
 - `syncAllItineraries` (server.js, startup + tiap 12 jam) menstrukturkan PDF dan menyimpan `content` + `source_sha256` (sha PDF yang diproses). Sync dokumen harian 03:30 WIB langsung memanggil siklus ini setelah fingerprint/CDN diperbarui, jadi tidak ada lagi jeda acak hingga 12 jam.
 - Re-parse terjadi bila: belum ada cache, cache legacy tanpa `source_sha256`, atau `umroh_schedules.itinerary_source_sha256` (diperbarui Bunny sync) ≠ sha cache. `GET /api/itinerary/:jadwalId` juga membandingkan kedua hash sebelum menyajikan konten dan melakukan refresh single-flight dari URL jadwal tepercaya. Bila refresh gagal, API fail-closed ke PDF terbaru dan tidak mengirim konten web lama.
-- Konsumen internal `getItineraryContext`, urutan perjalanan jadwal, dan filter itinerary Bani mengabaikan cache dengan hash berbeda. Parser menolak byte PDF yang tidak cocok dengan fingerprint jadwal sebelum memanggil model atau menulis cache.
+- Konsumen internal `getItineraryContext`, urutan perjalanan jadwal, dan filter itinerary tool MCP (`lib/bani-itinerary-index.js`) mengabaikan cache dengan hash berbeda. Parser menolak byte PDF yang tidak cocok dengan fingerprint jadwal sebelum memanggil model atau menulis cache.
 - Guard tambahan di endpoint jadwal: `saudiOrderContradictsRoute` (lib/journey-order.js) membuang `journey_order` hasil itinerary bila landing MED tapi itinerary bilang Umroh dulu (cache pasti basi) → frontend fallback ke inferensi rute. Sinyal landing JED sengaja tidak dipakai (pola Jum'atain Madinah–Mekkah–Madinah ambigu).
 - Teks PDF untuk prompt dipotong di 20k karakter (dulu 6k — itinerary 15 hari kehilangan hari-hari ekor).
 
-Brosur resmi (`umroh_schedules.brosur*`, dipakai halaman Paket, halaman Brosur, Bani, Ask-AI, dan bio):
+Brosur resmi (`umroh_schedules.brosur*`, dipakai halaman Paket, halaman Brosur, Ask-AI, dan bio):
 
 - Sync jadwal 30-menit langsung memindai fingerprint isi brosur. File utama dan thumbnail memakai nama objek ber-hash, sehingga perubahan byte menghasilkan URL baru dan tidak dapat tertukar dengan cache edge lama.
 - Perubahan URL sumber mengosongkan CDN, thumbnail, dan fingerprint lama dalam upsert yang sama. Bila replacement upload/metadata gagal setelah byte baru terdeteksi, CDN lama juga di-fail-closed dan pembaca jatuh ke sumber saat ini.

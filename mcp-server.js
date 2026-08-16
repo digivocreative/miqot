@@ -21,8 +21,9 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 // Isi ke-8 tool (deskripsi + body handler + helper murninya) tinggal di
-// lib/bani-tools.js supaya dipakai bersama asisten Bani in-app. Di sini yang
-// tersisa hanya lapisan MCP: auth, rate limit, skema zod, dan envelope content.
+// lib/bani-tools.js — dulu dipakai bersama asisten in-app Bani, yang kini sudah
+// dihapus. Di sini yang tersisa hanya lapisan MCP: auth, rate limit, skema zod,
+// dan envelope content.
 import { BANI_TOOL_BY_NAME, MAX_LIMIT } from './lib/bani-tools.js';
 
 // Re-export helper murni yang dulu didefinisikan di file ini — importer lama
@@ -125,8 +126,7 @@ function buildAgentMcpServer({ agent, supabase, log }) {
   };
 
   // Skema zod TIDAK berubah: validasi yang dilihat klien MCP tetap identik.
-  // Title/description diambil dari registry supaya prosa tool tidak kembar
-  // (dan tidak drift) antara permukaan MCP dan Bani.
+  // Title/description diambil dari registry supaya prosa tool punya satu sumber.
   register('list_jamaah', {
     title: TOOL.list_jamaah.title,
     description: TOOL.list_jamaah.description,
