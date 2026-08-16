@@ -360,13 +360,17 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             hanya muncul bila datanya memang memilah — Dubai yang berisi satu
             hotel tidak diberi tombol yang tak menyaring apa pun. */}
         <div className="flex items-center gap-2">
+          {/* Kotak cari memakai kelas input baku DESIGN-SYSTEM.md (pl-9 memberi
+              ruang ikon), tombol Filter memakai geometri + skin trigger
+              FilterDropdown varian default — keduanya py-2.5 rounded-xl
+              sehingga tingginya sejajar tanpa nilai tinggi karangan. */}
           <div className="relative flex-1">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Cari..."
-              className="h-9 w-full pl-8 pr-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-[13px] focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
+              className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50"
             />
           </div>
 
@@ -374,16 +378,16 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             <button
               onClick={() => setFilterOpen(true)}
               aria-haspopup="dialog"
-              className={`h-9 shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold transition-all active:scale-95 ${
+              className={`shrink-0 flex items-center gap-2 border px-3 py-2.5 rounded-xl text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 ${
                 activeFilterCount > 0
-                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                  : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700'
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
+                  : 'bg-gray-100/80 dark:bg-slate-800/80 border-transparent dark:border-transparent text-gray-700 dark:text-slate-200 hover:bg-gray-200/80 dark:hover:bg-slate-700/80'
               }`}
             >
-              <SlidersHorizontal size={14} />
+              <SlidersHorizontal size={16} />
               Filter
               {activeFilterCount > 0 && (
-                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/25 px-1 text-[10px] font-bold">
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white">
                   {activeFilterCount}
                 </span>
               )}
@@ -392,7 +396,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
         </div>
 
         {(starFilter !== null || areaFilter !== null || query.trim()) && (
-          <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">
+          <p className="mt-1.5 text-[11px] font-medium text-gray-400 dark:text-slate-500">
             {cityHotels.length} dari {cityPool.length} hotel
           </p>
         )}

@@ -20,10 +20,12 @@ interface HotelFilterSheetProps {
   onClose: () => void;
 }
 
+// Filter pill + group label persis spesifikasi "Advanced Filter Panel" di
+// docs/DESIGN-SYSTEM.md; h-9 menjaga touch target 36px yang juga diminta DS.
 const OPTION_CLASS = 'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-all active:scale-95';
 const OPTION_ACTIVE = 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20';
 const OPTION_IDLE = 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700';
-const SECTION_LABEL = 'text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500';
+const SECTION_LABEL = 'text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500';
 
 export default function HotelFilterSheet({
   landmark,
