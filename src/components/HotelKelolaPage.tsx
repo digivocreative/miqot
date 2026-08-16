@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronLeft, ChevronDown,
+  Loader2, Play, ChevronLeft, ChevronDown, Search,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
@@ -128,6 +128,7 @@ export default function HotelKelolaPage() {
   const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState<string>('semua');
+  const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm());
   const [formLoading, setFormLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -676,7 +677,10 @@ export default function HotelKelolaPage() {
   }
 
   // ── View: Daftar Kelola ──
-  const filteredHotels = (hotels || []).filter(h => cityFilter === 'semua' || h.city === cityFilter);
+  const q = query.trim().toLowerCase();
+  const filteredHotels = (hotels || [])
+    .filter(h => cityFilter === 'semua' || h.city === cityFilter)
+    .filter(h => !q || h.name.toLowerCase().includes(q));
 
   return (
     <div className="px-4 pt-4 pb-8">
@@ -779,7 +783,17 @@ export default function HotelKelolaPage() {
         />
       </div>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="relative mt-4">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Cari hotel..."
+          className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+        />
+      </div>
+
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
         {['semua', ...HOTEL_CITIES].map(city => {
           const active = cityFilter === city;
           return (
@@ -816,7 +830,9 @@ export default function HotelKelolaPage() {
         {hotels && filteredHotels.length === 0 && !loadError && (
           <div className="py-10 text-center">
             <ImageOff size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
-            <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">Belum ada hotel. Tambah hotel pertama lewat tombol di atas.</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
+              {q ? 'Tidak ada hotel yang cocok dengan pencarian.' : 'Belum ada hotel. Tambah hotel pertama lewat tombol di atas.'}
+            </p>
           </div>
         )}
         {filteredHotels.map(hotel => (
