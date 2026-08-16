@@ -4746,10 +4746,11 @@ export default function TerasPage({
         {media.map((item, index) => (
           <div
             key={item.id}
+            // Kontainer memeluk konten (w-fit) seperti di feed — `w-full`
+            // menyisakan jalur mati kiri/kanan berlatar slate-950 (tampak
+            // hitam di mode gelap) untuk foto yang tidak selebar kolom.
             className={`relative overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950 ${
-              media.length === 1
-                ? (item.type === 'video' ? 'w-fit max-w-full' : 'max-h-[22rem] w-full')
-                : 'h-64 w-auto shrink-0 snap-start'
+              media.length === 1 ? 'w-fit max-w-full' : 'h-64 w-auto shrink-0 snap-start'
             }`}
           >
             {item.type === 'video' ? (
@@ -4765,7 +4766,7 @@ export default function TerasPage({
                 src={item.previewUrl}
                 alt={media.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
                 className={media.length === 1
-                  ? 'block max-h-[22rem] w-full object-contain'
+                  ? 'block max-h-[22rem] w-auto max-w-full object-contain'
                   : 'block h-full w-auto max-w-[80vw] object-contain'}
               />
             )}
