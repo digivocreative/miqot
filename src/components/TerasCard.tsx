@@ -250,25 +250,20 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
                 </AnimatePresence>
               </div>
 
-              <div className="mt-1.5 flex h-2.5 items-center justify-between">
-                <span className="text-[10px] font-semibold leading-none text-gray-400 dark:text-slate-500">
-                  {data?.today_count ?? 0} kiriman hari ini
-                </span>
-                {rotating && (
-                  <span className="flex items-center gap-1" aria-hidden="true">
-                    {posts.map((post, index) => (
-                      <span
-                        key={post.created_at + index}
-                        className={`h-1 w-1 rounded-full transition-colors duration-300 ${
-                          index === activeIndex
-                            ? 'bg-teal-500 dark:bg-teal-400'
-                            : 'bg-teal-200 dark:bg-teal-800'
-                        }`}
-                      />
-                    ))}
-                  </span>
-                )}
-              </div>
+              {rotating && (
+                <div className="mt-1.5 flex h-2.5 items-center justify-center gap-1" aria-hidden="true">
+                  {posts.map((post, index) => (
+                    <span
+                      key={post.created_at + index}
+                      className={`h-1 w-1 rounded-full transition-colors duration-300 ${
+                        index === activeIndex
+                          ? 'bg-teal-500 dark:bg-teal-400'
+                          : 'bg-teal-200 dark:bg-teal-800'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <div className="mt-2 flex min-w-0 items-center gap-2">
