@@ -11,6 +11,8 @@ import {
   buildHotelPayload,
   hotelListItem,
   hotelMediaUrlsRemoved,
+  parseHotelDistanceMeters,
+  hotelAreaCity,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
@@ -318,4 +320,36 @@ test('hotelMediaUrlsRemoved: hanya URL yang hilang dari daftar baru DAN di bawah
     [IMG_URL]
   );
   assert.deepEqual(hotelMediaUrlsRemoved(null, null, PREFIXES), []);
+});
+
+test('parseHotelDistanceMeters membaca label jarak apa adanya', () => {
+  // Format yang benar-benar ada di data: "±450m" dan "±2.5km".
+  assert.equal(parseHotelDistanceMeters('±450m'), 450);
+  assert.equal(parseHotelDistanceMeters('±50m'), 50);
+  assert.equal(parseHotelDistanceMeters('±2.5km'), 2500);
+  // Desimal koma (gaya Indonesia) dan spasi sebelum satuan tetap terbaca.
+  assert.equal(parseHotelDistanceMeters('±1,5 km'), 1500);
+  assert.equal(parseHotelDistanceMeters('300 M'), 300);
+  // km HARUS menang atas m — kalau tidak, 2.5km terbaca 2.5 meter dan jadi
+  // hotel "terdekat" mengalahkan yang 50m.
+  assert.ok(parseHotelDistanceMeters('±2.5km') > parseHotelDistanceMeters('±500m'));
+  // Tak terbaca / kosong → null supaya bisa didorong ke akhir daftar.
+  assert.equal(parseHotelDistanceMeters(''), null);
+  assert.equal(parseHotelDistanceMeters(null), null);
+  assert.equal(parseHotelDistanceMeters('dekat sekali'), null);
+  // "menit" bukan jarak: tidak boleh diklaim sebagai meter.
+  assert.equal(parseHotelDistanceMeters('5 menit'), null);
+});
+
+test('hotelAreaCity hanya mengambil kota yang tertulis eksplisit', () => {
+  assert.equal(hotelAreaCity('Görükle (Nilüfer), Bursa'), 'Bursa');
+  assert.equal(hotelAreaCity('Ortahisar (Ürgüp), Kapadokya'), 'Kapadokya');
+  assert.equal(hotelAreaCity('Melikgazi, Kayseri'), 'Kayseri');
+  // Tanpa koma = distrik saja; menebak kota dari distrik akan salah label.
+  assert.equal(hotelAreaCity('Al Barsha 1 (Sheikh Zayed Road)'), null);
+  assert.equal(hotelAreaCity('Ajyad'), null);
+  assert.equal(hotelAreaCity(''), null);
+  assert.equal(hotelAreaCity(null), null);
+  // Koma menggantung tidak menghasilkan kota kosong.
+  assert.equal(hotelAreaCity('Ulus (Altındağ),'), null);
 });

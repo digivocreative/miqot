@@ -4,6 +4,7 @@ import {
   Play, ImageOff,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { parseHotelDistanceMeters, hotelAreaCity } from '../../lib/hotel-directory.js';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
@@ -135,6 +136,11 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
 
 const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
 
+// Chip saringan daftar — mengikuti pola pill filter panel Kelola (aktif emerald).
+const CHIP_CLASS = 'shrink-0 inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all active:scale-95';
+const CHIP_ACTIVE = 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20';
+const CHIP_IDLE = 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700';
+
 function SkeletonKategori() {
   return (
     <div className="flex flex-col gap-3">
@@ -185,6 +191,9 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const [detail, setDetail] = useState<HotelDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [starFilter, setStarFilter] = useState<number | null>(null);
+  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const [sortByDistance, setSortByDistance] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [banners, setBanners] = useState<Record<string, string | null>>({});
 
@@ -212,8 +221,13 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const detailSlug = view.kind === 'detail' ? view.slug : null;
   const listCity = view.kind === 'list' ? view.city : null;
 
-  // Ganti kota (termasuk via back/forward browser) = mulai pencarian dari kosong.
-  useEffect(() => { setQuery(''); }, [listCity]);
+  // Ganti kota (termasuk via back/forward browser) = mulai dari saringan kosong.
+  useEffect(() => {
+    setQuery('');
+    setStarFilter(null);
+    setAreaFilter(null);
+    setSortByDistance(false);
+  }, [listCity]);
   useEffect(() => {
     if (!detailSlug) return;
     let cancelled = false;
@@ -242,13 +256,42 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     return covers;
   }, [hotels]);
 
+  // Semua hotel kota ini (sebelum filter) — sumber opsi chip.
+  const cityPool = useMemo(
+    () => (listCity ? (hotels || []).filter(h => h.city === listCity) : []),
+    [hotels, listCity]
+  );
+
+  // Chip hanya muncul kalau benar-benar memilah: satu nilai saja tidak menyaring apa pun.
+  const starOptions = useMemo(() => {
+    const values = [...new Set(cityPool.map(h => h.stars).filter((s): s is number => !!s))];
+    return values.length > 1 ? values.sort((a, b) => b - a) : [];
+  }, [cityPool]);
+
+  const areaOptions = useMemo(() => {
+    const values = [...new Set(cityPool.map(h => hotelAreaCity(h.area)).filter((v): v is string => !!v))];
+    return values.length > 1 ? values.sort((a, b) => a.localeCompare(b)) : [];
+  }, [cityPool]);
+
+  const canSortByDistance = cityPool.some(h => parseHotelDistanceMeters(h.distance_label) !== null);
+
   const cityHotels = useMemo(() => {
-    if (view.kind !== 'list') return [];
     const q = query.trim().toLowerCase();
-    return (hotels || [])
-      .filter(h => h.city === view.city)
-      .filter(h => !q || h.name.toLowerCase().includes(q));
-  }, [hotels, view, query]);
+    const rows = cityPool
+      .filter(h => !q || h.name.toLowerCase().includes(q))
+      .filter(h => starFilter === null || h.stars === starFilter)
+      .filter(h => areaFilter === null || hotelAreaCity(h.area) === areaFilter);
+    if (!sortByDistance) return rows;
+    // Hotel tanpa jarak terbaca didorong ke belakang, bukan dianggap 0 meter.
+    return [...rows].sort((a, b) => {
+      const da = parseHotelDistanceMeters(a.distance_label);
+      const db = parseHotelDistanceMeters(b.distance_label);
+      if (da === null && db === null) return a.name.localeCompare(b.name);
+      if (da === null) return 1;
+      if (db === null) return -1;
+      return da - db || a.name.localeCompare(b.name);
+    });
+  }, [cityPool, query, starFilter, areaFilter, sortByDistance]);
 
   const viewKey =
     view.kind === 'kategori' ? 'kategori'
@@ -321,12 +364,66 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
           />
         </div>
 
+        {/* Saringan menjawab pertanyaan jamaah yang paling sering: "bintang
+            berapa?", "yang paling dekat masjid?", dan (kota tur) "di kota mana?".
+            Chip hanya muncul kalau datanya memang memilah. */}
+        {(canSortByDistance || starOptions.length > 0 || areaOptions.length > 0) && (
+          <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1">
+            {canSortByDistance && (
+              <button
+                onClick={() => setSortByDistance(v => !v)}
+                aria-pressed={sortByDistance}
+                className={`${CHIP_CLASS} ${sortByDistance ? CHIP_ACTIVE : CHIP_IDLE}`}
+              >
+                <Footprints size={11} />
+                Terdekat
+              </button>
+            )}
+            {starOptions.map(star => {
+              const active = starFilter === star;
+              return (
+                <button
+                  key={star}
+                  onClick={() => setStarFilter(active ? null : star)}
+                  aria-pressed={active}
+                  className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
+                >
+                  {star}
+                  <Star size={10} strokeWidth={0} fill="currentColor" className={active ? '' : 'text-amber-400'} />
+                </button>
+              );
+            })}
+            {areaOptions.map(area => {
+              const active = areaFilter === area;
+              return (
+                <button
+                  key={area}
+                  onClick={() => setAreaFilter(active ? null : area)}
+                  aria-pressed={active}
+                  className={`${CHIP_CLASS} ${active ? CHIP_ACTIVE : CHIP_IDLE}`}
+                >
+                  <MapPin size={11} />
+                  {area}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {(starFilter !== null || areaFilter !== null || query.trim()) && (
+          <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">
+            {cityHotels.length} dari {cityPool.length} hotel
+          </p>
+        )}
+
         <div className="space-y-3 mt-3">
           {cityHotels.length === 0 && (
             <div className="py-10 text-center">
               <Building2 size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
-                {query ? 'Tidak ada hotel yang cocok dengan pencarian.' : 'Belum ada hotel di kategori ini.'}
+                {query || starFilter !== null || areaFilter !== null
+                  ? 'Tidak ada hotel yang cocok dengan saringan ini.'
+                  : 'Belum ada hotel di kategori ini.'}
               </p>
             </div>
           )}
