@@ -1,13 +1,492 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Building2, ChevronLeft, Search, Star, Footprints, MapPin, Lock, Info,
+  Settings2, Play, ImageOff,
+} from 'lucide-react';
+import { getAuthHeaders } from './LoginPage';
+import { trackEvent } from '../utils/analytics';
+import PlyrVideo from './PlyrVideo';
+
 interface HotelPageProps {
   agent: { slug: string; name: string; role: 'admin' | 'agent' };
   onNavigate: (path: string) => void;
 }
 
-// Stub — diisi penuh di task berikutnya (kategori → daftar → detail).
-export default function HotelPage(_props: HotelPageProps) {
+export interface HotelListItem {
+  id: string;
+  slug: string;
+  name: string;
+  city: string;
+  stars: number | null;
+  distance_label: string | null;
+  walk_label: string | null;
+  area: string | null;
+  cover: string | null;
+  photo_count: number;
+  video_count: number;
+}
+
+export interface HotelMediaItem {
+  type: 'image' | 'video';
+  url: string;
+}
+
+export interface HotelDetail {
+  id: string;
+  slug: string;
+  name: string;
+  city: string;
+  stars: number | null;
+  distance_label: string | null;
+  walk_label: string | null;
+  area: string | null;
+  address: string | null;
+  gmaps_url: string | null;
+  description: string | null;
+  facilities: string[];
+  agent_note: string | null;
+  media: HotelMediaItem[];
+}
+
+export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai'] as const;
+export const HOTEL_CITY_LABELS: Record<string, string> = {
+  mekkah: 'Mekkah',
+  madinah: 'Madinah',
+  turki: 'Turki',
+  dubai: 'Dubai',
+};
+export const HOTEL_CITY_LANDMARKS: Record<string, string> = {
+  mekkah: 'Masjidil Haram',
+  madinah: 'Masjid Nabawi',
+};
+
+type View =
+  | { kind: 'kategori' }
+  | { kind: 'list'; city: string }
+  | { kind: 'detail'; slug: string; city: string };
+
+async function fetchHotelJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  let json: { success?: boolean; data?: T; error?: string } = {};
+  try {
+    json = await res.json();
+  } catch {
+    /* body bukan JSON — pakai pesan generik di bawah */
+  }
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || 'Gagal memuat direktori hotel');
+  }
+  return json.data as T;
+}
+
+export function StarRow({ stars, size = 13 }: { stars: number | null; size?: number }) {
+  if (!stars) return null;
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(i => (
+        <Star
+          key={i}
+          size={size}
+          className={i <= stars ? 'text-amber-400 fill-amber-400' : 'text-gray-200 dark:text-slate-700 fill-gray-200 dark:fill-slate-700'}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function HotelPage({ agent, onNavigate }: HotelPageProps) {
+  const [view, setView] = useState<View>({ kind: 'kategori' });
+  const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<HotelDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [mediaIndex, setMediaIndex] = useState(0);
+
+  const tracked = useRef(false);
+  useEffect(() => {
+    if (!tracked.current) {
+      trackEvent('feature', 'open_hotel_directory');
+      tracked.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchHotelJson<HotelListItem[]>('/api/hotels')
+      .then(data => { if (!cancelled) { setHotels(data); setLoadError(null); } })
+      .catch(err => { if (!cancelled) setLoadError(err.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (view.kind !== 'detail') return;
+    let cancelled = false;
+    setDetail(null);
+    setDetailError(null);
+    setMediaIndex(0);
+    fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(view.slug)}`)
+      .then(data => { if (!cancelled) setDetail(data); })
+      .catch(err => { if (!cancelled) setDetailError(err.message); });
+    trackEvent('action', 'hotel_view', { slug: view.slug });
+    return () => { cancelled = true; };
+  }, [view]);
+
+  const countsByCity = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const city of HOTEL_CITIES) counts[city] = 0;
+    for (const hotel of hotels || []) counts[hotel.city] = (counts[hotel.city] || 0) + 1;
+    return counts;
+  }, [hotels]);
+
+  const coverByCity = useMemo(() => {
+    const covers: Record<string, string | null> = {};
+    for (const hotel of hotels || []) {
+      if (!covers[hotel.city] && hotel.cover) covers[hotel.city] = hotel.cover;
+    }
+    return covers;
+  }, [hotels]);
+
+  const cityHotels = useMemo(() => {
+    if (view.kind !== 'list') return [];
+    const q = query.trim().toLowerCase();
+    return (hotels || [])
+      .filter(h => h.city === view.city)
+      .filter(h => !q || h.name.toLowerCase().includes(q));
+  }, [hotels, view, query]);
+
+  if (loadError) {
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+          {loadError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!hotels) {
+    return (
+      <div className="px-4 pt-4 pb-8 space-y-3">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="h-24 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  // ── View: Pilih Kategori ──
+  if (view.kind === 'kategori') {
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-gray-900 dark:text-white">Pilih kategori</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+              Lihat info hotel, jarak ke masjid, dan foto/video per kota.
+            </p>
+          </div>
+          {agent.role === 'admin' && (
+            <button
+              onClick={() => onNavigate('/dashboard/ai-tools/hotel/kelola')}
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-teal-50 dark:bg-teal-900/20 px-3 py-1.5 text-xs font-semibold text-teal-600 dark:text-teal-400 transition-colors hover:bg-teal-100 dark:hover:bg-teal-900/40 active:scale-95"
+            >
+              <Settings2 size={14} />
+              Kelola
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          {HOTEL_CITIES.map(city => (
+            <button
+              key={city}
+              onClick={() => { setQuery(''); setView({ kind: 'list', city }); }}
+              className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97]"
+            >
+              {coverByCity[city] ? (
+                <img src={coverByCity[city] || undefined} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
+                  <Building2 size={32} className="text-white/70" />
+                </div>
+              )}
+              <div className="absolute inset-x-0 bottom-0 bg-slate-900/60 px-3 py-2">
+                <p className="text-sm font-bold text-white">{HOTEL_CITY_LABELS[city]}</p>
+                <p className="text-[11px] text-white/80">{countsByCity[city]} hotel</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-start gap-2 mt-4 px-1">
+          <Info size={14} className="shrink-0 mt-0.5 text-gray-400 dark:text-slate-500" />
+          <p className="text-[11px] text-gray-400 dark:text-slate-500">
+            Data hotel dikurasi admin. Ada koreksi? Hubungi Nikita.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── View: Daftar Hotel per kategori ──
+  if (view.kind === 'list') {
+    const landmark = HOTEL_CITY_LANDMARKS[view.city];
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setView({ kind: 'kategori' })}
+            aria-label="Kembali ke kategori"
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <ChevronLeft size={16} strokeWidth={2.5} />
+          </button>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 dark:text-white">Hotel {HOTEL_CITY_LABELS[view.city]}</h2>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400">
+              {countsByCity[view.city]} hotel{landmark ? ` · jarak ke ${landmark}` : ''}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative mt-3">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Cari..."
+            className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
+          />
+        </div>
+
+        <div className="space-y-3 mt-3">
+          {cityHotels.length === 0 && (
+            <div className="py-10 text-center">
+              <Building2 size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
+                {query ? 'Tidak ada hotel yang cocok dengan pencarian.' : 'Belum ada hotel di kategori ini.'}
+              </p>
+            </div>
+          )}
+          {cityHotels.map(hotel => (
+            <button
+              key={hotel.id}
+              onClick={() => setView({ kind: 'detail', slug: hotel.slug, city: hotel.city })}
+              className="w-full flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.98]"
+            >
+              <div className="h-[84px] w-[84px] shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+                {hotel.cover ? (
+                  <img src={hotel.cover} alt={hotel.name} className="h-full w-full object-cover" loading="lazy" />
+                ) : (
+                  <ImageOff size={20} className="text-gray-300 dark:text-slate-500" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{hotel.name}</p>
+                <div className="mt-1"><StarRow stars={hotel.stars} /></div>
+                {hotel.distance_label ? (
+                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    <Footprints size={10} />
+                    {hotel.distance_label} dari {HOTEL_CITY_LANDMARKS[hotel.city]}
+                  </span>
+                ) : hotel.area ? (
+                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-gray-50 dark:bg-slate-700/60 px-2 py-0.5 text-[10px] font-semibold text-gray-500 dark:text-slate-300">
+                    <MapPin size={10} />
+                    {hotel.area}
+                  </span>
+                ) : null}
+                {hotel.photo_count + hotel.video_count > 0 ? (
+                  <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                    {hotel.photo_count} foto · {hotel.video_count} video
+                  </p>
+                ) : (
+                  <span className="mt-1 inline-flex rounded-full bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    Belum ada foto
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── View: Detail Hotel ──
+  const landmark = detail ? HOTEL_CITY_LANDMARKS[detail.city] : undefined;
+  const media = detail?.media || [];
+  const activeMedia = media[mediaIndex] || null;
+  const videos = media.filter(m => m.type === 'video');
+
   return (
     <div className="px-4 pt-4 pb-8">
-      <p className="text-sm text-gray-400 dark:text-slate-500">Memuat direktori hotel…</p>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setDetail(null); setView({ kind: 'list', city: view.city }); }}
+          aria-label="Kembali ke daftar hotel"
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+        >
+          <ChevronLeft size={16} strokeWidth={2.5} />
+        </button>
+        <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+          {detail ? detail.name : 'Detail Hotel'}
+        </h2>
+      </div>
+
+      {detailError && (
+        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+          {detailError}
+        </div>
+      )}
+
+      {!detail && !detailError && (
+        <div className="mt-3 space-y-3">
+          <div className="h-56 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+          <div className="h-24 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+        </div>
+      )}
+
+      {detail && (
+        <>
+          {/* Galeri */}
+          <div className="mt-3 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm bg-white dark:bg-slate-800">
+            <div className="relative h-56 bg-gray-100 dark:bg-slate-700">
+              {activeMedia ? (
+                activeMedia.type === 'video' ? (
+                  <PlyrVideo src={activeMedia.url} mode="fit" className="h-full w-full" ariaLabel={`Video ${detail.name}`} />
+                ) : (
+                  <img src={activeMedia.url} alt={detail.name} className="h-full w-full object-cover" />
+                )
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <ImageOff size={32} className="text-gray-300 dark:text-slate-500" />
+                </div>
+              )}
+              {media.length > 1 && (
+                <span className="absolute right-3 top-3 rounded-full bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-white">
+                  {mediaIndex + 1}/{media.length}
+                </span>
+              )}
+            </div>
+            {media.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto p-2.5">
+                {media.map((item, index) => (
+                  <button
+                    key={item.url}
+                    onClick={() => setMediaIndex(index)}
+                    aria-label={item.type === 'video' ? `Putar video ${index + 1}` : `Lihat foto ${index + 1}`}
+                    className={`relative h-12 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${
+                      index === mediaIndex ? 'border-teal-500' : 'border-transparent'
+                    }`}
+                  >
+                    {item.type === 'video' ? (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                        <Play size={14} className="text-white" />
+                      </div>
+                    ) : (
+                      <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Identitas */}
+          <div className="mt-4">
+            <span className="inline-flex items-center gap-1 rounded-full border border-teal-100 dark:border-teal-800/40 bg-teal-50 dark:bg-teal-900/20 px-2.5 py-0.5 text-[10px] font-semibold text-teal-600 dark:text-teal-400">
+              <Building2 size={10} />
+              {HOTEL_CITY_LABELS[detail.city]}
+            </span>
+            <h1 className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{detail.name}</h1>
+            {detail.stars ? (
+              <div className="mt-1 flex items-center gap-2">
+                <StarRow stars={detail.stars} />
+                <span className="text-xs text-gray-500 dark:text-slate-400">Hotel bintang {detail.stars}</span>
+              </div>
+            ) : null}
+          </div>
+
+          {detail.distance_label && landmark && (
+            <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2.5">
+              <Footprints size={18} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div>
+                <p className="text-[13px] font-bold text-emerald-700 dark:text-emerald-400">
+                  {detail.distance_label} dari {landmark}
+                </p>
+                {detail.walk_label && (
+                  <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">{detail.walk_label}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {detail.description && (
+            <div className="mt-5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Tentang Hotel</h3>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">{detail.description}</p>
+            </div>
+          )}
+
+          {detail.facilities.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Fasilitas</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {detail.facilities.map(facility => (
+                  <span key={facility} className="rounded-full bg-gray-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300">
+                    {facility}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(detail.address || detail.gmaps_url) && (
+            <div className="mt-5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Lokasi</h3>
+              {detail.address && (
+                <p className="mt-1.5 text-[13px] leading-relaxed text-gray-600 dark:text-slate-300">{detail.address}</p>
+              )}
+              {detail.gmaps_url && (
+                <button
+                  onClick={() => window.open(detail.gmaps_url || '', '_blank', 'noopener')}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 text-[13px] font-semibold text-gray-700 dark:text-slate-200 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-[0.98]"
+                >
+                  <MapPin size={15} />
+                  Buka di Google Maps
+                </button>
+              )}
+            </div>
+          )}
+
+          {detail.agent_note && (
+            <div className="mt-5 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-3">
+              <div className="flex items-center gap-1.5">
+                <Lock size={13} className="text-amber-700 dark:text-amber-400" />
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-400">Catatan Agent</span>
+                <span className="rounded-full bg-amber-200/70 dark:bg-amber-800/50 px-1.5 py-px text-[9px] font-semibold text-amber-800 dark:text-amber-300">
+                  internal
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-amber-900 dark:text-amber-200 whitespace-pre-line">{detail.agent_note}</p>
+            </div>
+          )}
+
+          {videos.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Video ({videos.length})</h3>
+              <div className="mt-2 space-y-3">
+                {videos.map(video => (
+                  <div key={video.url} className="overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 bg-slate-900">
+                    <PlyrVideo src={video.url} mode="fit" ariaLabel={`Video ${detail.name}`} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
