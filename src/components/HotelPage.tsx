@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2, Search, Star, Footprints, MapPin, Lock, SlidersHorizontal,
-  Play, ImageOff,
+  Play, ImageOff, Image as ImageIcon,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { parseHotelDistanceMeters, hotelAreaCity } from '../../lib/hotel-directory.js';
@@ -9,6 +9,8 @@ import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
 import HotelFilterSheet from './HotelFilterSheet';
+import SegmentedControl from './common/SegmentedControl';
+import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 
 export interface HotelListItem {
   id: string;
@@ -57,6 +59,8 @@ export const HOTEL_CITY_LANDMARKS: Record<string, string> = {
   mekkah: 'Masjidil Haram',
   madinah: 'Masjid Nabawi',
 };
+
+type MediaTab = 'foto' | 'video';
 
 type View =
   | { kind: 'kategori' }
@@ -196,6 +200,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const [sortByDistance, setSortByDistance] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
+  const [mediaTab, setMediaTab] = useState<MediaTab>('foto');
   const [banners, setBanners] = useState<Record<string, string | null>>({});
 
   const tracked = useRef(false);
@@ -238,6 +243,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     setDetail(null);
     setDetailError(null);
     setMediaIndex(0);
+    setMediaTab('foto');
     fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(detailSlug)}`)
       .then(data => { if (!cancelled) setDetail(data); })
       .catch(err => { if (!cancelled) setDetailError(err.message); });
@@ -484,10 +490,21 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const activeMedia = media[mediaIndex] || null;
   const videos = media.filter(m => m.type === 'video');
   const mediaPath = `/dashboard/ai-tools/hotel/${view.city}/${encodeURIComponent(view.slug)}/media`;
-  const openMedia = (index: number) => { setMediaIndex(index); onNavigate(mediaPath); };
+  // Tab dibuka mengikuti jenis media yang diklik — masuk lewat video lalu
+  // mendarat di tab Foto (yang tak memuatnya) akan terasa seperti salah klik.
+  const openMedia = (index: number) => {
+    setMediaIndex(index);
+    setMediaTab(media[index]?.type === 'video' ? 'video' : 'foto');
+    onNavigate(mediaPath);
+  };
 
   // ── View: Semua Media ──
   if (view.kind === 'media') {
+    // Indeks GLOBAL tetap dipertahankan (viewer memakai media[mediaIndex]);
+    // tab hanya menyaring grid, jadi tidak ada indeks kedua yang bisa geser.
+    const entries = media.map((item, index) => ({ item, index }));
+    const tabEntries = entries.filter(e => (mediaTab === 'video' ? e.item.type === 'video' : e.item.type === 'image'));
+    const photoCount = media.length - videos.length;
     return (
       <HotelViewShell viewKey={viewKey}>
         {detailError && (
@@ -518,27 +535,67 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
             </div>
 
             {media.length > 0 && (
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {media.map((item, index) => (
-                  <button
-                    key={item.url}
-                    onClick={() => setMediaIndex(index)}
-                    aria-label={item.type === 'video' ? `Putar video ${index + 1}` : `Lihat foto ${index + 1}`}
-                    aria-current={index === mediaIndex}
-                    className={`relative aspect-square overflow-hidden rounded-xl border-2 transition-all active:scale-[0.97] ${
-                      index === mediaIndex ? 'border-teal-500' : 'border-transparent'
-                    }`}
-                  >
-                    {item.type === 'video' ? (
-                      <div className="flex h-full w-full items-center justify-center bg-slate-800">
-                        <Play size={18} className="text-white" />
-                      </div>
-                    ) : (
-                      <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    )}
-                  </button>
-                ))}
-              </div>
+              <>
+                {/* SegmentedControl dalam sub-bar sticky = pola baku halaman
+                    anak (SettingsPage/StatistikPage, lihat Kelola Hotel).
+                    Sub-bar TIDAK di puncak halaman karena viewer di atasnya
+                    ikut menggulung; ia menempel begitu tersentuh header. */}
+                <div
+                  aria-label="Jenis media"
+                  style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+                  className="sticky z-20 -mx-4 mt-3 border-y border-gray-100 bg-white/90 px-4 py-2 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
+                >
+                  <SegmentedControl
+                    options={[
+                      { value: 'foto', label: `Foto · ${photoCount}`, icon: ImageIcon },
+                      { value: 'video', label: `Video · ${videos.length}`, icon: Play },
+                    ]}
+                    value={mediaTab}
+                    onChange={value => {
+                      const tab = value as MediaTab;
+                      setMediaTab(tab);
+                      // Viewer mengikuti tab: kalau isinya bukan jenis tab itu,
+                      // lompat ke item pertama jenis tersebut (bila ada).
+                      const wantVideo = tab === 'video';
+                      if (activeMedia && (activeMedia.type === 'video') === wantVideo) return;
+                      const first = media.findIndex(m => (m.type === 'video') === wantVideo);
+                      if (first >= 0) setMediaIndex(first);
+                    }}
+                    accent="emerald"
+                  />
+                </div>
+
+                {tabEntries.length > 0 ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {tabEntries.map(({ item, index }) => (
+                      <button
+                        key={item.url}
+                        onClick={() => setMediaIndex(index)}
+                        aria-label={item.type === 'video' ? `Putar video ${index + 1}` : `Lihat foto ${index + 1}`}
+                        aria-current={index === mediaIndex}
+                        className={`relative aspect-square overflow-hidden rounded-xl border-2 transition-all active:scale-[0.97] ${
+                          index === mediaIndex ? 'border-teal-500' : 'border-transparent'
+                        }`}
+                      >
+                        {item.type === 'video' ? (
+                          <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                            <Play size={18} className="text-white" />
+                          </div>
+                        ) : (
+                          <img src={item.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center">
+                    <ImageOff size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
+                    <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">
+                      {mediaTab === 'video' ? 'Hotel ini belum punya video.' : 'Hotel ini belum punya foto.'}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
 
             {media.length === 0 && (
