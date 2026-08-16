@@ -82,7 +82,7 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
-import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem } from './lib/hotel-directory.js';
+import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem, normalizeHotelMediaInput, HOTEL_CITIES } from './lib/hotel-directory.js';
 import {
   unrecordedMentionRows,
   COMMUNITY_MENTION_LIMIT,
@@ -7372,6 +7372,75 @@ app.get('/api/hotels', dbLoadShedGuard, authMiddleware, async (req, res) => {
   }
 });
 
+// ── Banner kartu kategori ──
+// Rute statis /banners WAJIB terdaftar sebelum /:slug agar tidak tertangkap
+// sebagai slug hotel (POST create juga memesan slug 'banners').
+
+function hotelBannerTableMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return ['42P01', 'PGRST205', 'PGRST200'].includes(code)
+    && (/hotel_city_banners/i.test(message) || code === '42P01');
+}
+
+const HOTEL_BANNER_MIGRATION_ERROR = 'Migrasi banner kategori hotel belum diterapkan';
+
+app.get('/api/hotels/banners', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    const banners = Object.fromEntries(HOTEL_CITIES.map((city) => [city, null]));
+    const { data, error } = await supabase.from('hotel_city_banners').select('city, image_url');
+    if (error && !hotelBannerTableMissing(error)) throw error;
+    // Pra-migrasi: semua null — kartu kategori jatuh ke cover hotel, bukan galat.
+    for (const row of data || []) {
+      if (banners[row.city] !== undefined) banners[row.city] = row.image_url;
+    }
+    res.json({ success: true, data: banners });
+  } catch (err) {
+    console.error('[hotel] banners error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal memuat banner kategori' });
+  }
+});
+
+app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+    const city = String(req.params.city || '').trim().toLowerCase();
+    if (!HOTEL_CITIES.includes(city)) {
+      return res.status(400).json({ error: 'Kategori tidak dikenal' });
+    }
+    const rawUrl = req.body?.image_url;
+    if (rawUrl === null || rawUrl === undefined || rawUrl === '') {
+      const { error } = await supabase.from('hotel_city_banners').delete().eq('city', city);
+      if (error) {
+        if (hotelBannerTableMissing(error)) return res.status(503).json({ error: HOTEL_BANNER_MIGRATION_ERROR });
+        throw error;
+      }
+      return res.json({ success: true, data: { city, image_url: null } });
+    }
+    const normalized = normalizeHotelMediaInput(
+      [{ type: 'image', url: rawUrl }],
+      hotelMediaPublicPrefixes()
+    );
+    if (!normalized || normalized.length !== 1) {
+      return res.status(400).json({ error: 'URL banner tidak valid' });
+    }
+    const { error } = await supabase.from('hotel_city_banners').upsert(
+      { city, image_url: normalized[0].url, updated_by: agent.id, updated_at: new Date().toISOString() },
+      { onConflict: 'city' }
+    );
+    if (error) {
+      if (hotelBannerTableMissing(error)) return res.status(503).json({ error: HOTEL_BANNER_MIGRATION_ERROR });
+      throw error;
+    }
+    res.json({ success: true, data: { city, image_url: normalized[0].url } });
+  } catch (err) {
+    console.error('[hotel] banner update error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menyimpan banner kategori' });
+  }
+});
+
 app.get('/api/hotels/:slug', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
     if (!(await requireHotelAgent(req, res))) return;
@@ -7404,7 +7473,8 @@ app.post('/api/hotels', dbLoadShedGuard, authMiddleware, adminOnly, async (req, 
       if (hotelTableMissing(slugError)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
       throw slugError;
     }
-    const slug = slugifyHotelName(result.data.name, (slugRows || []).map((r) => r.slug));
+    // 'banners' dipesan rute GET/PUT /api/hotels/banners — jangan sampai jadi slug hotel.
+    const slug = slugifyHotelName(result.data.name, [...(slugRows || []).map((r) => r.slug), 'banners']);
 
     const { data, error } = await supabase
       .from('hotels')

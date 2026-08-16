@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2, ChevronLeft, Search, Star, Footprints, MapPin, Lock, Info,
+  Building2, ChevronLeft, Search, Star, Footprints, MapPin, Lock,
   Play, ImageOff,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -97,6 +97,7 @@ export default function HotelPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [mediaIndex, setMediaIndex] = useState(0);
+  const [banners, setBanners] = useState<Record<string, string | null>>({});
 
   const tracked = useRef(false);
   useEffect(() => {
@@ -111,6 +112,10 @@ export default function HotelPage() {
     fetchHotelJson<HotelListItem[]>('/api/hotels')
       .then(data => { if (!cancelled) { setHotels(data); setLoadError(null); } })
       .catch(err => { if (!cancelled) setLoadError(err.message); });
+    // Banner opsional — gagal memuat = kartu kategori jatuh ke cover hotel.
+    fetchHotelJson<Record<string, string | null>>('/api/hotels/banners')
+      .then(data => { if (!cancelled) setBanners(data); })
+      .catch(() => { /* fallback cover */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -182,32 +187,28 @@ export default function HotelPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 mt-4">
-          {HOTEL_CITIES.map(city => (
-            <button
-              key={city}
-              onClick={() => { setQuery(''); setView({ kind: 'list', city }); }}
-              className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97]"
-            >
-              {coverByCity[city] ? (
-                <img src={coverByCity[city] || undefined} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
-                  <Building2 size={32} className="text-white/70" />
+          {HOTEL_CITIES.map(city => {
+            const bannerSrc = banners[city] || coverByCity[city];
+            return (
+              <button
+                key={city}
+                onClick={() => { setQuery(''); setView({ kind: 'list', city }); }}
+                className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97]"
+              >
+                {bannerSrc ? (
+                  <img src={bannerSrc} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
+                    <Building2 size={32} className="text-white/70" />
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 bg-slate-900/60 px-3 py-2">
+                  <p className="text-sm font-bold text-white">{HOTEL_CITY_LABELS[city]}</p>
+                  <p className="text-[11px] text-white/80">{countsByCity[city]} hotel</p>
                 </div>
-              )}
-              <div className="absolute inset-x-0 bottom-0 bg-slate-900/60 px-3 py-2">
-                <p className="text-sm font-bold text-white">{HOTEL_CITY_LABELS[city]}</p>
-                <p className="text-[11px] text-white/80">{countsByCity[city]} hotel</p>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-start gap-2 mt-4 px-1">
-          <Info size={14} className="shrink-0 mt-0.5 text-gray-400 dark:text-slate-500" />
-          <p className="text-[11px] text-gray-400 dark:text-slate-500">
-            Data hotel dikurasi admin. Ada koreksi? Hubungi Nikita.
-          </p>
+              </button>
+            );
+          })}
         </div>
       </div>
     );

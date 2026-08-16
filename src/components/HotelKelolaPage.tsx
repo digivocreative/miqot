@@ -137,6 +137,12 @@ export default function HotelKelolaPage() {
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Banner kartu kategori di Direktori Hotel (agent-facing)
+  const [banners, setBanners] = useState<Record<string, string | null>>({});
+  const [bannerBusy, setBannerBusy] = useState<string | null>(null);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const bannerCityRef = useRef<string | null>(null);
 
   const refetch = () => {
     fetch('/api/hotels', { headers: getAuthHeaders() })
@@ -150,6 +156,70 @@ export default function HotelKelolaPage() {
   };
 
   useEffect(() => { refetch(); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/hotels/banners', { headers: getAuthHeaders() })
+      .then(async res => {
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat banner');
+        if (!cancelled) setBanners(json.data);
+      })
+      .catch(err => { if (!cancelled) setBannerError(err instanceof Error ? err.message : 'Gagal memuat banner'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveBanner = async (city: string, imageUrl: string | null) => {
+    const res = await fetch(`/api/hotels/banners/${encodeURIComponent(city)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ image_url: imageUrl }),
+    });
+    let json: { success?: boolean; error?: string } = {};
+    try { json = await res.json(); } catch { /* pesan generik di bawah */ }
+    if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan banner');
+    setBanners(prev => ({ ...prev, [city]: imageUrl }));
+  };
+
+  const pickBanner = (city: string) => {
+    bannerCityRef.current = city;
+    bannerInputRef.current?.click();
+  };
+
+  const handleBannerFile = async (files: FileList | null) => {
+    const city = bannerCityRef.current;
+    bannerCityRef.current = null;
+    const file = files?.[0];
+    if (!city || !file) return;
+    setBannerError(null);
+    if (!file.type.startsWith('image/')) {
+      setBannerError('Banner harus berupa foto.');
+      return;
+    }
+    setBannerBusy(city);
+    try {
+      const blob = await resizeHotelPhoto(file);
+      if (blob.size > MAX_IMAGE_BYTES) throw new Error('Foto banner terlalu besar (maks 3MB).');
+      const url = await uploadHotelMedia(blob);
+      await saveBanner(city, url);
+    } catch (err) {
+      setBannerError(err instanceof Error ? err.message : 'Gagal menyimpan banner');
+    } finally {
+      setBannerBusy(null);
+    }
+  };
+
+  const removeBanner = async (city: string) => {
+    setBannerError(null);
+    setBannerBusy(city);
+    try {
+      await saveBanner(city, null);
+    } catch (err) {
+      setBannerError(err instanceof Error ? err.message : 'Gagal menghapus banner');
+    } finally {
+      setBannerBusy(null);
+    }
+  };
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -624,7 +694,66 @@ export default function HotelKelolaPage() {
         </button>
       </div>
 
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+      {/* ── Banner kartu kategori (tampil di Direktori Hotel agent) ── */}
+      <div className="mt-4">
+        <p className={LABEL_CLASS}>Banner Kategori</p>
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+          Gambar kartu kategori di Direktori Hotel. Tanpa banner, kartu memakai cover hotel pertama kota itu.
+        </p>
+        {bannerError && (
+          <div className="mt-2 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-[11px] text-red-600 dark:text-red-400 font-medium">
+            {bannerError}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2.5 mt-2">
+          {HOTEL_CITIES.map(city => {
+            const src = banners[city];
+            const busy = bannerBusy === city;
+            return (
+              <div key={city} className="relative h-24 overflow-hidden rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm">
+                {src ? (
+                  <img src={src} alt={`Banner ${HOTEL_CITY_LABELS[city]}`} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
+                    <ImagePlus size={20} className="text-white/70" />
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-slate-900/60 px-2.5 py-1.5">
+                  <span className="text-xs font-bold text-white">{HOTEL_CITY_LABELS[city]}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => pickBanner(city)}
+                      disabled={busy}
+                      aria-label={`Ganti banner ${HOTEL_CITY_LABELS[city]}`}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white transition-colors hover:bg-white/30 active:scale-95 disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+                    </button>
+                    {src && !busy && (
+                      <button
+                        onClick={() => removeBanner(city)}
+                        aria-label={`Hapus banner ${HOTEL_CITY_LABELS[city]}`}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white transition-colors hover:bg-red-500/70 active:scale-95"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <input
+          ref={bannerInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={e => { handleBannerFile(e.target.files); e.currentTarget.value = ''; }}
+        />
+      </div>
+
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
         {['semua', ...HOTEL_CITIES].map(city => {
           const active = cityFilter === city;
           return (
