@@ -2277,78 +2277,24 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
-  test('sheet lampiran: Bagikan memanggil share sistem, TIDAK menyalin diam-diam', { timeout: 30_000 }, async () => {
-    const fullBody = 'Isi penuh lampiran untuk dibagikan.';
+  test('sheet lampiran: tombol Bagikan sudah dihapus, hanya Salin teks', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({
-        id: 'post-share',
+        id: 'post-tanpa-bagikan',
         body: 'Punya lampiran',
         snippet: { title: 'Panduan Manasik Ringkas', preview: 'Cuplikan.', char_count: 1240 },
       })],
-      snippetBodies: { 'post-share': { title: 'Panduan Manasik Ringkas', body: fullBody, char_count: 1240 } },
+      snippetBodies: { 'post-tanpa-bagikan': { title: 'Panduan Manasik Ringkas', body: 'Isi penuh.', char_count: 1240 } },
     });
     const app = await openApp({
       api,
-      // Dukungan Web Share dibaca saat SnippetSheet mount, jadi stub-nya wajib
-      // mendarat sebelum skrip aplikasi jalan.
+      // Browser yang PUNYA Web Share pun tidak boleh melihat tombol Bagikan:
+      // fitur ini DIHAPUS atas permintaan user 2026-08-16 (dulunya share sheet
+      // sistem ber-gerbang canNativeShare), bukan sekadar tersembunyi karena
+      // dukungan browser. Stub share memastikan absennya tombol bukan efek
+      // samping lingkungan uji tanpa navigator.share.
       initScript: () => {
-        window.__shared = [];
-        window.__copied = [];
-        window.__shareGagal = false;
-        navigator.share = data => {
-          window.__shared.push(data);
-          return window.__shareGagal
-            ? Promise.reject(new Error('share ditolak'))
-            : Promise.resolve();
-        };
-        Object.defineProperty(navigator, 'clipboard', {
-          configurable: true,
-          value: { writeText: text => { window.__copied.push(text); return Promise.resolve(); } },
-        });
-      },
-    });
-    try {
-      await app.page.locator('[data-teras-snippet-card]').first().click();
-      const sheet = app.page.locator('[data-teras-snippet-sheet]');
-      await sheet.waitFor();
-      await sheet.locator('[data-teras-snippet-body][data-complete="true"]').waitFor({ timeout: 10_000 });
-
-      await sheet.getByRole('button', { name: 'Bagikan', exact: true }).click();
-      assert.deepEqual(
-        await app.page.evaluate(() => window.__shared),
-        [{ text: fullBody }],
-        'Bagikan harus mengoper body PENUH ke share sheet sistem — tanpa judul/URL',
-      );
-
-      // Inti perubahan ini ada di jalur GAGAL. Share yang sukses memang tidak
-      // pernah menyalin, bahkan pada perilaku lama — yang dulu diam-diam
-      // jatuh ke clipboard justru share yang gagal/tak didukung.
-      await app.page.evaluate(() => { window.__shareGagal = true; });
-      await sheet.getByRole('button', { name: 'Bagikan', exact: true }).click();
-      await app.page.getByText('Gagal membagikan teks', { exact: true }).waitFor({ timeout: 5_000 });
-
-      assert.deepEqual(await app.page.evaluate(() => window.__copied), [],
-        'Bagikan yang gagal tidak boleh diam-diam menyalin ke clipboard');
-      assert.equal(await sheet.getByText('Tersalin', { exact: true }).count(), 0,
-        'Bagikan yang gagal tidak boleh membuat tombol Salin mengaku berhasil');
-    } finally {
-      await app.close();
-    }
-  });
-
-  test('sheet lampiran: tanpa Web Share, tombol Bagikan tidak dirender', { timeout: 30_000 }, async () => {
-    const api = createCommunityApi({
-      posts: [makePost({
-        id: 'post-tanpa-share',
-        body: 'Punya lampiran',
-        snippet: { title: 'Panduan Manasik Ringkas', preview: 'Cuplikan.', char_count: 1240 },
-      })],
-      snippetBodies: { 'post-tanpa-share': { title: 'Panduan Manasik Ringkas', body: 'Isi penuh.', char_count: 1240 } },
-    });
-    const app = await openApp({
-      api,
-      initScript: () => {
-        Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+        navigator.share = () => Promise.resolve();
       },
     });
     try {
@@ -2358,7 +2304,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await sheet.getByRole('button', { name: 'Salin teks', exact: true }).waitFor();
 
       assert.equal(await sheet.getByRole('button', { name: 'Bagikan', exact: true }).count(), 0,
-        'tombol Bagikan yang tidak bisa berfungsi tidak boleh dirender');
+        'tombol Bagikan sheet lampiran sudah dihapus dan tidak boleh kembali');
     } finally {
       await app.close();
     }

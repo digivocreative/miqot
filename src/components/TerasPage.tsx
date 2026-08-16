@@ -2161,25 +2161,6 @@ export default function TerasPage({
     }
   }, [showToast]);
 
-  /**
-   * Bagikan = share sheet bawaan sistem SAJA. Tidak ada lagi jalan mundur ke
-   * "salin ke clipboard": tombol yang mengaku membagikan tapi diam-diam
-   * menyalin itu menyesatkan, dan tombol Salin sudah berdiri di sebelahnya.
-   * SnippetSheet menyembunyikan tombolnya kalau Web Share tak didukung, jadi
-   * fungsi ini hanya terpanggil di lingkungan yang punya navigator.share.
-   *
-   * HANYA `text` — judul/URL sengaja tidak dikirim; lampiran bukan tautan.
-   */
-  const shareSnippetText = useCallback(async (text: string) => {
-    try {
-      await navigator.share({ text });
-    } catch (shareError) {
-      // Dibatalkan pengguna bukan kegagalan — jangan ributkan.
-      if (shareError instanceof Error && shareError.name === 'AbortError') return;
-      showToast('Gagal membagikan teks', 'error');
-    }
-  }, [showToast]);
-
   const copyShareLink = useCallback(async () => {
     if (!shareUrl) return;
     try {
@@ -6949,7 +6930,6 @@ export default function TerasPage({
         // Body belum tiba -> false, bukan lempar: tombolnya memang sudah
         // disabled, dan sheet cuma perlu tahu "tidak jadi tersalin".
         onCopy={() => (snippetBody ? copySnippetText(snippetBody) : Promise.resolve(false))}
-        onShare={() => { if (snippetBody) void shareSnippetText(snippetBody); }}
       />
       {shareSheet}
       {mediaViewerSheet}

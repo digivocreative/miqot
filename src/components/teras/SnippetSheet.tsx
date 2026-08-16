@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Check, ChevronLeft, Copy, Loader2, Share2 } from 'lucide-react';
+import { Check, ChevronLeft, Copy, Loader2 } from 'lucide-react';
 
 import { AgentAvatar } from './AgentAvatar';
 import { timeAgo } from '../../lib/communityNotifications';
@@ -17,7 +17,7 @@ import { timeAgo } from '../../lib/communityNotifications';
  * spinner di layar kosong, dan pembaca bisa mulai membaca kalimat pertama
  * sebelum sisanya tiba.
  *
- * Semua I/O (fetch, clipboard, share, toast, analytics) dioper induk lewat
+ * Semua I/O (fetch, clipboard, toast, analytics) dioper induk lewat
  * props: komponen ini hanya tahu cara merender dan kapan memanggil.
  */
 
@@ -46,7 +46,6 @@ interface SnippetSheetProps {
    * centang: agent menutup sheet, menempel di WhatsApp, dan dapat teks lama.
    */
   onCopy: () => Promise<boolean>;
-  onShare: () => void;
 }
 
 /**
@@ -77,7 +76,6 @@ export default function SnippetSheet({
   onRetry,
   onClose,
   onCopy,
-  onShare,
 }: SnippetSheetProps) {
   const reduceMotion = useReducedMotion();
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -86,11 +84,6 @@ export default function SnippetSheet({
   const [copied, setCopied] = useState(false);
   const [copyPulse, setCopyPulse] = useState(0);
   const copiedTimerRef = useRef<number | null>(null);
-  // Dukungan Web Share tidak berubah selama halaman hidup — dibaca sekali
-  // lewat inisialisasi state, bukan tiap render.
-  const [canNativeShare] = useState(() => (
-    typeof navigator !== 'undefined' && typeof navigator.share === 'function'
-  ));
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
@@ -346,11 +339,7 @@ export default function SnippetSheet({
                 type="button"
                 onClick={() => void handleCopy()}
                 disabled={!body}
-                // Lebar tombol dikunci oleh flex-[2], jadi pergantian
-                // "Salin teks" -> "Tersalin" tidak menggeser tombol Bagikan
-                // di sebelahnya — label yang memendek tidak boleh membuat
-                // baris aksi bergoyang.
-                className={`flex min-h-11 flex-[2] items-center justify-center overflow-hidden rounded-full px-4 text-[13px] font-extrabold text-white shadow-md transition-colors active:scale-[0.98] disabled:opacity-45 ${
+                className={`flex min-h-11 flex-1 items-center justify-center overflow-hidden rounded-full px-4 text-[13px] font-extrabold text-white shadow-md transition-colors active:scale-[0.98] disabled:opacity-45 ${
                   copied
                     ? 'bg-emerald-600 shadow-emerald-600/20 dark:shadow-emerald-950/40'
                     : 'bg-emerald-500 shadow-emerald-500/20 dark:shadow-emerald-950/40'
@@ -383,23 +372,6 @@ export default function SnippetSheet({
                   </motion.span>
                 </AnimatePresence>
               </button>
-              {/* Bagikan = share sheet bawaan sistem, TITIK. Tanpa dukungan
-                  Web Share tombol ini tidak dirender sama sekali: dulu ia
-                  diam-diam jatuh ke "salin ke clipboard", dan tombol yang
-                  mengaku membagikan tapi sebenarnya menyalin lebih buruk
-                  daripada tombol yang tidak ada — apalagi tombol Salin sudah
-                  berdiri persis di sebelahnya. */}
-              {canNativeShare && (
-                <button
-                  type="button"
-                  onClick={onShare}
-                  disabled={!body}
-                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-4 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-45 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  <Share2 size={15} />
-                  Bagikan
-                </button>
-              )}
             </div>
           </footer>
         </motion.div>
