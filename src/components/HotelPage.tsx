@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2, ChevronLeft, Search, Star, Footprints, MapPin, Lock,
+  Building2, Search, Star, Footprints, MapPin, Lock,
   Play, ImageOff,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
@@ -60,6 +60,20 @@ type View =
   | { kind: 'list'; city: string }
   | { kind: 'detail'; slug: string; city: string };
 
+// View diturunkan dari URL (/dashboard/ai-tools/hotel[/:city[/:slug]]) supaya
+// tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
+// tanpa baris back kedua di dalam halaman (keluhan "navigasi double").
+function readHotelView(): View {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  const city = decodeURIComponent(segments[3] || '');
+  if (HOTEL_CITIES.includes(city)) {
+    const slug = decodeURIComponent(segments[4] || '');
+    if (slug) return { kind: 'detail', city, slug };
+    return { kind: 'list', city };
+  }
+  return { kind: 'kategori' };
+}
+
 async function fetchHotelJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: getAuthHeaders() });
   let json: { success?: boolean; data?: T; error?: string } = {};
@@ -89,8 +103,9 @@ export function StarRow({ stars, size = 13 }: { stars: number | null; size?: num
   );
 }
 
-export default function HotelPage() {
-  const [view, setView] = useState<View>({ kind: 'kategori' });
+export default function HotelPage({ onNavigate }: { onNavigate: (path: string) => void }) {
+  // Re-render tiap navigasi datang dari pathTick DashboardLayout.
+  const view = readHotelView();
   const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detail, setDetail] = useState<HotelDetail | null>(null);
@@ -119,18 +134,24 @@ export default function HotelPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Kunci primitif, bukan objek view — readHotelView membuat objek baru tiap render.
+  const detailSlug = view.kind === 'detail' ? view.slug : null;
+  const listCity = view.kind === 'list' ? view.city : null;
+
+  // Ganti kota (termasuk via back/forward browser) = mulai pencarian dari kosong.
+  useEffect(() => { setQuery(''); }, [listCity]);
   useEffect(() => {
-    if (view.kind !== 'detail') return;
+    if (!detailSlug) return;
     let cancelled = false;
     setDetail(null);
     setDetailError(null);
     setMediaIndex(0);
-    fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(view.slug)}`)
+    fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(detailSlug)}`)
       .then(data => { if (!cancelled) setDetail(data); })
       .catch(err => { if (!cancelled) setDetailError(err.message); });
-    trackEvent('action', 'hotel_view', { slug: view.slug });
+    trackEvent('action', 'hotel_view', { slug: detailSlug });
     return () => { cancelled = true; };
-  }, [view]);
+  }, [detailSlug]);
 
   const countsByCity = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -192,7 +213,7 @@ export default function HotelPage() {
             return (
               <button
                 key={city}
-                onClick={() => { setQuery(''); setView({ kind: 'list', city }); }}
+                onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${city}`)}
                 className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97]"
               >
                 {bannerSrc ? (
@@ -215,27 +236,11 @@ export default function HotelPage() {
   }
 
   // ── View: Daftar Hotel per kategori ──
+  // Judul & tombol back kota ada di header DashboardLayout ("Hotel Madinah").
   if (view.kind === 'list') {
-    const landmark = HOTEL_CITY_LANDMARKS[view.city];
     return (
       <div className="px-4 pt-4 pb-8">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setView({ kind: 'kategori' })}
-            aria-label="Kembali ke kategori"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            <ChevronLeft size={16} strokeWidth={2.5} />
-          </button>
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 dark:text-white">Hotel {HOTEL_CITY_LABELS[view.city]}</h2>
-            <p className="text-[11px] text-gray-500 dark:text-slate-400">
-              {countsByCity[view.city]} hotel{landmark ? ` · jarak ke ${landmark}` : ''}
-            </p>
-          </div>
-        </div>
-
-        <div className="relative mt-3">
+        <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={query}
@@ -257,7 +262,7 @@ export default function HotelPage() {
           {cityHotels.map(hotel => (
             <button
               key={hotel.id}
-              onClick={() => setView({ kind: 'detail', slug: hotel.slug, city: hotel.city })}
+              onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${hotel.city}/${encodeURIComponent(hotel.slug)}`)}
               className="w-full flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.98]"
             >
               <div className="h-[84px] w-[84px] shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
@@ -304,21 +309,9 @@ export default function HotelPage() {
   const activeMedia = media[mediaIndex] || null;
   const videos = media.filter(m => m.type === 'video');
 
+  // Tombol back detail → daftar ada di header DashboardLayout.
   return (
     <div className="px-4 pt-4 pb-8">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => { setDetail(null); setView({ kind: 'list', city: view.city }); }}
-          aria-label="Kembali ke daftar hotel"
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
-        >
-          <ChevronLeft size={16} strokeWidth={2.5} />
-        </button>
-        <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate">
-          {detail ? detail.name : 'Detail Hotel'}
-        </h2>
-      </div>
-
       {detailError && (
         <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {detailError}

@@ -223,6 +223,30 @@ function getAIToolsSubFromPath(): string | null {
   return null;
 }
 
+// Sub-path Direktori Hotel: /dashboard/ai-tools/hotel[/:city[/:slug]].
+// Label kota digandakan di sini (4 entri) agar chunk HotelPage tetap lazy.
+const HOTEL_HEADER_CITY_LABELS: Record<string, string> = {
+  mekkah: 'Mekkah', madinah: 'Madinah', turki: 'Turki', dubai: 'Dubai',
+};
+
+function getHotelPathInfo(): { city: string | null; slug: string | null } {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  if (segments[0] === 'dashboard' && segments[1] === 'ai-tools' && segments[2] === 'hotel') {
+    const city = decodeURIComponent(segments[3] || '');
+    if (HOTEL_HEADER_CITY_LABELS[city]) {
+      return { city, slug: decodeURIComponent(segments[4] || '') || null };
+    }
+  }
+  return { city: null, slug: null };
+}
+
+function hotelHeaderLabel(): string {
+  const { city, slug } = getHotelPathInfo();
+  if (slug) return 'Detail Hotel';
+  if (city) return `Hotel ${HOTEL_HEADER_CITY_LABELS[city]}`;
+  return 'Direktori Hotel';
+}
+
 const TAB_TITLES: Record<TabId, string> = {
   home: 'Dashboard',
   settings: 'Settings',
@@ -240,7 +264,7 @@ function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
-  if (sub === 'hotel') return 'Direktori Hotel';
+  if (sub === 'hotel') return hotelHeaderLabel();
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
@@ -570,7 +594,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
       ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
       : (activeTab === 'ai-tools' && aiSub === 'hotel')
-      ? 'Direktori Hotel'
+      ? hotelHeaderLabel()
       : (activeTab === 'ai-tools' && aiSub === 'kurs')
       ? 'Kurs Hari Ini'
       : (activeTab === 'ai-tools' && aiSub === 'compare')
@@ -709,6 +733,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
+                  // Direktori Hotel: mundur bertahap detail → daftar kota → kategori → Tools
+                  if (aiSub === 'hotel') {
+                    const hotelPath = getHotelPathInfo();
+                    if (hotelPath.slug && hotelPath.city) {
+                      navigatePath(`/dashboard/ai-tools/hotel/${hotelPath.city}`);
+                      return;
+                    }
+                    if (hotelPath.city) {
+                      navigatePath('/dashboard/ai-tools/hotel');
+                      return;
+                    }
+                  }
                   // Export/Simulasi page → go back to haji-plus
                   if (aiSub === 'haji-plus/export') {
                     window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
@@ -802,7 +838,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                       <div className={`w-8 h-8 rounded-lg ${sub.bg} ${sub.bgDark} flex items-center justify-center border ${sub.border} ${sub.borderDark}`}>
                         <SubIcon size={16} className={sub.color} />
                       </div>
-                      <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">{sub.label}</h1>
+                      <h1 className="text-sm font-bold text-gray-800 dark:text-white truncate">
+                        {aiSub === 'hotel' ? hotelHeaderLabel() : sub.label}
+                      </h1>
                     </>
                   );
                 }
@@ -1058,7 +1096,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             // Di luar gate → jatuh ke daftar Tools. Panel kelola pindah ke tab
             // top-level 'hotels' (kartu admin dashboard), bukan lagi di sini.
             if (sub === 'hotel' && hotelEnabled) {
-              return <HotelPage />;
+              return <HotelPage onNavigate={navigatePath} />;
             }
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;
