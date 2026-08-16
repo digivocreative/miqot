@@ -609,6 +609,11 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      // Tanpa entri ini /api/hotels jatuh ke catch-all '/api' → jadwal.alhijaz.co (404 HTML).
+      '/api/hotels': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
 
       '/agents': {
         target: 'http://localhost:3000',
