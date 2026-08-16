@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2, Search, Star, Footprints, MapPin, Lock, SlidersHorizontal,
-  Play, ImageOff, Image as ImageIcon,
+  Play, ImageOff, Image as ImageIcon, ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { parseHotelDistanceMeters, hotelAreaCity } from '../../lib/hotel-directory.js';
@@ -139,6 +139,84 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
     >
       {children}
     </motion.div>
+  );
+}
+
+// Deskripsi panjang dipangkas ke 4 baris dengan pudar di tepi bawah, lalu
+// dibuka penuh lewat "Lihat selengkapnya". Tinggi terpangkas DIUKUR dari
+// line-height elemennya sendiri, bukan angka px hafalan — ukuran font/leading
+// boleh berubah tanpa memecahkan potongannya.
+const DESCRIPTION_CLAMP_LINES = 4;
+
+function HotelDescription({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [collapsedHeight, setCollapsedHeight] = useState<number | null>(null);
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    const measure = () => {
+      const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 21;
+      const clamped = lineHeight * DESCRIPTION_CLAMP_LINES;
+      setCollapsedHeight(clamped);
+      // Toleransi 2px untuk pembulatan sub-piksel: teks 4 baris pas jangan
+      // sampai dianggap kepanjangan dan memunculkan tombol yang tak berguna.
+      setOverflows(el.scrollHeight > clamped + 2);
+    };
+    measure();
+    // Lebar berubah (rotasi/resize) = jumlah baris berubah.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const showFull = open || !overflows || collapsedHeight === null;
+
+  return (
+    <>
+      <motion.div
+        className="relative overflow-hidden"
+        animate={{ height: showFull ? 'auto' : collapsedHeight }}
+        initial={false}
+        transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <p ref={textRef} className="mt-1.5 text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">
+          {text}
+        </p>
+        {/* Pudar hanya saat terpotong — penanda "masih ada lanjutannya". */}
+        <AnimatePresence>
+          {!showFull && (
+            <motion.div
+              key="fade"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-white dark:to-slate-900"
+            />
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setOpen(prev => !prev)}
+          aria-expanded={open}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-teal-700 transition-colors hover:text-teal-800 dark:text-teal-300 dark:hover:text-teal-200"
+        >
+          {open ? 'Lebih ringkas' : 'Lihat selengkapnya'}
+          <ChevronDown
+            size={14}
+            className="transition-transform duration-300"
+            style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          />
+        </button>
+      )}
+    </>
   );
 }
 
@@ -696,7 +774,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
           {detail.description && (
             <div className="mt-5">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Tentang Hotel</h3>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">{detail.description}</p>
+              <HotelDescription text={detail.description} />
             </div>
           )}
 
