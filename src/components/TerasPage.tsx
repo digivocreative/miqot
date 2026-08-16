@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  FileText,
   Flag,
   Heart,
   Image as ImageIcon,
@@ -54,10 +55,13 @@ import { getAuthHeaders } from './LoginPage';
 import {
   clearDraft,
   feedDraftKey,
+  feedSnippetDraftKey,
   loadDraft,
+  loadSnippetDraft,
   pruneReplyDrafts,
   replyDraftKey,
   saveDraft,
+  saveSnippetDraft,
   TERAS_REPLY_DRAFT_MAX,
 } from '../lib/terasDraft';
 import { MentionText } from './MentionText';
@@ -65,6 +69,7 @@ import { MentionAutocomplete, resolveMentionPlacement } from './MentionAutocompl
 import { MentionHighlightLayer } from './MentionHighlightLayer';
 import { TerasProfileHeader, TerasProfileHeaderSkeleton } from './TerasProfileHeader';
 import ComposerSegment from './teras/ComposerSegment';
+import SnippetEditor from './teras/SnippetEditor';
 import CommentThread from './teras/CommentThread';
 import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } from './teras/PollBlock';
 import { AgentAvatar } from './teras/AgentAvatar';
@@ -344,9 +349,13 @@ const POLL_DURATION_CHOICES: Array<{ key: PollDurationKey; label: string }> = [
   { key: '3d', label: '3 hari' },
   { key: '7d', label: '1 minggu' },
 ];
+// Lampiran teks — sama dengan batas server (lib/community-snippet.js).
+const MAX_SNIPPET_CHARS = 10000;
+const MAX_SNIPPET_TITLE_CHARS = 80;
 // Small buffer over the limit so pasted text isn't silently truncated —
 // the counter turns red and submit stays disabled until it's trimmed.
 const COMPOSER_BODY_HARD_CAP = 520;
+const SNIPPET_TITLE_HARD_CAP = 88;
 const COMMENT_BODY_HARD_CAP = 320;
 // Pesan persis dari server saat client_id komentar bentrok (POST
 // /api/community/posts/:id/comments -> 409). requestJson tidak meneruskan
@@ -1610,6 +1619,14 @@ export default function TerasPage({
   // opsi yang sedang diketik. Saling-eksklusif dengan media segmen-1 & quote.
   const [composerPoll, setComposerPoll] = useState<string[] | null>(null);
   const [composerPollDuration, setComposerPollDuration] = useState<PollDurationKey>('1d');
+  // Lampiran teks (segmen pertama saja): null = tanpa lampiran. Saling-eksklusif
+  // dengan polling; media & quote justru BOLEH berdampingan dengannya.
+  const [composerSnippet, setComposerSnippet] = useState<{ title: string; body: string } | null>(null);
+  const [snippetEditorOpen, setSnippetEditorOpen] = useState(false);
+  // Dibaca handler keydown komposer: selagi editor lampiran terbuka, Escape &
+  // jebakan Tab milik komposer harus mundur, kalau tidak satu Escape menutup
+  // SELURUH kiriman yang sedang disusun, bukan editornya.
+  const snippetEditorOpenRef = useRef(false);
   const [composerLinkPreview, setComposerLinkPreview] = useState<LinkPreview | null>(null);
   const [composerLinkLoading, setComposerLinkLoading] = useState(false);
   const [composerDismissedUrl, setComposerDismissedUrl] = useState<string | null>(null);
@@ -1936,6 +1953,11 @@ export default function TerasPage({
       composerSegmentsRef.current = restored;
       setComposerSegments(restored);
     }
+    // Lampiran teks disimpan di kunci TERPISAH (lihat feedSnippetDraftKey),
+    // jadi ia dipulihkan sendiri — tapi di effect yang sama supaya satu draf
+    // tidak pernah kembali tanpa pasangannya.
+    const snippetDraft = loadSnippetDraft(window.localStorage, feedSnippetDraftKey(agent.slug), Date.now());
+    if (snippetDraft) setComposerSnippet(snippetDraft);
     feedDraftReadyRef.current = true;
     // Sekali saat mount by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1956,6 +1978,21 @@ export default function TerasPage({
     }, 500);
     return () => window.clearTimeout(timer);
   }, [composerSegments, agent.slug]);
+
+  // Auto-save lampiran, debounce & gerbang yang sama dengan draf teks di atas.
+  // composerSnippet null -> body kosong -> saveSnippetDraft menghapus kunci.
+  useEffect(() => {
+    if (!feedDraftReadyRef.current) return;
+    const timer = window.setTimeout(() => {
+      saveSnippetDraft(
+        window.localStorage,
+        feedSnippetDraftKey(agent.slug),
+        { title: composerSnippet?.title ?? '', body: composerSnippet?.body ?? '' },
+        Date.now(),
+      );
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [composerSnippet, agent.slug]);
 
   // Pulihkan posisi scroll feed saat keluar dari tampilan detail
   // (baik via tombol breadcrumb header maupun back/forward browser).
@@ -2471,6 +2508,9 @@ export default function TerasPage({
     setComposerQuote(null);
     setComposerPoll(null);
     setComposerPollDuration('1d');
+    setComposerSnippet(null);
+    setSnippetEditorOpen(false);
+    clearDraft(window.localStorage, feedSnippetDraftKey(agent.slug));
     setComposerLinkPreview(null);
     setComposerLinkLoading(false);
     setComposerDismissedUrl(null);
@@ -2485,15 +2525,19 @@ export default function TerasPage({
     // Cek SEMUA segmen: utas 4 segmen tidak boleh dibuang tanpa tanya hanya
     // karena segmen pertama kebetulan kosong. Opsi polling yang sudah diketik
     // juga konten — jangan dibuang senyap.
+    // Lampiran teks ikut dihitung sebagai konten: ia justru tulisan terpanjang
+    // di komposer, jangan sampai terbuang tanpa tanya.
     const hasComposerContent = composerSegments.some(
       segment => segment.body.trim() || segment.media.length > 0,
-    ) || (composerPoll?.some(option => option.trim().length > 0) ?? false);
+    )
+      || (composerPoll?.some(option => option.trim().length > 0) ?? false)
+      || !!composerSnippet?.body.trim();
     const discardMessage = composerSegments.length > 1
       ? 'Buang utas ini?'
       : 'Buang draft kiriman ini?';
     if (hasComposerContent && !window.confirm(discardMessage)) return;
     resetComposer();
-  }, [composerSegments, composerBusy, composerPoll, resetComposer]);
+  }, [composerSegments, composerBusy, composerPoll, composerSnippet, resetComposer]);
   closeComposerRef.current = closeComposer;
 
   // Invarian: sheet komposer HANYA dirender kalau `composerSheetVisible`
@@ -2509,6 +2553,15 @@ export default function TerasPage({
   // + chip 1/N) tak mengubah invarian ini -- yang penting pengunci & render
   // memakai nilai turunan yang sama.
   const composerSheetVisible = composerOpen && !profileSlug;
+  // Editor lampiran menumpang syarat yang sama: ia sheet DI ATAS komposer dan
+  // menumpang kunci halaman milik komposer. Kalau `profileSlug` terisi di
+  // tengah jalan (tombol Back tanpa remount, lihat catatan di atas), komposer
+  // lenyap dari render — editornya harus ikut, bukan mengambang sendirian di
+  // atas halaman profil.
+  const snippetEditorVisible = snippetEditorOpen && composerSheetVisible;
+  useEffect(() => {
+    snippetEditorOpenRef.current = snippetEditorVisible;
+  }, [snippetEditorVisible]);
 
   useLayoutEffect(() => {
     if (!composerSheetVisible) return;
@@ -2532,6 +2585,12 @@ export default function TerasPage({
     composerFormRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 
     const handleComposerKeyDown = (event: globalThis.KeyboardEvent) => {
+      // Editor lampiran adalah sheet DI ATAS komposer dan punya Escape +
+      // jebakan Tab-nya sendiri. Kedua handler menempel di `document` dan
+      // milik komposer terpasang lebih dulu, jadi stopPropagation di sheet
+      // atas tidak menolong — komposer harus mundur dari sini. Tanpa ini satu
+      // Escape membuang seluruh kiriman yang sedang disusun, bukan editornya.
+      if (snippetEditorOpenRef.current) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         closeComposerRef.current();
@@ -2729,6 +2788,20 @@ export default function TerasPage({
       fileInputRef.current?.click();
     }
   };
+
+  const closeSnippetEditor = useCallback(() => setSnippetEditorOpen(false), []);
+
+  /**
+   * Simpan hasil editor ke state komposer. Judul di-trim di sini (server pun
+   * mengubah judul kosong jadi null); body dibiarkan APA ADANYA — normalisasi
+   * baris kosong & spasi ujung baris milik server (normalizeCommunitySnippetInput),
+   * dan memangkasnya dua kali di dua tempat cuma bikin keduanya bisa melenceng.
+   * Body kosong = lampiran dibuang, bukan disimpan kosong.
+   */
+  const saveSnippetFromEditor = useCallback((value: { title: string; body: string }) => {
+    setComposerSnippet(value.body.trim() ? { title: value.title.trim(), body: value.body } : null);
+    setSnippetEditorOpen(false);
+  }, []);
 
   const openComposerMediaPicker = (segmentKey: string) => {
     composerMediaTargetRef.current = segmentKey;
@@ -3112,7 +3185,13 @@ export default function TerasPage({
             ...(composerPoll && !firstHasMedia && !composerQuote
               ? { poll: { options: composerPoll.map(option => option.trim()), duration: composerPollDuration } }
               : {}),
-            ...(composerLinkPreview && !firstHasMedia && !composerQuote
+            // Lampiran teks: dikirim apa adanya kalau ada. Kombinasi terlarang
+            // (lampiran + polling) sudah mustahil dari toolbar; kalau toh
+            // lolos, server menolak 400 dan pesannya muncul lewat
+            // composerError — jauh lebih jujur daripada membuang lampiran
+            // 10.000 karakter diam-diam di sini.
+            ...(composerSnippet ? { snippet: composerSnippet } : {}),
+            ...(composerLinkPreview && !firstHasMedia && !composerQuote && !composerSnippet
               ? { link_preview: composerLinkPreview }
               : {}),
           }),
@@ -3142,7 +3221,8 @@ export default function TerasPage({
         segments: sendable.length,
         has_media: uploadedFlat.length > 0,
         has_quote: !!quotedId,
-        has_link_preview: !!(composerLinkPreview && !firstHasMedia && !composerQuote),
+        has_snippet: !!composerSnippet,
+        has_link_preview: !!(composerLinkPreview && !firstHasMedia && !composerQuote && !composerSnippet),
         mention_count: extractMentionSlugs(sendable.map(segment => segment.body).join('\n'), memberSlugs).length,
       });
       // Kiriman ber-`@semua` yang baru sukses terkirim memakai jatah broadcast
@@ -4720,9 +4800,15 @@ export default function TerasPage({
               setComposerPollDuration('1d');
               setComposerPoll(current => (current ? null : ['', '']));
             }}
-            disabled={composerBusy || segment.media.length > 0}
+            disabled={composerBusy || segment.media.length > 0 || !!composerSnippet}
             aria-pressed={!!composerPoll}
-            title={segment.media.length > 0 ? 'Polling tidak bisa digabung dengan media' : 'Tambah polling (2-4 opsi)'}
+            title={
+              composerSnippet
+                ? 'Polling tidak bisa digabung dengan lampiran teks'
+                : segment.media.length > 0
+                  ? 'Polling tidak bisa digabung dengan media'
+                  : 'Tambah polling (2-4 opsi)'
+            }
             className={`flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
               composerPoll
                 ? 'text-emerald-600 dark:text-emerald-400'
@@ -4731,6 +4817,28 @@ export default function TerasPage({
           >
             <BarChart3 size={18} strokeWidth={1.8} />
             Polling
+          </button>
+        )}
+        {isFirstSegment && (
+          <button
+            type="button"
+            // Membuka editor, TIDAK men-toggle hapus: satu tap salah pada
+            // tombol toggle akan membuang tulisan 10.000 karakter tanpa tanya.
+            // Membuang lampiran hanya lewat tombol X di kartu footer.
+            onClick={() => setSnippetEditorOpen(true)}
+            disabled={composerBusy || !!composerPoll}
+            aria-pressed={!!composerSnippet}
+            title={composerPoll
+              ? 'Lampiran teks tidak bisa digabung dengan polling'
+              : composerSnippet ? 'Ubah lampiran teks' : 'Tambah lampiran teks panjang'}
+            className={`flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition-colors hover:bg-gray-100 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 disabled:opacity-35 dark:hover:bg-slate-800 dark:active:bg-slate-800 ${
+              composerSnippet
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            <FileText size={18} strokeWidth={1.8} />
+            Lampiran
           </button>
         )}
       </>
@@ -4897,10 +5005,58 @@ export default function TerasPage({
         </div>
       )}
 
+      {composerSnippet && (
+        <div data-composer-snippet className="mt-2 rounded-2xl border border-gray-200/80 dark:border-slate-700/60">
+          <div className="flex items-center justify-between border-b border-gray-100 px-3.5 py-2 dark:border-slate-700/60">
+            <p className="flex items-center gap-1.5 text-[12px] font-bold text-gray-700 dark:text-slate-200">
+              <FileText size={14} /> Lampiran teks
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSnippetEditorOpen(true)}
+                disabled={composerBusy}
+                aria-label="Ubah lampiran teks"
+                title="Ubah lampiran teks"
+                className="-my-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setComposerSnippet(null)}
+                disabled={composerBusy}
+                aria-label="Buang lampiran teks"
+                title="Buang lampiran teks"
+                className="-my-2 -mr-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="px-3.5 py-3">
+            {composerSnippet.title.trim() && (
+              <p className="line-clamp-1 text-[13px] font-bold text-gray-900 dark:text-white">
+                {composerSnippet.title.trim()}
+              </p>
+            )}
+            <p className="line-clamp-2 whitespace-pre-wrap text-[12px] text-gray-500 dark:text-slate-400">
+              {composerSnippet.body}
+            </p>
+            <p className="mt-1.5 text-[10px] tabular-nums text-gray-400 dark:text-slate-500">
+              {Array.from(composerSnippet.body.trim()).length.toLocaleString('id-ID')}/{MAX_SNIPPET_CHARS.toLocaleString('id-ID')} karakter
+            </p>
+          </div>
+        </div>
+      )}
+
       {composerLinkLoading && !composerLinkPreview && (
         <div className="mt-2 h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-slate-800" />
       )}
-      {composerLinkPreview && composerFirstMediaCount === 0 && !composerQuote && (
+      {/* Lampiran ikut menekan pratinjau tautan, sama seperti media & quote —
+          cermin aturan prioritas server (communityLinkPreviewPayload). Tanpa
+          ini komposer memamerkan kartu preview yang diam-diam tidak tersimpan. */}
+      {composerLinkPreview && composerFirstMediaCount === 0 && !composerQuote && !composerSnippet && (
         <div className="relative">
           {/* Tanpa gambar, sudut kanan-atas kartu berisi teks (domain/judul) —
               sediakan baris kosong di atas kartu supaya tombol ✕ tidak menimpa teks. */}
@@ -5227,7 +5383,7 @@ export default function TerasPage({
 
                 {composerSegments.some(segment => segment.media.length > 0) && (
                   <p className="mb-3 text-[10px] font-medium text-gray-400 dark:text-slate-500">
-                    Lampiran tidak ikut tersimpan di draf
+                    Foto &amp; video tidak ikut tersimpan di draf
                   </p>
                 )}
 
@@ -6598,6 +6754,20 @@ export default function TerasPage({
       </div>
 
       {composerSheet}
+      {/* Di LUAR JSX composerSheet dengan sengaja: composerSheet adalah
+          <form>, dan portal React tetap meneruskan event lewat pohon React —
+          ditaruh di dalamnya, Enter di input judul akan men-submit kiriman. */}
+      <SnippetEditor
+        open={snippetEditorVisible}
+        initialTitle={composerSnippet?.title ?? ''}
+        initialBody={composerSnippet?.body ?? ''}
+        busy={composerBusy}
+        maxChars={MAX_SNIPPET_CHARS}
+        maxTitleChars={MAX_SNIPPET_TITLE_CHARS}
+        titleHardCap={SNIPPET_TITLE_HARD_CAP}
+        onCancel={closeSnippetEditor}
+        onSave={saveSnippetFromEditor}
+      />
       {replySheetPortal}
       {shareSheet}
       {mediaViewerSheet}

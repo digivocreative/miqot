@@ -31,6 +31,21 @@ export function replyDraftKey(slug: string, postId: string): string {
   return `${replyDraftPrefix(slug)}${postId}`;
 }
 
+/**
+ * Lampiran teks komposer feed. Kunci TERPISAH dari feedDraftKey, bukan field
+ * baru di dalam amplop segmen: menambah field ke payload lama berarti menaikkan
+ * TERAS_DRAFT_VERSION, dan parsePayload menolak versi asing — setiap draf yang
+ * sedang tersimpan di perangkat agent akan terbuang begitu deploy mendarat.
+ * Dua kunci = draf teks lama tetap terbaca apa adanya.
+ *
+ * Berakhiran `:feed:lampiran`, jadi ia TIDAK tertangkap prefiks reply
+ * (`:reply:`) yang disapu pruneReplyDrafts, dan bukan pula kunci `:feed`
+ * (localStorage mencocokkan kunci persis, bukan awalan).
+ */
+export function feedSnippetDraftKey(slug: string): string {
+  return `teras:draft:${slug.toLowerCase()}:feed:lampiran`;
+}
+
 function replyDraftPrefix(slug: string): string {
   return `teras:draft:${slug.toLowerCase()}:reply:`;
 }
@@ -50,7 +65,8 @@ function parsePayload(raw: string): DraftPayload | null {
   }
 }
 
-function isExpired(payload: DraftPayload, now: number): boolean {
+/** Dipakai amplop segmen DAN amplop lampiran — keduanya hanya perlu savedAt. */
+function isExpired(payload: { savedAt: number }, now: number): boolean {
   return now - payload.savedAt > TERAS_DRAFT_MAX_AGE_MS;
 }
 
@@ -78,6 +94,85 @@ export function saveDraft(storage: DraftStorage, key: string, segments: string[]
       return;
     }
     const payload: DraftPayload = { v: TERAS_DRAFT_VERSION, savedAt: now, segments };
+    storage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // best-effort
+  }
+}
+
+interface SnippetDraftPayload {
+  v: number;
+  savedAt: number;
+  title: string;
+  body: string;
+}
+
+export interface SnippetDraftValue {
+  title: string;
+  body: string;
+}
+
+/**
+ * Amplop lampiran dibaca terpisah dari parsePayload: bentuknya beda (title/body,
+ * bukan segments), jadi memaksakan satu parser hanya akan membuat salah satu
+ * dari keduanya menolak amplop yang sah.
+ */
+function parseSnippetPayload(raw: string): SnippetDraftPayload | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object') return null;
+    const payload = value as Partial<SnippetDraftPayload>;
+    if (payload.v !== TERAS_DRAFT_VERSION) return null;
+    if (typeof payload.savedAt !== 'number' || !Number.isFinite(payload.savedAt)) return null;
+    if (typeof payload.body !== 'string') return null;
+    if (payload.title !== undefined && typeof payload.title !== 'string') return null;
+    return { v: payload.v, savedAt: payload.savedAt, title: payload.title ?? '', body: payload.body };
+  } catch {
+    return null;
+  }
+}
+
+/** null = tak ada lampiran layak pakai; kunci korup/basi/kosong ikut dibersihkan. */
+export function loadSnippetDraft(
+  storage: DraftStorage,
+  key: string,
+  now: number,
+): SnippetDraftValue | null {
+  try {
+    const raw = storage.getItem(key);
+    if (raw === null) return null;
+    const payload = parseSnippetPayload(raw);
+    if (!payload || isExpired(payload, now) || !payload.body.trim()) {
+      storage.removeItem(key);
+      return null;
+    }
+    return { title: payload.title, body: payload.body };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Body kosong (trim) = buang draf — semantik yang sama dengan saveDraft.
+ * Judul saja tanpa isi bukan lampiran, jadi ia ikut terbuang.
+ */
+export function saveSnippetDraft(
+  storage: DraftStorage,
+  key: string,
+  value: SnippetDraftValue,
+  now: number,
+): void {
+  try {
+    if (!value.body.trim()) {
+      storage.removeItem(key);
+      return;
+    }
+    const payload: SnippetDraftPayload = {
+      v: TERAS_DRAFT_VERSION,
+      savedAt: now,
+      title: value.title,
+      body: value.body,
+    };
     storage.setItem(key, JSON.stringify(payload));
   } catch {
     // best-effort

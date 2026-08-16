@@ -2,9 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   feedDraftKey,
+  feedSnippetDraftKey,
   replyDraftKey,
   loadDraft,
+  loadSnippetDraft,
   saveDraft,
+  saveSnippetDraft,
   clearDraft,
   pruneReplyDrafts,
   TERAS_DRAFT_MAX_AGE_MS,
@@ -88,6 +91,98 @@ test('storage yang melempar tidak meledak', () => {
   pruneReplyDrafts(bomb, 'nila', 20, NOW);
 });
 
+// ── Lampiran teks (kunci terpisah, amplop title/body) ──────────────────────
+
+function snippetPayload(title, body, savedAt = NOW) {
+  return JSON.stringify({ v: 1, savedAt, title, body });
+}
+
+test('kunci lampiran: slug lowercase, terpisah dari kunci feed & reply', () => {
+  assert.equal(feedSnippetDraftKey('Nila'), 'teras:draft:nila:feed:lampiran');
+  assert.notEqual(feedSnippetDraftKey('nila'), feedDraftKey('nila'));
+  // Bukan berawalan reply -> pruneReplyDrafts tidak akan pernah melihatnya.
+  assert.equal(feedSnippetDraftKey('nila').startsWith('teras:draft:nila:reply:'), false);
+});
+
+test('lampiran: simpan lalu muat bulat-balik, judul boleh kosong', () => {
+  const storage = fakeStorage();
+  const key = feedSnippetDraftKey('nila');
+  saveSnippetDraft(storage, key, { title: 'Panduan', body: 'baris satu\n\nbaris dua' }, NOW);
+  assert.deepEqual(loadSnippetDraft(storage, key, NOW), { title: 'Panduan', body: 'baris satu\n\nbaris dua' });
+
+  saveSnippetDraft(storage, key, { title: '', body: 'tanpa judul' }, NOW);
+  assert.deepEqual(loadSnippetDraft(storage, key, NOW), { title: '', body: 'tanpa judul' });
+});
+
+test('lampiran: body kosong = hapus kunci (judul saja bukan lampiran)', () => {
+  const key = feedSnippetDraftKey('nila');
+  const storage = fakeStorage({ [key]: snippetPayload('lama', 'isi lama') });
+  saveSnippetDraft(storage, key, { title: 'masih ada judul', body: '   \n ' }, NOW);
+  assert.equal(storage.map.size, 0);
+});
+
+test('lampiran: basi / korup / versi asing dibuang senyap', () => {
+  const key = feedSnippetDraftKey('nila');
+  const basi = fakeStorage({ [key]: snippetPayload('j', 'isi', NOW - TERAS_DRAFT_MAX_AGE_MS - 1) });
+  assert.equal(loadSnippetDraft(basi, key, NOW), null);
+  assert.equal(basi.map.size, 0);
+
+  for (const raw of [
+    '{buk',
+    JSON.stringify({ v: 2, savedAt: NOW, title: '', body: 'x' }),
+    JSON.stringify({ v: 1, savedAt: 'x', title: '', body: 'x' }),
+    JSON.stringify({ v: 1, savedAt: NOW, title: 42, body: 'x' }),
+    JSON.stringify({ v: 1, savedAt: NOW, title: '', body: 12 }),
+    'null',
+  ]) {
+    const storage = fakeStorage({ [key]: raw });
+    assert.equal(loadSnippetDraft(storage, key, NOW), null, raw);
+    assert.equal(storage.map.size, 0, raw);
+  }
+});
+
+test('lampiran: kunci feed & kunci lampiran tidak saling mengganggu', () => {
+  const storage = fakeStorage();
+  saveDraft(storage, feedDraftKey('nila'), ['teks kiriman'], NOW);
+  saveSnippetDraft(storage, feedSnippetDraftKey('nila'), { title: 'J', body: 'isi panjang' }, NOW);
+
+  assert.deepEqual(loadDraft(storage, feedDraftKey('nila'), NOW), ['teks kiriman']);
+  assert.deepEqual(loadSnippetDraft(storage, feedSnippetDraftKey('nila'), NOW), { title: 'J', body: 'isi panjang' });
+
+  // Membuang draf teks tidak ikut membuang lampiran, dan sebaliknya.
+  saveDraft(storage, feedDraftKey('nila'), [''], NOW);
+  assert.equal(storage.getItem(feedDraftKey('nila')), null);
+  assert.notEqual(storage.getItem(feedSnippetDraftKey('nila')), null);
+
+  saveSnippetDraft(storage, feedSnippetDraftKey('nila'), { title: '', body: '' }, NOW);
+  assert.equal(storage.getItem(feedSnippetDraftKey('nila')), null);
+});
+
+test('lampiran: loadDraft & loadSnippetDraft tidak saling memakan amplop', () => {
+  const storage = fakeStorage();
+  const snippetKey = feedSnippetDraftKey('nila');
+  saveSnippetDraft(storage, snippetKey, { title: 'J', body: 'isi' }, NOW);
+  // Amplop lampiran tidak punya `segments` -> parser segmen menolak DAN
+  // membuang kuncinya. Itu sebabnya keduanya wajib memakai kunci berbeda.
+  assert.equal(loadDraft(storage, snippetKey, NOW), null);
+
+  const feedKey = feedDraftKey('nila');
+  saveDraft(storage, feedKey, ['halo'], NOW);
+  assert.equal(loadSnippetDraft(storage, feedKey, NOW), null);
+});
+
+test('lampiran: storage yang melempar tidak meledak', () => {
+  const bomb = {
+    getItem: () => { throw new Error('quota'); },
+    setItem: () => { throw new Error('quota'); },
+    removeItem: () => { throw new Error('quota'); },
+    get length() { return 0; },
+    key: () => null,
+  };
+  assert.equal(loadSnippetDraft(bomb, 'k', NOW), null);
+  saveSnippetDraft(bomb, 'k', { title: 'j', body: 'b' }, NOW);
+});
+
 test('prune: sisakan max terbaru, buang yang basi, kunci feed tak tersentuh', () => {
   const storage = fakeStorage();
   storage.setItem(feedDraftKey('nila'), payload(['feed'], NOW - TERAS_DRAFT_MAX_AGE_MS * 2));
@@ -96,6 +191,13 @@ test('prune: sisakan max terbaru, buang yang basi, kunci feed tak tersentuh', ()
   }
   storage.setItem(replyDraftKey('nila', 'basi'), payload(['basi'], NOW - TERAS_DRAFT_MAX_AGE_MS - 1));
   storage.setItem(replyDraftKey('lain', 'p0'), payload(['punya agent lain'], NOW));
+  // Kunci lampiran sengaja dibuat SUDAH BASI: kalau prune sampai menyentuhnya,
+  // ia akan terbuang — jadi kelolosannya membuktikan prune benar-benar hanya
+  // menyapu prefiks reply, bukan kebetulan karena kuncinya masih segar.
+  storage.setItem(
+    feedSnippetDraftKey('nila'),
+    snippetPayload('J', 'isi lampiran', NOW - TERAS_DRAFT_MAX_AGE_MS * 2),
+  );
   pruneReplyDrafts(storage, 'nila', 20, NOW);
   assert.equal(loadDraft(storage, replyDraftKey('nila', 'p0'), NOW)?.[0], 'teks 0');
   assert.equal(loadDraft(storage, replyDraftKey('nila', 'p19'), NOW)?.[0], 'teks 19');
@@ -103,4 +205,9 @@ test('prune: sisakan max terbaru, buang yang basi, kunci feed tak tersentuh', ()
   assert.equal(storage.getItem(replyDraftKey('nila', 'basi')), null);
   assert.notEqual(storage.getItem(feedDraftKey('nila')), null, 'kunci feed di luar urusan prune');
   assert.notEqual(storage.getItem(replyDraftKey('lain', 'p0')), null, 'agent lain tak tersentuh');
+  assert.notEqual(
+    storage.getItem(feedSnippetDraftKey('nila')),
+    null,
+    'kunci lampiran di luar urusan prune',
+  );
 });
