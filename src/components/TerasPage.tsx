@@ -861,6 +861,86 @@ function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
   );
 }
 
+/**
+ * Thumbnail video di rail kutipan: poster JPEG (selalu ter-paint — tidak
+ * seperti <video> preload="metadata" yang tampil hitam di perangkat hemat
+ * data; <video> tinggal jalur mundur media lama tanpa poster) + skeleton
+ * pulse dengan rasio dari dimensi tersimpan, paritas perilaku PlyrVideo:
+ * settle saat termuat/error, jalur <video> diberi timeout 4 dtk supaya
+ * shimmer tidak abadi di perangkat yang tak pernah mem-preload.
+ */
+function QuotedVideoThumb({ item }: { item: CommunityMedia }) {
+  const [settled, setSettled] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => { setSettled(false); }, [item.poster, item.url]);
+
+  useEffect(() => {
+    if (item.poster) return undefined;
+    const element = videoRef.current;
+    if (!element) return undefined;
+    if (element.readyState >= 2) {
+      setSettled(true);
+      return undefined;
+    }
+    const done = () => setSettled(true);
+    element.addEventListener('loadeddata', done, { once: true });
+    element.addEventListener('error', done, { once: true });
+    const timeoutId = window.setTimeout(done, 4000);
+    return () => {
+      element.removeEventListener('loadeddata', done);
+      element.removeEventListener('error', done);
+      window.clearTimeout(timeoutId);
+    };
+  }, [item.poster, item.url]);
+
+  // Tinggi thumbnail definit (h-32 dari tombol pembungkus) + aspect-ratio →
+  // lebar kotak benar SEBELUM poster termuat; tanpa ini lebar melompat dari
+  // 0/default saat poster tiba.
+  const ratioStyle = item.width && item.height
+    ? { aspectRatio: `${item.width} / ${item.height}` }
+    : undefined;
+
+  return (
+    <>
+      {item.poster ? (
+        <img
+          src={item.poster}
+          alt=""
+          loading="lazy"
+          aria-hidden="true"
+          onLoad={() => setSettled(true)}
+          onError={() => setSettled(true)}
+          style={ratioStyle}
+          className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          src={videoPreviewSrc(item.url)}
+          preload="metadata"
+          muted
+          playsInline
+          aria-hidden="true"
+          style={ratioStyle}
+          className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+        />
+      )}
+      <span
+        aria-hidden="true"
+        data-video-skeleton
+        className={`pointer-events-none absolute inset-0 rounded-[inherit] bg-gray-200 transition-opacity duration-300 motion-reduce:animate-none dark:bg-slate-800 ${
+          settled ? 'opacity-0' : 'animate-pulse opacity-100'
+        }`}
+      />
+      <span className="absolute inset-0 flex items-center justify-center">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white">
+          <Play size={14} fill="currentColor" />
+        </span>
+      </span>
+    </>
+  );
+}
+
 function QuotedPostCard({
   quoted,
   interactive = false,
@@ -942,34 +1022,7 @@ function QuotedPostCard({
               className="relative h-32 shrink-0 snap-start overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
             >
               {item.type === 'video' ? (
-                <>
-                  {item.poster ? (
-                    // Poster JPEG selalu ter-paint — tidak seperti <video>
-                    // preload="metadata" yang tampil hitam di perangkat hemat
-                    // data. <video> tinggal jalur mundur media lama tanpa poster.
-                    <img
-                      src={item.poster}
-                      alt=""
-                      loading="lazy"
-                      aria-hidden="true"
-                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
-                    />
-                  ) : (
-                    <video
-                      src={videoPreviewSrc(item.url)}
-                      preload="metadata"
-                      muted
-                      playsInline
-                      aria-hidden="true"
-                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
-                    />
-                  )}
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white">
-                      <Play size={14} fill="currentColor" />
-                    </span>
-                  </span>
-                </>
+                <QuotedVideoThumb item={item} />
               ) : (
                 <img
                   src={item.url}

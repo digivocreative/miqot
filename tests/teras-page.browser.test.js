@@ -925,6 +925,56 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('thumbnail video di kiriman kutipan memakai poster + rasio + skeleton', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'post-quote-video',
+        body: 'Mengutip kiriman bervideo',
+        quoted_post: {
+          available: true,
+          id: 'quoted-video-1',
+          body: 'Video asli',
+          media: [{
+            type: 'video',
+            url: 'https://cdn.example.test/community/quoted.mp4',
+            poster: 'https://cdn.example.test/community/quoted-poster.jpg',
+            width: 720,
+            height: 1280,
+          }],
+          created_at: '2026-07-18T08:00:00.000Z',
+          is_system: false,
+          author: { name: 'Agent Lain', slug: 'agent-lain', photo: null },
+        },
+      })],
+    });
+    const app = await openApp({ api });
+    try {
+      const thumb = app.page.getByRole('button', { name: 'Lihat video 1 kiriman Agent Lain' });
+      await thumb.waitFor();
+
+      // Poster dipakai sebagai thumbnail (bukan <video> preload="metadata"
+      // yang tampil hitam di perangkat hemat data), dengan rasio dari dimensi
+      // tersimpan supaya lebar kotak benar sebelum poster termuat.
+      const posterImg = thumb.locator('img');
+      assert.equal(await posterImg.count(), 1, 'thumbnail kutipan harus <img> poster');
+      assert.match(await posterImg.getAttribute('src'), /quoted-poster\.jpg$/);
+      assert.equal(await posterImg.evaluate(el => el.style.aspectRatio), '720 / 1280');
+      assert.equal(await thumb.locator('video').count(), 0);
+
+      // Skeleton hadir dan settle (poster tidak dilayani host mock → onerror;
+      // kontraknya: shimmer tidak boleh abadi).
+      const skeleton = thumb.locator('[data-video-skeleton]');
+      await skeleton.waitFor({ state: 'attached' });
+      await app.page.waitForFunction(
+        element => element instanceof Element && element.classList.contains('opacity-0'),
+        await skeleton.elementHandle(),
+        { timeout: 5000 },
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test('Threads-style feed fills the wide column and mixed media carousel stays fluid without page overflow', { timeout: 30_000 }, async () => {
     const api = createCommunityApi({
       posts: [makePost({
