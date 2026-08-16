@@ -227,8 +227,8 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   }, []);
 
   // Kunci primitif, bukan objek view — readHotelView membuat objek baru tiap render.
-  // Halaman media ikut memakai detail yang sama; karena slug-nya identik, pindah
-  // detail↔media TIDAK memicu fetch ulang dan mediaIndex terpilih ikut terbawa.
+  // Halaman media ikut memakai detail yang sama; karena slug-nya identik,
+  // pindah detail↔media TIDAK memicu fetch ulang.
   const detailSlug = view.kind === 'detail' || view.kind === 'media' ? view.slug : null;
   const listCity = view.kind === 'list' ? view.city : null;
 
