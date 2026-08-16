@@ -19,8 +19,8 @@ Tiga baris di dalam tombol kartu yang sama (tinggi ~88px → ~100px):
    putih berdenyut halus di dalam badge saat `unread_count > 0` — tumpukan 3 avatar, chevron.
 2. **Baris ticker (baru):** area setinggi 1 baris merotasi 3 kiriman terbaru. Tiap frame:
    avatar penulis, nama tebal, cuplikan lewat `MentionText` (penanda emerald untuk mention
-   dipertahankan), waktu relatif di kanan ("baru saja" / "N mnt" / "N j" / "N hr"),
-   thumbnail 26px rounded bila kiriman punya foto.
+   dipertahankan), waktu relatif di kanan via `timeAgo` yang sudah ada ("Baru saja" /
+   "N menit" / "N jam" / "N hari"), thumbnail 26px rounded bila kiriman punya foto.
 3. **Baris kaki (baru, tipis):** kiri "N kiriman hari ini", kanan 3 titik indikator posisi
    (titik aktif teal, sisanya teal muda).
 
@@ -37,13 +37,13 @@ Tiga baris di dalam tombol kartu yang sama (tinggi ~88px → ~100px):
 
 `loadCommunityTeaserSharedData` (server.js) sudah mengambil 12 kiriman terbaru:
 
-- Select ditambah kolom `photo_url, media` (kolom langsung di `community_posts`, tanpa query
-  baru).
+- Select ditambah kolom `photo_url` saja (selalu ada di skema — tanpa query baru).
 - Payload ditambah **`latest_posts`**: maksimal 3 entri `{ author: {name, photo},
   body_snippet (120 char, Array.from unicode-safe), mentions (resolusi terhadap snippet,
   pola sama dengan `latest`), created_at, thumb }`.
-- `thumb` = `photo_url` bila ada, kalau tidak gambar pertama dari `media` (jsonb) yang
-  bertipe image, kalau tidak `null`.
+- `thumb` = `photo_url` (server sudah memeliharanya sebagai gambar pertama kiriman saat
+  create/edit/purge). Kolom `media` sengaja TIDAK di-select — kolom itu butuh deteksi
+  skema (`isCommunityMediaSchemaMissing`) yang tidak layak untuk teaser.
 - **`latest` lama tetap dikirim** (kompat mundur). Klien baru pakai `latest_posts`,
   fallback ke `[latest]` bila absen — aman untuk urutan deploy mana pun.
 - `today_count`, `recent_avatars`, `unread_count`, cache 60 detik: tidak berubah.
