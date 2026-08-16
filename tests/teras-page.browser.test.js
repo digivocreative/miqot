@@ -854,6 +854,16 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAKBEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEnTbuMU6uEHFO7a1OsggJr7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuMS4xMDBXQYxMYXZmNjEuMS4xMDBEiYhAj0AAAAAAABZUrmvMrgEAAAAAAABD14EBc8WI6wwTTHieDMacgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QJ7yGq4JSwgUC6gTCagQJVsIhVt4ECVbiBAhJUw2f6c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS4xLjEwMHNz1WPAi2PFiOsME0x4ngzGZ8igRaOHRU5DT0RFUkSHk0xhdmM2MS4zLjEwMCBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QL/ngQCjwoEAAIBQAwCdASpAADAAAEcIhYWIhYSIAgICdaoD+AIHCNVnmY830gD++7Ar/2M36M36M39gD/+H/fw/7+H/f/DpAKOWgQCnANEBAAEQEAAYABhYL/QACIwAAKOWgQFNANEBAAEQEAAYABhYL/QACIwAAKOWgQH0ANEBAAEQEAAYABhYL/QACIwAAKOWgQKbANEBAAEQEAAYABhYL/QACIwAAKOWgQNBANEBAAEQEAAYABhYL/QACIwAABxTu2uRu4+zgQC3iveBAfGCAabwgQM=',
         'base64',
       );
+      // Layani file poster dari mock supaya skeleton settle lewat jalur
+      // onload sungguhan (bukan onerror karena host mock tak melayani file).
+      const posterJpeg = await sharp({
+        create: { width: 8, height: 8, channels: 3, background: { r: 16, g: 92, b: 66 } },
+      }).jpeg().toBuffer();
+      await app.page.route('https://cdn.example.test/community/*.jpg', route => route.fulfill({
+        contentType: 'image/jpeg',
+        body: posterJpeg,
+      }));
+
       const fileChooserPromise = app.page.waitForEvent('filechooser');
       await app.page.getByRole('button', { name: 'Tambahkan foto atau video' }).click();
       const fileChooser = await fileChooserPromise;
@@ -893,6 +903,17 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await renderedVideo.waitFor();
       assert.equal(await renderedVideo.getAttribute('poster'), 'https://cdn.example.test/community/media-2.jpg');
       assert.equal(await renderedVideo.evaluate(el => el.style.aspectRatio), '64 / 48');
+
+      // Skeleton placeholder hadir di area media dan memudar setelah poster
+      // termuat — kontrak anti-"ngejedug": tidak ada pop-in tanpa shimmer,
+      // dan shimmer tidak boleh abadi.
+      const skeleton = createdArticle.locator('[data-video-skeleton]');
+      await skeleton.waitFor({ state: 'attached' });
+      await app.page.waitForFunction(
+        element => element instanceof Element && element.classList.contains('opacity-0'),
+        await skeleton.elementHandle(),
+        { timeout: 5000 },
+      );
     } finally {
       await app.close();
     }

@@ -39,6 +39,9 @@ const CONTROLS_BY_MODE: Record<PlyrVideoProps['mode'], string[]> = {
   viewer: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
 };
 
+// 30rem — cermin plafon `max-height` di CSS `.teras-plyr-fit .plyr video`.
+const FIT_MAX_HEIGHT_PX = 480;
+
 export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, startTime, autoPlay, startMuted, poster, width, height }: PlyrVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Read at mount only — a fresh viewer instance carries the resume position.
@@ -49,6 +52,51 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
   // src ini — preview kembali hitam, tapi videonya tetap bisa diputar.
   const [posterFragmentFailed, setPosterFragmentFailed] = useState(false);
   useEffect(() => { setPosterFragmentFailed(false); }, [src]);
+
+  // Skeleton pulse (padanan PostImage) di atas area media sampai ada yang
+  // benar-benar terlukis — tanpa ini poster/frame muncul menjedug dari kotak
+  // kosong. Viewer dilewatkan: latarnya sudah gelap + poster biasanya sudah
+  // ter-cache dari feed, shimmer terang justru berkedip.
+  const [settled, setSettled] = useState(false);
+  const showSkeleton = mode !== 'viewer';
+  useEffect(() => { setSettled(false); }, [src, poster]);
+
+  // Jalur poster: settle saat file poster termuat (JUGA saat gagal — poster
+  // rusak tak boleh membuat shimmer abadi; elemen video di bawahnya yang
+  // jadi penampil terakhir).
+  useEffect(() => {
+    if (!showSkeleton || !poster) return undefined;
+    let active = true;
+    const image = new Image();
+    const done = () => { if (active) setSettled(true); };
+    image.onload = done;
+    image.onerror = done;
+    image.src = poster;
+    if (image.complete) done();
+    return () => { active = false; };
+  }, [showSkeleton, poster]);
+
+  // Jalur tanpa poster (media lama): settle saat frame pertama terlukis atau
+  // error; timeout menjaga perangkat yang tak pernah mem-preload (Data Saver)
+  // dari shimmer berdenyut selamanya — jatuhnya sama seperti perilaku lama.
+  useEffect(() => {
+    if (!showSkeleton || poster) return undefined;
+    const element = videoRef.current;
+    if (!element) return undefined;
+    if (element.readyState >= 2) {
+      setSettled(true);
+      return undefined;
+    }
+    const done = () => setSettled(true);
+    element.addEventListener('loadeddata', done, { once: true });
+    element.addEventListener('error', done, { once: true });
+    const timeoutId = window.setTimeout(done, 4000);
+    return () => {
+      element.removeEventListener('loadeddata', done);
+      element.removeEventListener('error', done);
+      window.clearTimeout(timeoutId);
+    };
+  }, [showSkeleton, poster, src]);
 
   useEffect(() => {
     const element = videoRef.current;
@@ -96,7 +144,7 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
       // <video> itu sendiri. Media viewer memakai atribut ini untuk memutuskan
       // klik mana yang menutup popup.
       data-media-content="video"
-      className={`teras-plyr teras-plyr-${mode}${className ? ` ${className}` : ''}`}
+      className={`teras-plyr teras-plyr-${mode} relative${className ? ` ${className}` : ''}`}
       style={minWidth ? ({ '--teras-plyr-minw': minWidth } as CSSProperties) : undefined}
     >
       <video
@@ -110,11 +158,39 @@ export default function PlyrVideo({ src, ariaLabel, mode, minWidth, className, s
         preload="metadata"
         controls
         aria-label={ariaLabel}
-        style={width && height ? { aspectRatio: `${width} / ${height}` } : undefined}
+        // Kotak media harus benar SEBELUM poster/metadata termuat.
+        // `aspect-ratio` saja pada elemen replaced tanpa ukuran intrinsik
+        // tidak dapat diandalkan (Chromium meng-nol-kan tinggi, WebKit jatuh
+        // ke 300×150) — kotaknya baru melompat saat poster tiba. Mode fit
+        // (kedua sumbu auto) diberi lebar px definit hasil skala dimensi asli
+        // terhadap plafon tinggi — berperan seperti lebar intrinsik; penjaga
+        // kolom sempit tetap `max-width:100%` di CSS (persen/min() di dalam
+        // parent fit-content dihitung konservatif oleh Chromium → 240 salah).
+        // Mode strip/fill sudah punya sumbu definit dari CSS, aspect-ratio
+        // tinggal menurunkan sumbu satunya.
+        style={width && height
+          ? {
+            aspectRatio: `${width} / ${height}`,
+            ...(mode === 'fit'
+              ? { width: `${Math.round(width * Math.min(1, FIT_MAX_HEIGHT_PX / height))}px` }
+              : {}),
+          }
+          : undefined}
         onError={() => {
           if (!poster && !posterFragmentFailed && videoPreviewFallbackSrc(src)) setPosterFragmentFailed(true);
         }}
       />
+      {showSkeleton && (
+        // Dirender SETELAH .plyr (sibling) sehingga terlukis di atasnya;
+        // pointer-events-none membiarkan klik tembus ke kontrol di bawahnya.
+        <span
+          aria-hidden="true"
+          data-video-skeleton
+          className={`pointer-events-none absolute inset-0 rounded-[inherit] bg-gray-200 transition-opacity duration-300 motion-reduce:animate-none dark:bg-slate-800 ${
+            settled ? 'opacity-0' : 'animate-pulse opacity-100'
+          }`}
+        />
+      )}
     </div>
   );
 }
