@@ -152,7 +152,7 @@ function SkeletonList() {
       <div className="space-y-3 mt-3">
         {[0, 1, 2].map(i => (
           <div key={i} className="flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
-            <div className="h-[84px] w-[84px] shrink-0 rounded-xl bg-gray-100 dark:bg-slate-700 animate-pulse" />
+            <div className="h-16 w-16 shrink-0 rounded-xl bg-gray-100 dark:bg-slate-700 animate-pulse" />
             <div className="flex-1 space-y-2">
               <div className="h-3.5 w-3/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
               <div className="h-3 w-2/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
@@ -336,11 +336,11 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
               onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${hotel.city}/${encodeURIComponent(hotel.slug)}`)}
               className="w-full flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.98]"
             >
-              <div className="h-[84px] w-[84px] shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
                 {hotel.cover ? (
                   <img src={hotel.cover} alt={hotel.name} className="h-full w-full object-cover" loading="lazy" />
                 ) : (
-                  <ImageOff size={20} className="text-gray-300 dark:text-slate-500" />
+                  <ImageOff size={18} className="text-gray-300 dark:text-slate-500" />
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -357,14 +357,12 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                     {hotel.area}
                   </span>
                 ) : null}
-                {hotel.photo_count + hotel.video_count > 0 ? (
+                {/* Hotel tanpa media tidak diberi badge apa pun (feedback user):
+                    itu urusan admin, bukan informasi yang berguna bagi agent. */}
+                {hotel.photo_count + hotel.video_count > 0 && (
                   <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
                     {hotel.photo_count} foto · {hotel.video_count} video
                   </p>
-                ) : (
-                  <span className="mt-1 inline-flex rounded-full bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                    Belum ada foto
-                  </span>
                 )}
               </div>
             </button>
