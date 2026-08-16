@@ -5,7 +5,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare, Building2,
 } from 'lucide-react';
 import type { AuthSession } from './LoginPage';
 import { clearSession, getAuthHeaders } from './LoginPage';
@@ -13,6 +13,7 @@ import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
+import { isHotelDirectoryEnabledForAgent } from '../lib/hotelAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
 import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
@@ -105,6 +106,8 @@ const HajiPlusExportPage = lazy(() => import('./HajiPlusExportPage'));
 const KursPage = lazy(() => import('./KursPage'));
 const BrochureSchedulePage = lazy(() => import('./BrochureSchedulePage'));
 const McpIntegrationPage = lazy(() => import('./McpIntegrationPage'));
+const HotelPage = lazy(() => import('./HotelPage'));
+const HotelKelolaPage = lazy(() => import('./HotelKelolaPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
 const TerasPage = lazy(() => import('./TerasPage'));
@@ -213,6 +216,9 @@ function getAIToolsSubFromPath(): string | null {
     if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
       return 'landing-page/custom-domain';
     }
+    if (segments.length >= 4 && segments[2] === 'hotel' && segments[3] === 'kelola') {
+      return 'hotel/kelola';
+    }
     return segments[2];
   }
   return null;
@@ -234,6 +240,8 @@ function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
+  if (sub === 'hotel') return 'Direktori Hotel';
+  if (sub === 'hotel/kelola') return 'Kelola Hotel';
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
@@ -547,6 +555,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Landing Page'
       : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
       ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
+      : (activeTab === 'ai-tools' && aiSub === 'hotel/kelola')
+      ? 'Kelola Hotel'
+      : (activeTab === 'ai-tools' && aiSub === 'hotel')
+      ? 'Direktori Hotel'
       : (activeTab === 'ai-tools' && aiSub === 'kurs')
       ? 'Kurs Hari Ini'
       : (activeTab === 'ai-tools' && aiSub === 'compare')
@@ -598,6 +610,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   const isAdmin = agentData.role === 'admin';
   const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
+  const hotelEnabled = isHotelDirectoryEnabledForAgent(agentData.slug);
   const notifications = useTerasNotifications(terasEnabled);
   const notifPrefs = useTerasNotificationPrefs(terasEnabled);
   const openNotificationPost = (postId: string) => {
@@ -700,6 +713,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     setTimeout(() => setActiveTab('ai-tools'), 0);
                     return;
                   }
+                  // Kelola Hotel → kembali ke direktori hotel (induknya)
+                  if (aiSub === 'hotel/kelola') {
+                    window.history.pushState({}, '', '/dashboard/ai-tools/hotel');
+                    document.title = 'Direktori Hotel';
+                    setActiveTab('home');
+                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    return;
+                  }
                   window.history.pushState({}, '', '/dashboard/ai-tools');
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
@@ -733,6 +754,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'brosur-jadwal': { icon: FileImage, bg: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20', border: 'border-rose-100', borderDark: 'dark:border-rose-800/40', color: 'text-rose-600 dark:text-rose-400', label: 'Brosur Jadwal' },
                   'kalkulasi': { icon: Calculator, bg: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20', border: 'border-blue-100', borderDark: 'dark:border-blue-800/40', color: 'text-blue-600 dark:text-blue-400', label: 'Kalkulasi' },
                   'mcp': { icon: Bot, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'AI Assistant (MCP)' },
+                  'hotel': { icon: Building2, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Direktori Hotel' },
+                  'hotel/kelola': { icon: Building2, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Kelola Hotel' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (isJamaahEdit) {
@@ -1025,6 +1048,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
             }} agentSlug={agentData.slug} hideHeader />;
+            // hotel/kelola wajib dicek SEBELUM hotel (rute anak sebelum induk).
+            // Di luar gate (atau bukan admin untuk kelola) → jatuh ke daftar Tools.
+            if (sub === 'hotel/kelola' && hotelEnabled && isAdmin) {
+              return <HotelKelolaPage agent={{ slug: agentData.slug, name: agentData.name }} onNavigate={navigatePath} />;
+            }
+            if (sub === 'hotel' && hotelEnabled) {
+              return <HotelPage agent={{ slug: agentData.slug, name: agentData.name, role: agentData.role }} onNavigate={navigatePath} />;
+            }
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;
@@ -1049,7 +1080,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 agentSlug={agentData.slug}
                 onNavigate={(toolId) => {
                   window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : toolId === 'mcp' ? 'AI Assistant (MCP)' : 'Tools';
+                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : toolId === 'mcp' ? 'AI Assistant (MCP)' : toolId === 'hotel' ? 'Direktori Hotel' : 'Tools';
                   // Force re-render by toggling tab
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);

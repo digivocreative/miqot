@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, Calculator, Bot } from 'lucide-react';
+import { Mic, CreditCard, BarChart3, Banknote, ArrowLeftRight, Globe, Calculator, Bot, Building2 } from 'lucide-react';
 import { trackEvent } from '../utils/analytics';
+import { isHotelDirectoryEnabledForAgent } from '../lib/hotelAccess';
 
 interface AIToolsPageProps {
   onNavigate: (sub: string) => void;
@@ -44,6 +45,15 @@ const TOOLS: Tool[] = [
     icon: Banknote,
     color: 'amber',
     route: 'kurs',
+    active: true,
+  },
+  {
+    id: 'hotel',
+    name: 'Direktori Hotel',
+    desc: 'Info, jarak & foto hotel Mekkah, Madinah, Turki, Dubai',
+    icon: Building2,
+    color: 'teal',
+    route: 'hotel',
     active: true,
   },
   {
@@ -131,7 +141,8 @@ export default function AIToolsPage({ onNavigate, agentSlug }: AIToolsPageProps)
   return (
     <div className="px-4 pt-4 pb-8">
       <div className="flex flex-col gap-3">
-        {TOOLS.map(tool => {
+        {/* Kartu hotel disembunyikan total (bukan sekadar dim) untuk agent di luar gate. */}
+        {TOOLS.filter(tool => tool.id !== 'hotel' || isHotelDirectoryEnabledForAgent(agentSlug)).map(tool => {
           const Icon = tool.icon;
           const { bg, text } = iconStyles[tool.color];
           const restricted = !!tool.restrictedTo && !tool.restrictedTo.includes(agentSlug);
