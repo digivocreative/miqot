@@ -103,6 +103,10 @@ import {
   normalizeCommunityPollInput,
 } from './lib/community-poll.js';
 import {
+  communitySnippetCardPayload,
+  normalizeCommunitySnippetInput,
+} from './lib/community-snippet.js';
+import {
   mergeNotifications,
   countUnreadNotifications,
   NOTIFICATION_LIMIT,
@@ -527,6 +531,19 @@ app.use('/api/community/posts/:id/comments', express.json({ limit: '8kb' }));
 // di bawah — parser path-scoped berjalan sebelum parser route-level, jadi
 // limit di route itu tidak pernah tereksekusi (jebakan ini sudah menggigit
 // repo ini 3x). 96kb: utas 5 segmen dengan metadata media bisa melewati 32kb.
+//
+// Lampiran teks (maks 10.000 karakter) tidak muat di 96kb begitu datang
+// bersama segmen utas + metadata media, jadi POST kiriman baru dinaikkan ke
+// 256kb. Kenaikan itu digerbangi method+path PERSIS supaya HANYA
+// `POST /api/community/posts` yang longgar: sub-path di bawahnya
+// (poll-vote, PATCH edit, dst.) jatuh ke baris 96kb di bawah, tidak ikut
+// naik hanya karena app.use mencocokkan prefiks.
+const communityCreatePostJson = express.json({ limit: '256kb' });
+app.use('/api/community/posts', (req, res, next) => (
+  req.method === 'POST' && (req.path === '/' || req.path === '')
+    ? communityCreatePostJson(req, res, next)
+    : next()
+));
 app.use('/api/community/posts', express.json({ limit: '96kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
 // terpasang SEBELUM parser JSON global di bawah
@@ -4992,6 +5009,20 @@ function isCommunityPollSchemaMissing(error) {
   return false;
 }
 
+// Tabel lampiran teks (community_post_snippets) belum dimigrasi — pola
+// TABEL-hilang, bukan kolom-hilang: lampiran hidup di tabelnya sendiri (body
+// 10k karakter sengaja tidak ditaruh di community_posts), jadi yang dibalas
+// PostgREST saat migrasinya tertinggal adalah 42P01/PGRST205 atas tabel itu,
+// bukan 42703 atas sebuah kolom.
+function isCommunitySnippetSchemaMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error?.details || '');
+  if (['42P01', 'PGRST205', 'PGRST200'].includes(code)) {
+    return /community_post_snippets/i.test(message) || code === '42P01';
+  }
+  return false;
+}
+
 function isCommunityLinkPreviewSchemaMissing(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || error?.details || '');
@@ -5067,11 +5098,17 @@ function communityQuotedPostPayload(row) {
   };
 }
 
-function communityLinkPreviewPayload(row) {
+// Aturan prioritas: media, quote, ATAU lampiran teks menang atas link preview
+// — satu kiriman hanya menampilkan satu blok kaya di bawah teksnya. `hasSnippet`
+// dioper dari pemanggil (peta lampiran), bukan dibaca dari `row`, karena baris
+// community_posts memang tidak punya kolom lampiran: lampiran tinggal di
+// community_post_snippets. Jalur tulis menerapkan aturan yang sama di depan
+// (link preview tidak disimpan kalau ada lampiran); penyaringan di sini
+// menjaga kiriman lama yang sudah terlanjur menyimpan keduanya.
+function communityLinkPreviewPayload(row, hasSnippet = false) {
   if (!row) return null;
-  // Aturan prioritas: media atau quote menang atas link preview.
   const hasMedia = normalizeStoredCommunityMedia(row.media, row.photo_url).length > 0;
-  if (hasMedia || row.quoted_post_id) return null;
+  if (hasMedia || row.quoted_post_id || hasSnippet) return null;
   return sanitizeLinkPreview(row.link_preview);
 }
 
@@ -5170,6 +5207,39 @@ async function loadCommunityPollMaps(postIds, viewerAgentId, context = 'loadComm
   return polls;
 }
 
+/**
+ * Peta lampiran teks per kiriman: post_id -> payload kartu cuplikan ({title,
+ * preview, char_count}); kiriman tanpa lampiran tidak punya entri.
+ *
+ * Kolom `body` SENGAJA TIDAK ikut di select — itu seluruh alasan lampiran
+ * dipisah ke tabelnya sendiri. Satu halaman feed memuat 20 kiriman; menarik
+ * body 10.000 karakter untuk masing-masing berarti ratusan KB yang tidak
+ * pernah dirender (kartu cuplikan cuma memakai `preview`). Body hanya keluar
+ * lewat GET /api/community/posts/:id/snippet, saat sheet fullscreen dibuka.
+ *
+ * Tabel belum dimigrasi -> peta kosong (lampiran lenyap senyap, feed tetap
+ * jalan) — degradasi yang sama dengan loadCommunityPollMaps, beda dari jalur
+ * tulis yang menolak jelas dengan 503.
+ */
+async function loadCommunitySnippetMaps(postIds) {
+  const snippets = new Map();
+  if (postIds.length === 0) return snippets;
+
+  const { data: rows, error } = await supabase
+    .from('community_post_snippets')
+    .select('post_id, title, preview, char_count')
+    .in('post_id', postIds);
+  if (error) {
+    if (isCommunitySnippetSchemaMissing(error)) return snippets;
+    throw error;
+  }
+  for (const row of rows || []) {
+    const payload = communitySnippetCardPayload(row);
+    if (payload) snippets.set(row.post_id, payload);
+  }
+  return snippets;
+}
+
 async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuoteCounts = true, context = 'loadCommunityEngagementMaps' } = {}) {
   const reactionCounts = new Map(postIds.map(id => [id, { suka: 0, selamat: 0, aamiin: 0 }]));
   const myReactions = new Map(postIds.map(id => [id, null]));
@@ -5177,11 +5247,19 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
   const commentCounts = new Map(postIds.map(id => [id, 0]));
   const quoteCounts = new Map(postIds.map(id => [id, 0]));
   if (postIds.length === 0) {
-    return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts, polls: new Map() };
+    return {
+      reactionCounts,
+      myReactions,
+      reactionSampleNames,
+      commentCounts,
+      quoteCounts,
+      polls: new Map(),
+      snippets: new Map(),
+    };
   }
 
   const COMMENT_COUNT_LIMIT = 2000;
-  const [reactionResult, commentResult, quoteResult, polls] = await Promise.all([
+  const [reactionResult, commentResult, quoteResult, polls, snippets] = await Promise.all([
     supabase
       .from('community_post_reactions')
       .select('post_id, reaction, agent_id, agent:agents(name)')
@@ -5202,6 +5280,7 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
         .is('deleted_at', null)
       : Promise.resolve({ data: [], error: null }),
     loadCommunityPollMaps(postIds, viewerAgentId, context),
+    loadCommunitySnippetMaps(postIds),
   ]);
   if (reactionResult.error) throw reactionResult.error;
   // Pra-migrasi (is_reply/parent_post_id belum ada): 0 komentar untuk semua,
@@ -5233,7 +5312,7 @@ async function loadCommunityEngagementMaps(postIds, viewerAgentId, { includeQuot
       quoteCounts.set(row.quoted_post_id, quoteCounts.get(row.quoted_post_id) + 1);
     }
   }
-  return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts, polls };
+  return { reactionCounts, myReactions, reactionSampleNames, commentCounts, quoteCounts, polls, snippets };
 }
 
 // Allowed public URL prefixes for Teras media. Bunny CDN is the primary
@@ -6456,6 +6535,7 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
       commentCounts,
       quoteCounts,
       polls,
+      snippets,
     } = await loadCommunityEngagementMaps(postIds, req.user.id, { includeQuoteCounts: includeQuote, context: 'GET /api/community/feed' });
 
     // Mode profil saja: balasan sudah ikut terkirim (lihat buildPostsQuery di
@@ -6568,8 +6648,9 @@ app.get('/api/community/feed', dbLoadShedGuard, authMiddleware, async (req, res)
         quoted_post: includeQuote && post.quoted_post_id
           ? communityQuotedPostPayload(quotedById.get(post.quoted_post_id))
           : null,
-        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
+        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post, snippets.has(post.id)) : null,
         poll: polls.get(post.id) || null,
+        snippet: snippets.get(post.id) || null,
         is_own: post.agent_id === agent.id,
         // parent_post_id/parent_author cuma berarti di mode profil (linimasa
         // selalu parent_post_id NULL, sudah disaring di buildPostsQuery).
@@ -6685,7 +6766,7 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       .maybeSingle();
     const needsAncestors = includeThread && !!post.parent_post_id;
 
-    const [reactionResult, commentResult, firstAncestorResult, detailPolls] = await Promise.all([
+    const [reactionResult, commentResult, firstAncestorResult, detailPolls, detailSnippets] = await Promise.all([
       supabase
         .from('community_post_reactions')
         .select('post_id, reaction, agent_id, agent:agents(name)')
@@ -6707,6 +6788,10 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
       // induk-dari-induk diketahui, jadi lanjutannya tetap berurutan di bawah.
       needsAncestors ? fetchCommunityAncestorRow(post.parent_post_id) : Promise.resolve({ data: null, error: null }),
       loadCommunityPollMaps([post.id], req.user.id, 'GET /api/community/posts/:id'),
+      // Lampiran teks milik segmen PERTAMA saja, jadi cukup kiriman ini —
+      // segmen di array `thread` di bawah tidak membawa `snippet`, sama
+      // seperti mereka tidak membawa `quoted_post`.
+      loadCommunitySnippetMaps([post.id]),
     ]);
     if (reactionResult.error) throw reactionResult.error;
     // Pra-migrasi (is_reply/parent_post_id belum ada): degradasi ke 0, bukan
@@ -6863,8 +6948,9 @@ app.get('/api/community/posts/:id', dbLoadShedGuard, authMiddleware, async (req,
         comment_count: commentResult.error ? 0 : (commentResult.count || 0),
         quote_count: quoteCount,
         quoted_post: post.quoted_post_id ? quotedPost : null,
-        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post) : null,
+        link_preview: includeLinkPreview ? communityLinkPreviewPayload(post, detailSnippets.has(post.id)) : null,
         poll: detailPolls.get(post.id) || null,
+        snippet: detailSnippets.get(post.id) || null,
         thread,
         parent_post_id: includeThread ? (post.parent_post_id || null) : null,
         ancestors,
@@ -7057,7 +7143,13 @@ async function createCommunityPostRow({
   return { post: createdPost, error: insertError, threadSchemaMissing: false };
 }
 
-app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' }), async (req, res) => {
+// Limit 256kb (lampiran teks boleh 10.000 karakter, dan 96kb tidak cukup
+// begitu body sebesar itu datang bersama segmen utas + metadata media).
+// CATATAN: parser di baris ini TIDAK PERNAH tereksekusi — parser path-scoped
+// di app.use('/api/community/posts', ...) sudah menghabiskan body lebih dulu.
+// Angkanya disamakan supaya tidak ada dua angka yang saling bertentangan;
+// yang benar-benar berlaku ada di sana (lihat komentarnya).
+app.post('/api/community/posts', authMiddleware, express.json({ limit: '256kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -7076,6 +7168,15 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       error: pollInputError,
     } = normalizeCommunityPollInput(req.body?.poll);
     if (pollInputError) return res.status(400).json({ error: pollInputError });
+
+    // Lampiran teks: juga milik utas (menempel pada segmen pertama). Body
+    // dinormalisasi & dibatasi 10.000 karakter di helper; larangan gabung
+    // dengan polling menyusul di bawah, setelah keduanya diketahui.
+    const {
+      snippet,
+      error: snippetInputError,
+    } = normalizeCommunitySnippetInput(req.body?.snippet);
+    if (snippetInputError) return res.status(400).json({ error: snippetInputError });
 
     // Segmen pertama memegang identitas utas: quote, link preview, dan @semua
     // hanya dinilai dari sini.
@@ -7158,9 +7259,16 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       return res.status(400).json({ error: 'Polling tidak bisa digabung dengan media atau kutipan' });
     }
 
-    // Link preview: hanya bila TIDAK ada media & TIDAK ada quote (prioritas).
+    // Lampiran + polling sama-sama merebut blok utama di bawah teks kiriman.
+    // Media dan kutipan SENGAJA tetap boleh berdampingan dengan lampiran —
+    // kartu cuplikan hidup berdampingan dengan keduanya, tidak seperti poll.
+    if (snippet && pollOptions) {
+      return res.status(400).json({ error: 'Lampiran teks tidak bisa digabung dengan polling' });
+    }
+
+    // Link preview: hanya bila TIDAK ada media, quote, & lampiran (prioritas).
     let linkPreview = null;
-    if (media.length === 0 && !quotedPostId && req.body?.link_preview != null) {
+    if (media.length === 0 && !quotedPostId && !snippet && req.body?.link_preview != null) {
       const candidate = sanitizeLinkPreview(req.body.link_preview);
       // URL preview wajib benar-benar muncul di body teks.
       if (candidate && body.includes(candidate.url)) {
@@ -7334,6 +7442,73 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       createdPollPayload = pollRow ? communityPollPayload(pollRow, [], agent.id) : null;
     }
 
+    // Lampiran teks disimpan SETELAH seluruh rantai kiriman sukses dan SETELAH
+    // blok poll — all-or-nothing yang sama persis: kiriman yang kehilangan
+    // lampirannya (teks panjang yang justru jadi isi utamanya) lebih buruk
+    // daripada penolakan yang jelas. Retry idempoten (reused/23505) mengambil
+    // baris lampiran yang sudah ada dari percobaan pertama, bukan insert ulang.
+    //
+    // `body` tidak ikut di-select balik: nilainya sudah ada di memori sebagai
+    // `snippet.body`, dan respons kiriman baru pun hanya membawa kartu
+    // cuplikan — sama seperti feed.
+    let createdSnippetPayload = null;
+    if (snippet && createdPost) {
+      const loadExistingSnippet = () => supabase
+        .from('community_post_snippets')
+        .select('post_id, title, preview, char_count')
+        .eq('post_id', createdPost.id)
+        .maybeSingle();
+      let snippetRow = null;
+      let snippetFailure = null;
+      if (isFreshPostInsert) {
+        const { data: insertedSnippet, error: snippetInsertError } = await supabase
+          .from('community_post_snippets')
+          .insert({
+            post_id: createdPost.id,
+            title: snippet.title,
+            body: snippet.body,
+            preview: snippet.preview,
+            char_count: snippet.charCount,
+          })
+          .select('post_id, title, preview, char_count')
+          .single();
+        if (!snippetInsertError) {
+          snippetRow = insertedSnippet;
+        } else if (snippetInsertError.code === '23505') {
+          ({ data: snippetRow } = await loadExistingSnippet());
+        } else {
+          snippetFailure = snippetInsertError;
+        }
+      } else {
+        const { data: existingSnippet, error: existingSnippetError } = await loadExistingSnippet();
+        if (existingSnippetError && !isCommunitySnippetSchemaMissing(existingSnippetError)) {
+          snippetFailure = existingSnippetError;
+        }
+        snippetRow = existingSnippet || null;
+      }
+      if (snippetFailure) {
+        if (rollbackIds.length > 0) {
+          const { error: rollbackError } = await supabase
+            .from('community_posts')
+            .delete()
+            .in('id', rollbackIds)
+            .eq('agent_id', agent.id);
+          if (rollbackError) {
+            console.error(
+              '[community] ROLLBACK UTAS (lampiran) GAGAL — baris yatim perlu dibersihkan manual:',
+              rollbackIds.join(', '),
+              rollbackError.message,
+            );
+          }
+        }
+        if (isCommunitySnippetSchemaMissing(snippetFailure)) {
+          return res.status(503).json({ error: 'Migrasi lampiran teks Teras belum diterapkan' });
+        }
+        throw snippetFailure;
+      }
+      createdSnippetPayload = snippetRow ? communitySnippetCardPayload(snippetRow) : null;
+    }
+
     // Pill "kiriman baru" menghitung baris feed, dan feed hanya menampilkan
     // segmen pertama — jadi satu utas menaikkan head sekali.
     bumpCommunityFeedHead(createdPost);
@@ -7359,6 +7534,7 @@ app.post('/api/community/posts', authMiddleware, express.json({ limit: '96kb' })
       quoted_post: quotedPostId ? communityQuotedPostPayload(quotedPostRow) : null,
       link_preview: linkPreview,
       poll: createdPollPayload,
+      snippet: createdSnippetPayload,
       thread_count: chain.length > 1 ? chain.length : 0,
       is_own: true,
     };
@@ -7647,6 +7823,52 @@ app.get('/api/community/posts/:id/poll-voters', dbLoadShedGuard, authMiddleware,
   } catch (err) {
     console.error('[community] poll voters list error:', err);
     res.status(500).json({ error: 'Gagal memuat daftar pemilih' });
+  }
+});
+
+/**
+ * Body penuh lampiran teks — satu-satunya jalan keluar kolom `body`. Feed dan
+ * detail kiriman hanya membawa cuplikannya (lihat loadCommunitySnippetMaps),
+ * jadi 10.000 karakter itu baru melintas kabel saat sheet fullscreen dibuka.
+ *
+ * TIDAK ada cek kepemilikan: Teras adalah feed antar-agent, dan lampiran sama
+ * terbukanya dengan body kiriman yang sudah tampil di linimasa untuk semua
+ * anggota. Gerbangnya requireCommunityAccess (boleh masuk Teras), bukan
+ * kepemilikan kiriman.
+ */
+app.get('/api/community/posts/:id/snippet', authMiddleware, async (req, res) => {
+  try {
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    if (!requireCommunityAccess(agent, res)) return;
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(400).json({ error: 'Kiriman tidak valid' });
+    }
+
+    const { data: row, error } = await supabase
+      .from('community_post_snippets')
+      .select('title, body, char_count')
+      .eq('post_id', req.params.id)
+      .maybeSingle();
+    if (error) {
+      // Jalur BACA boleh degradasi: tabel belum dimigrasi berarti belum ada
+      // lampiran mana pun untuk dibaca, jadi 404 yang sama dengan "baris tidak
+      // ada" — 503 disimpan untuk jalur TULIS, yang benar-benar kehilangan
+      // data kalau tetap diteruskan.
+      if (isCommunitySnippetSchemaMissing(error)) {
+        return res.status(404).json({ error: 'Lampiran teks tidak ditemukan' });
+      }
+      throw error;
+    }
+    if (!row) return res.status(404).json({ error: 'Lampiran teks tidak ditemukan' });
+
+    res.json({
+      success: true,
+      data: { title: row.title ?? null, body: row.body, char_count: Number(row.char_count) || 0 },
+    });
+  } catch (err) {
+    console.error('[community] snippet detail error:', err);
+    res.status(500).json({ error: 'Gagal memuat lampiran teks' });
   }
 });
 
