@@ -1276,10 +1276,16 @@ function PostImage({
   // 'natural': ikuti rasio asli gambar (dibatasi tinggi maksimum feed);
   // 'height': tinggi mengikuti rail carousel, lebar menyesuaikan rasio;
   // 'cover': isi penuh sel grid (layout 2 media).
+  //
+  // 'height' memakai object-COVER, bukan contain: elemennya bertinggi tetap
+  // (rail) sementara lebarnya bisa kena clamp max-width — contain menyisakan
+  // bar atas-bawah berlatar slate-950 (tampak hitam di mode gelap) untuk
+  // gambar 1:1/lebar; cover memangkas tipis sisi-sisinya (pola yang sama
+  // dengan sel grid pair). Saat tidak ter-clamp keduanya identik.
   const fitClass = fit === 'natural'
     ? 'block max-h-[22rem] w-auto max-w-full object-contain'
     : fit === 'height'
-      ? 'block h-full w-auto max-w-full object-contain'
+      ? 'block h-full w-auto max-w-full object-cover'
       : 'h-full w-full object-cover';
   return (
     <>
@@ -4767,7 +4773,9 @@ export default function TerasPage({
                 alt={media.length === 1 ? 'Pratinjau foto kiriman' : `Pratinjau foto ${index + 1}`}
                 className={media.length === 1
                   ? 'block max-h-[22rem] w-auto max-w-full object-contain'
-                  : 'block h-full w-auto max-w-[80vw] object-contain'}
+                  // cover: saat lebar kena clamp 80vw, pangkas tipis — bukan
+                  // bar gelap atas-bawah (elemen bertinggi tetap h-64).
+                  : 'block h-full w-auto max-w-[80vw] object-cover'}
               />
             )}
             <button
@@ -5015,7 +5023,7 @@ export default function TerasPage({
                     <img
                       src={item.previewUrl}
                       alt={`Pratinjau foto komentar ${index + 1}`}
-                      className="block h-full w-auto max-w-[60vw] object-contain"
+                      className="block h-full w-auto max-w-[60vw] object-cover"
                     />
                   )}
                   <button
@@ -6545,7 +6553,7 @@ export default function TerasPage({
                                           src={item.url}
                                           alt={`Foto ${index + 1} komentar ${comment.author.name || 'Agent'}`}
                                           loading="lazy"
-                                          className="block h-36 w-auto max-w-[70vw] object-contain"
+                                          className="block h-36 w-auto max-w-[70vw] object-cover"
                                         />
                                       )}
                                     </button>
