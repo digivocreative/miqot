@@ -145,11 +145,11 @@ export function HotelViewShell({ viewKey, children }: { viewKey: string; childre
   );
 }
 
-// Deskripsi panjang dipangkas ke 4 baris dengan pudar di tepi bawah, lalu
+// Deskripsi panjang dipangkas ke 3 baris dengan pudar di tepi bawah, lalu
 // dibuka penuh lewat "Lihat selengkapnya". Tinggi terpangkas DIUKUR dari
 // line-height elemennya sendiri, bukan angka px hafalan — ukuran font/leading
 // boleh berubah tanpa memecahkan potongannya.
-const DESCRIPTION_CLAMP_LINES = 4;
+const DESCRIPTION_CLAMP_LINES = 3;
 
 function HotelDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -180,13 +180,15 @@ function HotelDescription({ text }: { text: string }) {
 
   return (
     <>
+      {/* Jarak atas ada di WADAH, bukan di <p>: tinggi terpangkas dihitung dari
+          tinggi teks murni, jadi margin tidak ikut memakan jatah barisnya. */}
       <motion.div
-        className="relative overflow-hidden"
+        className="relative mt-1.5 overflow-hidden"
         animate={{ height: showFull ? 'auto' : collapsedHeight }}
         initial={false}
         transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
       >
-        <p ref={textRef} className="mt-1.5 text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">
+        <p ref={textRef} className="text-sm leading-relaxed text-gray-600 dark:text-slate-300 whitespace-pre-line">
           {text}
         </p>
         {/* Pudar hanya saat terpotong — penanda "masih ada lanjutannya". */}
@@ -198,7 +200,7 @@ function HotelDescription({ text }: { text: string }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-white dark:to-slate-900"
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-b from-transparent to-white dark:to-slate-900"
             />
           )}
         </AnimatePresence>
@@ -721,8 +723,10 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
         <>
           {/* Galeri: satu cover besar + tiga mini di bawahnya (pola tiket.com).
               Foto langsung membuka lightbox; HANYA kotak "Lihat semua" yang
-              pindah ke halaman media. */}
-          <div className="mt-3">
+              pindah ke halaman media.
+              TANPA margin atas: shell sudah memberi pt-4, dan margin tambahan
+              membuat jarak atas (28px) tak sebanding dengan px-4 di sisinya. */}
+          <div>
             <button
               onClick={() => setViewerIndex(0)}
               disabled={media.length === 0}
