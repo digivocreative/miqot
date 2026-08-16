@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -862,20 +863,39 @@ function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
 }
 
 /**
- * Thumbnail video di rail kutipan: poster JPEG (selalu ter-paint — tidak
- * seperti <video> preload="metadata" yang tampil hitam di perangkat hemat
- * data; <video> tinggal jalur mundur media lama tanpa poster) + skeleton
- * pulse dengan rasio dari dimensi tersimpan, paritas perilaku PlyrVideo:
- * settle saat termuat/error, jalur <video> diberi timeout 4 dtk supaya
- * shimmer tidak abadi di perangkat yang tak pernah mem-preload.
+ * Skeleton pulse untuk kotak media video (paritas PostImage) — dipakai
+ * thumbnail kutipan dan pratinjau komentar; PlyrVideo punya salinannya
+ * sendiri (beda berkas, plus jalur preload poster). Selalu absolute inset-0
+ * di dalam pembungkus ber-position relative.
  */
-function QuotedVideoThumb({ item }: { item: CommunityMedia }) {
+function MediaSkeleton({ settled }: { settled: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-video-skeleton
+      className={`pointer-events-none absolute inset-0 rounded-[inherit] bg-gray-200 transition-opacity duration-300 motion-reduce:animate-none dark:bg-slate-800 ${
+        settled ? 'opacity-0' : 'animate-pulse opacity-100'
+      }`}
+    />
+  );
+}
+
+/**
+ * Settle skeleton untuk elemen <video>: frame pertama terlukis atau error;
+ * timeout menjaga perangkat yang tak pernah mem-preload (Data Saver) dari
+ * shimmer berdenyut selamanya. `enabled: false` (mis. thumbnail sudah punya
+ * poster <img>) menonaktifkan pendengarnya — settle diurus jalur lain.
+ */
+function useVideoFrameSettled(
+  videoRef: RefObject<HTMLVideoElement>,
+  enabled: boolean,
+  sourceKey: string,
+): [boolean, (settled: boolean) => void] {
   const [settled, setSettled] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  useEffect(() => { setSettled(false); }, [item.poster, item.url]);
+  useEffect(() => { setSettled(false); }, [sourceKey]);
 
   useEffect(() => {
-    if (item.poster) return undefined;
+    if (!enabled) return undefined;
     const element = videoRef.current;
     if (!element) return undefined;
     if (element.readyState >= 2) {
@@ -891,7 +911,20 @@ function QuotedVideoThumb({ item }: { item: CommunityMedia }) {
       element.removeEventListener('error', done);
       window.clearTimeout(timeoutId);
     };
-  }, [item.poster, item.url]);
+  }, [videoRef, enabled, sourceKey]);
+
+  return [settled, setSettled];
+}
+
+/**
+ * Thumbnail video di rail kutipan: poster JPEG (selalu ter-paint — tidak
+ * seperti <video> preload="metadata" yang tampil hitam di perangkat hemat
+ * data; <video> tinggal jalur mundur media lama tanpa poster) + skeleton
+ * pulse dengan rasio dari dimensi tersimpan.
+ */
+function QuotedVideoThumb({ item }: { item: CommunityMedia }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [settled, setSettled] = useVideoFrameSettled(videoRef, !item.poster, `${item.poster ?? ''}|${item.url}`);
 
   // Tinggi thumbnail definit (h-32 dari tombol pembungkus) + aspect-ratio →
   // lebar kotak benar SEBELUM poster termuat; tanpa ini lebar melompat dari
@@ -925,18 +958,46 @@ function QuotedVideoThumb({ item }: { item: CommunityMedia }) {
           className="block h-full w-auto max-w-[60vw] bg-black object-contain"
         />
       )}
-      <span
-        aria-hidden="true"
-        data-video-skeleton
-        className={`pointer-events-none absolute inset-0 rounded-[inherit] bg-gray-200 transition-opacity duration-300 motion-reduce:animate-none dark:bg-slate-800 ${
-          settled ? 'opacity-0' : 'animate-pulse opacity-100'
-        }`}
-      />
+      <MediaSkeleton settled={settled} />
       <span className="absolute inset-0 flex items-center justify-center">
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white">
           <Play size={14} fill="currentColor" />
         </span>
       </span>
+    </>
+  );
+}
+
+/**
+ * Pratinjau video di composer komentar: blob lokal biasanya termuat kilat,
+ * tapi tetap dapat skeleton + rasio hasil capture supaya kotaknya tidak
+ * melompat/pop-in — konsisten dengan feed dan kutipan.
+ */
+function CommentVideoPreview({ item, index }: { item: ComposerMedia; index: number }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [settled] = useVideoFrameSettled(videoRef, true, item.previewUrl);
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        src={videoPreviewSrc(item.previewUrl)}
+        onError={event => {
+          // Fragment poster ditolak — mundur ke blob URL polos
+          // supaya videonya tetap bisa diputar.
+          const fallback = videoPreviewFallbackSrc(item.previewUrl);
+          if (fallback && event.currentTarget.src !== fallback) {
+            event.currentTarget.src = fallback;
+          }
+        }}
+        playsInline
+        muted
+        preload="metadata"
+        aria-label={`Pratinjau video komentar ${index + 1}`}
+        style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
+        className="block h-full w-auto max-w-[60vw] bg-black object-contain"
+      />
+      <MediaSkeleton settled={settled} />
     </>
   );
 }
@@ -4948,22 +5009,7 @@ export default function TerasPage({
                   className="relative h-24 shrink-0 snap-start overflow-hidden rounded-lg border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-950"
                 >
                   {item.type === 'video' ? (
-                    <video
-                      src={videoPreviewSrc(item.previewUrl)}
-                      onError={event => {
-                        // Fragment poster ditolak — mundur ke blob URL polos
-                        // supaya videonya tetap bisa diputar.
-                        const fallback = videoPreviewFallbackSrc(item.previewUrl);
-                        if (fallback && event.currentTarget.src !== fallback) {
-                          event.currentTarget.src = fallback;
-                        }
-                      }}
-                      playsInline
-                      muted
-                      preload="metadata"
-                      aria-label={`Pratinjau video komentar ${index + 1}`}
-                      className="block h-full w-auto max-w-[60vw] bg-black object-contain"
-                    />
+                    <CommentVideoPreview item={item} index={index} />
                   ) : (
                     <img
                       src={item.previewUrl}

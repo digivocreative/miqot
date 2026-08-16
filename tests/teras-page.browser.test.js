@@ -9,6 +9,11 @@ import { createServer } from 'vite';
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const ONE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const LANDSCAPE_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><rect width="1600" height="900" fill="#0f766e"/></svg>')}`;
+// WebM VP8 64×48 sungguhan (6 frame, 1 dtk) yang TERDECODE oleh Chromium —
+// dipakai test yang butuh captureVideoPoster benar-benar menghasilkan
+// poster + dimensi (byte ftyp sintetis menjaga jalur mundur capture-gagal).
+const TINY_WEBM_BASE64 = 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAKBEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEnTbuMU6uEHFO7a1OsggJr7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuMS4xMDBXQYxMYXZmNjEuMS4xMDBEiYhAj0AAAAAAABZUrmvMrgEAAAAAAABD14EBc8WI6wwTTHieDMacgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QJ7yGq4JSwgUC6gTCagQJVsIhVt4ECVbiBAhJUw2f6c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS4xLjEwMHNz1WPAi2PFiOsME0x4ngzGZ8igRaOHRU5DT0RFUkSHk0xhdmM2MS4zLjEwMCBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QL/ngQCjwoEAAIBQAwCdASpAADAAAEcIhYWIhYSIAgICdaoD+AIHCNVnmY830gD++7Ar/2M36M36M39gD/+H/fw/7+H/f/DpAKOWgQCnANEBAAEQEAAYABhYL/QACIwAAKOWgQFNANEBAAEQEAAYABhYL/QACIwAAKOWgQH0ANEBAAEQEAAYABhYL/QACIwAAKOWgQKbANEBAAEQEAAYABhYL/QACIwAAKOWgQNBANEBAAEQEAAYABhYL/QACIwAABxTu2uRu4+zgQC3iveBAfGCAabwgQM=';
+
 // Accessible name of the feed "buat kiriman" trigger (the visible rotating
 // TypingPrompt is aria-hidden, so the sr-only label is the stable name).
 const COMPOSER_TRIGGER = 'Buat kiriman baru';
@@ -846,14 +851,7 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     const api = createCommunityApi();
     const app = await openApp({ api });
     try {
-      // WebM VP8 64×48 sungguhan (6 frame, 1 dtk) — beda dengan byte ftyp
-      // sintetis di test sebelumnya, ini TERDECODE oleh Chromium sehingga
-      // captureVideoPoster menghasilkan poster; test sebelumnya justru menjaga
-      // jalur mundur (capture gagal → posting tetap jalan tanpa poster).
-      const sourceVideo = Buffer.from(
-        'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAKBEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEnTbuMU6uEHFO7a1OsggJr7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuMS4xMDBXQYxMYXZmNjEuMS4xMDBEiYhAj0AAAAAAABZUrmvMrgEAAAAAAABD14EBc8WI6wwTTHieDMacgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QJ7yGq4JSwgUC6gTCagQJVsIhVt4ECVbiBAhJUw2f6c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS4xLjEwMHNz1WPAi2PFiOsME0x4ngzGZ8igRaOHRU5DT0RFUkSHk0xhdmM2MS4zLjEwMCBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QL/ngQCjwoEAAIBQAwCdASpAADAAAEcIhYWIhYSIAgICdaoD+AIHCNVnmY830gD++7Ar/2M36M36M39gD/+H/fw/7+H/f/DpAKOWgQCnANEBAAEQEAAYABhYL/QACIwAAKOWgQFNANEBAAEQEAAYABhYL/QACIwAAKOWgQH0ANEBAAEQEAAYABhYL/QACIwAAKOWgQKbANEBAAEQEAAYABhYL/QACIwAAKOWgQNBANEBAAEQEAAYABhYL/QACIwAABxTu2uRu4+zgQC3iveBAfGCAabwgQM=',
-        'base64',
-      );
+      const sourceVideo = Buffer.from(TINY_WEBM_BASE64, 'base64');
       // Layani file poster dari mock supaya skeleton settle lewat jalur
       // onload sungguhan (bukan onerror karena host mock tak melayani file).
       const posterJpeg = await sharp({
@@ -964,6 +962,46 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       // Skeleton hadir dan settle (poster tidak dilayani host mock → onerror;
       // kontraknya: shimmer tidak boleh abadi).
       const skeleton = thumb.locator('[data-video-skeleton]');
+      await skeleton.waitFor({ state: 'attached' });
+      await app.page.waitForFunction(
+        element => element instanceof Element && element.classList.contains('opacity-0'),
+        await skeleton.elementHandle(),
+        { timeout: 5000 },
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('pratinjau video komentar memakai skeleton + rasio hasil capture', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({ id: 'post-komentar-video', body: 'Uji pratinjau video komentar' })],
+    });
+    const app = await openApp({ api });
+    try {
+      const article = app.page.locator('article').filter({ hasText: 'Uji pratinjau video komentar' });
+      await article.getByRole('button', { name: 'Komentari', exact: true }).click();
+
+      const fileChooserPromise = app.page.waitForEvent('filechooser');
+      await article.getByRole('button', { name: 'Tambah foto atau video ke komentar' }).click();
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles({
+        name: 'clip.webm',
+        mimeType: 'video/webm',
+        buffer: Buffer.from(TINY_WEBM_BASE64, 'base64'),
+      });
+
+      const preview = article.getByLabel('Pratinjau video komentar 1');
+      await preview.waitFor();
+      // Rasio dari dimensi hasil captureVideoPoster terpasang setelah fase
+      // processing selesai — kotak pratinjau tidak melompat.
+      await app.page.waitForFunction(
+        element => element instanceof Element && element.style.aspectRatio === '64 / 48',
+        await preview.elementHandle(),
+        { timeout: 5000 },
+      );
+      // Skeleton hadir dan settle begitu blob lokal terlukis.
+      const skeleton = article.locator('[data-video-skeleton]');
       await skeleton.waitFor({ state: 'attached' });
       await app.page.waitForFunction(
         element => element instanceof Element && element.classList.contains('opacity-0'),
