@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronLeft, Copy, Loader2, Share2 } from 'lucide-react';
+import { Check, ChevronLeft, Copy, Loader2, Share2 } from 'lucide-react';
 
 import { AgentAvatar } from './AgentAvatar';
 import { timeAgo } from '../../lib/communityNotifications';
@@ -39,9 +39,22 @@ interface SnippetSheetProps {
   error: string | null;
   onRetry: () => void;
   onClose: () => void;
-  onCopy: () => void;
+  /**
+   * Menyalin body ke clipboard. Mengembalikan `true` HANYA kalau clipboard
+   * benar-benar terisi — itu yang menentukan boleh-tidaknya tombol berubah
+   * jadi centang. Centang yang berbohong lebih buruk daripada tidak ada
+   * centang: agent menutup sheet, menempel di WhatsApp, dan dapat teks lama.
+   */
+  onCopy: () => Promise<boolean>;
   onShare: () => void;
 }
+
+/**
+ * Umur tanda "Tersalin" sebelum tombol kembali ke keadaan semula. Cukup lama
+ * untuk terbaca, cukup pendek supaya tombol tidak tampak macet di keadaan
+ * sukses saat agent ingin menyalin ulang.
+ */
+const COPIED_RESET_MS = 1800;
 
 export default function SnippetSheet({
   source,
@@ -57,6 +70,33 @@ export default function SnippetSheet({
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const open = source !== null;
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+  }, []);
+
+  // Tanda "Tersalin" milik SATU lampiran: tutup sheet atau buka lampiran lain,
+  // dan ia harus kembali ke keadaan awal — bukan menyeberang dan mengaku
+  // teks yang sekarang di clipboard adalah teks yang sedang dibaca.
+  useEffect(() => {
+    setCopied(false);
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = null;
+    }
+  }, [source?.postId]);
+
+  const handleCopy = useCallback(async () => {
+    if (await onCopy() !== true) return;
+    setCopied(true);
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => {
+      copiedTimerRef.current = null;
+      setCopied(false);
+    }, COPIED_RESET_MS);
+  }, [onCopy]);
 
   // Rebut fokus + ingat pemanggil, pola yang sama dengan sheet lain di Teras.
   useEffect(() => {
@@ -131,21 +171,22 @@ export default function SnippetSheet({
           transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         >
           <header className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/95">
-            <div className="mx-auto grid w-full max-w-2xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            {/* Tinggi baris & padding disalin PERSIS dari header Teras
+                (DashboardLayout ~666, cabang compactHeader): pb-1.5 +
+                pt-[max(0.375rem,…)] + gap-2, dengan tombol ber-`-m-1.5`.
+                Margin negatif dua sumbu itulah yang memendekkan baris jadi
+                32px — hit-area 44px-nya tetap utuh, cuma tidak lagi ikut
+                menentukan tinggi header. */}
+            <div className="mx-auto grid w-full max-w-2xl grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]">
               {/* Pola tombol ikon header dashboard (DashboardLayout ~713): hit-area
                   44px TRANSPARAN membungkus chip yang terlihat. Ukurannya ikut
                   varian COMPACT — `compactHeader = activeTab === 'teras'`, jadi
-                  chip Teras adalah 32px rounded-lg, bukan 36px rounded-xl.
-                  Margin negatifnya sengaja hanya horizontal: `-m-1.5` seperti di
-                  dashboard akan memendekkan baris header sheet ini jadi 32px,
-                  padahal sheet saudaranya (komposer, editor lampiran) semua
-                  berbaris 44px. -mx-1.5 membuat tepi kiri chip jatuh persis di
-                  px-4 kontainer. */}
+                  chip Teras adalah 32px rounded-lg, bukan 36px rounded-xl. */}
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Tutup lampiran teks"
-                className="group -mx-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-start focus-visible:outline-none"
+                className="group -m-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-start focus-visible:outline-none"
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100/80 text-gray-600 transition-all group-hover:bg-gray-200 group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700">
                   <ChevronLeft size={16} strokeWidth={2.5} />
@@ -153,22 +194,44 @@ export default function SnippetSheet({
               </button>
               <h2
                 id="teras-snippet-sheet-title"
-                className="text-center text-sm font-bold text-gray-900 dark:text-white"
+                className="text-center text-[13px] font-bold text-gray-900 dark:text-white"
               >
                 Lampiran Teks
               </h2>
               <button
                 type="button"
-                onClick={onCopy}
+                onClick={() => void handleCopy()}
                 disabled={!body}
-                aria-label="Salin teks lampiran"
+                aria-label={copied ? 'Teks lampiran tersalin' : 'Salin teks lampiran'}
                 title={body ? 'Salin teks lampiran' : 'Menunggu teks selesai dimuat'}
-                className="group -mx-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-end disabled:opacity-40 focus-visible:outline-none"
+                className="group -m-1.5 flex h-11 w-11 shrink-0 items-center justify-center justify-self-end disabled:opacity-40 focus-visible:outline-none"
               >
                 {/* size 14 mengikuti aksi kanan header Teras (toggle mode gelap
                     & lonceng), bukan 16 milik chevron back. */}
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100/80 text-gray-500 transition-all group-hover:bg-gray-200 group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700">
-                  <Copy size={14} />
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors group-active:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-emerald-500/50 ${
+                    copied
+                      ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                      : 'bg-gray-100/80 text-gray-500 group-hover:bg-gray-200 dark:bg-slate-800/80 dark:text-slate-300 dark:group-hover:bg-slate-700'
+                  }`}
+                >
+                  {/* mode="wait": ikon lama keluar dulu, baru yang baru masuk —
+                      kalau tumpang-tindih, dua ikon sempat terlihat di kotak
+                      32px yang sama. */}
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={copied ? 'tersalin' : 'salin'}
+                      className="flex"
+                      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.4, rotate: -25 }}
+                      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: 0 }}
+                      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.4, rotate: 20 }}
+                      transition={reduceMotion
+                        ? { duration: 0 }
+                        : { type: 'spring', stiffness: 520, damping: 24, mass: 0.6 }}
+                    >
+                      {copied ? <Check size={14} strokeWidth={3} /> : <Copy size={14} />}
+                    </motion.span>
+                  </AnimatePresence>
                 </span>
               </button>
             </div>
@@ -244,12 +307,42 @@ export default function SnippetSheet({
             <div className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5">
               <button
                 type="button"
-                onClick={onCopy}
+                onClick={() => void handleCopy()}
                 disabled={!body}
-                className="flex min-h-11 flex-[2] items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 text-[13px] font-extrabold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-[0.98] disabled:opacity-45 dark:shadow-emerald-950/40"
+                // Lebar tombol dikunci oleh flex-[2], jadi pergantian
+                // "Salin teks" -> "Tersalin" tidak menggeser tombol Bagikan
+                // di sebelahnya — label yang memendek tidak boleh membuat
+                // baris aksi bergoyang.
+                className={`flex min-h-11 flex-[2] items-center justify-center overflow-hidden rounded-full px-4 text-[13px] font-extrabold text-white shadow-md transition-colors active:scale-[0.98] disabled:opacity-45 ${
+                  copied
+                    ? 'bg-emerald-600 shadow-emerald-600/20 dark:shadow-emerald-950/40'
+                    : 'bg-emerald-500 shadow-emerald-500/20 dark:shadow-emerald-950/40'
+                }`}
               >
-                {loading && !body ? <Loader2 size={15} className="animate-spin" /> : <Copy size={15} />}
-                Salin teks
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={copied ? 'tersalin' : 'salin'}
+                    className="flex items-center gap-1.5"
+                    initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+                    animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                    exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -12 }}
+                    transition={reduceMotion
+                      ? { duration: 0 }
+                      : { type: 'spring', stiffness: 480, damping: 30, mass: 0.6 }}
+                  >
+                    {copied ? (
+                      <>
+                        <Check size={15} strokeWidth={3} />
+                        Tersalin
+                      </>
+                    ) : (
+                      <>
+                        {loading && !body ? <Loader2 size={15} className="animate-spin" /> : <Copy size={15} />}
+                        Salin teks
+                      </>
+                    )}
+                  </motion.span>
+                </AnimatePresence>
               </button>
               <button
                 type="button"

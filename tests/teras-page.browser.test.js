@@ -2178,6 +2178,100 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('sheet lampiran: header setinggi header Teras, Salin jadi Tersalin lalu pulih', { timeout: 30_000 }, async () => {
+    const fullBody = 'Isi penuh lampiran yang disalin.';
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'post-salin',
+        body: 'Punya lampiran',
+        snippet: { title: 'Panduan Manasik Ringkas', preview: 'Cuplikan.', char_count: 1240 },
+      })],
+      snippetBodies: { 'post-salin': { title: 'Panduan Manasik Ringkas', body: fullBody, char_count: 1240 } },
+    });
+    const app = await openApp({ api, viewport: { width: 700, height: 800 } });
+    try {
+      await app.page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      const terasHeader = app.page.locator('header').first();
+      const card = app.page.locator('[data-teras-snippet-card]').first();
+      await card.waitFor();
+      const terasBox = await terasHeader.boundingBox();
+
+      await card.click();
+      const sheet = app.page.locator('[data-teras-snippet-sheet]');
+      await sheet.waitFor();
+      await app.page.waitForFunction(el => getComputedStyle(el).transform === 'none', await sheet.elementHandle());
+
+      // Header sheet dan header Teras harus setinggi persis: keduanya memakai
+      // padding compact + tombol ikon ber-margin-negatif dua sumbu. Diukur,
+      // bukan dicocokkan kelas — kelas yang sama pun bisa beda tinggi kalau
+      // salah satu isinya lebih tinggi dari chip 32px.
+      const sheetBox = await sheet.locator('header').boundingBox();
+      assert.ok(terasBox && sheetBox, 'kedua header harus dapat diukur');
+      assert.ok(
+        Math.abs(sheetBox.height - terasBox.height) <= 1,
+        `header sheet harus setinggi header Teras: ${JSON.stringify({ teras: terasBox.height, sheet: sheetBox.height })}`,
+      );
+
+      const tombolSalin = sheet.getByRole('button', { name: 'Salin teks', exact: true });
+      await tombolSalin.click();
+
+      // Dua penanda sukses sekaligus: chip header jadi centang (namanya
+      // berubah) dan tombol footer jadi "Tersalin".
+      await sheet.getByRole('button', { name: 'Teks lampiran tersalin' }).waitFor({ timeout: 5_000 });
+      await sheet.getByText('Tersalin', { exact: true }).waitFor({ timeout: 5_000 });
+      assert.equal(
+        await app.page.evaluate(() => navigator.clipboard.readText()),
+        fullBody,
+        'yang tersalin harus body PENUH, bukan cuplikan kartu',
+      );
+
+      // Tombol tidak boleh macet di keadaan sukses — agent yang ingin
+      // menyalin ulang harus menemukannya kembali seperti semula.
+      await sheet.getByRole('button', { name: 'Salin teks', exact: true }).waitFor({ timeout: 5_000 });
+      assert.equal(await sheet.getByText('Tersalin', { exact: true }).count(), 0,
+        'tanda Tersalin harus pulih sendiri');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('sheet lampiran: clipboard gagal -> tombol TIDAK berubah jadi centang', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({
+      posts: [makePost({
+        id: 'post-gagal',
+        body: 'Punya lampiran',
+        snippet: { title: 'Panduan Manasik Ringkas', preview: 'Cuplikan.', char_count: 1240 },
+      })],
+      snippetBodies: { 'post-gagal': { title: 'Panduan Manasik Ringkas', body: 'Isi penuh.', char_count: 1240 } },
+    });
+    const app = await openApp({ api, viewport: { width: 700, height: 800 } });
+    try {
+      await app.page.locator('[data-teras-snippet-card]').first().click();
+      const sheet = app.page.locator('[data-teras-snippet-sheet]');
+      await sheet.waitFor();
+      await sheet.locator('[data-teras-snippet-body][data-complete="true"]').waitFor({ timeout: 10_000 });
+
+      // Safari menolak tulis-clipboard di luar gestur pengguna, dan itu jalur
+      // yang benar-benar terjadi di lapangan. Centang yang tetap muncul di
+      // situ adalah kebohongan: agent menutup sheet lalu menempel teks lama.
+      await app.page.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText: () => Promise.reject(new Error('ditolak')) },
+        });
+      });
+
+      await sheet.getByRole('button', { name: 'Salin teks', exact: true }).click();
+      await app.page.getByText('Gagal menyalin teks', { exact: true }).waitFor({ timeout: 5_000 });
+      assert.equal(await sheet.getByText('Tersalin', { exact: true }).count(), 0,
+        'salin yang gagal tidak boleh menampilkan Tersalin');
+      assert.equal(await sheet.getByRole('button', { name: 'Teks lampiran tersalin' }).count(), 0,
+        'salin yang gagal tidak boleh mengubah chip header jadi centang');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('lampiran teks: kartu cuplikan di feed, klik membuka sheet dengan body penuh', { timeout: 30_000 }, async () => {
     // Cuplikan (feed) dan body penuh (endpoint terpisah) sengaja dibuat
     // BERBEDA isinya: kalau sheet cuma menampilkan ulang cuplikan, kalimat

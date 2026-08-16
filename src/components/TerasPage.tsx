@@ -2141,14 +2141,22 @@ export default function TerasPage({
     setSnippetLoading(false);
   }, []);
 
+  /**
+   * Mengembalikan true HANYA kalau clipboard benar-benar terisi. SnippetSheet
+   * memakainya untuk memutuskan boleh-tidaknya tombol berubah jadi centang
+   * "Tersalin" — jadi kegagalan di sini tidak cukup berakhir sebagai toast,
+   * ia harus terbaca oleh pemanggil.
+   */
   const copySnippetText = useCallback(async (text: string) => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API tidak tersedia');
       await navigator.clipboard.writeText(text);
       showToast('Teks disalin', 'success');
       trackEvent('action', 'teras_snippet_copy');
+      return true;
     } catch {
       showToast('Gagal menyalin teks', 'error');
+      return false;
     }
   }, [showToast]);
 
@@ -6922,7 +6930,9 @@ export default function TerasPage({
         error={snippetError}
         onRetry={() => { if (snippetSheet) loadSnippetBody(snippetSheet.postId); }}
         onClose={closeSnippetSheet}
-        onCopy={() => { if (snippetBody) void copySnippetText(snippetBody); }}
+        // Body belum tiba -> false, bukan lempar: tombolnya memang sudah
+        // disabled, dan sheet cuma perlu tahu "tidak jadi tersalin".
+        onCopy={() => (snippetBody ? copySnippetText(snippetBody) : Promise.resolve(false))}
         onShare={() => { if (snippetBody) void shareSnippetText(snippetBody); }}
       />
       {shareSheet}
