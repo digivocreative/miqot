@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { X, Check } from 'lucide-react';
+import { X, Check, Image as ImageIcon } from 'lucide-react';
 import { HOTEL_MEDIA_CATEGORY_PRESETS } from '../../lib/hotel-directory.js';
 
 const SECTION_LABEL = 'text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500';
@@ -15,7 +15,12 @@ interface Props {
   current: string;
   /** Kategori yang sudah dipakai hotel ini, agar bisa dipilih ulang tanpa mengetik. */
   used: string[];
+  /** Item ini sudah jadi cover direktori. */
+  isCover: boolean;
+  /** Foto yang selesai diunggah bisa jadi cover; video tidak pernah bisa. */
+  canMakeCover: boolean;
   onPick: (category: string) => void;
+  onMakeCover: () => void;
   onClose: () => void;
 }
 
@@ -28,7 +33,9 @@ interface Props {
  * tidak ada daftar kategori tersimpan, jadi tak ada yang perlu dihapus manual:
  * kategori lenyap sendiri saat foto terakhirnya pindah.
  */
-export default function HotelMediaCategorySheet({ current, used, onPick, onClose }: Props) {
+export default function HotelMediaCategorySheet({
+  current, used, isCover, canMakeCover, onPick, onMakeCover, onClose,
+}: Props) {
   const [draft, setDraft] = useState('');
 
   useEffect(() => {
@@ -72,7 +79,7 @@ export default function HotelMediaCategorySheet({ current, used, onPick, onClose
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         role="dialog"
         aria-modal="true"
-        aria-label="Pindahkan media ke kategori"
+        aria-label="Atur media"
       >
         <div className="sticky top-0 z-10 flex justify-center bg-white pt-2 pb-1 dark:bg-slate-800">
           <div className="h-1 w-10 rounded-full bg-gray-300 dark:bg-slate-600" />
@@ -80,7 +87,7 @@ export default function HotelMediaCategorySheet({ current, used, onPick, onClose
 
         <div className="flex items-center gap-3 border-b border-gray-100 px-4 pt-2 pb-3 dark:border-slate-700/50">
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-bold text-gray-900 dark:text-white">Pindahkan ke</div>
+            <div className="text-[14px] font-bold text-gray-900 dark:text-white">Atur media</div>
           </div>
           <button
             onClick={onClose}
@@ -125,6 +132,33 @@ export default function HotelMediaCategorySheet({ current, used, onPick, onClose
               </button>
             </div>
           </div>
+
+          {/* Cover ikut ke sheet (permintaan user): thumbnail 84px sudah padat
+              oleh tombol hapus + badge. Badge "Cover" di grid tinggal penanda,
+              bukan tombol. Video tak pernah bisa jadi cover — makeCover di
+              pemanggil memang menolaknya, jadi tombolnya disembunyikan. */}
+          {canMakeCover && (
+            <div>
+              <p className={SECTION_LABEL}>Cover direktori</p>
+              {isCover ? (
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 dark:bg-teal-900/20 dark:text-teal-300">
+                  <Check size={13} strokeWidth={2.5} />
+                  Foto ini sudah jadi cover
+                </p>
+              ) : (
+                <button
+                  onClick={onMakeCover}
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-teal-600 py-2.5 text-sm font-bold text-white shadow-md shadow-teal-600/20 transition-all hover:bg-teal-700 active:scale-95"
+                >
+                  <ImageIcon size={14} strokeWidth={2.4} />
+                  Jadikan cover
+                </button>
+              )}
+              <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">
+                Foto yang tampil di kartu hotel pada daftar direktori.
+              </p>
+            </div>
+          )}
 
           <div>
             <p className={SECTION_LABEL}>Kategori baru</p>

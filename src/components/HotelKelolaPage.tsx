@@ -881,16 +881,12 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                       >
                         <X size={11} />
                       </button>
-                      {index === 0 && item.type === 'image' ? (
+                      {/* Badge Cover = penanda saja; menjadikannya cover kini
+                          lewat sheet (permintaan user), bukan tombol mungil di
+                          atas thumbnail yang sudah padat. */}
+                      {index === 0 && item.type === 'image' && (
                         <span className="absolute bottom-1 left-1 z-10 rounded-full bg-teal-600 px-1.5 py-px text-[9px] font-bold text-white">Cover</span>
-                      ) : item.type === 'image' && item.status === 'done' ? (
-                        <button
-                          onClick={e => { e.stopPropagation(); makeCover(item.key); }}
-                          className="absolute bottom-1 left-1 z-10 rounded-full bg-slate-900/70 px-1.5 py-px text-[9px] font-semibold text-white"
-                        >
-                          Jadikan Cover
-                        </button>
-                      ) : null}
+                      )}
                     </div>
                   ))}
                     </div>
@@ -946,7 +942,10 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
           <HotelMediaCategorySheet
             current={categoryItem.category}
             used={usedCategories}
+            isCover={form.media[0]?.key === categoryItem.key}
+            canMakeCover={categoryItem.type === 'image' && categoryItem.status === 'done'}
             onPick={category => assignCategory(categoryItem.key, category)}
+            onMakeCover={() => { makeCover(categoryItem.key); setCategoryTarget(null); }}
             onClose={() => setCategoryTarget(null)}
           />
         )}
