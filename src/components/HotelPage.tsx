@@ -4,7 +4,7 @@ import {
   Play, ImageOff, Image as ImageIcon, ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { parseHotelDistanceMeters, hotelAreaCity } from '../../lib/hotel-directory.js';
+import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories } from '../../lib/hotel-directory.js';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
@@ -30,6 +30,9 @@ export interface HotelListItem {
 export interface HotelMediaItem {
   type: 'image' | 'video';
   url: string;
+  // Label kategori (Lobby/Kamar/Restoran/bikinan sendiri). Absen = tanpa
+  // kategori; lib membuang string kosong sebelum menyimpan.
+  category?: string;
 }
 
 export interface HotelDetail {
@@ -282,6 +285,8 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // preview besar dibuang, jadi grid saja yang menentukan apa yang dibuka.
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [mediaTab, setMediaTab] = useState<MediaTab>('foto');
+  // '' = Semua. Hanya berlaku di tab Foto; video sengaja tidak berkategori.
+  const [photoCategory, setPhotoCategory] = useState('');
   const [banners, setBanners] = useState<Record<string, string | null>>({});
 
   const tracked = useRef(false);
@@ -325,6 +330,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     setDetailError(null);
     setViewerIndex(null);
     setMediaTab('foto');
+    setPhotoCategory('');
     fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(detailSlug)}`)
       .then(data => { if (!cancelled) setDetail(data); })
       .catch(err => { if (!cancelled) setDetailError(err.message); });
@@ -579,7 +585,14 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     // sehingga geser kiri/kanan di dalam modal melintasi seluruh media —
     // bukan cuma isi tab yang sedang tampil.
     const entries = media.map((item, index) => ({ item, index }));
-    const tabEntries = entries.filter(e => (mediaTab === 'video' ? e.item.type === 'video' : e.item.type === 'image'));
+    // Chip kategori hanya hidup di tab Foto, dan hanya kategori yang benar-benar
+    // punya foto yang muncul — aturan "chip hanya bila bermakna" seperti saringan
+    // daftar hotel. Foto tanpa kategori hanya terlihat lewat chip "Semua".
+    const photoCategories = hotelMediaCategories(media.filter(m => m.type === 'image'));
+    const activeCategory = mediaTab === 'foto' ? photoCategory : '';
+    const tabEntries = entries
+      .filter(e => (mediaTab === 'video' ? e.item.type === 'video' : e.item.type === 'image'))
+      .filter(e => !activeCategory || (e.item.category || '').toLowerCase() === activeCategory.toLowerCase());
     const photoCount = media.length - videos.length;
     return (
       <HotelViewShell viewKey={viewKey}>
@@ -611,6 +624,28 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                   />
                 </div>
 
+                {mediaTab === 'foto' && photoCategories.length > 0 && (
+                  <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                    {['', ...photoCategories].map(category => {
+                      const active = photoCategory === category;
+                      return (
+                        <button
+                          key={category || '__semua__'}
+                          onClick={() => setPhotoCategory(category)}
+                          aria-pressed={active}
+                          className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                            active
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                              : 'border border-gray-200 bg-gray-50 text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400'
+                          }`}
+                        >
+                          {category || 'Semua'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {tabEntries.length > 0 ? (
                   <div className="grid grid-cols-3 gap-2">
                     {tabEntries.map(({ item, index }) => (
@@ -635,7 +670,11 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                   <div className="py-10 text-center">
                     <ImageOff size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
                     <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">
-                      {mediaTab === 'video' ? 'Hotel ini belum punya video.' : 'Hotel ini belum punya foto.'}
+                      {mediaTab === 'video'
+                        ? 'Hotel ini belum punya video.'
+                        : activeCategory
+                        ? `Belum ada foto ${activeCategory}.`
+                        : 'Hotel ini belum punya foto.'}
                     </p>
                   </div>
                 )}

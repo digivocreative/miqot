@@ -7,6 +7,8 @@ import {
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import HotelMediaCategorySheet from './HotelMediaCategorySheet';
+import { HOTEL_MEDIA_CATEGORY_PRESETS, hotelMediaCategories } from '../../lib/hotel-directory.js';
 import {
   HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
   type HotelListItem, type HotelDetail, type HotelMediaItem,
@@ -29,6 +31,8 @@ interface FormMedia {
   url: string | null;
   previewUrl: string;
   status: 'uploading' | 'done' | 'error';
+  // '' = belum berkategori. Tidak pernah null supaya perbandingan chip sederhana.
+  category: string;
 }
 
 interface FormState {
@@ -73,6 +77,7 @@ function formFromDetail(detail: HotelDetail): FormState {
       url: item.url,
       previewUrl: item.url,
       status: 'done' as const,
+      category: item.category || '',
     })),
   };
 }
@@ -197,6 +202,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteClosing, setDeleteClosing] = useState(false);
+  // key media yang sedang dipilihkan kategorinya (sheet terbuka), null = tutup.
+  const [categoryTarget, setCategoryTarget] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // URL yang diunggah di sesi form ini dan BELUM tersimpan ke DB. Dibuang saat
   // item dicabut atau form ditinggalkan tanpa simpan, supaya storage bersih.
@@ -382,6 +389,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
         url: null,
         previewUrl,
         status: 'uploading',
+        // Unggahan baru mendarat di "Tanpa kategori" — user yang menempatkan.
+        category: '',
       };
       setForm(prev => ({ ...prev, media: [...prev.media, item] }));
       try {
@@ -426,6 +435,16 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     });
   };
 
+  // Memindahkan kategori TIDAK mengubah urutan array media — cover tetap item
+  // pertama; pengelompokan blok murni tampilan.
+  const assignCategory = (key: string, category: string) => {
+    setForm(prev => ({
+      ...prev,
+      media: prev.media.map(m => (m.key === key ? { ...m, category } : m)),
+    }));
+    setCategoryTarget(null);
+  };
+
   const addFacility = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -465,7 +484,11 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       agent_note: form.agent_note,
       media: form.media
         .filter((m): m is FormMedia & { url: string } => m.status === 'done' && !!m.url)
-        .map<HotelMediaItem>(m => ({ type: m.type, url: m.url })),
+        // Kategori kosong TIDAK dikirim: lib membuang kunci kosong, jadi
+        // mengirimnya hanya menambah derau di payload.
+        .map<HotelMediaItem>(m => (m.category
+          ? { type: m.type, url: m.url, category: m.category }
+          : { type: m.type, url: m.url })),
     };
     try {
       const res = await fetch(editingId ? `/api/hotels/${editingId}` : '/api/hotels', {
@@ -534,6 +557,34 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   if (view.kind !== 'list') {
     const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
     const landmark = HOTEL_CITY_LANDMARKS[form.city];
+
+    // Indeks asli dibawa serta: badge Cover dan makeCover bekerja atas posisi
+    // di array media, bukan posisi di dalam blok.
+    const entries = form.media.map((item, index) => ({ item, index }));
+    const usedCategories = hotelMediaCategories(
+      form.media.map(m => ({ type: m.type, url: m.url || '', category: m.category }))
+    );
+    const presetKeys = new Set(HOTEL_MEDIA_CATEGORY_PRESETS.map(p => p.toLowerCase()));
+    // Preset selalu tampil; kategori bikinan sendiri menyusul sesuai urutan
+    // kemunculan; "Tanpa kategori" hanya bila memang ada isinya.
+    const blockLabels = [
+      ...HOTEL_MEDIA_CATEGORY_PRESETS,
+      ...usedCategories.filter(c => !presetKeys.has(c.toLowerCase())),
+    ];
+    const uncategorized = entries.filter(e => !e.item.category);
+    const mediaBlocks = [
+      ...blockLabels.map(label => ({
+        key: label.toLowerCase(),
+        label,
+        items: entries.filter(e => e.item.category.toLowerCase() === label.toLowerCase()),
+      })),
+      ...(uncategorized.length
+        ? [{ key: '__tanpa__', label: 'Tanpa kategori', items: uncategorized }]
+        : []),
+    ];
+    const categoryItem = categoryTarget
+      ? form.media.find(m => m.key === categoryTarget) || null
+      : null;
     return (
       <HotelViewShell viewKey="kelola-form">
         {/* Sub-bar sticky + SegmentedControl = pola baku halaman anak
@@ -777,17 +828,42 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 <span className="text-[13px] font-semibold text-gray-700 dark:text-slate-200">Tambah foto / video</span>
                 <span className="text-[11px] text-gray-400 dark:text-slate-500">Foto maks 3MB · Video MP4 (H.264) maks 20MB</span>
               </button>
-              {form.media.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {form.media.map((item, index) => (
+              {/* Blok per kategori. Preset SELALU tampil walau kosong — itu
+                  guna "default": kelihatan mana yang belum diisi. Beda dari
+                  galeri agent, yang hanya menampilkan kategori berisi. */}
+              {mediaBlocks.map(block => (
+                <div key={block.key}>
+                  <div className="flex items-baseline gap-1.5">
+                    <p className={LABEL_CLASS}>{block.label}</p>
+                    <span className="text-[11px] font-semibold text-gray-300 dark:text-slate-600">
+                      {block.items.length || '—'}
+                    </span>
+                  </div>
+                  {block.items.length === 0 ? (
+                    <p className="mt-1.5 text-[11px] text-gray-400 dark:text-slate-500">
+                      Belum ada. Ketuk foto di bawah untuk memindahkannya ke sini.
+                    </p>
+                  ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {block.items.map(({ item, index }) => (
                     <div key={item.key} className="relative h-[84px] w-[84px] overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700">
-                      {item.type === 'video' ? (
-                        <div className="flex h-full w-full items-center justify-center bg-slate-800">
-                          <Play size={18} className="text-white" />
-                        </div>
-                      ) : (
-                        <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
-                      )}
+                      {/* Seluruh bidang thumbnail = pemicu pindah kategori;
+                          tombol hapus/cover di atasnya berhenti di sini lewat
+                          stopPropagation masing-masing. */}
+                      <button
+                        type="button"
+                        onClick={() => setCategoryTarget(item.key)}
+                        aria-label={`Pindahkan kategori ${item.type === 'video' ? 'video' : 'foto'} ini`}
+                        className="absolute inset-0 z-0"
+                      >
+                        {item.type === 'video' ? (
+                          <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                            <Play size={18} className="text-white" />
+                          </div>
+                        ) : (
+                          <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+                        )}
+                      </button>
                       {item.status === 'uploading' && (
                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50">
                           <Loader2 size={18} className="animate-spin text-white" />
@@ -799,26 +875,28 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                         </div>
                       )}
                       <button
-                        onClick={() => removeMedia(item.key)}
+                        onClick={e => { e.stopPropagation(); removeMedia(item.key); }}
                         aria-label="Hapus media"
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 text-white"
+                        className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 text-white"
                       >
                         <X size={11} />
                       </button>
                       {index === 0 && item.type === 'image' ? (
-                        <span className="absolute bottom-1 left-1 rounded-full bg-teal-600 px-1.5 py-px text-[9px] font-bold text-white">Cover</span>
+                        <span className="absolute bottom-1 left-1 z-10 rounded-full bg-teal-600 px-1.5 py-px text-[9px] font-bold text-white">Cover</span>
                       ) : item.type === 'image' && item.status === 'done' ? (
                         <button
-                          onClick={() => makeCover(item.key)}
-                          className="absolute bottom-1 left-1 rounded-full bg-slate-900/70 px-1.5 py-px text-[9px] font-semibold text-white"
+                          onClick={e => { e.stopPropagation(); makeCover(item.key); }}
+                          className="absolute bottom-1 left-1 z-10 rounded-full bg-slate-900/70 px-1.5 py-px text-[9px] font-semibold text-white"
                         >
                           Jadikan Cover
                         </button>
                       ) : null}
                     </div>
                   ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </section>
 
             )}
@@ -860,6 +938,17 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             </div>
           </div>
           </>
+        )}
+
+        {/* Sheet memakai createPortal (ke document.body), jadi kebal jebakan
+            "position:fixed terkurung ancestor ber-transform" milik shell. */}
+        {categoryItem && (
+          <HotelMediaCategorySheet
+            current={categoryItem.category}
+            used={usedCategories}
+            onPick={category => assignCategory(categoryItem.key, category)}
+            onClose={() => setCategoryTarget(null)}
+          />
         )}
       </HotelViewShell>
     );
