@@ -7,6 +7,7 @@ import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
 import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';
+import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 import { trackEvent } from '../utils/analytics';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
@@ -791,7 +792,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       <>
 
       {/* ── Tab Bar (Umroh + Haji always; Tren admin-only) ── */}
-      <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
+      <div
+        style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+        className="sticky z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700"
+      >
         <div className="px-4 py-2">
           <div className="flex gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl w-full">
             {([

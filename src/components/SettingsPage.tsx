@@ -6,6 +6,7 @@ import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
+import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 
 interface AgentData {
   slug: string;
@@ -83,7 +84,10 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
   return (
     <div>
       {/* Segmented Control Tab Bar */}
-      <div className="sticky top-[53px] z-20 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700">
+      <div
+        style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+        className="sticky z-20 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700"
+      >
         <div className="max-w-lg mx-auto px-4 py-2">
           <SegmentedControl
             options={TAB_CONFIG.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}

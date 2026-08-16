@@ -729,7 +729,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const compactHeader = activeTab === 'teras';
     return (
       <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
-        {/* Sub-page header */}
+        {/* Sub-page header.
+            Tingginya (varian normal, non-compact) dicatat sebagai
+            DASHBOARD_SUBPAGE_HEADER_H di src/constants/dashboard-chrome.ts —
+            dipakai halaman anak untuk menempelkan sub-bar sticky-nya. Mengubah
+            padding, ukuran chip back, atau border di bawah ini WAJIB diikuti
+            ukur ulang angka tersebut di browser. */}
         <header
           className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${activeTab === 'teras' ? 'shrink-0' : ''}`}
         >
