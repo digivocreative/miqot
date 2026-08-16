@@ -7394,6 +7394,204 @@ app.get('/api/hotels/:slug', dbLoadShedGuard, authMiddleware, async (req, res) =
   }
 });
 
+app.post('/api/hotels', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+    const result = buildHotelPayload(req.body, { mediaPrefixes: hotelMediaPublicPrefixes() });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    const { data: slugRows, error: slugError } = await supabase.from('hotels').select('slug');
+    if (slugError) {
+      if (hotelTableMissing(slugError)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw slugError;
+    }
+    const slug = slugifyHotelName(result.data.name, (slugRows || []).map((r) => r.slug));
+
+    const { data, error } = await supabase
+      .from('hotels')
+      .insert({ ...result.data, slug, created_by: agent.id, updated_by: agent.id })
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[hotel] create error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menyimpan hotel' });
+  }
+});
+
+app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(400).json({ error: 'ID hotel tidak valid' });
+    }
+    const result = buildHotelPayload(req.body, { mediaPrefixes: hotelMediaPublicPrefixes() });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    // Slug sengaja TIDAK ikut berubah saat rename — dipakai sebagai identitas URL.
+    const { data, error } = await supabase
+      .from('hotels')
+      .update({ ...result.data, updated_by: agent.id, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select()
+      .maybeSingle();
+    if (error) {
+      if (hotelTableMissing(error)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw error;
+    }
+    if (!data) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[hotel] update error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menyimpan hotel' });
+  }
+});
+
+app.delete('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    if (!isCommunityUuid(req.params.id)) {
+      return res.status(400).json({ error: 'ID hotel tidak valid' });
+    }
+    const { data: row, error: readError } = await supabase
+      .from('hotels')
+      .select('id, media')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (readError) {
+      if (hotelTableMissing(readError)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw readError;
+    }
+    if (!row) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+
+    const { error: deleteError } = await supabase.from('hotels').delete().eq('id', row.id);
+    if (deleteError) throw deleteError;
+
+    // Best-effort: bersihkan file Bunny milik hotel ini (kaskade media).
+    if (getBunnyEnabled() && Array.isArray(row.media)) {
+      const cdnPrefix = `https://${BUNNY_CDN_HOSTNAME}/`;
+      for (const item of row.media) {
+        const url = typeof item?.url === 'string' ? item.url : '';
+        if (!url.startsWith(`${cdnPrefix}${HOTEL_MEDIA_FOLDER}/`)) continue;
+        bunnyDelete(url.slice(cdnPrefix.length)).catch((cleanupErr) => {
+          console.warn('[hotel] gagal hapus file Bunny:', cleanupErr?.message || cleanupErr);
+        });
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[hotel] delete error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menghapus hotel' });
+  }
+});
+
+const hotelMediaBodyParser = express.raw({
+  type: () => true,
+  limit: COMMUNITY_VIDEO_MAX_BYTES,
+});
+
+// Tanpa rate-limiter khusus: unggah hanya bisa dilakukan dua admin gate
+// (nikita/bagas + adminOnly); batas ukuran & magic bytes tetap diperiksa.
+async function prepareHotelMediaUpload(req, res, next) {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+
+    const uploadId = req.get('X-Upload-ID');
+    if (!isCommunityUuid(uploadId)) {
+      return res.status(400).json({ error: 'ID unggahan tidak valid' });
+    }
+
+    const mime = String(req.get('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
+    const mediaConfig = COMMUNITY_MEDIA_MIME_TYPES[mime];
+    if (!mediaConfig) {
+      return res.status(415).json({ error: 'Format media tidak didukung' });
+    }
+
+    const contentLengthHeader = req.get('Content-Length');
+    const contentLength = contentLengthHeader === undefined ? null : Number(contentLengthHeader);
+    if (contentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 1)) {
+      return res.status(400).json({ error: 'Ukuran media tidak valid' });
+    }
+    if (contentLength !== null && contentLength > mediaConfig.maxBytes) {
+      const maxSize = mediaConfig.type === 'image' ? '3MB' : '20MB';
+      return res.status(413).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
+    }
+
+    req.hotelAgent = agent;
+    req.hotelMediaConfig = mediaConfig;
+    req.hotelMediaMime = mime;
+    req.hotelUploadId = uploadId;
+    return next();
+  } catch (err) {
+    console.error('[hotel] media authorization error:', err);
+    return res.status(500).json({ error: 'Gagal memvalidasi unggahan media' });
+  }
+}
+
+function parseHotelMediaBody(req, res, next) {
+  hotelMediaBodyParser(req, res, (error) => {
+    if (!error) return next();
+    if (error.type === 'entity.too.large') {
+      const maxSize = req.hotelMediaConfig?.type === 'image' ? '3MB' : '20MB';
+      const mediaLabel = req.hotelMediaConfig?.type === 'image' ? 'gambar' : 'video';
+      return res.status(413).json({ error: `Ukuran ${mediaLabel} maksimal ${maxSize}` });
+    }
+    return next(error);
+  });
+}
+
+app.post('/api/hotels/media', authMiddleware, adminOnly, prepareHotelMediaUpload, parseHotelMediaBody, async (req, res) => {
+  try {
+    const agent = req.hotelAgent;
+    const uploadId = req.hotelUploadId;
+    const mime = req.hotelMediaMime;
+    const mediaConfig = req.hotelMediaConfig;
+
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!buffer.length || buffer.length > mediaConfig.maxBytes) {
+      const maxSize = mediaConfig.type === 'image' ? '3MB' : '20MB';
+      return res.status(400).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
+    }
+    if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
+      return res.status(400).json({ error: 'Isi file media tidak valid' });
+    }
+    if (['video/mp4', 'video/quicktime'].includes(mime)) {
+      const rejectedCodec = findRejectedVideoCodec(buffer);
+      if (rejectedCodec) return res.status(415).json({ error: rejectedCodec.message });
+    }
+
+    const storageMime = mediaConfig.storageMime || mime;
+    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
+    const fileName = `${HOTEL_MEDIA_FOLDER}/${agent.slug}-${uploadId}-${contentHash}.${mediaConfig.ext}`;
+    let publicUrl;
+    if (getBunnyEnabled()) {
+      // PUT idempoten + hash konten di path: retry byte sama = overwrite objek identik.
+      await bunnyUpload(fileName, buffer, storageMime);
+      publicUrl = `https://${BUNNY_CDN_HOSTNAME}/${fileName}`;
+    } else {
+      console.warn('[hotel] Bunny CDN belum dikonfigurasi — media diunggah ke Supabase Storage');
+      const { error: uploadError } = await supabase.storage
+        .from('agent-photos')
+        .upload(fileName, buffer, {
+          contentType: storageMime,
+          cacheControl: '31536000',
+          upsert: false,
+        });
+      if (uploadError && !isCommunityStorageConflict(uploadError)) throw uploadError;
+      const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+      publicUrl = urlData.publicUrl;
+    }
+    res.json({ success: true, url: publicUrl, type: mediaConfig.type });
+  } catch (err) {
+    console.error('[hotel] media upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah media' });
+  }
+});
+
 app.post('/api/community/posts/:id/reaction', authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
