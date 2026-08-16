@@ -90,7 +90,7 @@ async function fetchHotelJson<T>(url: string): Promise<T> {
 }
 
 // Hanya bintang terisi (tanpa slot abu-abu — terlihat kusam terutama di dark
-// mode); stroke amber-500 di atas fill amber-400 memberi sedikit kedalaman.
+// mode), solid penuh tanpa stroke — outline terlihat "kurang menarik" (feedback).
 export function StarRow({ stars, size = 13 }: { stars: number | null; size?: number }) {
   if (!stars) return null;
   return (
@@ -99,8 +99,8 @@ export function StarRow({ stars, size = 13 }: { stars: number | null; size?: num
         <Star
           key={i}
           size={size}
-          strokeWidth={1.5}
-          className="text-amber-500 fill-amber-400 drop-shadow-sm"
+          strokeWidth={0}
+          className="fill-amber-400 drop-shadow-sm"
         />
       ))}
     </div>
