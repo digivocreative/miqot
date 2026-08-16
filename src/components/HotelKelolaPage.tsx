@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronLeft,
+  Loader2, Play, ChevronLeft, ChevronDown,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
@@ -137,7 +137,9 @@ export default function HotelKelolaPage() {
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Banner kartu kategori di Direktori Hotel (agent-facing)
+  // Banner kartu kategori di Direktori Hotel (agent-facing).
+  // Jarang diubah → default terlipat agar daftar hotel tidak terdorong ke bawah.
+  const [showBanners, setShowBanners] = useState(false);
   const [banners, setBanners] = useState<Record<string, string | null>>({});
   const [bannerBusy, setBannerBusy] = useState<string | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
@@ -696,8 +698,33 @@ export default function HotelKelolaPage() {
 
       {/* ── Banner kartu kategori (tampil di Direktori Hotel agent) ── */}
       <div className="mt-4">
-        <p className={LABEL_CLASS}>Banner Kategori</p>
-        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">
+        <button
+          type="button"
+          onClick={() => setShowBanners(v => !v)}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors ${
+            showBanners
+              ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400'
+              : 'bg-gray-50 dark:bg-slate-900/40 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700/50'
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <ImagePlus size={12} strokeWidth={2.2} />
+            Banner Kategori
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500">
+              {HOTEL_CITIES.filter(city => banners[city]).length}/{HOTEL_CITIES.length} terpasang
+            </span>
+            <ChevronDown
+              size={12}
+              className="transition-transform duration-200"
+              style={{ transform: showBanners ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            />
+          </span>
+        </button>
+        {showBanners && (
+        <>
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">
           Gambar kartu kategori di Direktori Hotel. Tanpa banner, kartu memakai cover hotel pertama kota itu.
         </p>
         {bannerError && (
@@ -744,6 +771,8 @@ export default function HotelKelolaPage() {
             );
           })}
         </div>
+        </>
+        )}
         <input
           ref={bannerInputRef}
           type="file"
