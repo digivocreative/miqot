@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, ChevronLeft, Search, Star, Footprints, MapPin, Lock, Info,
-  Settings2, Play, ImageOff,
+  Play, ImageOff,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
-
-interface HotelPageProps {
-  agent: { slug: string; name: string; role: 'admin' | 'agent' };
-  onNavigate: (path: string) => void;
-}
 
 export interface HotelListItem {
   id: string;
@@ -94,7 +89,7 @@ export function StarRow({ stars, size = 13 }: { stars: number | null; size?: num
   );
 }
 
-export default function HotelPage({ agent, onNavigate }: HotelPageProps) {
+export default function HotelPage() {
   const [view, setView] = useState<View>({ kind: 'kategori' });
   const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -179,22 +174,11 @@ export default function HotelPage({ agent, onNavigate }: HotelPageProps) {
   if (view.kind === 'kategori') {
     return (
       <div className="px-4 pt-4 pb-8">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-bold text-gray-900 dark:text-white">Pilih kategori</h2>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-              Lihat info hotel, jarak ke masjid, dan foto/video per kota.
-            </p>
-          </div>
-          {agent.role === 'admin' && (
-            <button
-              onClick={() => onNavigate('/dashboard/ai-tools/hotel/kelola')}
-              className="flex shrink-0 items-center gap-1.5 rounded-full bg-teal-50 dark:bg-teal-900/20 px-3 py-1.5 text-xs font-semibold text-teal-600 dark:text-teal-400 transition-colors hover:bg-teal-100 dark:hover:bg-teal-900/40 active:scale-95"
-            >
-              <Settings2 size={14} />
-              Kelola
-            </button>
-          )}
+        <div>
+          <h2 className="text-base font-bold text-gray-900 dark:text-white">Pilih kategori</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+            Lihat info hotel, jarak ke masjid, dan foto/video per kota.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3 mt-4">

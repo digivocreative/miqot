@@ -123,7 +123,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'hotels';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -135,6 +135,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
   teras: 'teras',
+  hotels: 'hotels',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -146,6 +147,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   analytics: 'analytics',
   'ai-tools': 'ai-tools',
   teras: 'teras',
+  hotels: 'hotels',
 };
 
 function getTabFromPath(): TabId {
@@ -216,9 +218,6 @@ function getAIToolsSubFromPath(): string | null {
     if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
       return 'landing-page/custom-domain';
     }
-    if (segments.length >= 4 && segments[2] === 'hotel' && segments[3] === 'kelola') {
-      return 'hotel/kelola';
-    }
     return segments[2];
   }
   return null;
@@ -234,6 +233,7 @@ const TAB_TITLES: Record<TabId, string> = {
   analytics: 'Analytics',
   'ai-tools': 'Tools',
   teras: 'Teras',
+  hotels: 'Hotels',
 };
 
 function getCurrentDocumentTitle(): string {
@@ -241,7 +241,6 @@ function getCurrentDocumentTitle(): string {
   if (sub === 'landing-page') return 'Landing Page';
   if (sub === 'landing-page/custom-domain') return 'Custom Domain';
   if (sub === 'hotel') return 'Direktori Hotel';
-  if (sub === 'hotel/kelola') return 'Kelola Hotel';
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
@@ -381,6 +380,21 @@ const MENU_CARDS: MenuCard[] = [
     iconShadow: 'shadow-lg shadow-cyan-500/30 dark:shadow-cyan-900/40',
     hoverShadow: 'hover:shadow-cyan-300/40 dark:hover:shadow-cyan-900/30',
     iconAnim: 'animate-icon-rise',
+    adminOnly: true,
+  },
+  {
+    // Pusat kelola konten Direktori Hotel — hanya admin dalam gate hotel
+    // (filter adminCards) yang melihat kartu ini.
+    id: 'hotels', label: 'Hotels', desc: 'Kelola konten hotel',
+    icon: Building2, color: 'text-teal-600 dark:text-teal-400',
+    bgLight: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20',
+    borderLight: 'border-teal-100', borderDark: 'dark:border-teal-800/40',
+    cardBg: 'bg-gradient-to-br from-teal-50 via-white to-emerald-100/70 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-teal-200/70 dark:border-teal-800/40',
+    iconBg: 'bg-gradient-to-br from-teal-400 to-emerald-600 dark:from-teal-500 dark:to-emerald-700',
+    iconShadow: 'shadow-lg shadow-teal-500/30 dark:shadow-teal-900/40',
+    hoverShadow: 'hover:shadow-teal-300/40 dark:hover:shadow-teal-900/30',
+    iconAnim: 'animate-icon-breathe',
     adminOnly: true,
   },
 ];
@@ -555,8 +569,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       ? 'Landing Page'
       : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
       ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
-      : (activeTab === 'ai-tools' && aiSub === 'hotel/kelola')
-      ? 'Kelola Hotel'
       : (activeTab === 'ai-tools' && aiSub === 'hotel')
       ? 'Direktori Hotel'
       : (activeTab === 'ai-tools' && aiSub === 'kurs')
@@ -617,7 +629,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     navigatePath(`/dashboard/teras/post/${encodeURIComponent(postId)}`);
   };
   const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'teras' || terasEnabled));
-  const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly) : [];
+  const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)) : [];
 
   // Link /teras/<slug> pasti beredar antar-agent lewat WhatsApp. Agent yang
   // login tapi bukan anggota Teras harus melihat pesan "tidak tersedia"
@@ -713,14 +725,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     setTimeout(() => setActiveTab('ai-tools'), 0);
                     return;
                   }
-                  // Kelola Hotel → kembali ke direktori hotel (induknya)
-                  if (aiSub === 'hotel/kelola') {
-                    window.history.pushState({}, '', '/dashboard/ai-tools/hotel');
-                    document.title = 'Direktori Hotel';
-                    setActiveTab('home');
-                    setTimeout(() => setActiveTab('ai-tools'), 0);
-                    return;
-                  }
                   window.history.pushState({}, '', '/dashboard/ai-tools');
                   setActiveTab('home');
                   setTimeout(() => setActiveTab('ai-tools'), 0);
@@ -755,7 +759,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'kalkulasi': { icon: Calculator, bg: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20', border: 'border-blue-100', borderDark: 'dark:border-blue-800/40', color: 'text-blue-600 dark:text-blue-400', label: 'Kalkulasi' },
                   'mcp': { icon: Bot, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'AI Assistant (MCP)' },
                   'hotel': { icon: Building2, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Direktori Hotel' },
-                  'hotel/kelola': { icon: Building2, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Kelola Hotel' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (isJamaahEdit) {
@@ -1031,6 +1034,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
 
+          {activeTab === 'hotels' && isAdmin && hotelEnabled && (
+            <HotelKelolaPage />
+          )}
+
           {activeTab === 'ai-tools' && (() => {
             const sub = getAIToolsSubFromPath();
             if (sub === 'brosur-jadwal') return <BrochureSchedulePage agent={{
@@ -1048,13 +1055,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
             }} agentSlug={agentData.slug} hideHeader />;
-            // hotel/kelola wajib dicek SEBELUM hotel (rute anak sebelum induk).
-            // Di luar gate (atau bukan admin untuk kelola) → jatuh ke daftar Tools.
-            if (sub === 'hotel/kelola' && hotelEnabled && isAdmin) {
-              return <HotelKelolaPage agent={{ slug: agentData.slug, name: agentData.name }} onNavigate={navigatePath} />;
-            }
+            // Di luar gate → jatuh ke daftar Tools. Panel kelola pindah ke tab
+            // top-level 'hotels' (kartu admin dashboard), bukan lagi di sini.
             if (sub === 'hotel' && hotelEnabled) {
-              return <HotelPage agent={{ slug: agentData.slug, name: agentData.name, role: agentData.role }} onNavigate={navigatePath} />;
+              return <HotelPage />;
             }
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;
