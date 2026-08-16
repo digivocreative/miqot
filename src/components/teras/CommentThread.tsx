@@ -288,7 +288,10 @@ export default function CommentThread({
               onOpenThreadRow={() => onOpenThread(comment.id)}
               isTopLevel
               railConnected={railConnected}
-              railBelow={renderedReplies.length > 0 || hasNextGroup}
+              // showRepliesToggle ikut: baris "Lihat/Sembunyikan balasan" adalah
+              // bagian utas ini — tanpa rail ke sana tombolnya tampak menggantung
+              // lepas (paling kentara di detail view yang tak punya hasNextGroup).
+              railBelow={renderedReplies.length > 0 || hasNextGroup || showRepliesToggle}
               hideQuote={hideQuote}
               actions={{
                 myReaction: myReactions[comment.id] ?? null,
@@ -325,7 +328,9 @@ export default function CommentThread({
                 reduceMotion={!!reduceMotion}
                 isTopLevel={false}
                 railConnected={railConnected}
-                railBelow={index < renderedReplies.length - 1 || hasNextGroup}
+                // showRepliesToggle: balasan terakhir tetap menyambung ke baris
+                // "Sembunyikan balasan" di bawahnya (lihat komentar di induk).
+                railBelow={index < renderedReplies.length - 1 || hasNextGroup || showRepliesToggle}
                 onOpenThreadRow={() => onOpenThread(reply.id)}
                 hideQuote={hideQuote}
                 actions={{
@@ -350,8 +355,14 @@ export default function CommentThread({
                 {/* WAJIB flex-col: di flex arah row, flex-1 menumbuhkan LEBAR —
                     "garis" w-px berubah jadi balok selebar kolom 40px. */}
                 <div className="flex flex-col items-center">
-                  {railConnected && hasNextGroup && (
+                  {railConnected && hasNextGroup ? (
                     <div data-thread-rail="comment" aria-hidden="true" className="-mb-2 w-px flex-1 bg-gray-200 dark:bg-slate-700" />
+                  ) : (
+                    // Stub penutup utas: meneruskan rail dari baris di atasnya
+                    // dan berakhir tepat di samping teks tombol (h-6 ≈ garis
+                    // tengah tombol min-h-11 + mt-1) — bukan menembus ke bawah,
+                    // karena tidak ada grup berikutnya untuk disambung.
+                    <div data-thread-rail="comment" aria-hidden="true" className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
                   )}
                 </div>
                 <button
