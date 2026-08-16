@@ -82,6 +82,7 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
+import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem } from './lib/hotel-directory.js';
 import {
   extractCommunityMentions,
   unrecordedMentionRows,
@@ -543,6 +544,11 @@ app.use('/api/community/posts', (req, res, next) => (
     : next()
 ));
 app.use('/api/community/posts', express.json({ limit: '96kb' }));
+// Payload Direktori Hotel (data hotel + array metadata media) — wajib di sini,
+// sebelum parser global. /api/hotels/media berbadan binary (Content-Type
+// image/*|video/*, bukan JSON) sehingga parser ini melewatinya; body-nya
+// di-parse express.raw route-level.
+app.use('/api/hotels', express.json({ limit: '96kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
 // terpasang SEBELUM parser JSON global di bawah
 app.use('/api/resend-inbound', express.raw({ type: '*/*', limit: '1mb' }));
@@ -7313,6 +7319,78 @@ app.post('/api/community/media', authMiddleware, prepareCommunityMediaUpload, pa
   } catch (err) {
     console.error('[community] media upload error:', err);
     res.status(500).json({ error: 'Gagal mengunggah media' });
+  }
+});
+
+// ── Direktori Hotel — gate: nikita & bagas (lib/hotel-directory.js) ──
+
+const HOTEL_MEDIA_FOLDER = 'hotels';
+
+function hotelMediaPublicPrefixes() {
+  const prefixes = [];
+  if (getBunnyEnabled()) prefixes.push(`https://${BUNNY_CDN_HOSTNAME}/${HOTEL_MEDIA_FOLDER}/`);
+  const { data } = supabase.storage.from('agent-photos').getPublicUrl(`${HOTEL_MEDIA_FOLDER}/`);
+  if (data?.publicUrl) prefixes.push(data.publicUrl);
+  return prefixes;
+}
+
+// Tabel hotels belum dimigrasi → 503 dengan pesan jelas, bukan 500 misterius.
+function hotelTableMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return ['42P01', 'PGRST205', 'PGRST200'].includes(code)
+    && (/hotels/i.test(message) || code === '42P01');
+}
+
+const HOTEL_MIGRATION_ERROR = 'Migrasi direktori hotel belum diterapkan';
+
+async function requireHotelAgent(req, res) {
+  const agent = await getAgentById(req.user.id);
+  if (!agent) {
+    res.status(404).json({ error: 'Agent not found' });
+    return null;
+  }
+  // Gate pakai row agent segar — slug di token bisa basi setelah ganti slug.
+  if (!requireHotelDirectoryAccess(agent, res)) return null;
+  return agent;
+}
+
+app.get('/api/hotels', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    const { data, error } = await supabase
+      .from('hotels')
+      .select('id, slug, name, city, stars, distance_label, walk_label, area, media')
+      .order('city', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) {
+      if (hotelTableMissing(error)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw error;
+    }
+    res.json({ success: true, data: (data || []).map(hotelListItem) });
+  } catch (err) {
+    console.error('[hotel] list error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal memuat direktori hotel' });
+  }
+});
+
+app.get('/api/hotels/:slug', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    const { data, error } = await supabase
+      .from('hotels')
+      .select('*')
+      .eq('slug', String(req.params.slug || '').toLowerCase())
+      .maybeSingle();
+    if (error) {
+      if (hotelTableMissing(error)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      throw error;
+    }
+    if (!data) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[hotel] detail error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal memuat detail hotel' });
   }
 });
 
