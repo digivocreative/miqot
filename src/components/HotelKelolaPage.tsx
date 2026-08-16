@@ -15,6 +15,9 @@ import {
 } from './HotelPage';
 
 const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
+// Label kotak di dalam kartu: lebih kecil dari LABEL_CLASS supaya tiga kotak
+// per platform tidak berteriak, tapi tetap terbaca setelah kotaknya terisi.
+const SUBLABEL_CLASS = 'block text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-slate-500';
 const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide';
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
@@ -700,6 +703,68 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               </div>
             </section>
 
+            {/* RATING PLATFORM — tepat setelah Info Dasar: rating platform
+                dan bintang hotel sama-sama penilaian, jadi diisi berdampingan.
+                Tiap kotak diberi label sendiri; placeholder saja hilang begitu
+                kotaknya terisi sehingga isian lama jadi tak jelas maksudnya. */}
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Rating Platform</h3>
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                  Kosongkan skor bila hotel belum punya rating di platform itu.
+                </p>
+              </div>
+              {(HOTEL_RATING_PLATFORMS as { id: string; label: string; max: number }[]).map(platform => {
+                const entry = form.ratings[platform.id] || { score: '', reviews: '', url: '' };
+                const setEntry = (patch: Partial<typeof entry>) => setForm(prev => ({
+                  ...prev,
+                  ratings: { ...prev.ratings, [platform.id]: { ...entry, ...patch } },
+                }));
+                return (
+                  <div key={platform.id} className="rounded-xl border border-gray-100 dark:border-slate-700 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[13px] font-bold text-gray-800 dark:text-slate-100">{platform.label}</span>
+                      <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">skala {platform.max}</span>
+                    </div>
+                    <div className="mt-2.5 flex gap-2">
+                      <div className="w-24 shrink-0">
+                        <label className={SUBLABEL_CLASS} htmlFor={`rating-score-${platform.id}`}>Skor</label>
+                        <input
+                          id={`rating-score-${platform.id}`}
+                          value={entry.score}
+                          onChange={e => setEntry({ score: e.target.value })}
+                          inputMode="decimal"
+                          placeholder={platform.max === 10 ? '8.6' : '4.3'}
+                          className={`${INPUT_CLASS} mt-1`}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className={SUBLABEL_CLASS} htmlFor={`rating-reviews-${platform.id}`}>Jumlah ulasan</label>
+                        <input
+                          id={`rating-reviews-${platform.id}`}
+                          value={entry.reviews}
+                          onChange={e => setEntry({ reviews: e.target.value.replace(/[^\d]/g, '') })}
+                          inputMode="numeric"
+                          placeholder="12840"
+                          className={`${INPUT_CLASS} mt-1`}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <label className={SUBLABEL_CLASS} htmlFor={`rating-url-${platform.id}`}>Link halaman (opsional)</label>
+                      <input
+                        id={`rating-url-${platform.id}`}
+                        value={entry.url}
+                        onChange={e => setEntry({ url: e.target.value })}
+                        placeholder={`https://${platform.id === 'tripcom' ? 'trip.com' : platform.id === 'booking' ? 'booking.com' : platform.id + '.com'}/...`}
+                        className={`${INPUT_CLASS} mt-1`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+
             {/* LOKASI */}
             <section className="space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Lokasi</h3>
@@ -829,55 +894,6 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               </div>
             </section>
 
-            {/* RATING PLATFORM */}
-            <section className="space-y-3">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Rating Platform</h3>
-                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
-                  Kosongkan skor bila hotel belum punya rating di platform itu.
-                </p>
-              </div>
-              {(HOTEL_RATING_PLATFORMS as { id: string; label: string; max: number }[]).map(platform => {
-                const entry = form.ratings[platform.id] || { score: '', reviews: '', url: '' };
-                const setEntry = (patch: Partial<typeof entry>) => setForm(prev => ({
-                  ...prev,
-                  ratings: { ...prev.ratings, [platform.id]: { ...entry, ...patch } },
-                }));
-                return (
-                  <div key={platform.id} className="rounded-xl border border-gray-100 dark:border-slate-700 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[13px] font-bold text-gray-800 dark:text-slate-100">{platform.label}</span>
-                      <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">skala {platform.max}</span>
-                    </div>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        value={entry.score}
-                        onChange={e => setEntry({ score: e.target.value })}
-                        inputMode="decimal"
-                        placeholder={platform.max === 10 ? 'mis. 8.6' : 'mis. 4.3'}
-                        aria-label={`Skor ${platform.label}`}
-                        className={`${INPUT_CLASS} w-24 shrink-0`}
-                      />
-                      <input
-                        value={entry.reviews}
-                        onChange={e => setEntry({ reviews: e.target.value.replace(/[^\d]/g, '') })}
-                        inputMode="numeric"
-                        placeholder="jumlah ulasan"
-                        aria-label={`Jumlah ulasan ${platform.label}`}
-                        className={INPUT_CLASS}
-                      />
-                    </div>
-                    <input
-                      value={entry.url}
-                      onChange={e => setEntry({ url: e.target.value })}
-                      placeholder={`Link halaman ${platform.label} (opsional)`}
-                      aria-label={`Link ${platform.label}`}
-                      className={`${INPUT_CLASS} mt-2`}
-                    />
-                  </div>
-                );
-              })}
-            </section>
             </>
             ) : (
             /* MEDIA — tanpa judul seksi: label tab sudah menyebutkannya. */
