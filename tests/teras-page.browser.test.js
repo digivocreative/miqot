@@ -3428,6 +3428,18 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
         1,
         'rantai diambil sekali saja, bukan berulang',
       );
+
+      // Rail penyambung antar-segmen: satu di tiap segmen KECUALI yang
+      // terakhir, dan julurannya (-mb-6) wajib dinaikkan di atas background
+      // opak kartu berikutnya — tanpa z-index garisnya tampak putus ~14px
+      // sebelum avatar segmen di bawahnya.
+      const rails = page.locator('[data-thread-rail="thread"]');
+      assert.equal(await rails.count(), 2, 'tiga segmen memasang dua rail penyambung');
+      assert.equal(
+        await rails.first().evaluate(element => getComputedStyle(element).zIndex),
+        '10',
+        'juluran rail harus dilukis di atas background kartu segmen berikutnya',
+      );
     } finally {
       await app.close();
     }

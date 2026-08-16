@@ -6048,8 +6048,11 @@ export default function TerasPage({
                           // -mb-6 menembus padding bawah kartu & padding atas kartu
                           // berikutnya, jadi garis menyambung ke avatar segmen utas
                           // sesudahnya. Rail HANYA untuk utas penulis; post -> komentar
-                          // sengaja tak disambung (ala Threads).
-                          className="mt-1.5 -mb-6 w-px flex-1 bg-gray-200 dark:bg-slate-700"
+                          // sengaja tak disambung (ala Threads). relative z-10 wajib:
+                          // juluran -mb-6 berada DI BAWAH background opak kartu
+                          // segmen berikutnya (lebih akhir di DOM) — tanpa ini garis
+                          // tampak putus ~14px sebelum menyentuh avatar berikutnya.
+                          className="relative z-10 mt-1.5 -mb-6 w-px flex-1 bg-gray-200 dark:bg-slate-700"
                           initial={reduceMotion ? false : { opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
