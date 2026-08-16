@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
-  Loader2, Play, ChevronDown, Search, Check,
+  Loader2, Play, ChevronDown, Search, CheckCircle2,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
@@ -838,12 +838,6 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 {saveError}
               </div>
             )}
-            {saveOk && !saveError && (
-              <div className="mb-2.5 flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-400">
-                <Check size={13} strokeWidth={2.5} />
-                Perubahan tersimpan.
-              </div>
-            )}
             <div className="flex gap-2">
               <button
                 onClick={() => onNavigate('/dashboard/hotels')}
@@ -852,13 +846,21 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
               >
                 Batal
               </button>
+              {/* Konfirmasi simpan memakai tombolnya sendiri (pola CapiPage),
+                  bukan pita di atasnya: bar aksi ini fixed-format, jadi
+                  menyisipkan blok baru menggeser tombol — dilarang DS. */}
               <button
                 onClick={handleSave}
-                disabled={saving}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={saving || saveOk}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
               >
-                {saving && <Loader2 size={16} className="animate-spin" />}
-                {editSlug ? 'Simpan Perubahan' : 'Simpan Hotel'}
+                {saving ? (
+                  <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
+                ) : saveOk ? (
+                  <><CheckCircle2 size={18} strokeWidth={2.5} /> Tersimpan!</>
+                ) : (
+                  editSlug ? 'Simpan Perubahan' : 'Simpan Hotel'
+                )}
               </button>
             </div>
           </div>
