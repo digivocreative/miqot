@@ -86,6 +86,11 @@ export default function SnippetSheet({
   const [copied, setCopied] = useState(false);
   const [copyPulse, setCopyPulse] = useState(0);
   const copiedTimerRef = useRef<number | null>(null);
+  // Dukungan Web Share tidak berubah selama halaman hidup — dibaca sekali
+  // lewat inisialisasi state, bukan tiap render.
+  const [canNativeShare] = useState(() => (
+    typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+  ));
 
   useEffect(() => () => {
     if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
@@ -378,15 +383,23 @@ export default function SnippetSheet({
                   </motion.span>
                 </AnimatePresence>
               </button>
-              <button
-                type="button"
-                onClick={onShare}
-                disabled={!body}
-                className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-4 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-45 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                <Share2 size={15} />
-                Bagikan
-              </button>
+              {/* Bagikan = share sheet bawaan sistem, TITIK. Tanpa dukungan
+                  Web Share tombol ini tidak dirender sama sekali: dulu ia
+                  diam-diam jatuh ke "salin ke clipboard", dan tombol yang
+                  mengaku membagikan tapi sebenarnya menyalin lebih buruk
+                  daripada tombol yang tidak ada — apalagi tombol Salin sudah
+                  berdiri persis di sebelahnya. */}
+              {canNativeShare && (
+                <button
+                  type="button"
+                  onClick={onShare}
+                  disabled={!body}
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-full border border-gray-200 px-4 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-45 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <Share2 size={15} />
+                  Bagikan
+                </button>
+              )}
             </div>
           </footer>
         </motion.div>

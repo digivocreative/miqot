@@ -2147,15 +2147,12 @@ export default function TerasPage({
    * "Tersalin" — jadi kegagalan di sini tidak cukup berakhir sebagai toast,
    * ia harus terbaca oleh pemanggil.
    */
-  const copySnippetText = useCallback(async (text: string, { toastOnSuccess = true } = {}) => {
+  const copySnippetText = useCallback(async (text: string) => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API tidak tersedia');
       await navigator.clipboard.writeText(text);
-      // Tombol sheet mematikan toast ini: ia sudah berubah jadi "Tersalin"
-      // sendiri, dan toast-nya muncul menimpa tombol itu. Jalur Bagikan
-      // (fallback share -> salin) TETAP butuh toast — di sana tidak ada apa
-      // pun yang memberi tahu bahwa teksnya berpindah ke clipboard.
-      if (toastOnSuccess) showToast('Teks disalin', 'success');
+      // Tidak ada toast sukses: tombolnya sendiri sudah berubah jadi
+      // "Tersalin", dan toast-nya dulu muncul menimpa tombol itu.
       trackEvent('action', 'teras_snippet_copy');
       return true;
     } catch {
@@ -2164,19 +2161,24 @@ export default function TerasPage({
     }
   }, [showToast]);
 
-  /** HANYA `text` — judul/URL sengaja tidak dikirim; lampiran bukan tautan. */
+  /**
+   * Bagikan = share sheet bawaan sistem SAJA. Tidak ada lagi jalan mundur ke
+   * "salin ke clipboard": tombol yang mengaku membagikan tapi diam-diam
+   * menyalin itu menyesatkan, dan tombol Salin sudah berdiri di sebelahnya.
+   * SnippetSheet menyembunyikan tombolnya kalau Web Share tak didukung, jadi
+   * fungsi ini hanya terpanggil di lingkungan yang punya navigator.share.
+   *
+   * HANYA `text` — judul/URL sengaja tidak dikirim; lampiran bukan tautan.
+   */
   const shareSnippetText = useCallback(async (text: string) => {
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ text });
-        return;
-      } catch (shareError) {
-        // Dibatalkan pengguna bukan kegagalan — jangan lanjut menyalin diam-diam.
-        if (shareError instanceof Error && shareError.name === 'AbortError') return;
-      }
+    try {
+      await navigator.share({ text });
+    } catch (shareError) {
+      // Dibatalkan pengguna bukan kegagalan — jangan ributkan.
+      if (shareError instanceof Error && shareError.name === 'AbortError') return;
+      showToast('Gagal membagikan teks', 'error');
     }
-    await copySnippetText(text);
-  }, [copySnippetText]);
+  }, [showToast]);
 
   const copyShareLink = useCallback(async () => {
     if (!shareUrl) return;
@@ -6936,9 +6938,7 @@ export default function TerasPage({
         onClose={closeSnippetSheet}
         // Body belum tiba -> false, bukan lempar: tombolnya memang sudah
         // disabled, dan sheet cuma perlu tahu "tidak jadi tersalin".
-        onCopy={() => (snippetBody
-          ? copySnippetText(snippetBody, { toastOnSuccess: false })
-          : Promise.resolve(false))}
+        onCopy={() => (snippetBody ? copySnippetText(snippetBody) : Promise.resolve(false))}
         onShare={() => { if (snippetBody) void shareSnippetText(snippetBody); }}
       />
       {shareSheet}
