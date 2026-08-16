@@ -327,7 +327,31 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
   );
   assert.match(pageSource, /\/api\/community\/read/);
   assert.match(cardSource, /\/api\/community\/teaser/);
-  assert.doesNotMatch(cardSource, /setInterval\s*\(/);
+  // Pin lama melarang setInterval APA PUN di kartu. Niat aslinya (2408ba8,
+  // lahir bersama asersi fetch teaser di atas): kartu dashboard dilarang
+  // POLLING jaringan — bukan dilarang punya interval UI. Sejak kartu jadi
+  // ticker, setInterval sah untuk rotasi frame. Dijangkar ulang ke invarian
+  // sesungguhnya: fetch teaser tepat satu titik, effect-nya mount-only, dan
+  // tiap setInterval hanya boleh menggerakkan frame — bukan memicu fetch.
+  assert.equal(
+    cardSource.split("fetch('/api/community/teaser'").length - 1,
+    1,
+    'fetch teaser harus tepat satu titik panggil',
+  );
+  assert.match(
+    cardSource,
+    /void loadTeaser\(\);\s*return \(\) => controller\.abort\(\);\s*\}, \[\]\);/,
+    'effect fetch teaser harus mount-only (deps [])',
+  );
+  for (
+    let at = cardSource.indexOf('setInterval');
+    at >= 0;
+    at = cardSource.indexOf('setInterval', at + 1)
+  ) {
+    const site = cardSource.slice(at, at + 150);
+    assert.match(site, /setFrame/, 'setInterval TerasCard hanya boleh menggerakkan frame ticker');
+    assert.doesNotMatch(site, /fetch|loadTeaser/, 'setInterval TerasCard tidak boleh memicu fetch');
+  }
 });
 
 test('Teras Threads presentation uses a single Heart reaction and the new composer prompt', () => {
