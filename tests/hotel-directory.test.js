@@ -14,6 +14,8 @@ import {
   hotelMediaUrlsRemoved,
   parseHotelDistanceMeters,
   hotelAreaCity,
+  HOTEL_RATING_PLATFORMS,
+  normalizeHotelRatingsInput,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
@@ -413,4 +415,86 @@ test('hotelMediaCategories: media tanpa kategori tidak melahirkan entri kosong',
   assert.deepEqual(hotelMediaCategories([{ type: 'image', url: IMG_URL, category: '  ' }]), []);
   assert.deepEqual(hotelMediaCategories(null), []);
   assert.deepEqual(hotelMediaCategories(undefined), []);
+});
+
+test('HOTEL_RATING_PLATFORMS: skala tiap platform sesuai aslinya', () => {
+  const byId = Object.fromEntries(HOTEL_RATING_PLATFORMS.map((p) => [p.id, p]));
+  // Booking & Agoda memakai skala 10; salah menyamakan ke 5 membuat 8,6
+  // terbaca seolah lebih buruk dari 4,3 padahal keduanya bagus.
+  assert.equal(byId.booking.max, 10);
+  assert.equal(byId.agoda.max, 10);
+  assert.equal(byId.google.max, 5);
+  assert.equal(byId.tripadvisor.max, 5);
+  assert.equal(byId.tripcom.max, 5);
+  for (const p of HOTEL_RATING_PLATFORMS) {
+    assert.equal(typeof p.label, 'string');
+    assert.ok(p.label.length > 0);
+  }
+});
+
+test('normalizeHotelRatingsInput: entri sah lolos, skor dibulatkan wajar', () => {
+  const out = normalizeHotelRatingsInput([
+    { platform: 'google', score: 4.3, reviews: 1280, url: 'https://maps.app.goo.gl/x' },
+    { platform: 'booking', score: 8.6, reviews: 940 },
+  ]);
+  assert.deepEqual(out, [
+    { platform: 'google', score: 4.3, reviews: 1280, url: 'https://maps.app.goo.gl/x' },
+    { platform: 'booking', score: 8.6, reviews: 940, url: null },
+  ]);
+});
+
+test('normalizeHotelRatingsInput: skor di luar skala platform ditolak', () => {
+  // 8,6 sah untuk Booking (skala 10) tapi mustahil untuk Google (skala 5).
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google', score: 8.6 }]), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'booking', score: 11 }]), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google', score: -1 }]), null);
+  assert.ok(normalizeHotelRatingsInput([{ platform: 'booking', score: 8.6 }]));
+});
+
+test('normalizeHotelRatingsInput: bentuk menyimpang ditolak, kosong sah', () => {
+  assert.deepEqual(normalizeHotelRatingsInput([]), []);
+  assert.deepEqual(normalizeHotelRatingsInput(null), []);
+  assert.equal(normalizeHotelRatingsInput('bukan-array'), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'yelp', score: 4 }]), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google', score: 'empat' }]), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google' }]), null);
+  // Platform kembar = ambigu, tolak daripada diam-diam memilih salah satu.
+  assert.equal(
+    normalizeHotelRatingsInput([{ platform: 'google', score: 4 }, { platform: 'google', score: 5 }]),
+    null
+  );
+  // URL wajib https ke domain platform yang masuk akal, bukan sembarang tautan.
+  assert.equal(
+    normalizeHotelRatingsInput([{ platform: 'google', score: 4, url: 'http://maps.app.goo.gl/x' }]),
+    null
+  );
+  assert.equal(
+    normalizeHotelRatingsInput([{ platform: 'booking', score: 8, url: 'https://evil.com/x' }]),
+    null
+  );
+});
+
+test('normalizeHotelRatingsInput: jumlah ulasan harus bilangan bulat tak negatif', () => {
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google', score: 4, reviews: -3 }]), null);
+  assert.equal(normalizeHotelRatingsInput([{ platform: 'google', score: 4, reviews: 1.5 }]), null);
+  const tanpaReviews = normalizeHotelRatingsInput([{ platform: 'google', score: 4 }]);
+  assert.equal(tanpaReviews[0].reviews, null);
+});
+
+test('buildHotelPayload: ratings ikut whitelist dan tervalidasi', () => {
+  const ok = buildHotelPayload(
+    validInput({ ratings: [{ platform: 'agoda', score: 9.1, reviews: 12 }] }),
+    OPTS
+  );
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.data.ratings, [{ platform: 'agoda', score: 9.1, reviews: 12, url: null }]);
+
+  const bad = buildHotelPayload(validInput({ ratings: [{ platform: 'agoda', score: 99 }] }), OPTS);
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /rating/i);
+
+  // Tanpa field ratings sama sekali = daftar kosong, bukan galat.
+  const absent = buildHotelPayload(validInput(), OPTS);
+  assert.equal(absent.ok, true);
+  assert.deepEqual(absent.data.ratings, []);
 });

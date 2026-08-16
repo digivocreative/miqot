@@ -4,7 +4,7 @@ import {
   Play, ImageOff, Image as ImageIcon, ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories } from '../../lib/hotel-directory.js';
+import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories, HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
@@ -35,6 +35,13 @@ export interface HotelMediaItem {
   category?: string;
 }
 
+export interface HotelRatingItem {
+  platform: string;
+  score: number;
+  reviews?: number | null;
+  url?: string | null;
+}
+
 export interface HotelDetail {
   id: string;
   slug: string;
@@ -50,6 +57,8 @@ export interface HotelDetail {
   facilities: string[];
   agent_note: string | null;
   media: HotelMediaItem[];
+  // Opsional: baris lama / prod pra-migrasi 20260816050000 belum punya kolom ini.
+  ratings?: HotelRatingItem[];
 }
 
 export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai'] as const;
@@ -222,6 +231,57 @@ function HotelDescription({ text }: { text: string }) {
         </button>
       )}
     </>
+  );
+}
+
+// Widget rating platform pemesanan. Skala berbeda per platform, jadi angkanya
+// SELALU ditulis "x/maks" — bukan bintang seragam yang membuat 8,6 (Booking)
+// terlihat lebih buruk dari 4,3 (Google).
+function HotelRatings({ ratings }: { ratings: HotelRatingItem[] }) {
+  const known = HOTEL_RATING_PLATFORMS as { id: string; label: string; max: number }[];
+  const rows = known
+    .map(platform => ({ platform, value: ratings.find(r => r.platform === platform.id) }))
+    .filter((row): row is { platform: typeof known[number]; value: HotelRatingItem } => Boolean(row.value));
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-5">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Rating Platform</h3>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {rows.map(({ platform, value }) => {
+          const content = (
+            <>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                  {value.score.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                </span>
+                <span className="text-[11px] font-semibold text-gray-400 dark:text-slate-500">/{platform.max}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] font-semibold text-gray-600 dark:text-slate-300">{platform.label}</p>
+              {value.reviews !== null && value.reviews !== undefined && (
+                <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                  {value.reviews.toLocaleString('id-ID')} ulasan
+                </p>
+              )}
+            </>
+          );
+          const shell = 'rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 shadow-sm';
+          return value.url ? (
+            <a
+              key={platform.id}
+              href={value.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${shell} block transition-all hover:shadow-md active:scale-[0.98]`}
+            >
+              {content}
+            </a>
+          ) : (
+            <div key={platform.id} className={shell}>{content}</div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -813,6 +873,8 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
               </div>
             </div>
           )}
+
+          <HotelRatings ratings={detail.ratings || []} />
 
           {detail.description && (
             <div className="mt-5">

@@ -8,7 +8,7 @@ import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 import HotelMediaCategorySheet from './HotelMediaCategorySheet';
-import { HOTEL_MEDIA_CATEGORY_PRESETS, hotelMediaCategories } from '../../lib/hotel-directory.js';
+import { HOTEL_MEDIA_CATEGORY_PRESETS, hotelMediaCategories, HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
 import {
   HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,
   type HotelListItem, type HotelDetail, type HotelMediaItem,
@@ -48,13 +48,16 @@ interface FormState {
   facilities: string[];
   agent_note: string;
   media: FormMedia[];
+  // Disimpan sebagai teks supaya kotak isian boleh kosong/setengah diketik;
+  // diubah ke angka saat simpan, di mana lib yang memvalidasinya.
+  ratings: Record<string, { score: string; reviews: string; url: string }>;
 }
 
 function emptyForm(): FormState {
   return {
     name: '', city: 'mekkah', stars: null,
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
-    description: '', facilities: [], agent_note: '', media: [],
+    description: '', facilities: [], agent_note: '', media: [], ratings: {},
   };
 }
 
@@ -79,6 +82,11 @@ function formFromDetail(detail: HotelDetail): FormState {
       status: 'done' as const,
       category: item.category || '',
     })),
+    ratings: Object.fromEntries((detail.ratings || []).map(r => [r.platform, {
+      score: String(r.score ?? ''),
+      reviews: r.reviews === null || r.reviews === undefined ? '' : String(r.reviews),
+      url: r.url || '',
+    }])),
   };
 }
 
@@ -489,6 +497,20 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
         .map<HotelMediaItem>(m => (m.category
           ? { type: m.type, url: m.url, category: m.category }
           : { type: m.type, url: m.url })),
+      // Hanya platform yang skornya benar-benar diisi yang dikirim; sisanya
+      // tidak dianggap "0", melainkan memang belum punya rating.
+      ratings: HOTEL_RATING_PLATFORMS.flatMap((platform: { id: string }) => {
+        const entry = form.ratings[platform.id];
+        const score = entry?.score?.trim();
+        if (!score) return [];
+        const reviews = entry.reviews?.trim();
+        return [{
+          platform: platform.id,
+          score: Number(score.replace(',', '.')),
+          reviews: reviews ? Number(reviews) : null,
+          url: entry.url?.trim() || null,
+        }];
+      }),
     };
     try {
       const res = await fetch(editingId ? `/api/hotels/${editingId}` : '/api/hotels', {
@@ -805,6 +827,56 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                   Internal — hanya terlihat oleh sesama agent, bukan jamaah.
                 </p>
               </div>
+            </section>
+
+            {/* RATING PLATFORM */}
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Rating Platform</h3>
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                  Kosongkan skor bila hotel belum punya rating di platform itu.
+                </p>
+              </div>
+              {(HOTEL_RATING_PLATFORMS as { id: string; label: string; max: number }[]).map(platform => {
+                const entry = form.ratings[platform.id] || { score: '', reviews: '', url: '' };
+                const setEntry = (patch: Partial<typeof entry>) => setForm(prev => ({
+                  ...prev,
+                  ratings: { ...prev.ratings, [platform.id]: { ...entry, ...patch } },
+                }));
+                return (
+                  <div key={platform.id} className="rounded-xl border border-gray-100 dark:border-slate-700 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[13px] font-bold text-gray-800 dark:text-slate-100">{platform.label}</span>
+                      <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500">skala {platform.max}</span>
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={entry.score}
+                        onChange={e => setEntry({ score: e.target.value })}
+                        inputMode="decimal"
+                        placeholder={platform.max === 10 ? 'mis. 8.6' : 'mis. 4.3'}
+                        aria-label={`Skor ${platform.label}`}
+                        className={`${INPUT_CLASS} w-24 shrink-0`}
+                      />
+                      <input
+                        value={entry.reviews}
+                        onChange={e => setEntry({ reviews: e.target.value.replace(/[^\d]/g, '') })}
+                        inputMode="numeric"
+                        placeholder="jumlah ulasan"
+                        aria-label={`Jumlah ulasan ${platform.label}`}
+                        className={INPUT_CLASS}
+                      />
+                    </div>
+                    <input
+                      value={entry.url}
+                      onChange={e => setEntry({ url: e.target.value })}
+                      placeholder={`Link halaman ${platform.label} (opsional)`}
+                      aria-label={`Link ${platform.label}`}
+                      className={`${INPUT_CLASS} mt-2`}
+                    />
+                  </div>
+                );
+              })}
             </section>
             </>
             ) : (

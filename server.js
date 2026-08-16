@@ -7420,6 +7420,16 @@ function hotelTableMissing(error) {
 
 const HOTEL_MIGRATION_ERROR = 'Migrasi direktori hotel belum diterapkan';
 
+// Kolom yang lahir dari migrasi menyusul (mis. ratings) belum ada di prod →
+// tulisan gagal dengan 42703/PGRST204. Dibedakan dari tabel hilang supaya
+// pesannya menunjuk migrasi yang benar-benar kurang.
+function hotelColumnMissing(error) {
+  const code = String(error?.code || '');
+  return code === '42703' || code === 'PGRST204';
+}
+
+const HOTEL_COLUMN_MIGRATION_ERROR = 'Kolom baru direktori hotel belum dimigrasi — jalankan migrasi terakhir';
+
 async function requireHotelAgent(req, res) {
   const agent = await getAgentById(req.user.id);
   if (!agent) {
@@ -7575,7 +7585,10 @@ app.post('/api/hotels', dbLoadShedGuard, authMiddleware, adminOnly, async (req, 
       .insert({ ...result.data, slug, created_by: agent.id, updated_by: agent.id })
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      if (hotelColumnMissing(error)) return res.status(503).json({ error: HOTEL_COLUMN_MIGRATION_ERROR });
+      throw error;
+    }
     res.status(201).json({ success: true, data });
   } catch (err) {
     console.error('[hotel] create error:', err?.message || err);
@@ -7615,6 +7628,7 @@ app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (re
       .maybeSingle();
     if (error) {
       if (hotelTableMissing(error)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+      if (hotelColumnMissing(error)) return res.status(503).json({ error: HOTEL_COLUMN_MIGRATION_ERROR });
       throw error;
     }
     if (!data) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
