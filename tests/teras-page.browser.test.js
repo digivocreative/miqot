@@ -2145,6 +2145,39 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('komposer lampiran teks: editor mengisi state dan POST membawa body.snippet', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({ posts: [] });
+    const app = await openApp({ api });
+    try {
+      await app.page.getByRole('button', { name: COMPOSER_TRIGGER, exact: true }).click();
+      const dialog = app.page.getByRole('dialog', { name: 'Buat Kiriman' });
+      await dialog.waitFor();
+      await dialog.getByPlaceholder(COMPOSER_PLACEHOLDER).fill('Catatan manasik, saya lampirkan di bawah');
+
+      await dialog.getByRole('button', { name: 'Lampiran', exact: true }).click();
+      const editor = app.page.getByRole('dialog', { name: 'Lampiran Teks' });
+      await editor.waitFor();
+      await editor.getByRole('textbox', { name: 'Judul lampiran' }).fill('Panduan Manasik');
+      await editor.getByRole('textbox', { name: 'Isi lampiran teks' })
+        .fill('Baris pertama panduan.\nBaris kedua panduan.');
+      await editor.getByRole('button', { name: 'Simpan lampiran teks' }).click();
+      await editor.waitFor({ state: 'detached', timeout: 10_000 });
+
+      await dialog.getByRole('button', { name: 'Kirim kiriman' }).click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      const createRequest = matchingRequests(api, 'POST', '/api/community/posts')[0];
+      assert.ok(createRequest, 'POST /api/community/posts harus terkirim');
+      assert.deepEqual(
+        createRequest.body.snippet,
+        { title: 'Panduan Manasik', body: 'Baris pertama panduan.\nBaris kedua panduan.' },
+        `POST harus membawa lampiran teks: ${JSON.stringify(createRequest.body)}`,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test('lampiran teks: kartu cuplikan di feed, klik membuka sheet dengan body penuh', { timeout: 30_000 }, async () => {
     // Cuplikan (feed) dan body penuh (endpoint terpisah) sengaja dibuat
     // BERBEDA isinya: kalau sheet cuma menampilkan ulang cuplikan, kalimat
