@@ -1,13 +1,756 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  Plus, Pencil, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
+  Loader2, Play, ChevronLeft,
+} from 'lucide-react';
+import { getAuthHeaders } from './LoginPage';
+import SegmentedControl from './common/SegmentedControl';
+import {
+  HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS,
+  type HotelListItem, type HotelDetail, type HotelMediaItem,
+} from './HotelPage';
+
 interface HotelKelolaPageProps {
   agent: { slug: string; name: string };
   onNavigate: (path: string) => void;
 }
 
-// Stub — diisi penuh di task berikutnya (daftar kelola + form + hapus).
-export default function HotelKelolaPage(_props: HotelKelolaPageProps) {
+const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
+const LABEL_CLASS = 'flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide';
+
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+const FACILITY_PRESETS = ['Wi-Fi', 'Restoran', 'AC', 'Lift', 'Laundry', 'Musholla', 'Kursi Roda'];
+
+interface FormMedia {
+  key: string;
+  type: 'image' | 'video';
+  url: string | null;
+  previewUrl: string;
+  status: 'uploading' | 'done' | 'error';
+}
+
+interface FormState {
+  name: string;
+  city: string;
+  stars: number | null;
+  distance_label: string;
+  walk_label: string;
+  area: string;
+  address: string;
+  gmaps_url: string;
+  description: string;
+  facilities: string[];
+  agent_note: string;
+  media: FormMedia[];
+}
+
+function emptyForm(): FormState {
+  return {
+    name: '', city: 'mekkah', stars: null,
+    distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
+    description: '', facilities: [], agent_note: '', media: [],
+  };
+}
+
+function formFromDetail(detail: HotelDetail): FormState {
+  return {
+    name: detail.name,
+    city: detail.city,
+    stars: detail.stars,
+    distance_label: detail.distance_label || '',
+    walk_label: detail.walk_label || '',
+    area: detail.area || '',
+    address: detail.address || '',
+    gmaps_url: detail.gmaps_url || '',
+    description: detail.description || '',
+    facilities: detail.facilities || [],
+    agent_note: detail.agent_note || '',
+    media: (detail.media || []).map((item, index) => ({
+      key: `existing-${index}-${item.url}`,
+      type: item.type,
+      url: item.url,
+      previewUrl: item.url,
+      status: 'done' as const,
+    })),
+  };
+}
+
+// Salinan pendekatan resizeCommunityPhoto (Teras): maks 1600px, JPEG 0.85,
+// latar putih untuk PNG transparan.
+function resizeHotelPhoto(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const maxWidth = 1600;
+      const scale = Math.min(1, maxWidth / img.width);
+      const width = Math.max(1, Math.round(img.width * scale));
+      const height = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas tidak tersedia')); return; }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        blob => (blob ? resolve(blob) : reject(new Error('Gagal memproses foto'))),
+        'image/jpeg',
+        0.85
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Gagal membaca foto')); };
+    img.src = objectUrl;
+  });
+}
+
+async function uploadHotelMedia(blob: Blob): Promise<string> {
+  const res = await fetch('/api/hotels/media', {
+    method: 'POST',
+    headers: {
+      'Content-Type': blob.type || 'application/octet-stream',
+      'X-Upload-ID': crypto.randomUUID(),
+      ...getAuthHeaders(),
+    },
+    body: blob,
+  });
+  let json: { success?: boolean; url?: string; error?: string } = {};
+  try { json = await res.json(); } catch { /* pesan generik di bawah */ }
+  if (!res.ok || !json.success || !json.url) {
+    throw new Error(json.error || 'Gagal mengunggah media');
+  }
+  return json.url;
+}
+
+type KelolaView = { kind: 'list' } | { kind: 'form'; hotel: HotelListItem | null };
+
+export default function HotelKelolaPage({ onNavigate }: HotelKelolaPageProps) {
+  const [view, setView] = useState<KelolaView>({ kind: 'list' });
+  const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [cityFilter, setCityFilter] = useState<string>('semua');
+  const [form, setForm] = useState<FormState>(emptyForm());
+  const [formLoading, setFormLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [facilityDraft, setFacilityDraft] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const refetch = () => {
+    fetch('/api/hotels', { headers: getAuthHeaders() })
+      .then(async res => {
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat daftar hotel');
+        setHotels(json.data);
+        setLoadError(null);
+      })
+      .catch(err => setLoadError(err.message));
+  };
+
+  useEffect(() => { refetch(); }, []);
+
+  const openCreate = () => {
+    setForm(emptyForm());
+    setEditingId(null);
+    setSaveError(null);
+    setView({ kind: 'form', hotel: null });
+  };
+
+  const openEdit = async (hotel: HotelListItem) => {
+    setSaveError(null);
+    setFormLoading(true);
+    setEditingId(hotel.id);
+    setView({ kind: 'form', hotel });
+    try {
+      const res = await fetch(`/api/hotels/${encodeURIComponent(hotel.slug)}`, { headers: getAuthHeaders() });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat data hotel');
+      setForm(formFromDetail(json.data));
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal memuat data hotel');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleMediaSelection = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSaveError(null);
+    for (const file of Array.from(files)) {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = SUPPORTED_VIDEO_TYPES.has(file.type);
+      if (!isImage && !isVideo) {
+        setSaveError('Format tidak didukung. Foto (JPG/PNG/WebP) atau video (MP4/MOV/WebM).');
+        continue;
+      }
+      if (isImage && file.size > MAX_IMAGE_BYTES) {
+        setSaveError('Ukuran foto maksimal 3MB.');
+        continue;
+      }
+      if (isVideo && file.size > MAX_VIDEO_BYTES) {
+        setSaveError('Ukuran video maksimal 20MB.');
+        continue;
+      }
+      const key = crypto.randomUUID();
+      const previewUrl = URL.createObjectURL(file);
+      const item: FormMedia = {
+        key,
+        type: isImage ? 'image' : 'video',
+        url: null,
+        previewUrl,
+        status: 'uploading',
+      };
+      setForm(prev => ({ ...prev, media: [...prev.media, item] }));
+      try {
+        const blob = isImage ? await resizeHotelPhoto(file) : file;
+        const url = await uploadHotelMedia(blob);
+        setForm(prev => ({
+          ...prev,
+          media: prev.media.map(m => (m.key === key ? { ...m, url, status: 'done' as const } : m)),
+        }));
+      } catch (err) {
+        setForm(prev => ({
+          ...prev,
+          media: prev.media.map(m => (m.key === key ? { ...m, status: 'error' as const } : m)),
+        }));
+        setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah media');
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeMedia = (key: string) => {
+    setForm(prev => {
+      const target = prev.media.find(m => m.key === key);
+      if (target && target.previewUrl.startsWith('blob:')) URL.revokeObjectURL(target.previewUrl);
+      return { ...prev, media: prev.media.filter(m => m.key !== key) };
+    });
+  };
+
+  const makeCover = (key: string) => {
+    setForm(prev => {
+      const target = prev.media.find(m => m.key === key);
+      if (!target || target.type !== 'image') return prev;
+      return { ...prev, media: [target, ...prev.media.filter(m => m.key !== key)] };
+    });
+  };
+
+  const addFacility = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setForm(prev => (prev.facilities.includes(trimmed)
+      ? prev
+      : { ...prev, facilities: [...prev.facilities, trimmed] }));
+    setFacilityDraft('');
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setSaveError('Nama hotel wajib diisi.'); return; }
+    if (form.media.some(m => m.status === 'uploading')) {
+      setSaveError('Tunggu unggahan media selesai dulu.');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
+    const body = {
+      name: form.name,
+      city: form.city,
+      stars: form.stars,
+      distance_label: cityHasDistance ? form.distance_label : null,
+      walk_label: cityHasDistance ? form.walk_label : null,
+      area: form.area,
+      address: form.address,
+      gmaps_url: form.gmaps_url,
+      description: form.description,
+      facilities: form.facilities,
+      agent_note: form.agent_note,
+      media: form.media
+        .filter((m): m is FormMedia & { url: string } => m.status === 'done' && !!m.url)
+        .map<HotelMediaItem>(m => ({ type: m.type, url: m.url })),
+    };
+    try {
+      const res = await fetch(editingId ? `/api/hotels/${editingId}` : '/api/hotels', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan hotel');
+      setView({ kind: 'list' });
+      refetch();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal menyimpan hotel');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/hotels/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menghapus hotel');
+      setDeleteTarget(null);
+      refetch();
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Gagal menghapus hotel');
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // ── View: Form Tambah/Edit ──
+  if (view.kind === 'form') {
+    const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
+    const landmark = HOTEL_CITY_LANDMARKS[form.city];
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setView({ kind: 'list' })}
+            aria-label="Kembali ke daftar kelola"
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <ChevronLeft size={16} strokeWidth={2.5} />
+          </button>
+          <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+            {editingId ? 'Edit Hotel' : 'Tambah Hotel'}
+          </h2>
+        </div>
+
+        {formLoading ? (
+          <div className="mt-4 space-y-3">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="h-20 rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 space-y-6">
+            {/* INFO DASAR */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Info Dasar</h3>
+              <div>
+                <label className={LABEL_CLASS}>Nama Hotel <span className="text-red-500">*</span></label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="mis. Makkah Towers"
+                  className={`${INPUT_CLASS} mt-1.5`}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Kategori <span className="text-red-500">*</span></label>
+                <div className="mt-1.5">
+                  <SegmentedControl
+                    options={HOTEL_CITIES.map(city => ({ value: city as string, label: HOTEL_CITY_LABELS[city] }))}
+                    value={form.city}
+                    onChange={city => setForm(prev => ({ ...prev, city }))}
+                    accent="teal"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Bintang</label>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <button
+                      key={i}
+                      onClick={() => setForm(prev => ({ ...prev, stars: prev.stars === i ? null : i }))}
+                      aria-label={`${i} bintang`}
+                      className="p-0.5 active:scale-90 transition-transform"
+                    >
+                      <Star
+                        size={24}
+                        className={form.stars && i <= form.stars ? 'text-amber-400 fill-amber-400' : 'text-gray-200 dark:text-slate-700'}
+                      />
+                    </button>
+                  ))}
+                  <span className="ml-1 text-xs text-gray-500 dark:text-slate-400">
+                    {form.stars ? `${form.stars} bintang` : 'Belum diatur'}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* LOKASI */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Lokasi</h3>
+              {cityHasDistance && (
+                <>
+                  <div>
+                    <label className={LABEL_CLASS}>Jarak ke {landmark}</label>
+                    <input
+                      value={form.distance_label}
+                      onChange={e => setForm(prev => ({ ...prev, distance_label: e.target.value }))}
+                      placeholder="mis. ±250 m"
+                      className={`${INPUT_CLASS} mt-1.5`}
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                      Hanya untuk kategori Mekkah & Madinah — label "dari {landmark}" otomatis.
+                    </p>
+                  </div>
+                  <div>
+                    <label className={LABEL_CLASS}>Keterangan Jalan Kaki</label>
+                    <input
+                      value={form.walk_label}
+                      onChange={e => setForm(prev => ({ ...prev, walk_label: e.target.value }))}
+                      placeholder="mis. ±4 menit jalan kaki"
+                      className={`${INPUT_CLASS} mt-1.5`}
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className={LABEL_CLASS}>Area / Distrik</label>
+                <input
+                  value={form.area}
+                  onChange={e => setForm(prev => ({ ...prev, area: e.target.value }))}
+                  placeholder={cityHasDistance ? 'mis. Ajyad' : 'mis. Sultanahmet, Istanbul'}
+                  className={`${INPUT_CLASS} mt-1.5`}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Alamat Lengkap</label>
+                <textarea
+                  value={form.address}
+                  onChange={e => setForm(prev => ({ ...prev, address: e.target.value }))}
+                  rows={2}
+                  placeholder="Jalan, distrik, kota, negara"
+                  className={`${INPUT_CLASS} mt-1.5 resize-none`}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Link Google Maps</label>
+                <input
+                  value={form.gmaps_url}
+                  onChange={e => setForm(prev => ({ ...prev, gmaps_url: e.target.value }))}
+                  placeholder="https://maps.app.goo.gl/…"
+                  className={`${INPUT_CLASS} mt-1.5`}
+                />
+              </div>
+            </section>
+
+            {/* KONTEN */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Konten</h3>
+              <div>
+                <label className={LABEL_CLASS}>Deskripsi</label>
+                <textarea
+                  value={form.description}
+                  onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={4}
+                  placeholder="Gambaran hotel untuk agent…"
+                  className={`${INPUT_CLASS} mt-1.5 resize-none`}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Fasilitas</label>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {form.facilities.map(facility => (
+                    <span key={facility} className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300">
+                      {facility}
+                      <button
+                        onClick={() => setForm(prev => ({ ...prev, facilities: prev.facilities.filter(f => f !== facility) }))}
+                        aria-label={`Hapus ${facility}`}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
+                      >
+                        <X size={11} />
+                      </button>
+                    </span>
+                  ))}
+                  {FACILITY_PRESETS.filter(p => !form.facilities.includes(p)).map(preset => (
+                    <button
+                      key={preset}
+                      onClick={() => addFacility(preset)}
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 dark:border-slate-600 px-2.5 py-1 text-xs font-medium text-gray-400 dark:text-slate-500 hover:border-teal-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                    >
+                      <Plus size={11} />
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={facilityDraft}
+                    onChange={e => setFacilityDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFacility(facilityDraft); } }}
+                    placeholder="Fasilitas lain…"
+                    className={INPUT_CLASS}
+                  />
+                  <button
+                    onClick={() => addFacility(facilityDraft)}
+                    disabled={!facilityDraft.trim()}
+                    className="shrink-0 rounded-xl bg-gray-100 dark:bg-slate-800 px-3 text-xs font-semibold text-gray-600 dark:text-slate-300 disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Tambah
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Catatan Agent</label>
+                <textarea
+                  value={form.agent_note}
+                  onChange={e => setForm(prev => ({ ...prev, agent_note: e.target.value }))}
+                  rows={3}
+                  placeholder="Tips internal: lantai terbaik, waktu booking, dll."
+                  className={`${INPUT_CLASS} mt-1.5 resize-none`}
+                />
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                  Internal — hanya terlihat oleh sesama agent, bukan jamaah.
+                </p>
+              </div>
+            </section>
+
+            {/* FOTO & VIDEO */}
+            <section className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Foto & Video</h3>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/mp4,video/quicktime,video/webm"
+                multiple
+                className="hidden"
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={e => handleMediaSelection(e.target.files)}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex w-full flex-col items-center gap-1 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800/60 py-5 transition-colors hover:border-teal-400"
+              >
+                <ImagePlus size={20} className="text-gray-400 dark:text-slate-500" />
+                <span className="text-[13px] font-semibold text-gray-700 dark:text-slate-200">Tambah foto / video</span>
+                <span className="text-[11px] text-gray-400 dark:text-slate-500">Foto maks 3MB · Video maks 20MB</span>
+              </button>
+              {form.media.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {form.media.map((item, index) => (
+                    <div key={item.key} className="relative h-[84px] w-[84px] overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700">
+                      {item.type === 'video' ? (
+                        <div className="flex h-full w-full items-center justify-center bg-slate-800">
+                          <Play size={18} className="text-white" />
+                        </div>
+                      ) : (
+                        <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+                      )}
+                      {item.status === 'uploading' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50">
+                          <Loader2 size={18} className="animate-spin text-white" />
+                        </div>
+                      )}
+                      {item.status === 'error' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-red-900/60">
+                          <AlertTriangle size={16} className="text-white" />
+                        </div>
+                      )}
+                      <button
+                        onClick={() => removeMedia(item.key)}
+                        aria-label="Hapus media"
+                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/70 text-white"
+                      >
+                        <X size={11} />
+                      </button>
+                      {index === 0 && item.type === 'image' ? (
+                        <span className="absolute bottom-1 left-1 rounded-full bg-teal-600 px-1.5 py-px text-[9px] font-bold text-white">Cover</span>
+                      ) : item.type === 'image' && item.status === 'done' ? (
+                        <button
+                          onClick={() => makeCover(item.key)}
+                          className="absolute bottom-1 left-1 rounded-full bg-slate-900/70 px-1.5 py-px text-[9px] font-semibold text-white"
+                        >
+                          Jadikan Cover
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {saveError && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+                {saveError}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {saving && <Loader2 size={16} className="animate-spin" />}
+                {editingId ? 'Simpan Perubahan' : 'Simpan Hotel'}
+              </button>
+              <button
+                onClick={() => setView({ kind: 'list' })}
+                className="w-full py-2 text-[13px] font-semibold text-gray-500 dark:text-slate-400"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── View: Daftar Kelola ──
+  const filteredHotels = (hotels || []).filter(h => cityFilter === 'semua' || h.city === cityFilter);
+
   return (
     <div className="px-4 pt-4 pb-8">
-      <p className="text-sm text-gray-400 dark:text-slate-500">Memuat panel kelola hotel…</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-gray-900 dark:text-white">Kelola Hotel</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+            Tambah, edit, dan hapus data hotel direktori.
+          </p>
+        </div>
+        <button
+          onClick={openCreate}
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-95"
+        >
+          <Plus size={14} strokeWidth={2.5} />
+          Tambah
+        </button>
+      </div>
+
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        {['semua', ...HOTEL_CITIES].map(city => {
+          const active = cityFilter === city;
+          return (
+            <button
+              key={city}
+              onClick={() => setCityFilter(city)}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                active
+                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                  : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+              }`}
+            >
+              {city === 'semua' ? 'Semua' : HOTEL_CITY_LABELS[city]}
+            </button>
+          );
+        })}
+      </div>
+
+      {loadError && (
+        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
+          {loadError}
+        </div>
+      )}
+
+      {!hotels && !loadError && (
+        <div className="mt-3 space-y-2.5">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="h-[76px] rounded-2xl bg-gray-100 dark:bg-slate-800 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2.5">
+        {hotels && filteredHotels.length === 0 && !loadError && (
+          <div className="py-10 text-center">
+            <ImageOff size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">Belum ada hotel. Tambah hotel pertama lewat tombol di atas.</p>
+          </div>
+        )}
+        {filteredHotels.map(hotel => (
+          <div
+            key={hotel.id}
+            className="flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm"
+          >
+            <div className="h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
+              {hotel.cover ? (
+                <img src={hotel.cover} alt={hotel.name} className="h-full w-full object-cover" loading="lazy" />
+              ) : (
+                <ImageOff size={16} className="text-gray-300 dark:text-slate-500" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">{hotel.name}</p>
+              <div className="mt-0.5 flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-500 dark:text-slate-400">{HOTEL_CITY_LABELS[hotel.city]}</span>
+                {hotel.photo_count > 0 ? (
+                  <span className="rounded-full bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-px text-[9px] font-bold text-emerald-600 dark:text-emerald-400">✓ Lengkap</span>
+                ) : (
+                  <span className="rounded-full bg-amber-50 dark:bg-amber-900/20 px-1.5 py-px text-[9px] font-bold text-amber-600 dark:text-amber-400">Belum ada foto</span>
+                )}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => openEdit(hotel)}
+                aria-label={`Edit ${hotel.name}`}
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                onClick={() => setDeleteTarget(hotel)}
+                aria-label={`Hapus ${hotel.name}`}
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-500 transition-colors hover:bg-red-100 active:scale-95 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+          onClick={() => !deleting && setDeleteTarget(null)}
+          style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' } as React.CSSProperties}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-2xl p-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20">
+              <AlertTriangle size={24} className="text-red-500" />
+            </div>
+            <h3 className="mt-3 text-center text-sm font-bold text-gray-900 dark:text-white">
+              Hapus {deleteTarget.name}?
+            </h3>
+            <p className="mt-1.5 text-center text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+              Semua data, foto, dan video hotel ini akan terhapus permanen dari direktori. Tindakan ini tidak bisa dibatalkan.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl bg-gray-100 dark:bg-slate-700 py-2.5 text-[13px] font-semibold text-gray-700 dark:text-slate-200 transition-colors hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-60"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2.5 text-[13px] font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting && <Loader2 size={14} className="animate-spin" />}
+                Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
