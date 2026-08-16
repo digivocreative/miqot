@@ -602,13 +602,15 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
       {detail && (
         <>
-          {/* Galeri: satu cover besar + tiga mini di bawahnya (pola tiket.com);
-              mini terakhir menjadi pintu "Lihat semua" ke halaman media. */}
+          {/* Galeri: satu cover besar + tiga mini di bawahnya (pola tiket.com).
+              Foto langsung membuka lightbox; HANYA kotak "Lihat semua" yang
+              pindah ke halaman media. */}
           <div className="mt-3">
             <button
-              onClick={() => openMedia(0)}
+              onClick={() => setViewerIndex(0)}
               disabled={media.length === 0}
-              aria-label={media.length ? `Lihat semua media ${detail.name}` : undefined}
+              aria-label={media.length ? `Lihat media ${detail.name}` : undefined}
+              aria-haspopup={media.length ? 'dialog' : undefined}
               className="relative block h-56 w-full overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 shadow-sm transition-all enabled:hover:shadow-lg enabled:active:scale-[0.99] disabled:cursor-default"
             >
               {media[0] ? (
@@ -635,8 +637,9 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                   return (
                     <button
                       key={item.url}
-                      onClick={() => openMedia(mediaIdx)}
+                      onClick={() => (isLastSlot ? openMedia(mediaIdx) : setViewerIndex(mediaIdx))}
                       aria-label={isLastSlot ? `Lihat semua media ${detail.name}` : `Lihat media ${mediaIdx + 1}`}
+                      aria-haspopup={isLastSlot ? undefined : 'dialog'}
                       className="relative h-20 overflow-hidden rounded-xl border border-gray-100 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 transition-all hover:shadow-md active:scale-[0.97]"
                     >
                       {item.type === 'video' ? (
@@ -753,6 +756,19 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
               </div>
             </div>
           )}
+
+          {/* Lightbox yang sama dengan halaman media — foto di galeri detail
+              dibuka langsung, tanpa mampir ke halaman media dulu. */}
+          <AnimatePresence>
+            {viewerIndex !== null && (
+              <MediaViewerModal
+                media={media}
+                initialIndex={viewerIndex}
+                label={detail.name}
+                onClose={() => setViewerIndex(null)}
+              />
+            )}
+          </AnimatePresence>
         </>
       )}
     </HotelViewShell>
