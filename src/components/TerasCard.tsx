@@ -1,26 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AtSign, ChevronRight, Coffee, MessagesSquare } from 'lucide-react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { MentionText } from './MentionText';
-import type { MentionMember } from '../lib/communityMentions';
+import { timeAgo } from '../lib/communityNotifications';
+import {
+  normalizeTeaserData,
+  type TeaserAvatar as TeaserAvatarData,
+  type TerasTeaserData,
+} from '../lib/terasTeaser';
 import { getAuthHeaders } from './LoginPage';
 
-interface TeaserAvatar {
-  name: string | null;
-  photo: string | null;
-}
-
-interface TerasTeaserData {
-  latest: {
-    author: TeaserAvatar;
-    body_snippet: string;
-    mentions: MentionMember[];
-    created_at: string;
-  } | null;
-  today_count: number;
-  recent_avatars: TeaserAvatar[];
-  unread_count: number;
-}
+const TICKER_INTERVAL_MS = 4500;
 
 type TerasCardState =
   | { status: 'loading' }
@@ -43,7 +34,7 @@ function TeaserAvatar({
   size,
   className = '',
 }: {
-  avatar: TeaserAvatar;
+  avatar: TeaserAvatarData;
   size: 'recent' | 'latest';
   className?: string;
 }) {
@@ -81,43 +72,21 @@ function TeaserAvatar({
   );
 }
 
-function normalizeTeaserData(value: unknown): TerasTeaserData {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Data Jendela Teras tidak valid');
-  }
-  const source = value as Partial<TerasTeaserData>;
-  const latest = source.latest && typeof source.latest === 'object'
-    ? {
-      author: {
-        name: typeof source.latest.author?.name === 'string' ? source.latest.author.name : null,
-        photo: typeof source.latest.author?.photo === 'string' ? source.latest.author.photo : null,
-      },
-      body_snippet: typeof source.latest.body_snippet === 'string' ? source.latest.body_snippet : '',
-      mentions: Array.isArray(source.latest.mentions)
-        ? source.latest.mentions
-          .filter(mention => typeof mention?.slug === 'string' && typeof mention?.name === 'string')
-          .map(mention => ({ slug: mention.slug, name: mention.name, photo: null }))
-        : [],
-      created_at: typeof source.latest.created_at === 'string' ? source.latest.created_at : '',
-    }
-    : null;
-  const recentAvatars = Array.isArray(source.recent_avatars)
-    ? source.recent_avatars.slice(0, 3).map(avatar => ({
-      name: typeof avatar?.name === 'string' ? avatar.name : null,
-      photo: typeof avatar?.photo === 'string' ? avatar.photo : null,
-    }))
-    : [];
-
-  return {
-    latest,
-    today_count: Math.max(0, Number(source.today_count) || 0),
-    recent_avatars: recentAvatars,
-    unread_count: Math.max(0, Number(source.unread_count) || 0),
-  };
-}
-
 export default function TerasCard({ onOpen }: { onOpen: () => void }) {
   const [state, setState] = useState<TerasCardState>({ status: 'loading' });
+  const [frame, setFrame] = useState(0);
+  const [hovering, setHovering] = useState(false);
+  const [tabHidden, setTabHidden] = useState(
+    () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
+  );
+  // Dibaca sekali per mount saja — preferensi OS praktis tak berubah mid-sesi,
+  // dan rotasi yang tiba-tiba hidup/mati malah mengagetkan.
+  const reducedMotion = useMemo(
+    () => typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,12 +123,28 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    const onVisibility = () => setTabHidden(document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   const data = state.status === 'data' ? state.data : null;
-  const latest = data?.latest || null;
+  const posts = data?.posts ?? [];
   const unreadCount = data?.unread_count || 0;
+  const rotating = posts.length > 1 && !reducedMotion;
+  const activeIndex = posts.length > 0 ? frame % posts.length : 0;
+  const activePost = posts[activeIndex] ?? null;
+
+  useEffect(() => {
+    if (!rotating || hovering || tabHidden) return;
+    const id = window.setInterval(() => setFrame(prev => prev + 1), TICKER_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [rotating, hovering, tabHidden]);
+
   const mentionBySlug = useMemo(
-    () => new Map((latest?.mentions || []).map(member => [member.slug.toLowerCase(), member])),
-    [latest],
+    () => new Map((activePost?.mentions || []).map(member => [member.slug.toLowerCase(), member])),
+    [activePost],
   );
   const hasMention = mentionBySlug.size > 0;
 
@@ -167,6 +152,8 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
       aria-label="Teras"
       aria-busy={state.status === 'loading'}
       className="group min-h-[88px] w-full rounded-2xl border border-teal-200/70 bg-gradient-to-br from-teal-50 via-white to-cyan-100/70 p-3 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:border-teal-800/40 dark:from-teal-950/40 dark:via-slate-800 dark:to-slate-800 dark:focus-visible:ring-offset-slate-950"
@@ -178,7 +165,8 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
             <div className="h-3.5 w-20 rounded bg-gray-200 dark:bg-slate-700" />
             <div className="ml-auto h-[18px] w-16 rounded-full bg-gray-200 dark:bg-slate-700" />
           </div>
-          <div className="mt-2 h-5 rounded bg-gray-200/80 dark:bg-slate-700/80" />
+          <div className="mt-2 h-[26px] rounded bg-gray-200/80 dark:bg-slate-700/80" />
+          <div className="mt-1.5 h-2.5 w-28 rounded bg-gray-200/60 dark:bg-slate-700/60" />
         </div>
       ) : (
         <>
@@ -188,7 +176,8 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
             </span>
             <span className="text-sm font-extrabold text-gray-900 dark:text-white">Teras</span>
             {unreadCount > 0 && (
-              <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white shadow-md shadow-red-500/30">
+              <span className="flex items-center gap-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white shadow-md shadow-red-500/30">
+                {!reducedMotion && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/90" aria-hidden="true" />}
                 {unreadCount > 9 ? '9+' : unreadCount} baru
               </span>
             )}
@@ -208,45 +197,87 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
             <ChevronRight size={16} className="shrink-0 text-gray-400 dark:text-slate-500" />
           </div>
 
-          <div className="mt-2 flex min-w-0 items-center gap-2">
-            {latest ? (
-              <>
-                <TeaserAvatar avatar={latest.author} size="latest" />
-                {/* Preview yang memuat @mention dibedakan: penanda @ + latar emerald
-                    tipis, karena pill mention-nya sendiri bisa terpotong ellipsis. */}
-                {hasMention && (
-                  <AtSign
-                    size={13}
-                    className="shrink-0 text-emerald-600 dark:text-emerald-400"
-                    aria-label="Ada sebutan"
-                  />
-                )}
-                <p
-                  className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] ${
-                    hasMention
-                      ? 'rounded-md bg-emerald-50/80 px-1.5 py-0.5 text-emerald-900/80 dark:bg-emerald-500/10 dark:text-emerald-100/80'
-                      : 'text-gray-500 dark:text-slate-400'
-                  }`}
-                >
-                  <b className={`font-bold ${hasMention ? 'text-emerald-950 dark:text-white' : 'text-gray-900 dark:text-white'}`}>
-                    {latest.author.name || 'Agent'}
-                  </b>
-                  &nbsp;
-                  <MentionText body={latest.body_snippet} memberBySlug={mentionBySlug} />
-                </p>
-                <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
-                  {data?.today_count ?? 0} hari ini
+          {activePost ? (
+            <>
+              {/* aria-live off: pergantian frame tiap 4,5 dtk jangan membanjiri
+                  screen reader; isi lengkap tetap terbaca di halaman Teras. */}
+              <div className="relative mt-2 h-[26px] overflow-hidden" aria-live="off">
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={activeIndex}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    className="absolute inset-0 flex min-w-0 items-center gap-2"
+                  >
+                    <TeaserAvatar avatar={activePost.author} size="latest" />
+                    {/* Preview yang memuat @mention dibedakan: penanda @ + latar
+                        emerald tipis, karena pill mention-nya bisa terpotong ellipsis. */}
+                    {hasMention && (
+                      <AtSign
+                        size={13}
+                        className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                        aria-label="Ada sebutan"
+                      />
+                    )}
+                    <p
+                      className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] ${
+                        hasMention
+                          ? 'rounded-md bg-emerald-50/80 px-1.5 py-0.5 text-emerald-900/80 dark:bg-emerald-500/10 dark:text-emerald-100/80'
+                          : 'text-gray-500 dark:text-slate-400'
+                      }`}
+                    >
+                      <b className={`font-bold ${hasMention ? 'text-emerald-950 dark:text-white' : 'text-gray-900 dark:text-white'}`}>
+                        {activePost.author.name || 'Agent'}
+                      </b>
+                      &nbsp;
+                      <MentionText body={activePost.body_snippet} memberBySlug={mentionBySlug} />
+                    </p>
+                    {activePost.thumb && (
+                      <img
+                        src={activePost.thumb}
+                        alt=""
+                        loading="lazy"
+                        className="h-[26px] w-[26px] flex-none rounded-md border border-white/70 object-cover dark:border-slate-700"
+                        onError={event => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
+                    <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
+                      {timeAgo(activePost.created_at)}
+                    </span>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="mt-1.5 flex h-2.5 items-center justify-between">
+                <span className="text-[10px] font-semibold leading-none text-gray-400 dark:text-slate-500">
+                  {data?.today_count ?? 0} kiriman hari ini
                 </span>
-              </>
-            ) : (
-              <>
-                <Coffee size={17} className="shrink-0 text-teal-600 dark:text-teal-400" />
-                <p className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-gray-500 dark:text-slate-400">
-                  Teras masih sepi hari ini. <b className="font-bold text-teal-600 dark:text-teal-400">Jadilah yang pertama berbagi.</b>
-                </p>
-              </>
-            )}
-          </div>
+                {rotating && (
+                  <span className="flex items-center gap-1" aria-hidden="true">
+                    {posts.map((post, index) => (
+                      <span
+                        key={post.created_at + index}
+                        className={`h-1 w-1 rounded-full transition-colors duration-300 ${
+                          index === activeIndex
+                            ? 'bg-teal-500 dark:bg-teal-400'
+                            : 'bg-teal-200 dark:bg-teal-800'
+                        }`}
+                      />
+                    ))}
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 flex min-w-0 items-center gap-2">
+              <Coffee size={17} className="shrink-0 text-teal-600 dark:text-teal-400" />
+              <p className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-gray-500 dark:text-slate-400">
+                Teras masih sepi hari ini. <b className="font-bold text-teal-600 dark:text-teal-400">Jadilah yang pertama berbagi.</b>
+              </p>
+            </div>
+          )}
         </>
       )}
     </button>
