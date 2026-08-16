@@ -6607,7 +6607,14 @@ export default function TerasPage({
                         }}
                         whileTap={reduceMotion ? undefined : { scale: 0.86 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
-                        className={`flex min-h-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
+                        // min-w-11 WAJIB sama dengan tiga tombol lainnya. Isi
+                        // tombol rata-kiri (tanpa justify-center, supaya ikon
+                        // tidak melompat saat angka muncul), jadi kelebihan
+                        // lebar menuju 44px jatuh seluruhnya jadi ruang kosong
+                        // di KANAN. Tanpa min-w-11 tombol ini cuma 35px, dan
+                        // jarak antar-pusat ikon jadi 39 | 48 | 48 — celah
+                        // pertama tampak 9px lebih rapat.
+                        className={`flex min-h-11 min-w-11 select-none touch-manipulation items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold transition-colors hover:text-rose-500 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/50 dark:hover:text-rose-400 dark:active:bg-slate-900 ${
                           post.my_reaction
                             ? 'text-rose-500 dark:text-rose-400'
                             : 'text-gray-500 dark:text-slate-400'
@@ -6746,7 +6753,10 @@ export default function TerasPage({
                         transition={{ type: 'spring', stiffness: 520, damping: 26 }}
                         className="flex min-h-11 min-w-11 items-center gap-1.5 rounded-full px-2 text-[12.5px] font-semibold text-gray-500 transition-colors hover:text-emerald-600 active:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 dark:text-slate-400 dark:hover:text-emerald-400 dark:active:bg-slate-900"
                       >
-                        <Share2 size={18} />
+                        {/* 19, sama dengan Heart/MessageCircle/RefreshCw —
+                            18 membuat ikon terakhir sedikit lebih kecil dan
+                            pusatnya meleset setengah piksel dari deret. */}
+                        <Share2 size={19} />
                       </motion.button>
                     </div>
                   </div>

@@ -2364,6 +2364,60 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
     }
   });
 
+  test('baris aksi kiriman: jarak antar-ikon rata dan tiap tombol 44px', { timeout: 30_000 }, async () => {
+    const api = createCommunityApi({ posts: [makePost({ id: 'post-aksi', body: 'Kiriman tanpa angka' })] });
+    const app = await openApp({ api, viewport: { width: 700, height: 800 } });
+    try {
+      const article = app.page.locator('article').first();
+      await article.waitFor();
+
+      const tombol = await article.evaluate(el => (
+        [...el.querySelectorAll('button')]
+          .filter(b => ['Suka', 'Komentari', 'Quote', 'Bagikan'].includes(b.getAttribute('aria-label') || ''))
+          .map(b => {
+            const kotak = b.getBoundingClientRect();
+            const ikon = b.querySelector('svg').getBoundingClientRect();
+            return {
+              label: b.getAttribute('aria-label'),
+              lebar: kotak.width,
+              tinggi: kotak.height,
+              pusatIkon: ikon.x + ikon.width / 2,
+              lebarIkon: ikon.width,
+            };
+          })
+      ));
+      assert.equal(tombol.length, 4, 'keempat tombol aksi harus terukur');
+
+      // Yang dilihat mata adalah jarak antar-PUSAT IKON, bukan celah antar
+      // kotak tombol — celah kotak sudah rata (gap-1) bahkan ketika ikonnya
+      // tampak tidak simetris. Dulu deretnya 39 | 48 | 47,5 karena tombol
+      // Suka kehilangan min-w-11 dan Share2 sesize 18.
+      const pusat = tombol.map(t => t.pusatIkon);
+      const jarak = pusat.slice(1).map((p, i) => p - pusat[i]);
+      for (const j of jarak) {
+        assert.ok(
+          Math.abs(j - jarak[0]) <= 0.5,
+          `jarak antar-pusat ikon harus rata: ${JSON.stringify({ jarak, tombol })}`,
+        );
+      }
+
+      for (const t of tombol) {
+        // Isi tombol rata-kiri, jadi lebar 44px inilah yang menjaga jarak
+        // tetap rata SEKALIGUS memenuhi lantai target sentuh. DIBULATKAN:
+        // pengukuran sub-piksel mengembalikan 43,99999 pada sebagian jalan,
+        // dan `>= 44` mentah membuat tes ini berkedip merah-hijau.
+        assert.ok(Math.round(t.lebar) >= 44 && Math.round(t.tinggi) >= 44,
+          `target sentuh ${t.label} harus 44px: ${JSON.stringify(t)}`);
+        // Toleransi, bukan kesamaan persis: tata letak sub-piksel membuat
+        // ikon 19px terukur 18,99999 di sebagian kotak.
+        assert.ok(Math.abs(t.lebarIkon - tombol[0].lebarIkon) <= 0.5,
+          `ikon ${t.label} harus seukuran ikon lainnya: ${JSON.stringify(t)}`);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   test('lampiran teks: kartu cuplikan di feed, klik membuka sheet dengan body penuh', { timeout: 30_000 }, async () => {
     // Cuplikan (feed) dan body penuh (endpoint terpisah) sengaja dibuat
     // BERBEDA isinya: kalau sheet cuma menampilkan ulang cuplikan, kalimat
