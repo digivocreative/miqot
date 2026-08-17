@@ -12,6 +12,7 @@ import { clearSession, getAuthHeaders } from './LoginPage';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
+import HotelRouteSkeleton, { type HotelSkeletonKind } from './HotelSkeletons';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { isHotelDirectoryEnabledForAgent } from '../lib/hotelAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
@@ -280,15 +281,39 @@ const TAB_TITLES: Record<TabId, string> = {
   hotels: 'Hotels',
 };
 
+// Judul dokumen per sub-halaman Tools. SATU sumber: navigatePath memakainya
+// lewat getCurrentDocumentTitle, jadi pemanggil cukup pindah URL tanpa ikut
+// menyetel document.title sendiri (dulu tiap pemanggil menyalin judulnya —
+// gampang melenceng).
+const AI_TOOLS_TITLES: Record<string, string> = {
+  'voice-over': 'Voice Over',
+  'business-card': 'Kartu Nama',
+  'landing-page': 'Landing Page',
+  'landing-page/custom-domain': 'Custom Domain',
+  'haji-plus': 'Haji Plus',
+  'haji-plus/simulasi': 'Haji Plus',
+  'haji-plus/export': 'Export Infografis',
+  kurs: 'Kurs Hari Ini',
+  compare: 'Compare',
+  'brosur-jadwal': 'Brosur Jadwal',
+  kalkulasi: 'Kalkulasi',
+  mcp: 'AI Assistant (MCP)',
+};
+
 function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
-  if (sub === 'landing-page') return 'Landing Page';
-  if (sub === 'landing-page/custom-domain') return 'Custom Domain';
   if (sub === 'hotel') return hotelHeaderLabel();
+  if (sub && AI_TOOLS_TITLES[sub]) return AI_TOOLS_TITLES[sub];
   if (getHotelsKelolaSub()) return hotelsHeaderLabel();
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
+}
+
+// Bentuk skeleton Direktori Hotel yang dipakai selagi chunk halamannya diunduh.
+function hotelRouteSkeletonKind(): HotelSkeletonKind {
+  const { city, slug } = getHotelPathInfo();
+  return slug ? 'detail' : city ? 'list' : 'kategori';
 }
 
 interface MenuCard {
@@ -599,34 +624,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Set initial history state on mount
   useEffect(() => {
     window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
-    const aiSub = getAIToolsSubFromPath();
-    document.title = (activeTab === 'teras' && getTerasPostIdFromPath())
-      ? 'Kiriman'
-      : (activeTab === 'teras' && getTerasProfileSlugFromPath())
-      ? 'Teras'
-      : (activeTab === 'ai-tools' && aiSub === 'voice-over')
-      ? 'Voice Over'
-      : (activeTab === 'ai-tools' && aiSub === 'business-card')
-      ? 'Kartu Nama'
-      : (activeTab === 'ai-tools' && aiSub === 'landing-page/custom-domain')
-      ? 'Custom Domain'
-      : (activeTab === 'ai-tools' && aiSub === 'landing-page')
-      ? 'Landing Page'
-      : (activeTab === 'ai-tools' && (aiSub === 'haji-plus' || aiSub === 'haji-plus/export' || aiSub === 'haji-plus/simulasi'))
-      ? (aiSub === 'haji-plus/export' ? 'Export Infografis' : 'Haji Plus')
-      : (activeTab === 'ai-tools' && aiSub === 'hotel')
-      ? hotelHeaderLabel()
-      : (activeTab === 'ai-tools' && aiSub === 'kurs')
-      ? 'Kurs Hari Ini'
-      : (activeTab === 'ai-tools' && aiSub === 'compare')
-      ? 'Compare'
-      : (activeTab === 'ai-tools' && aiSub === 'brosur-jadwal')
-      ? 'Brosur Jadwal'
-      : (activeTab === 'ai-tools' && aiSub === 'kalkulasi')
-      ? 'Kalkulasi'
-      : (activeTab === 'hotels')
-      ? hotelsHeaderLabel()
-      : TAB_TITLES[activeTab] || 'Dashboard';
+    document.title = getCurrentDocumentTitle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [isDarkMode, setIsDarkMode] = useState(() => getLocalStorageItem('darkMode') === 'true');
@@ -721,6 +719,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const activeCard = MENU_CARDS.find(c => c.id === activeTab);
     const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
     const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
+    const isHotelRoute = activeTab === 'ai-tools' && hotelEnabled && getAIToolsSubFromPath() === 'hotel';
     const terasPostId = activeTab === 'teras' ? getTerasPostIdFromPath() : null;
     const terasProfileSlug = activeTab === 'teras' ? getTerasProfileSlugFromPath() : null;
     // Teras: header dipadatkan agar feed dapat ruang layar lebih banyak
@@ -779,23 +778,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   }
                   // Export/Simulasi page → go back to haji-plus
                   if (aiSub === 'haji-plus/export') {
-                    window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus');
-                    document.title = 'Haji Plus';
-                    setActiveTab('home');
-                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    navigatePath('/dashboard/ai-tools/haji-plus');
                     return;
                   }
                   // Custom Domain → go back to landing-page (parent of custom-domain)
                   if (aiSub === 'landing-page/custom-domain') {
-                    window.history.pushState({}, '', '/dashboard/ai-tools/landing-page/umroh');
-                    document.title = 'Landing Page';
-                    setActiveTab('home');
-                    setTimeout(() => setActiveTab('ai-tools'), 0);
+                    navigatePath('/dashboard/ai-tools/landing-page/umroh');
                     return;
                   }
-                  window.history.pushState({}, '', '/dashboard/ai-tools');
-                  setActiveTab('home');
-                  setTimeout(() => setActiveTab('ai-tools'), 0);
+                  navigatePath('/dashboard/ai-tools');
                   return;
                 }
                 // Panel Kelola Hotel: form tambah/edit → daftar kelola
@@ -1027,11 +1018,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           : 'max-w-lg mx-auto'
         }`}>
           <Suspense fallback={
-            isJamaahEdit
-              ? <JamaahEditSkeleton />
-              : activeTab === 'teras'
-                ? <TerasPageSkeleton />
-                : <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>
+            isJamaahEdit ? <JamaahEditSkeleton />
+              : activeTab === 'teras' ? <TerasPageSkeleton />
+              // Kerangka yang sama persis dengan yang dipakai HotelPage saat
+              // datanya belum tiba — jadi masuk halaman ini hanya punya SATU
+              // tampilan tunggu, bukan spinner lalu skeleton lalu isi.
+              : isHotelRoute ? <HotelRouteSkeleton kind={hotelRouteSkeletonKind()} />
+              : <div className="flex justify-center py-20"><Loader2 size={24} className="animate-spin text-emerald-500" /></div>
           }>
           {activeTab === 'settings' && (
             <SettingsPage agent={agentData} onUpdated={refreshAgent} initialTab={getSettingsTabFromPath()} />
@@ -1143,27 +1136,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} onNavigate={navigatePath} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
             if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {
-              window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');
-              document.title = 'Export Infografis';
-              setActiveTab('home');
-              setTimeout(() => setActiveTab('ai-tools'), 0);
+              navigatePath('/dashboard/ai-tools/haji-plus/export');
             }} />;
             if (sub === 'haji-plus') return <HajiPlusPage agent={agentData} onExport={() => {
-              window.history.pushState({}, '', '/dashboard/ai-tools/haji-plus/export');
-              document.title = 'Export Infografis';
-              setActiveTab('home');
-              setTimeout(() => setActiveTab('ai-tools'), 0);
+              navigatePath('/dashboard/ai-tools/haji-plus/export');
             }} />;
             return (
               <AIToolsPage
                 agentSlug={agentData.slug}
-                onNavigate={(toolId) => {
-                  window.history.pushState({}, '', `/dashboard/ai-tools/${toolId}`);
-                  document.title = toolId === 'voice-over' ? 'Voice Over' : toolId === 'business-card' ? 'Kartu Nama' : toolId === 'landing-page' ? 'Landing Page' : toolId === 'haji-plus' ? 'Haji Plus' : toolId === 'kurs' ? 'Kurs Hari Ini' : toolId === 'compare' ? 'Compare' : toolId === 'brosur-jadwal' ? 'Brosur Jadwal' : toolId === 'kalkulasi' ? 'Kalkulasi' : toolId === 'mcp' ? 'AI Assistant (MCP)' : toolId === 'hotel' ? 'Direktori Hotel' : 'Tools';
-                  // Force re-render by toggling tab
-                  setActiveTab('home');
-                  setTimeout(() => setActiveTab('ai-tools'), 0);
-                }}
+                onNavigate={(toolId) => navigatePath(`/dashboard/ai-tools/${toolId}`)}
               />
             );
           })()}
@@ -1371,12 +1352,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     </button>
                   )}
                   <button
-                    onClick={() => {
-                      window.history.pushState({}, '', '/dashboard/ai-tools/kurs');
-                      document.title = 'Kurs Hari Ini';
-                      setActiveTab('home');
-                      setTimeout(() => setActiveTab('ai-tools'), 0);
-                    }}
+                    onClick={() => navigatePath('/dashboard/ai-tools/kurs')}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
                   >
                     Kurs

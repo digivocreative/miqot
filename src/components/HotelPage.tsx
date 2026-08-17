@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2, Search, Star, Footprints, MapPin, Lock, SlidersHorizontal,
   Play, ImageOff, Image as ImageIcon, ChevronDown,
@@ -12,6 +12,10 @@ import HotelFilterSheet from './HotelFilterSheet';
 import MediaViewerModal from './MediaViewerModal';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import {
+  HOTEL_SHEET_CLASS, HOTEL_SHEET_MIN_HEIGHT,
+  HotelSkeletonKategori, HotelSkeletonList, HotelSkeletonDetail,
+} from './HotelSkeletons';
 
 export interface HotelListItem {
   id: string;
@@ -154,22 +158,25 @@ export function StarRow({ stars, size = 13 }: { stars: number | null; size?: num
 // tab Teras di DashboardLayout: bg putih + border samping di layar lebar.
 // Panel Kelola sengaja TIDAK memakainya — action bar di sana dijangkar ke
 // minHeight hasil ukur sendiri, jadi menambah minHeight kedua akan menggesernya.
-export function HotelViewShell({ viewKey, children, solid = false }: {
+// `animateEntry=false` untuk render PERTAMA halaman: saat itu skeleton yang
+// sama sudah tampil sebagai fallback Suspense, jadi memulai dari opacity 0
+// justru terlihat sebagai kedipan — bukan transisi. Antar-view (kunci berubah)
+// animasinya tetap hidup.
+export function HotelViewShell({ viewKey, children, solid = false, animateEntry = true }: {
   viewKey: string;
   children: ReactNode;
   solid?: boolean;
+  animateEntry?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
       key={viewKey}
-      initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
+      initial={animateEntry ? { opacity: 0, y: reduceMotion ? 0 : 10 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      className={`px-4 pt-4 pb-8${solid
-        ? ' bg-white dark:bg-slate-900 sm:border-x sm:border-gray-100 dark:sm:border-slate-800'
-        : ''}`}
-      style={solid ? { minHeight: `calc(100dvh - ${DASHBOARD_SUBPAGE_HEADER_H}px)` } : undefined}
+      className={`px-4 pt-4 pb-8${solid ? ` ${HOTEL_SHEET_CLASS}` : ''}`}
+      style={solid ? { minHeight: HOTEL_SHEET_MIN_HEIGHT } : undefined}
     >
       {children}
     </motion.div>
@@ -410,58 +417,21 @@ function HotelRatings({ ratings }: { ratings: HotelRatingItem[] }) {
   );
 }
 
-const SKELETON_BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse';
-
-// Chip saringan daftar — mengikuti pola pill filter panel Kelola (aktif emerald).
-
-function SkeletonKategori() {
-  return (
-    <div className="flex flex-col gap-3">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className={`h-40 rounded-2xl ${SKELETON_BLOCK}`} />
-      ))}
-    </div>
-  );
-}
-
-function SkeletonList() {
-  return (
-    <>
-      <div className={`h-[42px] rounded-xl ${SKELETON_BLOCK}`} />
-      <div className="space-y-3 mt-3">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
-            <div className="h-16 w-16 shrink-0 rounded-xl bg-gray-100 dark:bg-slate-700 animate-pulse" />
-            <div className="flex-1 space-y-2">
-              <div className="h-3.5 w-3/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
-              <div className="h-3 w-2/5 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
-              <div className="h-3 w-1/3 rounded bg-gray-100 dark:bg-slate-700 animate-pulse" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function SkeletonDetail() {
-  return (
-    <>
-      <div className={`mt-3 h-56 rounded-2xl ${SKELETON_BLOCK}`} />
-      <div className={`mt-4 h-4 w-20 rounded-full ${SKELETON_BLOCK}`} />
-      <div className={`mt-2 h-6 w-3/4 rounded ${SKELETON_BLOCK}`} />
-      <div className={`mt-3 h-12 rounded-xl ${SKELETON_BLOCK}`} />
-      <div className={`mt-4 h-24 rounded-2xl ${SKELETON_BLOCK}`} />
-    </>
-  );
-}
+// Cache antar-mount (umur proses, sengaja BUKAN localStorage). Direktori hotel
+// jarang berubah, tapi halamannya di-unmount tiap kali agent keluar ke daftar
+// Tools — tanpa cache, tiap masuk kembali mengulang skeleton walau datanya
+// persis sama. Pola stale-while-revalidate: tampilkan cache seketika, muat
+// ulang di latar (hasil edit panel Kelola menyusul di kunjungan berikutnya).
+let hotelListCache: HotelListItem[] | null = null;
+let hotelBannerCache: Record<string, string | null> | null = null;
+const hotelDetailCache = new Map<string, HotelDetail>();
 
 export default function HotelPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   // Re-render tiap navigasi datang dari pathTick DashboardLayout.
   const view = readHotelView();
-  const [hotels, setHotels] = useState<HotelListItem[] | null>(null);
+  const [hotels, setHotels] = useState<HotelListItem[] | null>(hotelListCache);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [detail, setDetail] = useState<HotelDetail | null>(null);
+  const [detailData, setDetailData] = useState<HotelDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [starFilter, setStarFilter] = useState<number | null>(null);
@@ -474,7 +444,11 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   const [mediaTab, setMediaTab] = useState<MediaTab>('foto');
   // '' = Semua. Hanya berlaku di tab Foto; video sengaja tidak berkategori.
   const [photoCategory, setPhotoCategory] = useState('');
-  const [banners, setBanners] = useState<Record<string, string | null>>({});
+  // null = belum diketahui (bukan "tidak ada banner"). Kartu kategori menunggu
+  // nilainya: kalau digambar duluan dengan cover hotel, gambar kartu berganti
+  // sendiri beberapa ratus milidetik kemudian saat banner tiba — persis kedipan
+  // yang dikeluhkan. Gagal muat = {} (jatuh ke cover, tanpa menggantung).
+  const [banners, setBanners] = useState<Record<string, string | null> | null>(hotelBannerCache);
 
   const tracked = useRef(false);
   useEffect(() => {
@@ -487,13 +461,18 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   useEffect(() => {
     let cancelled = false;
     fetchHotelJson<HotelListItem[]>('/api/hotels')
-      .then(data => { if (!cancelled) { setHotels(data); setLoadError(null); } })
+      .then(data => { hotelListCache = data; if (!cancelled) { setHotels(data); setLoadError(null); } })
       .catch(err => { if (!cancelled) setLoadError(err.message); });
     // Banner opsional — gagal memuat = kartu kategori jatuh ke cover hotel.
+    // Katup pengaman: kalau permintaannya menggantung, kartu kategori tidak ikut
+    // tertahan selamanya menunggu banner (lebih baik cover dulu daripada
+    // skeleton terus).
+    const bannerGiveUp = setTimeout(() => { if (!cancelled) setBanners(prev => prev || {}); }, 1500);
     fetchHotelJson<Record<string, string | null>>('/api/hotels/banners')
-      .then(data => { if (!cancelled) setBanners(data); })
-      .catch(() => { /* fallback cover */ });
-    return () => { cancelled = true; };
+      .then(data => { hotelBannerCache = data; if (!cancelled) setBanners(data); })
+      .catch(() => { if (!cancelled) setBanners(prev => prev || {}); })
+      .finally(() => clearTimeout(bannerGiveUp));
+    return () => { cancelled = true; clearTimeout(bannerGiveUp); };
   }, []);
 
   // Kunci primitif, bukan objek view — readHotelView membuat objek baru tiap render.
@@ -501,6 +480,14 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // pindah detail↔media TIDAK memicu fetch ulang.
   const detailSlug = view.kind === 'detail' || view.kind === 'media' ? view.slug : null;
   const listCity = view.kind === 'list' ? view.city : null;
+
+  // Detail dipilih saat RENDER, bukan lewat setState di efek: efek berjalan
+  // setelah frame pertama tercat, jadi "kosongkan detail lalu isi dari cache"
+  // akan menampilkan satu frame skeleton untuk hotel yang datanya sudah ada.
+  // Penjaga slug memastikan detail hotel sebelumnya tidak ikut terbawa.
+  const detail = detailSlug
+    ? (detailData && detailData.slug === detailSlug ? detailData : hotelDetailCache.get(detailSlug) || null)
+    : null;
 
   // Ganti kota (termasuk via back/forward browser) = mulai dari saringan kosong.
   useEffect(() => {
@@ -513,13 +500,12 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   useEffect(() => {
     if (!detailSlug) return;
     let cancelled = false;
-    setDetail(null);
     setDetailError(null);
     setViewerIndex(null);
     setMediaTab('foto');
     setPhotoCategory('');
     fetchHotelJson<HotelDetail>(`/api/hotels/${encodeURIComponent(detailSlug)}`)
-      .then(data => { if (!cancelled) setDetail(data); })
+      .then(data => { hotelDetailCache.set(detailSlug, data); if (!cancelled) setDetailData(data); })
       .catch(err => { if (!cancelled) setDetailError(err.message); });
     trackEvent('action', 'hotel_view', { slug: detailSlug });
     return () => { cancelled = true; };
@@ -585,9 +571,32 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
     : view.kind === 'media' ? `media-${view.slug}`
     : `detail-${view.slug}`;
 
-  if (loadError) {
+  // Posisi scroll per view: pindah ke detail selalu mulai dari atas, dan
+  // kembali ke daftar mendarat di baris yang tadi dibuka. Tanpa ini halaman
+  // detail terbuka di tengah-tengah (scroll daftar ikut terbawa) — terbaca
+  // seperti halaman melompat sendiri.
+  const scrollMemory = useRef<Record<string, number>>({});
+  const scrollViewKey = useRef(viewKey);
+  scrollViewKey.current = viewKey;
+  useEffect(() => {
+    const onScroll = () => { scrollMemory.current[scrollViewKey.current] = window.scrollY; };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  useLayoutEffect(() => {
+    window.scrollTo(0, scrollMemory.current[viewKey] ?? 0);
+  }, [viewKey]);
+
+  // Render pertama halaman ini datang tepat setelah skeleton fallback Suspense
+  // yang bentuknya sama — memudarkannya masuk lagi hanya terlihat sebagai
+  // kedipan. Animasi shell baru dinyalakan untuk perpindahan view berikutnya.
+  const entered = useRef(false);
+  useEffect(() => { entered.current = true; }, []);
+  const shellProps = { viewKey, solid: true, animateEntry: entered.current };
+
+  if (loadError && !hotels) {
     return (
-      <HotelViewShell viewKey="error" solid>
+      <HotelViewShell {...shellProps} viewKey="error">
         <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {loadError}
         </div>
@@ -596,10 +605,13 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   }
 
   // Skeleton mengikuti bentuk view tujuan (termasuk deep link ke daftar/detail).
-  if (!hotels) {
+  // Kartu kategori menunggu banner juga (kedua permintaan berjalan berbarengan,
+  // jadi tidak menambah waktu tunggu berarti) supaya gambarnya tidak berganti
+  // sendiri setelah tampil.
+  if (!hotels || (view.kind === 'kategori' && !banners)) {
     return (
-      <HotelViewShell viewKey={viewKey} solid>
-        {view.kind === 'kategori' ? <SkeletonKategori /> : view.kind === 'list' ? <SkeletonList /> : <SkeletonDetail />}
+      <HotelViewShell {...shellProps}>
+        {view.kind === 'kategori' ? <HotelSkeletonKategori /> : view.kind === 'list' ? <HotelSkeletonList /> : <HotelSkeletonDetail />}
       </HotelViewShell>
     );
   }
@@ -607,18 +619,23 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // ── View: Pilih Kategori ──
   if (view.kind === 'kategori') {
     return (
-      <HotelViewShell viewKey={viewKey} solid>
+      <HotelViewShell {...shellProps}>
         <div className="flex flex-col gap-3">
           {HOTEL_CITIES.map(city => {
-            const bannerSrc = banners[city] || coverByCity[city];
+            const bannerSrc = (banners && banners[city]) || coverByCity[city];
             return (
               <button
                 key={city}
                 onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${city}`)}
-                className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97]"
+                className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97] dark:border-slate-700 dark:bg-slate-800"
               >
+                {/* Hanya empat kartu dan semuanya di puncak halaman: `lazy` di
+                    sini justru menunda gambar yang sudah terlihat, sehingga
+                    kartu tampil abu-abu dulu baru terisi. Latar abu-abu di
+                    tombol = warna skeleton, jadi jeda decode tidak terlihat
+                    sebagai kilatan putih. */}
                 {bannerSrc ? (
-                  <img src={bannerSrc} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                  <img src={bannerSrc} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" decoding="async" />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
                     <Building2 size={32} className="text-white/70" />
@@ -644,7 +661,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
   // Judul & tombol back kota ada di header DashboardLayout ("Hotel Madinah").
   if (view.kind === 'list') {
     return (
-      <HotelViewShell viewKey={viewKey} solid>
+      <HotelViewShell {...shellProps}>
         {/* Pencarian + satu tombol Filter (opsinya di bottom sheet). Tombol
             hanya muncul bila datanya memang memilah — Dubai yang berisi satu
             hotel tidak diberi tombol yang tak menyaring apa pun. */}
@@ -786,13 +803,13 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
       .filter(e => !activeCategory || (e.item.category || '').toLowerCase() === activeCategory.toLowerCase());
     const photoCount = media.length - videos.length;
     return (
-      <HotelViewShell viewKey={viewKey} solid>
-        {detailError && (
+      <HotelViewShell {...shellProps}>
+        {detailError && !detail && (
           <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
             {detailError}
           </div>
         )}
-        {!detail && !detailError && <SkeletonDetail />}
+        {!detail && !detailError && <HotelSkeletonDetail />}
         {detail && (
           <>
             {media.length > 0 && (
@@ -899,14 +916,14 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
 
   // Tombol back detail → daftar ada di header DashboardLayout.
   return (
-    <HotelViewShell viewKey={viewKey} solid>
-      {detailError && (
+    <HotelViewShell {...shellProps}>
+      {detailError && !detail && (
         <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-medium">
           {detailError}
         </div>
       )}
 
-      {!detail && !detailError && <SkeletonDetail />}
+      {!detail && !detailError && <HotelSkeletonDetail />}
 
       {detail && (
         <>
