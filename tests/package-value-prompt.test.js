@@ -195,10 +195,12 @@ test('parsePackageValueResult keeps grounded fields, caps advantages, and stamps
     { id: 'B6', source: 'brosur', fact: 'Tanggal berangkat: 1 Oktober 2026' },
   ];
   const advantages = [
-    { title: 'Hotel Anjum', benefit: 'Hari Makkah dari Anjum', description: 'Hotel Makkah: Anjum.', evidenceId: 'B1' },
-    { title: 'Hotel Al Ritz', benefit: 'Hari Madinah dari Al Ritz', description: 'Hotel Madinah: Al Ritz.', evidenceId: 'B2' },
-    { title: 'Penerbangan Saudia', benefit: 'Terbang bersama Saudia', description: 'Maskapai penerbangan: Saudia.', evidenceId: 'B3' },
-    { title: 'Harga 41 Juta', benefit: 'Harga tercantum 41 juta', description: 'Harga paket: 41 juta.', evidenceId: 'B4' },
+    // Copy ditulis sebagai kalimat, bukan salinan baris katalog ("Hotel Makkah:
+    // Anjum") — bentuk mentah itu ditolak karena ikut tampil pada artwork.
+    { title: 'Hotel Anjum', benefit: 'Hari Makkah dari Anjum', description: 'Menginap di Anjum selama berada di Makkah.', evidenceId: 'B1' },
+    { title: 'Hotel Al Ritz', benefit: 'Hari Madinah dari Al Ritz', description: 'Menginap di Al Ritz selama berada di Madinah.', evidenceId: 'B2' },
+    { title: 'Penerbangan Saudia', benefit: 'Terbang bersama Saudia', description: 'Penerbangan berangkat menggunakan Saudia.', evidenceId: 'B3' },
+    { title: 'Harga 41 Juta', benefit: 'Harga tercantum 41 juta', description: 'Harga paket yang tercantum adalah 41 juta.', evidenceId: 'B4' },
     { title: 'Rute CGK JED', benefit: 'Memulai perjalanan melalui rute CGK-JED', description: 'Rute keberangkatan yang tercantum adalah CGK-JED.', evidenceId: 'B5' },
     { title: 'Berangkat 1 Oktober', benefit: 'Jadwal berangkat pada 1 Oktober 2026', description: 'Tanggal keberangkatan tercantum 1 Oktober 2026.', evidenceId: 'B6' },
   ];
@@ -681,6 +683,152 @@ test('station-only evidence cannot be promoted into an unsupported train ride', 
   assert.equal(repaired.advantages[0].title, 'Kereta Cepat');
   assert.equal(repaired.advantages[0].benefit, 'Perjalanan berlanjut lewat stasiun kereta cepat');
   assert.doesNotMatch(repaired.advantages[0].benefit, /melaju|naik|menggunakan/i);
+});
+
+test('parsePackageValueResult recovers a near-miss evidenceId from the fact the model copied', () => {
+  // Model menyalin fakta I05A03 dengan benar tetapi menulis ID I05A04 yang tidak
+  // ada di katalog. Sebelumnya seluruh respons ditolak dan percobaan perbaikan
+  // mengulang salah ketik yang sama, sehingga paket itu selalu berakhir 502.
+  const evidenceCatalog = [
+    { id: 'I05A03', source: 'itinerary', fact: 'Hari 4 • Madinah – Makkah • 14:00 • Check-out hotel dengan memakai ihram, menuju stasiun kereta cepat Haramain' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah tier UHUD: ANJUM' },
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA • SV 827 • Penerbangan langsung tanpa transit Jakarta-Jeddah' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Kereta Cepat Jadi Pembeda',
+    summary: 'Perjalanan berlanjut lewat stasiun kereta cepat Haramain.',
+    advantages: [
+      // Deskripsi diparafrase (tambahan "dari Madinah"), bukan salinan persis.
+      { title: 'Stasiun Kereta Cepat Haramain', benefit: 'Perjalanan berlanjut lewat stasiun kereta cepat Haramain', description: 'Menuju stasiun kereta cepat Haramain dari Madinah.', evidenceId: 'I05A04' },
+      { title: 'Hotel Anjum', benefit: 'Menjalani hari Makkah dari Anjum', description: 'Menginap di Anjum selama berada di Makkah.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Langsung', benefit: 'Terbang tanpa transit menuju Jeddah', description: 'Penerbangan langsung tanpa transit Jakarta-Jeddah.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: true, evidenceCatalog });
+
+  assert.ok(result);
+  const recovered = result.advantages.find((item) => /kereta cepat/i.test(item.title));
+  assert.equal(recovered.evidenceId, 'I05A03');
+  assert.match(recovered.sourceRef, /kereta cepat Haramain/);
+});
+
+test('catalog named terms never override a canonical place group spelling', () => {
+  // Brosur menulis "…OMAR MAKKAH" (kapital) sementara itinerary mengeja
+  // "Mekkah". Istilah named: dari katalog dulu menolak copy "Makkah" pada poin
+  // kereta, sehingga paket dengan kombinasi ejaan ini selalu berakhir 502.
+  const evidenceCatalog = [
+    { id: 'I06A03', source: 'itinerary', fact: 'Hari 5 • Madinah – Makkah • 14:00 • Menuju Mekkah menggunakan kereta cepat melalui Stasiun Bir Ali.' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah tier UHUD: JUMEIRAH JABAL OMAR MAKKAH' },
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA • SV 827 • Penerbangan langsung tanpa transit Jakarta-Jeddah' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Kereta Cepat Jadi Pembeda',
+    advantages: [
+      { title: 'Kereta Cepat', benefit: 'Melaju menuju Makkah dengan kereta cepat', description: 'Menuju Mekkah menggunakan kereta cepat melalui Stasiun Bir Ali.', evidenceId: 'I06A03' },
+      { title: 'Hotel Jumeirah', benefit: 'Menjalani hari Makkah dari Jumeirah', description: 'Menginap di Jumeirah Jabal Omar selama berada di Makkah.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Langsung', benefit: 'Terbang tanpa transit menuju Jeddah', description: 'Penerbangan langsung tanpa transit Jakarta-Jeddah.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: true, evidenceCatalog });
+
+  assert.ok(result);
+  assert.equal(result.advantages.length, 3);
+
+  // Nama diri (hotel, maskapai) tetap harfiah: Jumeirah tidak boleh dipinjam
+  // oleh poin yang evidence-nya kereta.
+  assert.equal(parsePackageValueResult(JSON.stringify({
+    headline: 'Nilai Plus',
+    advantages: [
+      { title: 'Kereta Cepat', benefit: 'Melaju menuju Makkah dengan kereta cepat', description: 'Menuju Mekkah dan menginap di Jumeirah.', evidenceId: 'I06A03' },
+      { title: 'Hotel Jumeirah', benefit: 'Menjalani hari Makkah dari Jumeirah', description: 'Menginap di Jumeirah Jabal Omar selama berada di Makkah.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Langsung', benefit: 'Terbang tanpa transit menuju Jeddah', description: 'Penerbangan langsung tanpa transit Jakarta-Jeddah.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: true, evidenceCatalog }), null);
+});
+
+test('fakta harga multi-kamar diringkas per harga, bukan seluruh fakta', () => {
+  // Meringkas seluruh fakta melumat "45.900.000, 44.900.000, 43.900.000" menjadi
+  // satu bilangan raksasa, lalu mengesahkannya sebagai angka "terbukti" —
+  // artwork bisa memajang "Harga 459000004490000060 JUTA".
+  const evidenceCatalog = [
+    { id: 'B09', source: 'brosur', fact: 'Harga paket: Double: 45.900.000, Triple: 44.900.000, Quard: 43.900.000' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah: ANJUM' },
+    { id: 'B03', source: 'brosur', fact: 'Penerbangan berangkat: SAUDIA SV 827' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Nilai Plus',
+    advantages: [
+      // Salinan mentah → poin ini masuk jalur tulis-ulang deterministik.
+      { title: 'Harga Paket', benefit: 'Harga paket tercantum jelas', description: 'Harga paket: 45.900.000.', evidenceId: 'B09' },
+      { title: 'Hotel Anjum', benefit: 'Menjalani hari Makkah dari Anjum', description: 'Menginap di Anjum selama berada di Makkah.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Saudia', benefit: 'Memulai perjalanan bersama Saudia', description: 'Penerbangan berangkat menggunakan Saudia.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: false, evidenceCatalog, allowEvidenceRewrite: true });
+
+  assert.ok(result);
+  const priceAdvantage = result.advantages.find((item) => item.evidenceId === 'B09');
+  // Jangkar = harga termurah, sama dengan price lockup pada banner.
+  assert.match(priceAdvantage.title, /43[.,]9 JUTA/i);
+  for (const field of [priceAdvantage.title, priceAdvantage.benefit, priceAdvantage.description]) {
+    assert.doesNotMatch(field, /\d{10,}/, 'angka gabungan lintas harga tidak boleh muncul');
+  }
+});
+
+test('salinan mentah baris katalog tidak boleh tampil sebagai copy artwork', () => {
+  // Fakta katalog sengaja dibersihkan dari jargon internal supaya model yang
+  // bertumpu pada sumber tidak otomatis ditolak. Konsekuensinya, larangan jargon
+  // tidak lagi ikut menyaring salinan mentah — label barisnya harus dijegal
+  // sendiri, kalau tidak "Hotel mekkah: ANJUM" mendarat di artwork.
+  const evidenceCatalog = [
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah: ANJUM' },
+    { id: 'BH02', source: 'brosur', fact: 'Hotel madinah: AL RITZ AL MADINAH' },
+    { id: 'B03', source: 'brosur', fact: 'Penerbangan berangkat: EMIRATES EK 357/809' },
+  ];
+  const rawDump = JSON.stringify({
+    headline: 'Nilai Plus',
+    advantages: [
+      { title: 'Hotel Anjum', benefit: 'Menjalani hari Makkah dari Anjum', description: 'Hotel Makkah: ANJUM.', evidenceId: 'BH01' },
+      { title: 'Hotel Al Ritz', benefit: 'Menjalani hari Madinah dari Al Ritz', description: 'Menginap di Al Ritz selama berada di Madinah.', evidenceId: 'BH02' },
+      { title: 'Penerbangan Emirates', benefit: 'Memulai perjalanan bersama Emirates', description: 'Penerbangan berangkat: EMIRATES EK 357/809.', evidenceId: 'B03' },
+    ],
+  });
+
+  assert.equal(parsePackageValueResult(rawDump, { itineraryAvailable: false, evidenceCatalog }), null);
+
+  // Jalur perbaikan menulis ulang salinan mentah menjadi kalimat, bukan gagal.
+  const repaired = parsePackageValueResult(rawDump, { itineraryAvailable: false, evidenceCatalog, allowEvidenceRewrite: true });
+  assert.ok(repaired);
+  for (const item of repaired.advantages) {
+    assert.doesNotMatch(item.description, /hotel\s+\w+\s*:|penerbangan berangkat\s*:/i);
+  }
+});
+
+test('parsePackageValueResult still rejects an unknown evidenceId whose claim is absent from the catalog', () => {
+  const evidenceCatalog = [
+    { id: 'I05A03', source: 'itinerary', fact: 'Hari 4 • Madinah – Makkah • 14:00 • Check-out hotel, menuju stasiun kereta cepat Haramain' },
+    { id: 'BH01', source: 'brosur', fact: 'Hotel mekkah tier UHUD: ANJUM' },
+    { id: 'B03', source: 'brosur', fact: 'Maskapai/penerbangan berangkat: SAUDIA' },
+  ];
+  const result = parsePackageValueResult(JSON.stringify({
+    headline: 'Klaim tanpa sumber',
+    summary: 'Ringkasan.',
+    advantages: [
+      { title: 'City Tour Thaif', benefit: 'Mengunjungi kebun mawar Thaif', description: 'City tour Thaif ke kebun mawar dan cable car.', evidenceId: 'I09A01' },
+      { title: 'Hotel Anjum', benefit: 'Menjalani hari Makkah dari Anjum', description: 'Hotel mekkah tier UHUD: ANJUM.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Saudia', benefit: 'Memulai perjalanan bersama Saudia', description: 'Maskapai berangkat: SAUDIA.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: true, evidenceCatalog });
+
+  assert.equal(result, null);
+
+  // Pemulihan rujukan tidak boleh menjadi pintu belakang: begitu ID dipulihkan,
+  // seluruh copy tetap diuji terhadap fakta itu, jadi kota karangan tetap gugur.
+  assert.equal(parsePackageValueResult(JSON.stringify({
+    headline: 'Nilai Plus',
+    advantages: [
+      { title: 'Kereta Cepat Istanbul', benefit: 'Melaju dengan kereta cepat menuju Istanbul', description: 'Menuju stasiun kereta cepat Haramain lalu Istanbul.', evidenceId: 'I05A99' },
+      { title: 'Hotel Anjum', benefit: 'Menjalani hari Makkah dari Anjum', description: 'Menginap di Anjum selama berada di Makkah.', evidenceId: 'BH01' },
+      { title: 'Penerbangan Saudia', benefit: 'Memulai perjalanan bersama Saudia', description: 'Penerbangan berangkat menggunakan Saudia.', evidenceId: 'B03' },
+    ],
+  }), { itineraryAvailable: true, evidenceCatalog }), null);
 });
 
 test('parsePackageValueResult rejects malformed or ungrounded output', () => {
