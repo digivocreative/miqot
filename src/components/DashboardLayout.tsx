@@ -15,6 +15,7 @@ import JamaahEditSkeleton from './JamaahEditSkeleton';
 import HotelRouteSkeleton, { type HotelSkeletonKind } from './HotelSkeletons';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { isHotelDirectoryEnabledForAgent } from '../lib/hotelAccess';
+import { isUmrahRegisterEnabledForAgent, UMRAH_REGISTER_DISABLED_MESSAGE } from '../lib/umrahRegisterAccess';
 import { parseTerasPath } from '../lib/terasRoutes';
 import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
@@ -1061,14 +1062,32 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
           {activeTab === 'jamaah' && (
             jamaahSub === 'daftar' ? (
-              <UmrahRegisterPage
-                agentSlug={agentData.slug}
-                onBack={() => {
-                  navigatePath('/dashboard/jamaah');
-                  setJamaahRefreshKey(k => k + 1);
-                }}
-                onNavigate={navigatePath}
-              />
+              isUmrahRegisterEnabledForAgent(agentData.slug) ? (
+                <UmrahRegisterPage
+                  agentSlug={agentData.slug}
+                  onBack={() => {
+                    navigatePath('/dashboard/jamaah');
+                    setJamaahRefreshKey(k => k + 1);
+                  }}
+                  onNavigate={navigatePath}
+                />
+              ) : (
+                // Akses URL langsung oleh non-nikita: fitur pendaftaran sedang
+                // dibatasi (lihat lib/umrahRegisterAccess). Tampilkan pesan, bukan form.
+                <div className="flex flex-col items-center justify-center text-center gap-4 px-6 py-16">
+                  <div className="text-4xl">🚧</div>
+                  <p className="max-w-sm text-sm font-medium text-gray-600 dark:text-slate-300">
+                    {UMRAH_REGISTER_DISABLED_MESSAGE}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigatePath('/dashboard/jamaah')}
+                    className="h-9 px-4 flex items-center rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white active:scale-95 transition-all"
+                  >
+                    Kembali ke Daftar Jamaah
+                  </button>
+                </div>
+              )
             ) : jamaahSub === 'edit' ? (
               <JamaahEditPage
                 onBack={() => {

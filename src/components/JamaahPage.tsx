@@ -15,6 +15,7 @@ import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { trackEvent } from '../utils/analytics';
 import HajiPage from './HajiPage';
 import MagicLinkButton from './dashboard/portal-jamaah-tools/MagicLinkButton';
+import { isUmrahRegisterEnabledForAgent, UMRAH_REGISTER_DISABLED_MESSAGE } from '../lib/umrahRegisterAccess';
 
 const UmrohPernyataanPdfPreview = lazy(() => import('./UmrohPernyataanPdfPreview'));
 
@@ -391,6 +392,14 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   const currentSession = getStoredSession();
   const resolvedAgentSlug = agentSlug || currentSession?.user?.slug || '';
   const resolvedAgentName = currentSession?.user?.name || 'Agent';
+  // Pendaftaran jamaah baru sementara dibatasi ke agent nikita (lihat
+  // lib/umrahRegisterAccess). Non-nikita mendapat alert, bukan form.
+  const canRegisterJamaah = isUmrahRegisterEnabledForAgent(resolvedAgentSlug);
+  const guardJamaahRegister = () => {
+    if (canRegisterJamaah) return true;
+    window.alert(UMRAH_REGISTER_DISABLED_MESSAGE);
+    return false;
+  };
   // Fallback for callers that didn't pass onNavigate. Uses pushState +
   // popstate dispatch so DashboardLayout's listener can re-render — avoids
   // window.location.reload() which serves cached HTML via the service worker.
@@ -1264,6 +1273,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             />
             <button
               onClick={() => {
+                if (!guardJamaahRegister()) return;
                 goTo('/dashboard/jamaah/daftar');
               }}
               className="h-9 px-2.5 flex items-center gap-1 rounded-lg text-[11px] font-bold transition-all shrink-0 bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 active:scale-95"
@@ -1605,6 +1615,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                       <button
                         type="button"
                         onClick={() => {
+                          if (!guardJamaahRegister()) return;
                           const paramsObj: Record<string, string> = { idb: getLegacyAddIdb(first), from: first.nama };
                           if (first.tgl_berangkat) paramsObj.date = first.tgl_berangkat;
                           if (first.paket) paramsObj.paket = first.paket;
