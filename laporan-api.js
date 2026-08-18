@@ -2597,18 +2597,57 @@ function buildLegacyBrowserUserAgent(browser) {
 }
 
 async function launchLegacyBrowser(chromium) {
-  // Playwright's bundled headless-shell exposes HeadlessChrome, has no plugins,
-  // and sets navigator.webdriver=true. reCAPTCHA v3 can score that environment
-  // as automation even when the token itself is valid. Full Chromium's modern
-  // headless mode retains the regular browser surface without needing an X server.
+  // Alhijaz's registration form is gated by reCAPTCHA v3, which scores the browser
+  // environment. Even new-headless Chromium still exposes headless tells (0 plugins,
+  // HeadlessChrome UA in some surfaces) that drag the score below Alhijaz's accept
+  // threshold — so the form returns alert('unknown') and never persists the row,
+  // while a real human browser passes. Running a TRULY headed Chromium against an
+  // Xvfb virtual display fixes that: it reports real plugins, window.chrome, a
+  // non-Headless UA, and navigator.webdriver=false (with the automation flag off),
+  // scoring far closer to a human. Toggle off with LEGACY_BROWSER_HEADFUL=off.
+  const commonArgs = [
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-blink-features=AutomationControlled',
+    '--lang=id-ID',
+    '--window-size=1920,1080',
+  ];
+  if (process.env.LEGACY_BROWSER_HEADFUL !== 'off') {
+    const display = process.env.LEGACY_BROWSER_DISPLAY || ':99';
+    try {
+      return await chromium.launch({
+        headless: false,
+        args: commonArgs,
+        env: { ...process.env, DISPLAY: display },
+      });
+    } catch (err) {
+      console.warn(
+        `[UmrahBrowserSubmit] Headful launch on DISPLAY=${display} failed, falling back to headless:`,
+        err.message,
+      );
+    }
+  }
+  // Fallback: modern headless (no X server). Keeps registration working even if the
+  // Xvfb display is unavailable, at the cost of a lower reCAPTCHA score.
   return chromium.launch({
     headless: false,
-    args: [
-      '--headless=new',
-      '--disable-blink-features=AutomationControlled',
-      '--lang=id-ID',
-    ],
+    args: ['--headless=new', ...commonArgs],
   });
+}
+
+// A few real mouse moves toward the target, then hover it. reCAPTCHA v3 observes
+// pointer activity; a totally still cursor reads as automation. Best-effort only.
+async function humanizeLegacyPointer(page, targetLocator) {
+  const points = [[220, 260], [540, 430], [900, 600], [1180, 720]];
+  for (const [x, y] of points) {
+    await page.mouse.move(x, y, { steps: 8 });
+    await page.waitForTimeout(120);
+  }
+  const box = await targetLocator.boundingBox().catch(() => null);
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+    await page.waitForTimeout(150);
+  }
 }
 
 function createLegacyBrowserContext(browser) {
@@ -2912,6 +2951,10 @@ export async function submitUmrahRegistrationWithBrowser({
         };
       }
       await submitButton.scrollIntoViewIfNeeded();
+      // Feed reCAPTCHA v3 a little human-like behavioural signal before it scores
+      // the submit: real cursor movement + a short dwell, then a physical click on
+      // the button's center rather than an instantaneous programmatic dispatch.
+      await humanizeLegacyPointer(page, submitButton).catch(() => {});
       await page.waitForTimeout(1_200);
       await submitButton.click();
 
