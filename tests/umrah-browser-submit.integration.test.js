@@ -382,16 +382,16 @@ test('browser dry-run verifies reCAPTCHA without sending the final mutation', { 
   }
 });
 
-test('browser submit treats a regressed post-submit label as success when it lands on the registration list', { timeout: 45_000 }, async () => {
-  // Alhijaz's aksi_umrah.php still creates the jamaah but has shipped a regressed
-  // flash label: the inline success script now alert()s 'Unknown' before navigating
-  // to the registration list. That unrecognized alert must not be reported as a
-  // rejection (which caused false "Alhijaz menolak pendaftaran: Unknown" errors and
-  // duplicate re-submits) — the navigation to route=umrah is the authoritative
-  // success signal.
+test('browser submit does NOT infer success from an unknown post-submit label that only navigates to the list', { timeout: 45_000 }, async () => {
+  // Alhijaz's aksi_umrah.php runs an inline <script>alert(status); window.location=list</script>
+  // and navigates to the registration list on BOTH success and failure. When the
+  // status label is a regressed/unknown value (verified live: alert('unknown')), the
+  // submit was rejected (e.g. reCAPTCHA v3 score) and NO row is persisted. Navigation
+  // to route=umrah must therefore never be read as success — only an explicit
+  // 'Pendaftaran berhasil' alert is. Reporting false success drops real registrations.
   const fakeLegacy = await startFakeLegacyServer({
     submitResponseHtml:
-      "<!doctype html><script>alert('Unknown');window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>",
+      "<!doctype html><script>alert('unknown');window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>",
   });
   const previousBrowserBase = process.env.LEGACY_BROWSER_API_BASE;
   process.env.LEGACY_BROWSER_API_BASE = fakeLegacy.origin;
@@ -419,12 +419,8 @@ test('browser submit treats a regressed post-submit label as success when it lan
       idb: TEST_IDB,
     });
 
-    assert.equal(result.success, true, JSON.stringify(result));
-    assert.equal(
-      fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php')).length,
-      1,
-      'a success landing must not trigger a retry/duplicate submit',
-    );
+    assert.equal(result.success, false, JSON.stringify(result));
+    assert.match(result.error, /unknown/i);
   } finally {
     if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
     else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;

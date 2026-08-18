@@ -2656,6 +2656,7 @@ export async function submitUmrahRegistrationWithBrowser({
   const dialogs = [];
   let finalSubmitRequestSeen = false;
   let pageClosed = false;
+  let submitResponseBody = '';
   try {
     const { chromium } = await import('playwright');
     browser = await launchLegacyBrowser(chromium);
@@ -2679,6 +2680,19 @@ export async function submitUmrahRegistrationWithBrowser({
     page.on('request', request => {
       if (request.method() === 'POST' && request.url().includes('aksi_umrah.php')) {
         finalSubmitRequestSeen = true;
+      }
+    });
+    // Capture the raw aksi_umrah.php response. submitResponse.text() returns '' for a
+    // navigation response, so read the body here where it is still available. This is
+    // the only window into WHY Alhijaz rejected (e.g. the alert('unknown') payload).
+    page.on('response', async response => {
+      if (!response.url().includes('aksi_umrah.php')) return;
+      try {
+        const body = (await response.body()).toString('utf8');
+        submitResponseBody = body.trim().slice(0, 800).replace(/\s+/g, ' ');
+        console.log('[UmrahBrowserSubmit] aksi_umrah.php response body:', submitResponseBody || '(empty)');
+      } catch (bodyErr) {
+        console.log('[UmrahBrowserSubmit] aksi_umrah.php body unavailable:', bodyErr.message);
       }
     });
     page.on('close', () => {
@@ -2978,6 +2992,7 @@ export async function submitUmrahRegistrationWithBrowser({
       recaptchaSource: recaptchaConfig.source,
       recaptchaAction: recaptchaConfig.action,
       responsePreview,
+      submitResponseBody,
     });
 
     if (sessionDialog || isSessionExpiredHtml(html)) {
@@ -2991,32 +3006,14 @@ export async function submitUmrahRegistrationWithBrowser({
     if (successDialog) {
       return { success: true, message: successDialog || 'Pendaftaran jamaah berhasil' };
     }
-
-    // Alhijaz's aksi_umrah.php returns an inline <script> that alert()s a status
-    // label and then navigates (window.location) to the destination. On success it
-    // lands on the registration list (route=umrah, no act=tdaftar); a genuine
-    // rejection keeps the form open, bounces to the /aiw/staff/ login page, or
-    // carries an explicit failure phrase. Alhijaz has shipped a regressed success
-    // label ('Unknown') without changing the fact that the jamaah row is created
-    // upstream — so an unrecognized alert that still lands on the list is a
-    // successful submit, not a rejection. findBlockingLegacyDialog flags ANY
-    // non-success dialog, which is why this authoritative navigation signal must
-    // win before the blockingDialog reject below.
-    const landedOnRegistrationList =
-      Boolean(statusCode) && statusCode >= 200 && statusCode < 400 &&
-      !formStillOpen && /route=umrah/.test(currentUrl) && !/act=tdaftar/i.test(currentUrl);
-    const dialogLooksLikeGenuineFailure = dialogs.some(message =>
-      /gagal|error|invalid|kesalahan|wajib|belum\s|sudah\s+terdaftar|habis|penuh|less than|re-?login|sesi\s+anda|seat\s*=\s*0\b/i.test(message));
-    if (landedOnRegistrationList && !dialogLooksLikeGenuineFailure) {
-      if (blockingDialog) {
-        console.warn(
-          '[UmrahBrowserSubmit] Unrecognized post-submit dialog treated as success (landed on registration list):',
-          blockingDialog,
-        );
-      }
-      return { success: true, message: 'Pendaftaran jamaah berhasil' };
-    }
-
+    // IMPORTANT: landing on main.php?route=umrah is NOT proof of success. Alhijaz's
+    // aksi_umrah.php runs an inline <script>alert(status); window.location=list</script>
+    // and navigates to the registration list on BOTH success and failure. The only
+    // reliable success signal is the explicit 'Pendaftaran berhasil' alert above; a
+    // regressed/unknown label such as alert('unknown') means the submit was rejected
+    // (e.g. reCAPTCHA v3 score) and the row is NOT persisted. So any non-success
+    // post-submit dialog must be treated as a rejection, never inferred as success
+    // from navigation. (Verified 18 Aug 2026: 'unknown' dialog → no row created.)
     if (blockingDialog) {
       return {
         success: false,
@@ -3054,7 +3051,16 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
     if (statusCode && statusCode >= 200 && statusCode < 400 && !formStillOpen && /route=umrah/.test(currentUrl)) {
-      return { success: true, message: 'Pendaftaran jamaah berhasil' };
+      // Navigated to the registration list but Alhijaz never showed an explicit
+      // 'Pendaftaran berhasil' alert. Navigation alone does NOT prove persistence —
+      // aksi_umrah.php redirects to the list on failure too — so report an uncertain
+      // outcome instead of a false success that would drop a real registration.
+      return {
+        success: false,
+        reason: 'submit_outcome_unknown',
+        error: 'Status pendaftaran tidak dapat dipastikan dari Alhijaz. Cek daftar jamaah dulu sebelum mendaftar ulang.',
+        debug: { browserFallback: true, statusCode, responseUrl, currentUrl, dialogs, formStillOpen, responsePreview },
+      };
     }
 
     const alertText = dialogs.find(Boolean);
