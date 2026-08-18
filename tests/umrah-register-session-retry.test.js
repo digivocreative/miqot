@@ -28,6 +28,12 @@ test('umrah registration uses browser/reCAPTCHA as primary and keeps upstream fa
   assert.match(laporanApi, /actionMatch\s*=\s*scripts\.match\(/);
   assert.match(laporanApi, /tokenAction: recaptchaConfig\.action/);
   assert.match(laporanApi, /window\.grecaptcha\.execute\(siteKey, \{ action: tokenAction \|\| 'submit' \}\)/);
+  assert.match(laporanApi, /--headless=new/);
+  assert.match(laporanApi, /--disable-blink-features=AutomationControlled/);
+  assert.match(laporanApi, /Chrome\/\$\{majorVersion\}\.0\.0\.0/);
+  assert.match(laporanApi, /locale: 'id-ID'/);
+  assert.match(laporanApi, /timezoneId: 'Asia\/Jakarta'/);
+  assert.match(laporanApi, /await submitButton\.click\(\)/);
   assert.match(laporanApi, /name\\s\*:\\s\*\['"\]\(\[\^'"\]\+\)\['"\]\\s\*,\\s\*value\\s\*:\\s\*isi/);
   assert.match(laporanApi, /UMRAH_RECAPTCHA_FIELD_NAME/);
   assert.match(laporanApi, /recaptchaSource: recaptchaConfig\.source/);

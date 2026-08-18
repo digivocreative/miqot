@@ -291,12 +291,15 @@ Current behavior:
    - jika password legacy tersimpan, Playwright/browser adalah jalur utama karena form membutuhkan JavaScript dan reCAPTCHA;
    - direct multipart hanya dipakai untuk sesi legacy aktif yang tidak memiliki password tersimpan.
 7. Jalur browser:
+   - menjalankan full Chromium dengan modern headless mode, locale/zona waktu Indonesia, dan user-agent yang konsisten (bukan Playwright headless-shell),
    - login through legacy page,
    - open form,
    - trigger dependency AJAX,
    - baca harga paket dari browser agar snapshot SPA yang stale tidak menimpanya,
-   - execute reCAPTCHA v3 in browser,
-   - submit the real form.
+   - hanya mengisi/mengirim field yang benar-benar ada pada form live; alias kompatibilitas direct-submit yang tidak native tidak disisipkan,
+   - tidak memicu ulang AJAX Marketing bila pilihan live sudah sama, agar blok HTML/script `_perwakilan.php` tidak dimuat dua kali,
+   - klik tombol Simpan asli agar listener Alhijaz sendiri menjalankan `grecaptcha.ready()`, action/field token live, dan submit form,
+   - mengirim tepat satu mutasi; kegagalan tidak pernah jatuh ke transport kedua.
 8. Browser submit allows informational `sisa seat = N` dialogs when `N > 0`, but treats zero seat or other alerts as blocking.
 9. Kegagalan upstream dikembalikan sebagai JSON terstruktur (`success:false`, `reason`, `retryable`, `error`) dengan HTTP 424; frontend juga merangkum HTML/proxy failure menjadi pesan yang aman dibaca.
 

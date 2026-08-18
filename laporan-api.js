@@ -30,7 +30,7 @@ const LOGIN_BASE_CANDIDATES = Array.from(new Set([
   INTERNAL_API_BASE,
   DEFAULT_INTERNAL_API_BASE,
 ])).map(base => base.replace(/\/+$/, ''));
-const LEGACY_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const LEGACY_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
 const LEGACY_STAFF_PATH = '/aiw/staff';
 const LEGACY_INTERNAL_HOSTS = new Set([
   new URL(DEFAULT_INTERNAL_API_BASE).host,
@@ -2418,7 +2418,7 @@ function getUploadMimeType(fileName) {
   return 'application/octet-stream';
 }
 
-async function selectLegacyBrowserOption(page, name, value, { required = false } = {}) {
+async function selectLegacyBrowserOption(page, name, value, { required = false, force = false } = {}) {
   if (value === undefined || value === null || value === '') {
     if (required) throw new Error(`Field ${name} wajib diisi`);
     return false;
@@ -2440,6 +2440,8 @@ async function selectLegacyBrowserOption(page, name, value, { required = false }
     if (required) throw new Error(`Opsi ${name}=${valueString} tidak tersedia di form legacy`);
     return false;
   }
+  const currentValue = await loc.inputValue();
+  if (!force && currentValue === valueString) return true;
   await loc.selectOption(valueString);
   return true;
 }
@@ -2471,19 +2473,6 @@ async function pickLegacyBrowserSelectName(page, names) {
     if (count > 0) return name;
   }
   return '';
-}
-
-async function appendLegacyBrowserHidden(page, name, value) {
-  return page.evaluate(({ name: fieldName, value: fieldValue }) => {
-    const form = document.querySelector('form#mF') || document.querySelector('form');
-    if (!form) return false;
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = fieldName;
-    input.value = String(fieldValue ?? '');
-    form.appendChild(input);
-    return true;
-  }, { name, value });
 }
 
 async function fillLegacyBrowserField(page, name, value) {
@@ -2544,6 +2533,9 @@ const BROWSER_MANAGED_UMRAH_FIELDS = new Set([
   'npaket',
   'harga_perlengkapan',
   'lain',
+  // This compatibility-only alias is absent from the current native form.
+  // The live form submits `jadwal`, `paket`, and AJAX-generated `npaket`.
+  'pakets',
 ]);
 
 async function readLegacyBrowserPackagePrice(page) {
@@ -2599,6 +2591,47 @@ async function getLegacyBrowserRecaptchaConfig(page) {
   });
 }
 
+function buildLegacyBrowserUserAgent(browser) {
+  const majorVersion = String(browser?.version?.() || '').match(/^\d+/)?.[0] || '145';
+  return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${majorVersion}.0.0.0 Safari/537.36`;
+}
+
+async function launchLegacyBrowser(chromium) {
+  // Playwright's bundled headless-shell exposes HeadlessChrome, has no plugins,
+  // and sets navigator.webdriver=true. reCAPTCHA v3 can score that environment
+  // as automation even when the token itself is valid. Full Chromium's modern
+  // headless mode retains the regular browser surface without needing an X server.
+  return chromium.launch({
+    headless: false,
+    args: [
+      '--headless=new',
+      '--disable-blink-features=AutomationControlled',
+      '--lang=id-ID',
+    ],
+  });
+}
+
+function createLegacyBrowserContext(browser) {
+  return browser.newContext({
+    viewport: { width: 1365, height: 900 },
+    screen: { width: 1920, height: 1080 },
+    userAgent: buildLegacyBrowserUserAgent(browser),
+    locale: 'id-ID',
+    timezoneId: 'Asia/Jakarta',
+    colorScheme: 'light',
+  });
+}
+
+function multipartFieldValueLength(postData, fieldName) {
+  if (!postData || !fieldName) return 0;
+  const marker = `name="${fieldName}"\r\n\r\n`;
+  const start = postData.indexOf(marker);
+  if (start < 0) return 0;
+  const valueStart = start + marker.length;
+  const valueEnd = postData.indexOf('\r\n', valueStart);
+  return (valueEnd < 0 ? postData.length : valueEnd) - valueStart;
+}
+
 // Browser submit for the final legacy mutation. The current Alhijaz form requires
 // a reCAPTCHA v3 token that only exists after the page JavaScript runs, so this is
 // the primary submit path whenever a saved legacy password is available.
@@ -2625,17 +2658,19 @@ export async function submitUmrahRegistrationWithBrowser({
   let pageClosed = false;
   try {
     const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 1365, height: 900 },
-      userAgent: LEGACY_UA,
-    });
+    browser = await launchLegacyBrowser(chromium);
+    const context = await createLegacyBrowserContext(browser);
     const page = await context.newPage();
 
     page.on('dialog', async dialog => {
       const message = normalizeLegacyDialogMessage(dialog.message());
       dialogs.push(message);
-      console.log('[UmrahBrowserSubmit] Dialog:', message);
+      // Log type + raw so a future flash-label regression (e.g. 'Unknown') or a
+      // beforeunload prompt is legible without another live capture.
+      console.log(
+        '[UmrahBrowserSubmit] Dialog:', message,
+        `(type=${dialog.type()}, raw=${JSON.stringify(dialog.message())})`,
+      );
       await dialog.accept().catch(() => {});
     });
     page.on('pageerror', err => {
@@ -2652,8 +2687,8 @@ export async function submitUmrahRegistrationWithBrowser({
 
     await page.goto(`${BROWSER_BASE}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.selectOption('select[name="kantor"]', String(kantor || '2'));
-    await page.fill('input[name="username"]', username);
-    await page.fill('input[name="password"]', password);
+    await page.locator('input[name="username"]').pressSequentially(username, { delay: 20 });
+    await page.locator('input[name="password"]').pressSequentially(password, { delay: 20 });
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30_000 }),
       page.click('button[type="submit"], input[type="submit"]'),
@@ -2685,7 +2720,7 @@ export async function submitUmrahRegistrationWithBrowser({
 
     const jdaftarValue = fields.jdaftar || '1';
     const jdaftarWait = waitForLegacyAjax(page, '_jdaftar.php');
-    await selectLegacyBrowserOption(page, 'jdaftar', jdaftarValue, { required: true });
+    await selectLegacyBrowserOption(page, 'jdaftar', jdaftarValue, { required: true, force: true });
     const jdaftarResponse = await jdaftarWait;
     if (!jdaftarResponse?.ok()) {
       return {
@@ -2703,7 +2738,7 @@ export async function submitUmrahRegistrationWithBrowser({
       const paketWait = waitForLegacyAjax(page, '_otb.php');
       const jadwalFieldName = await pickLegacyBrowserSelectName(page, ['vjadwal', 'jadwal', 'berangkat', 'tgl_berangkat']);
       if (!jadwalFieldName) throw new Error('Field jadwal tidak ditemukan di form legacy');
-      await selectLegacyBrowserOption(page, jadwalFieldName, jadwalValue, { required: true });
+      await selectLegacyBrowserOption(page, jadwalFieldName, jadwalValue, { required: true, force: true });
       const paketResponse = await paketWait;
       if (!paketResponse?.ok()) {
         return {
@@ -2726,7 +2761,7 @@ export async function submitUmrahRegistrationWithBrowser({
     }
     if (paketValue) {
       const detailWait = waitForLegacyAjax(page, '_pkt.php');
-      await selectLegacyBrowserOption(page, 'paket', paketValue, { required: true });
+      await selectLegacyBrowserOption(page, 'paket', paketValue, { required: true, force: true });
       const detailResponse = await detailWait;
       if (!detailResponse?.ok()) {
         return {
@@ -2757,10 +2792,18 @@ export async function submitUmrahRegistrationWithBrowser({
     const dependencyFields = new Set([
       'jdaftar', 'jadwal', 'vjadwal', 'berangkat', 'tgl_berangkat', 'paket', 'paket_umroh',
     ]);
+    const ignoredNonNativeFields = [];
     for (const [name, value] of Object.entries(fields || {})) {
       if (dependencyFields.has(name) || BROWSER_MANAGED_UMRAH_FIELDS.has(name)) continue;
       const filled = await fillLegacyBrowserField(page, name, value);
-      if (!filled) await appendLegacyBrowserHidden(page, name, value);
+      // A fresh browser form is the source of truth. Compatibility aliases used
+      // by the direct multipart fallback must not be injected into the live form:
+      // the current Alhijaz handler can branch on their presence, while a native
+      // staff submission never sends them.
+      if (!filled) ignoredNonNativeFields.push(name);
+    }
+    if (ignoredNonNativeFields.length > 0) {
+      console.log('[UmrahBrowserSubmit] Ignored fields absent from live form:', ignoredNonNativeFields.sort());
     }
 
     const fileAttached = await setLegacyBrowserFile(page, fileBuffer, fileName, fileFieldName);
@@ -2795,6 +2838,12 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
 
+    const submitRequestPromise = dryRun
+      ? null
+      : page.waitForRequest(
+        request => request.method() === 'POST' && request.url().includes('aksi_umrah.php'),
+        { timeout: 25_000 },
+      ).catch(() => null);
     const submitResponsePromise = dryRun
       ? null
       : page.waitForResponse(
@@ -2811,35 +2860,78 @@ export async function submitUmrahRegistrationWithBrowser({
       };
     }
 
-    const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId, isDryRun }) => {
-      const started = Date.now();
-      while (Date.now() - started < 20_000) {
-        if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
-        await new Promise(resolve => setTimeout(resolve, 250));
+    let tokenInfo;
+    if (dryRun) {
+      tokenInfo = await page.evaluate(async ({ siteKey, tokenAction }) => {
+        const started = Date.now();
+        while (Date.now() - started < 20_000) {
+          if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        if (!window.grecaptcha || typeof window.grecaptcha.execute !== 'function') {
+          return { ok: false, error: 'grecaptcha tidak tersedia' };
+        }
+        if (typeof window.grecaptcha.ready === 'function') {
+          await new Promise(resolve => window.grecaptcha.ready(resolve));
+        }
+        const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
+        if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
+        return { ok: true, length: token.length, dryRun: true };
+      }, {
+        siteKey: recaptchaConfig.siteKey,
+        tokenAction: recaptchaConfig.action,
+      });
+    } else {
+      // Use Alhijaz's own submit listener. It owns grecaptcha.ready(), the live
+      // action/field names, timeout UI, and the eventual native form.submit().
+      // Clicking also supplies a real browser interaction before reCAPTCHA scores
+      // the request. Never fall through to a second mutation transport.
+      const submitButton = page.locator(
+        '#sbButton, form#mF button[type="submit"], form#mF input[type="submit"]',
+      ).first();
+      if (await submitButton.count() === 0) {
+        return {
+          success: false,
+          reason: 'legacy_submit_button_missing',
+          error: 'Tombol Simpan tidak ditemukan pada form Alhijaz. Muat ulang form lalu coba lagi.',
+          debug: { browserFallback: true, dialogs, stage: 'submit_button' },
+        };
       }
-      if (!window.grecaptcha || typeof window.grecaptcha.execute !== 'function') {
-        return { ok: false, error: 'grecaptcha tidak tersedia' };
+      await submitButton.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(1_200);
+      await submitButton.click();
+
+      const submitRequest = await submitRequestPromise;
+      if (!submitRequest) {
+        const securityDialog = findBlockingLegacyDialog(dialogs);
+        return {
+          success: false,
+          reason: 'recaptcha_submit_not_started',
+          error: securityDialog
+            ? `Sistem keamanan Alhijaz menolak submit: ${securityDialog}`
+            : 'Sistem keamanan Alhijaz tidak memulai submit. Muat ulang form lalu coba lagi.',
+          debug: {
+            browserFallback: true,
+            dialogs,
+            stage: 'native_submit',
+            recaptchaSource: recaptchaConfig.source,
+            recaptchaAction: recaptchaConfig.action,
+          },
+        };
       }
-      const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
-      if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
-      if (isDryRun) return { ok: true, length: token.length, dryRun: true };
-      const form = document.querySelector('form#mF');
-      if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.id = tokenId || 'legacy_recaptcha_token';
-      input.name = tokenField;
-      input.value = token;
-      form.appendChild(input);
-      HTMLFormElement.prototype.submit.call(form);
-      return { ok: true, length: token.length };
-    }, {
-      siteKey: recaptchaConfig.siteKey,
-      tokenAction: recaptchaConfig.action,
-      tokenField: recaptchaConfig.tokenField,
-      tokenId: recaptchaConfig.tokenId,
-      isDryRun: dryRun,
-    });
+      const submitBody = submitRequest.postDataBuffer();
+      const submittedTokenLength = multipartFieldValueLength(
+        submitBody ? submitBody.toString('latin1') : '',
+        recaptchaConfig.tokenField,
+      );
+      tokenInfo = {
+        ok: true,
+        // Playwright may omit multipart bodies containing binary uploads from
+        // request.postDataBuffer(); null is more honest than a misleading zero.
+        length: submittedTokenLength || null,
+        nativeSubmit: true,
+      };
+    }
 
     if (!tokenInfo.ok) {
       return {
@@ -2899,6 +2991,32 @@ export async function submitUmrahRegistrationWithBrowser({
     if (successDialog) {
       return { success: true, message: successDialog || 'Pendaftaran jamaah berhasil' };
     }
+
+    // Alhijaz's aksi_umrah.php returns an inline <script> that alert()s a status
+    // label and then navigates (window.location) to the destination. On success it
+    // lands on the registration list (route=umrah, no act=tdaftar); a genuine
+    // rejection keeps the form open, bounces to the /aiw/staff/ login page, or
+    // carries an explicit failure phrase. Alhijaz has shipped a regressed success
+    // label ('Unknown') without changing the fact that the jamaah row is created
+    // upstream — so an unrecognized alert that still lands on the list is a
+    // successful submit, not a rejection. findBlockingLegacyDialog flags ANY
+    // non-success dialog, which is why this authoritative navigation signal must
+    // win before the blockingDialog reject below.
+    const landedOnRegistrationList =
+      Boolean(statusCode) && statusCode >= 200 && statusCode < 400 &&
+      !formStillOpen && /route=umrah/.test(currentUrl) && !/act=tdaftar/i.test(currentUrl);
+    const dialogLooksLikeGenuineFailure = dialogs.some(message =>
+      /gagal|error|invalid|kesalahan|wajib|belum\s|sudah\s+terdaftar|habis|penuh|less than|re-?login|sesi\s+anda|seat\s*=\s*0\b/i.test(message));
+    if (landedOnRegistrationList && !dialogLooksLikeGenuineFailure) {
+      if (blockingDialog) {
+        console.warn(
+          '[UmrahBrowserSubmit] Unrecognized post-submit dialog treated as success (landed on registration list):',
+          blockingDialog,
+        );
+      }
+      return { success: true, message: 'Pendaftaran jamaah berhasil' };
+    }
+
     if (blockingDialog) {
       return {
         success: false,

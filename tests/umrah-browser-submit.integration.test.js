@@ -16,11 +16,11 @@ function registrationFormHtml() {
           <input type="hidden" name="pin" value="fresh-browser-pin">
           <select name="jdaftar" onchange="fetch('/aiw/staff/pages/_jdaftar.php')">
             <option value="">Pilih</option>
-            <option value="1">Jamaah Baru</option>
+            <option value="1" selected>Jamaah Baru</option>
           </select>
           <select name="vjadwal" onchange="fetch('/aiw/staff/pages/_otb.php')">
             <option value="">Pilih</option>
-            <option value="JBU001">JBU001</option>
+            <option value="JBU001" selected>JBU001</option>
           </select>
           <select name="paket" onchange="
             fetch('/aiw/staff/pages/_pkt.php', { method: 'POST' })
@@ -28,19 +28,55 @@ function registrationFormHtml() {
               .then(html => { document.querySelector('#paket-details').innerHTML = html; })
           ">
             <option value="">Pilih</option>
-            <option value="PKT001">Paket Test</option>
+            <option value="PKT001" selected>Paket Test</option>
           </select>
           <div id="paket-details"><input type="hidden" name="hpaket" value="0"></div>
+          <select name="vmarketing" onchange="fetch('/aiw/staff/pages/_perwakilan.php')">
+            <option value="SMTEST" selected>Marketing Test</option>
+          </select>
+          <input type="hidden" name="marketing" value="SMTEST">
+          <select name="perwakilan"><option value="WKTEST" selected>Koordinator Test</option></select>
           <input name="ktp">
           <input name="pendaftar">
           <input type="file" name="file_ktp">
+          <button id="sbButton" type="submit">Simpan</button>
         </form>
         <script>
-          window.grecaptcha = { execute: async () => '${TEST_RECAPTCHA_TOKEN}' };
+          window.grecaptcha = {
+            ready(callback) { callback(); },
+            execute: async () => '${TEST_RECAPTCHA_TOKEN}',
+          };
           function legacyCaptcha(isi) {
             grecaptcha.execute('fake-site-key', { action: 'submit' });
             return { id: 'fake-token-id', name: 'fake_recaptcha', value: isi };
           }
+          document.getElementById('mF').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const form = this;
+            grecaptcha.ready(function() {
+              grecaptcha.execute('fake-site-key', { action: 'submit' }).then(function(isi) {
+                const token = document.createElement('input');
+                token.type = 'hidden';
+                token.id = 'fake-token-id';
+                token.name = 'fake_recaptcha';
+                token.value = isi;
+                form.appendChild(token);
+
+                const nativeMarker = document.createElement('input');
+                nativeMarker.type = 'hidden';
+                nativeMarker.name = 'native_submit_handler';
+                nativeMarker.value = '1';
+                form.appendChild(nativeMarker);
+
+                const webdriverMarker = document.createElement('input');
+                webdriverMarker.type = 'hidden';
+                webdriverMarker.name = 'webdriver_state';
+                webdriverMarker.value = String(navigator.webdriver);
+                form.appendChild(webdriverMarker);
+                form.submit();
+              });
+            });
+          });
         </script>
       </body>
     </html>`;
@@ -56,7 +92,13 @@ function loginFormHtml() {
     </form>`;
 }
 
-async function startFakeLegacyServer({ packagePrice = TEST_PACKAGE_PRICE } = {}) {
+const DEFAULT_SUBMIT_RESPONSE_HTML =
+  "<!doctype html><script>alert('Pendaftaran berhasil')</script><p>route=umrah</p>";
+
+async function startFakeLegacyServer({
+  packagePrice = TEST_PACKAGE_PRICE,
+  submitResponseHtml = DEFAULT_SUBMIT_RESPONSE_HTML,
+} = {}) {
   const requests = [];
   const server = createServer(async (req, res) => {
     try {
@@ -106,6 +148,18 @@ async function startFakeLegacyServer({ packagePrice = TEST_PACKAGE_PRICE } = {})
         return;
       }
 
+      // Post-registration list page (window.location target on success). No form#mF.
+      if (
+        req.method === 'GET' &&
+        url.pathname === '/aiw/staff/pages/main.php' &&
+        url.searchParams.get('route') === 'umrah' &&
+        !url.searchParams.get('act')
+      ) {
+        res.setHeader('content-type', 'text/html; charset=utf-8');
+        res.end('<!doctype html><h1>Data Umrah</h1><table id="myDataTable"></table>');
+        return;
+      }
+
       if (/\/(?:_jdaftar|_otb)\.php$/.test(url.pathname)) {
         res.setHeader('content-type', 'text/html; charset=utf-8');
         res.end('OK');
@@ -114,13 +168,16 @@ async function startFakeLegacyServer({ packagePrice = TEST_PACKAGE_PRICE } = {})
 
       if (url.pathname.endsWith('/_pkt.php')) {
         res.setHeader('content-type', 'text/html; charset=utf-8');
-        res.end(`<input type="hidden" name="hpaket" value="${packagePrice}">`);
+        res.end(`
+          <input type="hidden" name="hpaket" value="${packagePrice}">
+          <input type="hidden" name="npaket" value="JBU001.2026-10-02.PKT001">
+        `);
         return;
       }
 
       if (req.method === 'POST' && url.pathname === '/aiw/staff/pages/aksi_umrah.php') {
         res.setHeader('content-type', 'text/html; charset=utf-8');
-        res.end("<!doctype html><script>alert('Pendaftaran berhasil')</script><p>route=umrah</p>");
+        res.end(submitResponseHtml);
         return;
       }
 
@@ -188,6 +245,10 @@ test('browser submit stays local, preserves fresh package price, and sends one c
         pakets: 'JBU001.PKT001',
         ktp: TEST_NIK,
         pendaftar: 'CODEX TEST',
+        vmarketing: 'SMTEST',
+        marketing: 'SMTEST',
+        perwakilan: 'WKTEST',
+        firstname: 'CODEX',
       },
       // This is deliberately stale. The browser's fresh _pkt.php response must win.
       hiddenFields: { pin: 'stale-pin', hpaket: '0' },
@@ -207,20 +268,41 @@ test('browser submit stays local, preserves fresh package price, and sends one c
     assert.equal(new URLSearchParams(formLoads[0].search).get('.idb'), TEST_IDB);
 
     const packageRequests = fakeLegacy.requests.filter(request => request.pathname.endsWith('/_pkt.php'));
+    assert.equal(
+      fakeLegacy.requests.filter(request => request.pathname.endsWith('/_jdaftar.php')).length,
+      1,
+      'jamaah field dependency must refresh even when the option is pre-selected',
+    );
+    assert.equal(
+      fakeLegacy.requests.filter(request => request.pathname.endsWith('/_otb.php')).length,
+      1,
+      'package options must refresh even when the schedule is pre-selected',
+    );
     assert.equal(packageRequests.length, 1, 'package detail AJAX must run once before submit');
+    assert.equal(
+      fakeLegacy.requests.filter(request => request.pathname.endsWith('/_perwakilan.php')).length,
+      0,
+      'an unchanged marketing selection must not reload the coordinator field',
+    );
 
     const submits = fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php'));
     assert.equal(submits.length, 1, 'registration must have exactly one final mutation request');
 
     const multipartBody = submits[0].body.toString('latin1');
     assert.equal(multipartField(multipartBody, 'hpaket'), TEST_PACKAGE_PRICE);
-    assert.equal(multipartField(multipartBody, 'pakets'), 'JBU001.PKT001');
+    assert.equal(multipartField(multipartBody, 'npaket'), 'JBU001.2026-10-02.PKT001');
+    assert.equal(multipartField(multipartBody, 'pakets'), null);
+    assert.equal(multipartField(multipartBody, 'firstname'), null);
     assert.equal(multipartField(multipartBody, 'pin'), 'fresh-browser-pin');
     assert.equal(multipartField(multipartBody, 'ktp'), TEST_NIK);
     assert.equal(multipartField(multipartBody, 'fake_recaptcha'), TEST_RECAPTCHA_TOKEN);
+    assert.equal(multipartField(multipartBody, 'native_submit_handler'), '1');
+    assert.equal(multipartField(multipartBody, 'webdriver_state'), 'false');
     assert.match(multipartBody, /name="file_ktp"; filename="ktp\.jpg"/);
     assert.ok(multipartBody.includes(TEST_FILE_BYTES));
     assert.ok(!multipartBody.includes('stale-pin'));
+    assert.match(submits[0].headers['user-agent'], /Chrome\/\d+\.0\.0\.0 Safari\/537\.36/);
+    assert.doesNotMatch(submits[0].headers['user-agent'], /HeadlessChrome/);
   } finally {
     if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
     else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
@@ -293,6 +375,98 @@ test('browser dry-run verifies reCAPTCHA without sending the final mutation', { 
       0,
       'dry-run must never send the final mutation',
     );
+  } finally {
+    if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
+    else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
+    await fakeLegacy.close();
+  }
+});
+
+test('browser submit treats a regressed post-submit label as success when it lands on the registration list', { timeout: 45_000 }, async () => {
+  // Alhijaz's aksi_umrah.php still creates the jamaah but has shipped a regressed
+  // flash label: the inline success script now alert()s 'Unknown' before navigating
+  // to the registration list. That unrecognized alert must not be reported as a
+  // rejection (which caused false "Alhijaz menolak pendaftaran: Unknown" errors and
+  // duplicate re-submits) — the navigation to route=umrah is the authoritative
+  // success signal.
+  const fakeLegacy = await startFakeLegacyServer({
+    submitResponseHtml:
+      "<!doctype html><script>alert('Unknown');window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>",
+  });
+  const previousBrowserBase = process.env.LEGACY_BROWSER_API_BASE;
+  process.env.LEGACY_BROWSER_API_BASE = fakeLegacy.origin;
+
+  try {
+    const { submitUmrahRegistrationWithBrowser } = await importLaporanApiWithoutRefedCleanupTimer();
+    const result = await submitUmrahRegistrationWithBrowser({
+      username: 'SMTEST',
+      password: 'secret',
+      kantor: '2',
+      fields: {
+        jdaftar: '1',
+        vjadwal: 'JBU001',
+        paket: 'PKT001',
+        ktp: TEST_NIK,
+        pendaftar: 'CODEX TEST',
+        vmarketing: 'SMTEST',
+        marketing: 'SMTEST',
+        perwakilan: 'WKTEST',
+      },
+      hiddenFields: { pin: 'stale-pin', hpaket: '0' },
+      fileBuffer: Buffer.from(TEST_FILE_BYTES),
+      fileName: 'ktp.jpg',
+      fileFieldName: 'file_ktp',
+      idb: TEST_IDB,
+    });
+
+    assert.equal(result.success, true, JSON.stringify(result));
+    assert.equal(
+      fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php')).length,
+      1,
+      'a success landing must not trigger a retry/duplicate submit',
+    );
+  } finally {
+    if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
+    else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
+    await fakeLegacy.close();
+  }
+});
+
+test('browser submit still rejects an explicit failure alert even after navigation', { timeout: 45_000 }, async () => {
+  // A genuine server rejection must keep failing: an explicit failure phrase blocks
+  // even if the page happens to navigate to a route=umrah URL.
+  const fakeLegacy = await startFakeLegacyServer({
+    submitResponseHtml:
+      "<!doctype html><script>alert('Gagal: NIK sudah terdaftar');window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>",
+  });
+  const previousBrowserBase = process.env.LEGACY_BROWSER_API_BASE;
+  process.env.LEGACY_BROWSER_API_BASE = fakeLegacy.origin;
+
+  try {
+    const { submitUmrahRegistrationWithBrowser } = await importLaporanApiWithoutRefedCleanupTimer();
+    const result = await submitUmrahRegistrationWithBrowser({
+      username: 'SMTEST',
+      password: 'secret',
+      kantor: '2',
+      fields: {
+        jdaftar: '1',
+        vjadwal: 'JBU001',
+        paket: 'PKT001',
+        ktp: TEST_NIK,
+        pendaftar: 'CODEX TEST',
+        vmarketing: 'SMTEST',
+        marketing: 'SMTEST',
+        perwakilan: 'WKTEST',
+      },
+      hiddenFields: { pin: 'stale-pin', hpaket: '0' },
+      fileBuffer: Buffer.from(TEST_FILE_BYTES),
+      fileName: 'ktp.jpg',
+      fileFieldName: 'file_ktp',
+      idb: TEST_IDB,
+    });
+
+    assert.equal(result.success, false, JSON.stringify(result));
+    assert.match(result.error, /NIK sudah terdaftar/);
   } finally {
     if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
     else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
