@@ -4,16 +4,7 @@ import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, Responsi
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import FilterDropdown from './FilterDropdown';
-
-// ── Types ──
-interface HajiPlusItem { year: number; pax: number; }
-interface HajiPlusData {
-  items: HajiPlusItem[];
-  total: number; average: number;
-  peak: HajiPlusItem; min: HajiPlusItem;
-  current: HajiPlusItem | null;
-  yearCount: number; synced_at: string;
-}
+import { fetchHajiPlusBerangkat, type HajiPlusData, type HajiPlusItem } from '../lib/fetchHajiPlusBerangkat';
 
 interface ColorTheme {
   name: string; dark: string; glow: string; main: string; ring: string;
@@ -295,7 +286,7 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
         <div style={{ flex: 1, minHeight: 0, background: 'rgba(255,255,255,0.95)', borderRadius: 10, padding: '8px 10px 4px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: t.main }}>Keberangkatan per tahun</span>
-            <span style={{ fontSize: 7, color: '#9ca3af', background: '#f3f4f6', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>pax</span>
+            <span style={{ fontSize: 7, color: '#9ca3af', background: '#f3f4f6', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>jamaah</span>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
             <PosterChart items={items} theme={t} chartType={chartType} />
@@ -337,11 +328,8 @@ export default function HajiPlusExportPage({ agent }: {
   // Fetch data
   useEffect(() => {
     setLoading(true);
-    fetch('/api/haji-plus/data', { headers: getAuthHeaders() })
-      .then(r => r.json())
-      .then(json => {
-        if (json.success) setData(json.data);
-      })
+    fetchHajiPlusBerangkat(getAuthHeaders())
+      .then(result => { if (result.ok) setData(result.data); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);

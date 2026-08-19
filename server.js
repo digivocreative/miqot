@@ -18369,9 +18369,13 @@ app.get('/api/haji/stats', authMiddleware, async (req, res) => {
       .sort((a, b) => b.localeCompare(a));
 
     // Default: current year if present, else closest year (ties prefer future).
-    let year = typeof req.query.year === 'string' ? req.query.year : null;
+    // year=all bypasses the single-year default/filter entirely so callers
+    // (e.g. HajiPlusPage statistik tab) can get breakdownTahun across every
+    // year in one call instead of one request per year.
+    const wantAllYears = req.query.year === 'all';
+    let year = typeof req.query.year === 'string' && !wantAllYears ? req.query.year : null;
     let daftarYear = requestedDaftarYear;
-    if (!year && !daftarYear) {
+    if (!year && !daftarYear && !wantAllYears) {
       if (requestedMode === 'pendaftaran') {
         daftarYear = pickDefaultYear(daftarYears, new Date().getFullYear());
       } else {

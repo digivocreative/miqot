@@ -4,16 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Cartes
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import SimulasiHajiPlus from './SimulasiHajiPlus';
-
-// ── Types ──
-interface HajiPlusItem { year: number; pax: number; }
-interface HajiPlusData {
-  items: HajiPlusItem[];
-  total: number; average: number;
-  peak: HajiPlusItem; min: HajiPlusItem;
-  current: HajiPlusItem | null;
-  yearCount: number; synced_at: string;
-}
+import { fetchHajiPlusBerangkat, type HajiPlusData } from '../lib/fetchHajiPlusBerangkat';
 
 type HajiPlusTab = 'statistik' | 'simulasi';
 
@@ -31,7 +22,7 @@ function CustomTooltip({ active, payload, label }: any) {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-100 dark:border-slate-700 px-3 py-2">
       <p className="text-[11px] font-bold text-gray-800 dark:text-white">{label}</p>
-      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{fmt(payload[0].value)} pax</p>
+      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{fmt(payload[0].value)} jamaah</p>
     </div>
   );
 }
@@ -54,10 +45,9 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/haji-plus/data', { headers: getAuthHeaders() });
-      const json = await res.json();
-      if (json.success) setData(json.data);
-      else setError(json.error || 'Gagal mengambil data');
+      const result = await fetchHajiPlusBerangkat(getAuthHeaders());
+      if (result.ok) setData(result.data);
+      else { setData(null); setError(result.error); }
     } catch { setError('Gagal terhubung ke server'); }
     finally { setLoading(false); }
   }, []);
@@ -179,7 +169,7 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
           <div>
             <p className="text-[10px] text-emerald-200/70 font-semibold uppercase tracking-wide">Tahun Ini — {currentYear}</p>
             <p className="text-3xl font-bold mt-0.5">{data.current ? fmt(data.current.pax) : '—'}</p>
-            <p className="text-[10px] text-emerald-200/60 mt-0.5">pax</p>
+            <p className="text-[10px] text-emerald-200/60 mt-0.5">jamaah berangkat</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-emerald-200/70 font-medium">Peak: {data.peak.year}</p>
@@ -212,7 +202,7 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-bold text-gray-800 dark:text-white">Tren keberangkatan</span>
-          <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">pax/tahun</span>
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/40">jamaah/tahun</span>
         </div>
         <div style={{ height: 200 }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -249,7 +239,7 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
           <thead>
             <tr className="bg-gray-50 dark:bg-slate-700/30">
               <th className="text-left px-4 py-2 font-semibold text-gray-500 dark:text-slate-400">Tahun</th>
-              <th className="text-right px-4 py-2 font-semibold text-gray-500 dark:text-slate-400">Jumlah</th>
+              <th className="text-right px-4 py-2 font-semibold text-gray-500 dark:text-slate-400">Jamaah Berangkat</th>
               <th className="text-right px-4 py-2 font-semibold text-gray-500 dark:text-slate-400">vs prev</th>
             </tr>
           </thead>
@@ -283,8 +273,10 @@ export default function HajiPlusPage({ agent, onExport, initialTab }: HajiPlusPa
 
       {/* F. Sync indicator */}
       <p className="text-[10px] text-gray-400 dark:text-slate-600 text-center mt-3">
-        Sumber: alhijazindowisata.com · Terakhir sync: {(() => {
-          const diff = Date.now() - new Date(data.synced_at).getTime();
+        Sumber: data jamaah haji Anda · Terakhir sync: {(() => {
+          const synced = data.synced_at ? new Date(data.synced_at).getTime() : NaN;
+          if (Number.isNaN(synced)) return 'belum pernah';
+          const diff = Date.now() - synced;
           const mins = Math.floor(diff / 60000);
           if (mins < 60) return `${mins} menit lalu`;
           const hrs = Math.floor(mins / 60);
