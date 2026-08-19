@@ -40,21 +40,19 @@ test('konstanta kota: 4 kategori tetap dan landmark hanya untuk mekkah/madinah',
   assert.equal(HOTEL_CITY_LANDMARKS.dubai, undefined);
 });
 
-test('gate: hanya nikita dan bagas yang boleh masuk', () => {
+test('gate: terbuka untuk semua agent (rilis terbatas berakhir)', () => {
   assert.equal(isHotelDirectoryEnabledForAgent('nikita'), true);
   assert.equal(isHotelDirectoryEnabledForAgent({ slug: 'bagas' }), true);
-  assert.equal(isHotelDirectoryEnabledForAgent(' Nikita '), true);
-  assert.equal(isHotelDirectoryEnabledForAgent('budi'), false);
-  assert.equal(isHotelDirectoryEnabledForAgent(''), false);
-  assert.equal(isHotelDirectoryEnabledForAgent(null), false);
-  assert.equal(isHotelDirectoryEnabledForAgent({ slug: undefined }), false);
+  assert.equal(isHotelDirectoryEnabledForAgent('budi'), true);
+  assert.equal(isHotelDirectoryEnabledForAgent(''), true);
+  assert.equal(isHotelDirectoryEnabledForAgent(null), true);
+  assert.equal(isHotelDirectoryEnabledForAgent({ slug: undefined }), true);
 });
 
-test('requireHotelDirectoryAccess menolak agent lain dengan 403', () => {
+test('requireHotelDirectoryAccess meloloskan semua agent', () => {
   const res = stubRes();
-  assert.equal(requireHotelDirectoryAccess({ slug: 'budi' }, res), false);
-  assert.equal(res.code, 403);
-  assert.equal(typeof res.body.error, 'string');
+  assert.equal(requireHotelDirectoryAccess({ slug: 'budi' }, res), true);
+  assert.equal(res.code, undefined);
 
   const resOk = stubRes();
   assert.equal(requireHotelDirectoryAccess({ slug: 'nikita' }, resOk), true);
