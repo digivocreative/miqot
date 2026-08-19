@@ -102,10 +102,13 @@ type View =
 // tanpa baris back kedua di dalam halaman (keluhan "navigasi double").
 function readHotelView(): View {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  const city = decodeURIComponent(segments[3] || '');
+  // Indeks segmen mengikuti rute menu mandiri /dashboard/hotel/:city/:slug —
+  // WAJIB sejalan dengan getHotelPathInfo di DashboardLayout (dua pembaca URL
+  // yang sama); dulu rutenya /dashboard/ai-tools/hotel jadi indeksnya 3/4/5.
+  const city = decodeURIComponent(segments[2] || '');
   if (HOTEL_CITIES.includes(city)) {
-    const slug = decodeURIComponent(segments[4] || '');
-    if (slug && segments[5] === 'media') return { kind: 'media', city, slug };
+    const slug = decodeURIComponent(segments[3] || '');
+    if (slug && segments[4] === 'media') return { kind: 'media', city, slug };
     if (slug) return { kind: 'detail', city, slug };
     return { kind: 'list', city };
   }
