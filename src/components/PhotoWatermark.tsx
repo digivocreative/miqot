@@ -21,8 +21,10 @@ export default function PhotoWatermark({ text }: { text: string }) {
       style={{
         paddingLeft: 12,
         paddingRight: 12,
-        paddingTop: 40,
-        paddingBottom: 12,
+        paddingTop: 56,
+        // Jarak ke tepi bawah foto sengaja lega — mepet bawah terbaca seperti
+        // cacat cetak, bukan tanda tangan.
+        paddingBottom: 28,
         opacity: 0.8,
         // Gradien tipis supaya teks tetap terbaca di foto lobi yang terang
         // maupun foto kamar yang gelap.
@@ -33,7 +35,7 @@ export default function PhotoWatermark({ text }: { text: string }) {
         style={{
           display: 'block',
           textAlign: 'center',
-          fontSize: 20,
+          fontSize: 26,
           lineHeight: 1.2,
           fontWeight: 700,
           letterSpacing: 0.5,
