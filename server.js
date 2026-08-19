@@ -22868,19 +22868,27 @@ async function scrapeHajiPlusData() {
   let res = null;
   const originFallback = hajiPlusOriginDispatcher && applyCalendarFallbackOrigin(url, headers);
   if (originFallback) {
-    try {
-      res = await fetch(originFallback.url, {
-        headers: originFallback.headers,
-        dispatcher: hajiPlusOriginDispatcher,
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    } catch (originErr) {
-      console.warn(
-        `[HajiPlus] Origin IP ${CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP} gagal (${originErr.message}); `
-        + 'fallback ke fetch domain langsung',
-      );
-      res = null;
+    // Koneksi ke origin IP kadang timeout intermiten (bukan diblok
+    // konsisten seperti domain langsung) — coba beberapa kali dulu
+    // sebelum menyerah ke fallback domain langsung.
+    for (let attempt = 1; attempt <= 3 && !res; attempt += 1) {
+      try {
+        const attemptRes = await fetch(originFallback.url, {
+          headers: originFallback.headers,
+          dispatcher: hajiPlusOriginDispatcher,
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!attemptRes.ok) throw new Error(`HTTP ${attemptRes.status}`);
+        res = attemptRes;
+      } catch (originErr) {
+        console.warn(
+          `[HajiPlus] Origin IP ${CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP} gagal `
+          + `percobaan ${attempt}/3 (${originErr.message})`,
+        );
+      }
+    }
+    if (!res) {
+      console.warn('[HajiPlus] Origin IP habis percobaan; fallback ke fetch domain langsung');
     }
   }
 
