@@ -50,17 +50,15 @@ function toBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promi
 /**
  * Mengembalikan salinan foto dengan watermark tercetak di piksel.
  *
- * `displayScale` = naturalWidth ÷ lebar foto saat tampil di lightbox, diukur
- * pemanggil tepat sebelum memanggil. Itulah yang membuat watermark di berkas
- * terunduh sebesar yang dilihat agent: lapisan DOM selalu 22px berapa pun
- * besar foto ditampilkan, jadi tanpa skala nyata ini ukurannya cuma tebakan
- * yang benar di satu lebar layar saja. Kosong/tak masuk akal → jatuh ke
- * perbandingan tetap terhadap lebar gambar.
+ * Ukurannya turunan LEBAR GAMBAR semata — bukan lebar layar, bukan skala
+ * tampilan. Itu yang membuat berkas hasil unduhan sama persis entah agent
+ * menekan tombolnya dari ponsel atau desktop; memakai ukuran tampilan membuat
+ * foto 1000px keluar 30px dari desktop tapi 63px dari ponsel.
  *
  * Melempar kalau gambarnya tidak bisa dibaca atau kanvasnya ternoda (CORS) —
  * pemanggil yang memutuskan apa yang terjadi setelahnya.
  */
-export async function stampWatermarkOnImage(blob: Blob, text: string, displayScale?: number): Promise<Blob> {
+export async function stampWatermarkOnImage(blob: Blob, text: string): Promise<Blob> {
   if (!text) return blob;
   const { bitmap, width, height, close } = await decode(blob);
   try {
@@ -72,10 +70,7 @@ export async function stampWatermarkOnImage(blob: Blob, text: string, displaySca
     if (!ctx) throw new Error('Kanvas 2d tidak tersedia');
     ctx.drawImage(bitmap, 0, 0, width, height);
 
-    const scaled = displayScale && Number.isFinite(displayScale) && displayScale > 0
-      ? WATERMARK.fontSize * displayScale
-      : width * WATERMARK.fontSizeRatio;
-    const fontSize = Math.max(WATERMARK.minBurnedFontSize, Math.round(scaled));
+    const fontSize = Math.max(WATERMARK.minBurnedFontSize, Math.round(width * WATERMARK.fontSizeRatio));
     const baseline = height - fontSize * WATERMARK.bottomRatio;
 
     ctx.save();
@@ -95,7 +90,7 @@ export async function stampWatermarkOnImage(blob: Blob, text: string, displaySca
     // Safari 17.4+); yang lama mengabaikannya — selisih kecil, bukan cacat.
     const spacedCtx = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
     if ('letterSpacing' in spacedCtx) {
-      spacedCtx.letterSpacing = `${WATERMARK.letterSpacing * (fontSize / WATERMARK.fontSize)}px`;
+      spacedCtx.letterSpacing = `${fontSize * WATERMARK.letterSpacingRatio}px`;
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';

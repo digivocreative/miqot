@@ -76,26 +76,6 @@ async function fetchMediaBlob(url: string): Promise<Blob> {
 /** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
 interface PreparedMedia { blob: Blob; stamped: boolean }
 
-/**
- * Berapa kali lipat foto asli lebih besar daripada tampilannya di lightbox.
- * Dipakai untuk menyetel ukuran watermark yang dibakar ke piksel: lapisan DOM
- * memakai 22px tetap, jadi satu-satunya cara berkas terunduh terlihat sama
- * dengan yang di layar adalah mengalikannya dengan skala nyata ini — di layar
- * lebar foto tampil besar (skala kecil), di ponsel sebaliknya.
- *
- * Saat animasi geser, foto lama dan baru sempat terpasang bersamaan; yang
- * dipilih adalah yang URL-nya cocok dengan item yang sedang disiapkan.
- */
-function photoDisplayScale(root: HTMLElement | null, url: string): number | undefined {
-  if (!root) return undefined;
-  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[data-media-photo]'));
-  const img = images.find(el => el.currentSrc === url || el.src === url) || images[images.length - 1];
-  if (!img) return undefined;
-  const shown = img.getBoundingClientRect().width;
-  if (!shown || !img.naturalWidth) return undefined;
-  return img.naturalWidth / shown;
-}
-
 export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -131,10 +111,8 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
   const prepareMedia = useCallback(async (item: ViewerMediaItem): Promise<PreparedMedia> => {
     const blob = await fetchMediaBlob(item.url);
     if (!watermark || item.type !== 'image') return { blob, stamped: false };
-    // Skala diukur SEBELUM await berikutnya, selagi foto masih terpasang.
-    const scale = photoDisplayScale(dialogRef.current, item.url);
     try {
-      return { blob: await stampWatermarkOnImage(blob, watermark, scale), stamped: true };
+      return { blob: await stampWatermarkOnImage(blob, watermark), stamped: true };
     } catch {
       // Gagal membakar (kanvas ternoda, format aneh) TIDAK boleh membatalkan
       // unduhan — berkas asli tetap diberikan, dan pemanggil memberi tahu
@@ -370,7 +348,6 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
                 <img
                   src={active?.url}
                   alt={`Foto ${index + 1} layar penuh — ${label}`}
-                  data-media-photo=""
                   draggable={false}
                   className="block select-none object-contain [touch-action:pan-y_pinch-zoom]"
                   // Batas ukuran diambil dari VIEWPORT, bukan persen terhadap
