@@ -37,7 +37,12 @@ import { handleCardExport } from './lib/card-export.js';
 import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
-import { probePublicCalendarPrimary } from './lib/calendar-public-source.js';
+import {
+  probePublicCalendarPrimary,
+  applyCalendarFallbackOrigin,
+  calendarPublicFallbackOriginLookup,
+  CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
+} from './lib/calendar-public-source.js';
 import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
@@ -22846,16 +22851,43 @@ app.get('/:packageId/itinerary', async (req, res, next) => {
 
 let hajiPlusCache = null;
 
+// WAF/Cloudflare di depan alhijazindowisata.com dapat memblokir IP egress VPS
+// ini (HTTP 403). Coba dulu lewat origin IP (Host header tetap domain asli,
+// resolusi DNS di-override via dispatcher undici) sama seperti pola di
+// lib/calendar-public-source.js; kalau origin IP gagal, fallback ke fetch
+// domain langsung agar tetap defensif bila origin IP tsb berubah/stale.
+const hajiPlusOriginDispatcher = CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP
+  ? new Agent({ connect: { lookup: calendarPublicFallbackOriginLookup } })
+  : null;
+
 async function scrapeHajiPlusData() {
   const cheerio = await import('cheerio');
   const url = 'https://alhijazindowisata.com/jadwal/grafik-haji-khusus/alhijaz-indowisata';
+  const headers = { 'User-Agent': 'Mozilla/5.0' };
 
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    signal: AbortSignal.timeout(15000),
-  });
+  let res = null;
+  const originFallback = hajiPlusOriginDispatcher && applyCalendarFallbackOrigin(url, headers);
+  if (originFallback) {
+    try {
+      res = await fetch(originFallback.url, {
+        headers: originFallback.headers,
+        dispatcher: hajiPlusOriginDispatcher,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (originErr) {
+      console.warn(
+        `[HajiPlus] Origin IP ${CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP} gagal (${originErr.message}); `
+        + 'fallback ke fetch domain langsung',
+      );
+      res = null;
+    }
+  }
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res) {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  }
 
   const html = await res.text();
   const $ = cheerio.load(html);
