@@ -5,6 +5,7 @@ import { X, ChevronLeft, ChevronRight, Download, Share2, Loader2 } from 'lucide-
 import PlyrVideo from './PlyrVideo';
 import PhotoWatermark from './PhotoWatermark';
 import { canShareFiles, downloadBlob } from '../utils/share';
+import { stampWatermarkOnImage } from '../utils/stampWatermark';
 
 export interface ViewerMediaItem {
   type: 'image' | 'video';
@@ -72,6 +73,9 @@ async function fetchMediaBlob(url: string): Promise<Blob> {
   return res.blob();
 }
 
+/** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
+interface PreparedMedia { blob: Blob; stamped: boolean }
+
 export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -101,14 +105,36 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
   // Pesan galat menempel pada satu media; pindah item = mulai bersih.
   useEffect(() => { setActionError(null); }, [index]);
 
+  // Satu jalur penyiapan untuk Download DAN Share: ambil dari CDN, lalu bakar
+  // watermark ke pikselnya. Video dilewati (bawahnya milik kontrol pemutar,
+  // dan membakar teks ke video butuh transcode).
+  const prepareMedia = useCallback(async (item: ViewerMediaItem): Promise<PreparedMedia> => {
+    const blob = await fetchMediaBlob(item.url);
+    if (!watermark || item.type !== 'image') return { blob, stamped: false };
+    try {
+      return { blob: await stampWatermarkOnImage(blob, watermark), stamped: true };
+    } catch {
+      // Gagal membakar (kanvas ternoda, format aneh) TIDAK boleh membatalkan
+      // unduhan — berkas asli tetap diberikan, dan pemanggil memberi tahu
+      // bahwa watermark-nya tidak ikut. Diam-diam menyerahkan foto polos
+      // justru yang paling berbahaya.
+      return { blob, stamped: false };
+    }
+  }, [watermark]);
+
   const handleDownload = useCallback(async () => {
     const item = media[index];
     if (!item || busy) return;
     setBusy('download');
     setActionError(null);
     try {
-      const blob = await fetchMediaBlob(item.url);
-      downloadBlob(blob, mediaFileName(label, index, item.url, blob.type));
+      const { blob, stamped } = await prepareMedia(item);
+      // Setelah dibakar, jenis berkas ditentukan kanvas (mis. webp → jpeg),
+      // jadi ekstensi diambil dari MIME hasil, bukan dari URL sumber.
+      downloadBlob(blob, mediaFileName(label, index, stamped ? '' : item.url, blob.type));
+      if (!stamped && watermark && item.type === 'image') {
+        setActionError('Watermark gagal ditempel — berkas terunduh tanpa watermark.');
+      }
     } catch {
       // Jaringan/CDN bermasalah: buka di tab baru supaya media tetap bisa
       // disimpan manual, bukan buntu tanpa jalan keluar.
@@ -117,7 +143,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     } finally {
       setBusy(null);
     }
-  }, [busy, index, label, media]);
+  }, [busy, index, label, media, prepareMedia, watermark]);
 
   const handleShare = useCallback(async () => {
     const item = media[index];
@@ -125,8 +151,8 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     setBusy('share');
     setActionError(null);
     try {
-      const blob = await fetchMediaBlob(item.url);
-      const file = new File([blob], mediaFileName(label, index, item.url, blob.type), {
+      const { blob, stamped } = await prepareMedia(item);
+      const file = new File([blob], mediaFileName(label, index, stamped ? '' : item.url, blob.type), {
         type: blob.type || 'application/octet-stream',
       });
       // Berkas dulu (WhatsApp menerima medianya langsung); hanya kalau
@@ -136,6 +162,8 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
         return;
       }
       if (typeof navigator.share === 'function') {
+        // Jalur terakhir: yang dibagikan tautan CDN mentah — foto di ujung
+        // tautan itu TIDAK ber-watermark, karena bukan berkas kita yang lewat.
         await navigator.share({ title: label, url: item.url });
         return;
       }
@@ -147,7 +175,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     } finally {
       setBusy(null);
     }
-  }, [busy, index, label, media]);
+  }, [busy, index, label, media, prepareMedia]);
 
   useLayoutEffect(() => {
     const previousOverflow = document.body.style.overflow;
