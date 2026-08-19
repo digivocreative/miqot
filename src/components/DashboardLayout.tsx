@@ -1365,7 +1365,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <>
               <div className="col-span-2">
                 <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
-                  <TerasCard onOpen={() => navigateTab('teras')} />
+                  <TerasCard compact onOpen={() => navigateTab('teras')} />
                 </Suspense>
               </div>
               {settingsCard && renderMenuCard(settingsCard)}

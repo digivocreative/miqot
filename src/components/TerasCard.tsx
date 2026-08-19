@@ -72,7 +72,15 @@ function TeaserAvatar({
   );
 }
 
-export default function TerasCard({ onOpen }: { onOpen: () => void }) {
+/**
+ * `compact` dipakai saat kartu hanya memegang 2 dari 3 kolom grid dashboard
+ * (kolom ketiga milik Settings). Di lebar itu baris header tak muat memuat
+ * judul + lencana + tumpukan avatar + chevron sekaligus: lencana menempel ke
+ * avatar dan cuplikan kiriman tersisa dua patah kata. Varian ini membuang yang
+ * paling tipis nilainya (avatar "agent terbaru", chevron, cap waktu) supaya
+ * cuplikan — isi kartu yang sebenarnya — kembali terbaca.
+ */
+export default function TerasCard({ onOpen, compact = false }: { onOpen: () => void; compact?: boolean }) {
   const [state, setState] = useState<TerasCardState>({ status: 'loading' });
   const [frame, setFrame] = useState(0);
   const [hovering, setHovering] = useState(false);
@@ -161,7 +169,7 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
       {state.status === 'loading' ? (
         <div className="animate-pulse" aria-label="Memuat Jendela Teras" aria-busy="true">
           <div className="flex h-9 items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-teal-200/70 dark:bg-teal-900/50" />
+            <div className={`${compact ? 'h-8 w-8' : 'h-9 w-9'} rounded-xl bg-teal-200/70 dark:bg-teal-900/50`} />
             <div className="h-3.5 w-20 rounded bg-gray-200 dark:bg-slate-700" />
             <div className="ml-auto h-[18px] w-16 rounded-full bg-gray-200 dark:bg-slate-700" />
           </div>
@@ -170,18 +178,21 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
       ) : (
         <>
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-cyan-600 text-white shadow-lg shadow-teal-500/30 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3 dark:from-teal-500 dark:to-cyan-700 dark:shadow-teal-900/40">
-              <MessagesSquare size={17} className="animate-icon-breathe" />
+            <span className={`flex ${compact ? 'h-8 w-8' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-cyan-600 text-white shadow-lg shadow-teal-500/30 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3 dark:from-teal-500 dark:to-cyan-700 dark:shadow-teal-900/40`}>
+              <MessagesSquare size={compact ? 15 : 17} className="animate-icon-breathe" />
             </span>
             <span className="text-sm font-extrabold text-gray-900 dark:text-white">Teras</span>
+            {/* Compact: lencana didorong ke tepi kanan — tanpa avatar & chevron
+                di belakangnya, menempel judul membuat header terlihat pincang. */}
+            {compact && <span className="flex-1" />}
             {unreadCount > 0 && (
               <span className="flex items-center gap-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white shadow-md shadow-red-500/30">
                 {!reducedMotion && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/90" aria-hidden="true" />}
                 {unreadCount > 9 ? '9+' : unreadCount} baru
               </span>
             )}
-            <span className="flex-1" />
-            {!!data?.recent_avatars.length && (
+            {!compact && <span className="flex-1" />}
+            {!compact && !!data?.recent_avatars.length && (
               <span className="flex flex-none items-center" aria-label="Agent terbaru">
                 {data.recent_avatars.slice(0, 3).map((avatar, index) => (
                   <TeaserAvatar
@@ -193,7 +204,7 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
                 ))}
               </span>
             )}
-            <ChevronRight size={16} className="shrink-0 text-gray-400 dark:text-slate-500" />
+            {!compact && <ChevronRight size={16} className="shrink-0 text-gray-400 dark:text-slate-500" />}
           </div>
 
           {activePost ? (
@@ -241,9 +252,11 @@ export default function TerasCard({ onOpen }: { onOpen: () => void }) {
                       onError={event => { event.currentTarget.style.display = 'none'; }}
                     />
                   )}
-                  <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
-                    {timeAgo(activePost.created_at)}
-                  </span>
+                  {!compact && (
+                    <span className="flex-none text-[11px] font-semibold text-gray-400 dark:text-slate-500">
+                      {timeAgo(activePost.created_at)}
+                    </span>
+                  )}
                 </motion.div>
               </AnimatePresence>
             </div>
