@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Download, Share2, Loader2 } from 'lucide-react';
 import PlyrVideo from './PlyrVideo';
+import PhotoWatermark from './PhotoWatermark';
 import { canShareFiles, downloadBlob } from '../utils/share';
 
 export interface ViewerMediaItem {
@@ -19,6 +20,12 @@ interface MediaViewerModalProps {
   initialIndex?: number;
   /** Dipakai untuk aria-label dan keterangan bawah, mis. nama hotel. */
   label: string;
+  /**
+   * Teks watermark yang ditempel di pojok bawah FOTO (bukan video, yang
+   * bawahnya dipakai kontrol pemutar). Opsional: permukaan lain yang memakai
+   * viewer ini — mis. media Teras — tidak ikut kena watermark.
+   */
+  watermark?: string;
   onClose: () => void;
 }
 
@@ -65,7 +72,7 @@ async function fetchMediaBlob(url: string): Promise<Blob> {
   return res.blob();
 }
 
-export default function MediaViewerModal({ media, initialIndex = 0, label, onClose }: MediaViewerModalProps) {
+export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(() => Math.max(0, Math.min(media.length - 1, initialIndex)));
@@ -296,10 +303,12 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, onClo
                 height={active.height}
               />
             ) : (
-              <motion.img
-                src={active?.url}
-                alt={`Foto ${index + 1} layar penuh — ${label}`}
-                draggable={false}
+              // Geser dipindah dari <img> ke pembungkusnya supaya watermark
+              // ikut bergerak bersama fotonya, bukan diam di tempat. Pembungkus
+              // menyusut mengikuti foto (bukan viewport), jadi watermark
+              // menempel di tepi bawah GAMBAR walau rasionya jangkung.
+              <motion.div
+                className="relative flex max-h-full max-w-full overflow-hidden rounded-xl shadow-2xl"
                 drag={media.length > 1 ? 'x' : false}
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={0.16}
@@ -307,8 +316,15 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, onClo
                   if (Math.abs(info.offset.x) < 60) return;
                   navigate(info.offset.x < 0 ? 1 : -1);
                 }}
-                className="max-h-full max-w-full select-none rounded-xl object-contain shadow-2xl [touch-action:pan-y_pinch-zoom]"
-              />
+              >
+                <img
+                  src={active?.url}
+                  alt={`Foto ${index + 1} layar penuh — ${label}`}
+                  draggable={false}
+                  className="max-h-full max-w-full select-none object-contain [touch-action:pan-y_pinch-zoom]"
+                />
+                {watermark && <PhotoWatermark text={watermark} />}
+              </motion.div>
             )}
           </motion.div>
         </AnimatePresence>

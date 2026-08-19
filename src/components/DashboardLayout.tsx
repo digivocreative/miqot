@@ -1145,7 +1145,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             // Di luar gate → jatuh ke daftar Tools. Panel kelola pindah ke tab
             // top-level 'hotels' (kartu admin dashboard), bukan lagi di sini.
             if (sub === 'hotel' && hotelEnabled) {
-              return <HotelPage onNavigate={navigatePath} />;
+              return <HotelPage onNavigate={navigatePath} agentSlug={agentData.slug} />;
             }
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;

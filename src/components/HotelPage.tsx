@@ -10,6 +10,7 @@ import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
 import HotelFilterSheet from './HotelFilterSheet';
 import MediaViewerModal from './MediaViewerModal';
+import { agentWatermarkText } from './PhotoWatermark';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 import {
@@ -426,7 +427,12 @@ let hotelListCache: HotelListItem[] | null = null;
 let hotelBannerCache: Record<string, string | null> | null = null;
 const hotelDetailCache = new Map<string, HotelDetail>();
 
-export default function HotelPage({ onNavigate }: { onNavigate: (path: string) => void }) {
+export default function HotelPage({ onNavigate, agentSlug }: {
+  onNavigate: (path: string) => void;
+  /** Slug agent yang sedang login — sumber teks watermark di setiap foto. */
+  agentSlug?: string | null;
+}) {
+  const watermark = agentWatermarkText(agentSlug);
   // Re-render tiap navigasi datang dari pathTick DashboardLayout.
   const view = readHotelView();
   const [hotels, setHotels] = useState<HotelListItem[] | null>(hotelListCache);
@@ -904,6 +910,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                   media={media}
                   initialIndex={viewerIndex}
                   label={detail.name}
+                  watermark={watermark}
                   onClose={() => setViewerIndex(null)}
                 />
               )}
@@ -1105,6 +1112,7 @@ export default function HotelPage({ onNavigate }: { onNavigate: (path: string) =
                 media={media}
                 initialIndex={viewerIndex}
                 label={detail.name}
+                watermark={watermark}
                 onClose={() => setViewerIndex(null)}
               />
             )}
