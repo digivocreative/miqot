@@ -125,7 +125,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'hotels';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'hotels' | 'hotel';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -138,6 +138,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   'ai-tools': 'ai-tools',
   teras: 'teras',
   hotels: 'hotels',
+  hotel: 'hotel',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -150,6 +151,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   'ai-tools': 'ai-tools',
   teras: 'teras',
   hotels: 'hotels',
+  hotel: 'hotel',
 };
 
 function getTabFromPath(): TabId {
@@ -225,7 +227,7 @@ function getAIToolsSubFromPath(): string | null {
   return null;
 }
 
-// Sub-path Direktori Hotel: /dashboard/ai-tools/hotel[/:city[/:slug]].
+// Sub-path Direktori Hotel: /dashboard/hotel[/:city[/:slug]].
 // Label kota digandakan di sini (4 entri) agar chunk HotelPage tetap lazy.
 const HOTEL_HEADER_CITY_LABELS: Record<string, string> = {
   mekkah: 'Mekkah', madinah: 'Madinah', turki: 'Turki', dubai: 'Dubai',
@@ -233,11 +235,11 @@ const HOTEL_HEADER_CITY_LABELS: Record<string, string> = {
 
 function getHotelPathInfo(): { city: string | null; slug: string | null; isMedia: boolean } {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  if (segments[0] === 'dashboard' && segments[1] === 'ai-tools' && segments[2] === 'hotel') {
-    const city = decodeURIComponent(segments[3] || '');
+  if (segments[0] === 'dashboard' && segments[1] === 'hotel') {
+    const city = decodeURIComponent(segments[2] || '');
     if (HOTEL_HEADER_CITY_LABELS[city]) {
-      const slug = decodeURIComponent(segments[4] || '') || null;
-      return { city, slug, isMedia: Boolean(slug) && segments[5] === 'media' };
+      const slug = decodeURIComponent(segments[3] || '') || null;
+      return { city, slug, isMedia: Boolean(slug) && segments[4] === 'media' };
     }
   }
   return { city: null, slug: null, isMedia: false };
@@ -280,6 +282,7 @@ const TAB_TITLES: Record<TabId, string> = {
   'ai-tools': 'Tools',
   teras: 'Teras',
   hotels: 'Hotels',
+  hotel: 'Direktori Hotel',
 };
 
 // Judul dokumen per sub-halaman Tools. SATU sumber: navigatePath memakainya
@@ -303,8 +306,8 @@ const AI_TOOLS_TITLES: Record<string, string> = {
 
 function getCurrentDocumentTitle(): string {
   const sub = getAIToolsSubFromPath();
-  if (sub === 'hotel') return hotelHeaderLabel();
   if (sub && AI_TOOLS_TITLES[sub]) return AI_TOOLS_TITLES[sub];
+  if (getTabFromPath() === 'hotel') return hotelHeaderLabel();
   if (getHotelsKelolaSub()) return hotelsHeaderLabel();
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
@@ -416,6 +419,20 @@ const MENU_CARDS: MenuCard[] = [
     iconAnim: 'animate-icon-twinkle',
   },
   {
+    // Direktori Hotel — menu mandiri di dashboard (dulu sub-menu Tools),
+    // hanya tampil untuk agent di dalam gate (isHotelDirectoryEnabledForAgent).
+    id: 'hotel', label: 'Hotel', desc: 'Direktori & informasi hotel',
+    icon: Building2, color: 'text-amber-600 dark:text-amber-400',
+    bgLight: 'bg-amber-50', bgDark: 'dark:bg-amber-900/20',
+    borderLight: 'border-amber-100', borderDark: 'dark:border-amber-800/40',
+    cardBg: 'bg-gradient-to-br from-amber-50 via-white to-orange-100/70 dark:from-amber-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-amber-200/70 dark:border-amber-800/40',
+    iconBg: 'bg-gradient-to-br from-amber-400 to-orange-600 dark:from-amber-500 dark:to-orange-700',
+    iconShadow: 'shadow-lg shadow-amber-500/30 dark:shadow-amber-900/40',
+    hoverShadow: 'hover:shadow-amber-300/40 dark:hover:shadow-amber-900/30',
+    iconAnim: 'animate-icon-breathe',
+  },
+  {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
     icon: Settings, color: 'text-gray-600 dark:text-gray-400',
     bgLight: 'bg-gray-50', bgDark: 'dark:bg-gray-800/30',
@@ -472,6 +489,17 @@ const MENU_CARDS: MenuCard[] = [
 
 export default function DashboardLayout({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromPath);
+
+  // Redirect URL lama Direktori Hotel (/dashboard/ai-tools/hotel/...) ke rute
+  // mandirinya (/dashboard/hotel/...) — tautan & bookmark lama tetap hidup.
+  useEffect(() => {
+    const legacy = window.location.pathname.match(/^\/dashboard\/ai-tools\/hotel(\/.*)?$/);
+    if (!legacy) return;
+    const target = `/dashboard/hotel${legacy[1] || ''}`;
+    window.history.replaceState({}, '', target + window.location.search);
+    setActiveTab('hotel');
+    setPathTick(t => t + 1);
+  }, []);
 
   // pathTick bumps whenever we change URL via pushState without full navigation,
   // so JSX that reads location (getSubTabFromPath, getAIToolsSubFromPath, etc.)
@@ -670,11 +698,23 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
   const hotelEnabled = isHotelDirectoryEnabledForAgent(agentData.slug);
   const notifications = useTerasNotifications(terasEnabled);
+  // Di luar gate Direktori Hotel, /dashboard/hotel tidak punya isi — pulangkan
+  // ke dashboard alih-alih menampilkan halaman kosong.
+  useEffect(() => {
+    if (activeTab === 'hotel' && !hotelEnabled) navigateTab('home', true);
+  }, [activeTab, hotelEnabled, navigateTab]);
   const notifPrefs = useTerasNotificationPrefs(terasEnabled);
   const openNotificationPost = (postId: string) => {
     navigatePath(`/dashboard/teras/post/${encodeURIComponent(postId)}`);
   };
-  const visibleCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && (c.id !== 'teras' || terasEnabled));
+  // Kartu Settings naik sebaris dengan Jendela Teras (kolom ke-3) saat Teras
+  // aktif; tanpa Teras ia tetap di barisnya semula di dalam grid.
+  const gridCards = MENU_CARDS.filter(c =>
+    !c.hidden && !c.adminOnly
+    && (c.id !== 'teras' || terasEnabled)
+    && (c.id !== 'hotel' || hotelEnabled)
+    && (c.id !== 'settings' || !terasEnabled));
+  const settingsCard = MENU_CARDS.find(c => c.id === 'settings');
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)) : [];
 
   // Link /teras/<slug> pasti beredar antar-agent lewat WhatsApp. Agent yang
@@ -720,7 +760,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const activeCard = MENU_CARDS.find(c => c.id === activeTab);
     const jamaahSub = activeTab === 'jamaah' ? getSubTabFromPath() : null;
     const isJamaahEdit = activeTab === 'jamaah' && jamaahSub === 'edit';
-    const isHotelRoute = activeTab === 'ai-tools' && hotelEnabled && getAIToolsSubFromPath() === 'hotel';
+    const isHotelRoute = activeTab === 'hotel' && hotelEnabled;
     const terasPostId = activeTab === 'teras' ? getTerasPostIdFromPath() : null;
     const terasProfileSlug = activeTab === 'teras' ? getTerasProfileSlugFromPath() : null;
     // Teras: header dipadatkan agar feed dapat ruang layar lebih banyak
@@ -761,22 +801,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
-                  // Direktori Hotel: mundur bertahap detail → daftar kota → kategori → Tools
-                  if (aiSub === 'hotel') {
-                    const hotelPath = getHotelPathInfo();
-                    if (hotelPath.isMedia && hotelPath.slug && hotelPath.city) {
-                      navigatePath(`/dashboard/ai-tools/hotel/${hotelPath.city}/${encodeURIComponent(hotelPath.slug)}`);
-                      return;
-                    }
-                    if (hotelPath.slug && hotelPath.city) {
-                      navigatePath(`/dashboard/ai-tools/hotel/${hotelPath.city}`);
-                      return;
-                    }
-                    if (hotelPath.city) {
-                      navigatePath('/dashboard/ai-tools/hotel');
-                      return;
-                    }
-                  }
                   // Export/Simulasi page → go back to haji-plus
                   if (aiSub === 'haji-plus/export') {
                     navigatePath('/dashboard/ai-tools/haji-plus');
@@ -789,6 +813,23 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   }
                   navigatePath('/dashboard/ai-tools');
                   return;
+                }
+                // Direktori Hotel (menu mandiri): mundur bertahap
+                // media → detail → daftar kota → kategori → dashboard
+                if (activeTab === 'hotel') {
+                  const hotelPath = getHotelPathInfo();
+                  if (hotelPath.isMedia && hotelPath.slug && hotelPath.city) {
+                    navigatePath(`/dashboard/hotel/${hotelPath.city}/${encodeURIComponent(hotelPath.slug)}`);
+                    return;
+                  }
+                  if (hotelPath.slug && hotelPath.city) {
+                    navigatePath(`/dashboard/hotel/${hotelPath.city}`);
+                    return;
+                  }
+                  if (hotelPath.city) {
+                    navigatePath('/dashboard/hotel');
+                    return;
+                  }
                 }
                 // Panel Kelola Hotel: form tambah/edit → daftar kelola
                 if (activeTab === 'hotels' && getHotelsKelolaSub()) {
@@ -823,7 +864,6 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'brosur-jadwal': { icon: FileImage, bg: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20', border: 'border-rose-100', borderDark: 'dark:border-rose-800/40', color: 'text-rose-600 dark:text-rose-400', label: 'Brosur Jadwal' },
                   'kalkulasi': { icon: Calculator, bg: 'bg-blue-50', bgDark: 'dark:bg-blue-900/20', border: 'border-blue-100', borderDark: 'dark:border-blue-800/40', color: 'text-blue-600 dark:text-blue-400', label: 'Kalkulasi' },
                   'mcp': { icon: Bot, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'AI Assistant (MCP)' },
-                  'hotel': { icon: Building2, bg: 'bg-teal-50', bgDark: 'dark:bg-teal-900/20', border: 'border-teal-100', borderDark: 'dark:border-teal-800/40', color: 'text-teal-600 dark:text-teal-400', label: 'Direktori Hotel' },
                 };
                 const sub = aiSub && AI_SUB_STYLES[aiSub] ? AI_SUB_STYLES[aiSub] : null;
                 if (isJamaahEdit) {
@@ -880,7 +920,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                         <activeCard.icon size={compactHeader ? 14 : 16} className={activeCard.color} />
                       </div>
                     )}
-                    <h1 className={`${compactHeader ? 'text-[13px]' : 'text-sm'} font-bold text-gray-800 dark:text-white truncate`}>{activeTab === 'hotels' ? hotelsHeaderLabel() : activeCard?.label}</h1>
+                    <h1 className={`${compactHeader ? 'text-[13px]' : 'text-sm'} font-bold text-gray-800 dark:text-white truncate`}>{activeTab === 'hotels' ? hotelsHeaderLabel() : activeTab === 'hotel' ? hotelHeaderLabel() : activeCard?.label}</h1>
                   </>
                 );
               })()}
@@ -1121,6 +1161,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
 
+          {activeTab === 'hotel' && hotelEnabled && (
+            <HotelPage onNavigate={navigatePath} agentSlug={agentData.slug} />
+          )}
+
           {activeTab === 'hotels' && isAdmin && hotelEnabled && (
             <HotelKelolaPage onNavigate={navigatePath} />
           )}
@@ -1142,11 +1186,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               name: agentData.name, website: agentData.website,
               phone: agentData.phone, photo: agentData.photo,
             }} agentSlug={agentData.slug} hideHeader />;
-            // Di luar gate → jatuh ke daftar Tools. Panel kelola pindah ke tab
-            // top-level 'hotels' (kartu admin dashboard), bukan lagi di sini.
-            if (sub === 'hotel' && hotelEnabled) {
-              return <HotelPage onNavigate={navigatePath} agentSlug={agentData.slug} />;
-            }
+            // Direktori Hotel pindah jadi menu mandiri (/dashboard/hotel).
+            // URL lama dialihkan oleh efek redirectLegacyHotelPath, jadi di sini
+            // cukup tak merender apa-apa selama satu frame peralihan.
+            if (sub === 'hotel') return null;
             if (sub === 'kurs') return <KursPage />;
             if (sub === 'mcp') return <McpIntegrationPage />;
             if (sub === 'voice-over') return <VoiceOverPage />;
@@ -1317,15 +1360,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
-          {/* Baris Teras: kartu Jendela Teras mengambil lebar penuh. */}
+          {/* Baris Teras: Jendela Teras 2 kolom + Settings di kolom ke-3. */}
           {terasEnabled && (
-            <div className="col-span-3">
-              <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
-                <TerasCard onOpen={() => navigateTab('teras')} />
-              </Suspense>
-            </div>
+            <>
+              <div className="col-span-2">
+                <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
+                  <TerasCard onOpen={() => navigateTab('teras')} />
+                </Suspense>
+              </div>
+              {settingsCard && renderMenuCard(settingsCard)}
+            </>
           )}
-          {visibleCards.map(renderMenuCard)}
+          {gridCards.map(renderMenuCard)}
         </div>
 
         {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}

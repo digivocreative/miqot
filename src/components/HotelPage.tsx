@@ -97,7 +97,7 @@ type View =
   | { kind: 'detail'; slug: string; city: string }
   | { kind: 'media'; slug: string; city: string };
 
-// View diturunkan dari URL (/dashboard/ai-tools/hotel[/:city[/:slug]]) supaya
+// View diturunkan dari URL (/dashboard/hotel[/:city[/:slug]]) supaya
 // tombol back header DashboardLayout jadi satu-satunya navigasi mundur —
 // tanpa baris back kedua di dalam halaman (keluhan "navigasi double").
 function readHotelView(): View {
@@ -632,7 +632,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
             return (
               <button
                 key={city}
-                onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${city}`)}
+                onClick={() => onNavigate(`/dashboard/hotel/${city}`)}
                 className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97] dark:border-slate-700 dark:bg-slate-800"
               >
                 {/* Hanya empat kartu dan semuanya di puncak halaman: `lazy` di
@@ -727,7 +727,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
           {cityHotels.map(hotel => (
             <button
               key={hotel.id}
-              onClick={() => onNavigate(`/dashboard/ai-tools/hotel/${hotel.city}/${encodeURIComponent(hotel.slug)}`)}
+              onClick={() => onNavigate(`/dashboard/hotel/${hotel.city}/${encodeURIComponent(hotel.slug)}`)}
               className="w-full flex items-center gap-3 p-2.5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.98]"
             >
               <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-slate-700 flex items-center justify-center">
@@ -785,7 +785,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
   const landmark = detail ? HOTEL_CITY_LANDMARKS[detail.city] : undefined;
   const media = detail?.media || [];
   const videos = media.filter(m => m.type === 'video');
-  const mediaPath = `/dashboard/ai-tools/hotel/${view.city}/${encodeURIComponent(view.slug)}/media`;
+  const mediaPath = `/dashboard/hotel/${view.city}/${encodeURIComponent(view.slug)}/media`;
   // Tab dibuka mengikuti jenis media yang diklik — masuk lewat video lalu
   // mendarat di tab Foto (yang tak memuatnya) akan terasa seperti salah klik.
   const openMedia = (index: number) => {
