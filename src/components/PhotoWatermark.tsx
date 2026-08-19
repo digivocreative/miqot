@@ -21,6 +21,7 @@
 export const WATERMARK = {
   fontSize: 22,
   opacity: 0.6,
+  letterSpacing: 0.5,
   /** Jarak dasar teks ke tepi bawah foto, dalam kelipatan ukuran huruf. */
   bottomRatio: 1.3,
   /**
@@ -60,7 +61,7 @@ export default function PhotoWatermark({ text }: { text: string }) {
           lineHeight: 1.2,
           fontWeight: 700,
           fontFamily: WATERMARK.fontFamily,
-          letterSpacing: 0.5,
+          letterSpacing: WATERMARK.letterSpacing,
           color: '#ffffff',
           textShadow: '0 1px 4px rgba(0,0,0,0.6)',
           overflow: 'hidden',
