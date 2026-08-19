@@ -198,7 +198,6 @@ const s = StyleSheet.create({
   tierNama: { fontSize: P(12.5), fontWeight: 'bold', color: C.ink2 },
   tierHarga: { fontSize: P(16), fontWeight: 'bold', color: C.burgundy },
   tierKamar: { fontSize: P(11), color: C.ink3, marginTop: P(3) },
-  tierCatatan: { fontSize: P(10), lineHeight: 1.45, color: C.ink3 },
 
   agentCard: {
     marginHorizontal: P(12), marginTop: P(10), backgroundColor: C.ink, borderRadius: P(16),
@@ -634,10 +633,6 @@ function KartuHarga({ paket }: { paket: UmrohPackage }) {
               ) : null}
             </View>
           ))}
-          <Text style={s.tierCatatan}>
-            Harga dapat berubah sewaktu-waktu dan belum termasuk perlengkapan.
-            Penawaran resmi diterbitkan terpisah oleh agent Anda.
-          </Text>
         </View>
       </View>
     </View>
