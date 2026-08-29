@@ -208,19 +208,22 @@ function getStatistikTabFromPath(): 'umroh' | 'haji' | 'tren' {
   return 'umroh';
 }
 
+// Sub-rute AI Tools yang punya segmen kedua. Tambahkan di sini kalau ada tab
+// baru yang harus bertahan setelah reload — PAGE_TITLES, peta ikon header, dan
+// switch render di bawah dikunci ke string yang sama.
+const NESTED_AI_TOOL_SUBS = new Set([
+  'haji-plus/simulasi',
+  'haji-plus/statistik',
+  'haji-plus/export',
+  'landing-page/custom-domain',
+]);
+
 function getAIToolsSubFromPath(): string | null {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
-  // /dashboard/ai-tools/voice-over OR /dashboard/ai-tools/haji-plus/export
+  // /dashboard/ai-tools/voice-over OR /dashboard/ai-tools/haji-plus/statistik
   if (segments.length >= 3 && segments[0] === 'dashboard' && segments[1] === 'ai-tools') {
-    // Handle nested sub-paths like haji-plus/export, haji-plus/simulasi
-    if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'export') {
-      return 'haji-plus/export';
-    }
-    if (segments.length >= 4 && segments[2] === 'haji-plus' && segments[3] === 'simulasi') {
-      return 'haji-plus/simulasi';
-    }
-    if (segments.length >= 4 && segments[2] === 'landing-page' && segments[3] === 'custom-domain') {
-      return 'landing-page/custom-domain';
+    if (segments.length >= 4 && NESTED_AI_TOOL_SUBS.has(`${segments[2]}/${segments[3]}`)) {
+      return `${segments[2]}/${segments[3]}`;
     }
     return segments[2];
   }
@@ -296,6 +299,7 @@ const AI_TOOLS_TITLES: Record<string, string> = {
   'landing-page/custom-domain': 'Custom Domain',
   'haji-plus': 'Haji Plus',
   'haji-plus/simulasi': 'Haji Plus',
+  'haji-plus/statistik': 'Haji Plus',
   'haji-plus/export': 'Export Infografis',
   kurs: 'Kurs Hari Ini',
   compare: 'Compare',
@@ -801,9 +805,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 // If on AI Tools sub-page, go back appropriately
                 if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
                   const aiSub = getAIToolsSubFromPath();
-                  // Export/Simulasi page → go back to haji-plus
+                  // Poster hanya bisa dibuka dari tab Statistik → balik ke sana
                   if (aiSub === 'haji-plus/export') {
-                    navigatePath('/dashboard/ai-tools/haji-plus');
+                    navigatePath('/dashboard/ai-tools/haji-plus/statistik');
                     return;
                   }
                   // Custom Domain → go back to landing-page (parent of custom-domain)
@@ -859,6 +863,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   'haji-plus': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'haji-plus/export': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Export Infografis' },
                   'haji-plus/simulasi': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
+                  'haji-plus/statistik': { icon: BarChart3, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Haji Plus' },
                   'kurs': { icon: TrendingUp, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/20', border: 'border-emerald-100', borderDark: 'dark:border-emerald-800/40', color: 'text-emerald-600 dark:text-emerald-400', label: 'Kurs Hari Ini' },
                   'compare': { icon: ArrowLeftRight, bg: 'bg-violet-50', bgDark: 'dark:bg-violet-900/20', border: 'border-violet-100', borderDark: 'dark:border-violet-800/40', color: 'text-violet-600 dark:text-violet-400', label: 'Compare' },
                   'brosur-jadwal': { icon: FileImage, bg: 'bg-rose-50', bgDark: 'dark:bg-rose-900/20', border: 'border-rose-100', borderDark: 'dark:border-rose-800/40', color: 'text-rose-600 dark:text-rose-400', label: 'Brosur Jadwal' },
@@ -1198,6 +1203,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             if (sub === 'landing-page') return <LandingPagePage agent={{ slug: agentData.slug, name: agentData.name, photo: agentData.photo, phone: agentData.phone, role: agentData.role }} onNavigate={navigatePath} />;
             if (sub === 'haji-plus/export') return <HajiPlusExportPage agent={agentData} />;
             if (sub === 'haji-plus/simulasi') return <HajiPlusPage agent={agentData} initialTab="simulasi" onExport={() => {
+              navigatePath('/dashboard/ai-tools/haji-plus/export');
+            }} />;
+            if (sub === 'haji-plus/statistik') return <HajiPlusPage agent={agentData} initialTab="statistik" onExport={() => {
               navigatePath('/dashboard/ai-tools/haji-plus/export');
             }} />;
             if (sub === 'haji-plus') return <HajiPlusPage agent={agentData} onExport={() => {

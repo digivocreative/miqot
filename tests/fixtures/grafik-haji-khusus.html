@@ -1,0 +1,220 @@
+<!-- Cuplikan halaman publik Rekap Haji Khusus, diambil 2026-08-29 dari
+     https://alhijazindowisata.com/jadwal/grafik-haji-khusus/alhijaz-indowisata
+     Hanya blok grafik + tabel + script data yang disimpan; sisanya (nav, footer)
+     dibuang karena tidak dibaca parser. -->
+<div class="w-100 bgkotak chart-container">
+                    <canvas id="hajiChart" aria-label="Data Jamaah" role="img">
+                        Your browser does not support the canvas element.
+                    </canvas>
+                </div>
+
+<div class="w-100 bgkotak px-4 pt-4 mx-auto small table-responsive">
+    <table class="w-100 table table-bordered table-striped text-center align-middle small">
+        <tbody>
+            <!-- BARIS 1: LIST TAHUN -->
+            <tr class="table-dark">
+                <th class="text-start" style="min-width: 200px;">TAHUN</th>
+                                    <th>2016</th>
+                                    <th>2017</th>
+                                    <th>2018</th>
+                                    <th>2019</th>
+                                    <th>2020</th>
+                                    <th>2021</th>
+                                    <th>2022</th>
+                                    <th>2023</th>
+                                    <th>2024</th>
+                                    <th>2025</th>
+                                    <th>2026</th>
+                                    <th>2027</th>
+                                    <th>2028</th>
+                                    <th>2029</th>
+                                    <th>2030</th>
+                                    <th>2031</th>
+                                    <th>2032</th>
+                                    <th>2033</th>
+                                    <th>2034</th>
+                                    <th>2035</th>
+                                    <th>2036</th>
+                                    <th>2037</th>
+                 <!-- SINTAKS SUDAH DIPERBAIKI -->
+            </tr>
+
+            <!-- BARIS 2: JAMAAH TERDAFTAR -->
+            <tr>
+                <td class="text-start fw-bold">JAMAAH TERDAFTAR (pax)</td>
+                                    <td>44</td>
+                                    <td>88</td>
+                                    <td>71</td>
+                                    <td>72</td>
+                                    <td>58</td>
+                                    <td>215</td>
+                                    <td>1,027</td>
+                                    <td>1,773</td>
+                                    <td>1,078</td>
+                                    <td>960</td>
+                                    <td>745</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                 <!-- SINTAKS SUDAH DIPERBAIKI -->
+            </tr>
+
+            <!-- BARIS 3: JAMAAH BERANGKAT -->
+            <tr>
+                <td class="text-start fw-bold">JAMAAH BERANGKAT (pax)</td>
+                                    <td>9</td>
+                                    <td>34</td>
+                                    <td>9</td>
+                                    <td>3</td>
+                                    <td>0</td>
+                                    <td>0</td>
+                                    <td>18</td>
+                                    <td>28</td>
+                                    <td>149</td>
+                                    <td>135</td>
+                                    <td>482</td>
+                                    <td>827</td>
+                                    <td>1,449</td>
+                                    <td>793</td>
+                                    <td>433</td>
+                                    <td>345</td>
+                                    <td>269</td>
+                                    <td>163</td>
+                                    <td>242</td>
+                                    <td>252</td>
+                                    <td>277</td>
+                                    <td>85</td>
+                 <!-- SINTAKS SUDAH DIPERBAIKI -->
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+
+
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.1/umd/popper.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js" integrity="sha512-7Pi/otdlbbCR+LnW+F7PwFcSDJOuUJB3OxtEHbg4vSMvzvJjde4Po1v4BR9Gdc9aXNUNFVUY+SK51wWT8WF0Gg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.14.0-beta3/js/bootstrap-select.min.js" integrity="sha512-yrOmjPdp8qH8hgLfWpSFhC/+R9Cj9USL8uJxYIveJZGAiedxyIxwNw4RsLDlcjNlIRR4kkHaDHSmNHAkxFTmgg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.sticky/1.0.4/jquery.sticky.min.js"></script>
+    <script type="text/javascript" src="//alhijazindowisata.com/jadwal/js/menu.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+<div class="chart-container">
+    <canvas id="hajiChart"></canvas>
+</div>
+
+<script>
+    // 1. Data dari Database (Gantikan bagian ini dengan hasil loop query MySQL Anda)
+    // Cetak JSON dari PHP langsung ke variabel JavaScript
+    const dataDatabase = [{"tahun":2016,"terdaftar":44,"berangkat":9},{"tahun":2017,"terdaftar":88,"berangkat":34},{"tahun":2018,"terdaftar":71,"berangkat":9},{"tahun":2019,"terdaftar":72,"berangkat":3},{"tahun":2020,"terdaftar":58,"berangkat":0},{"tahun":2021,"terdaftar":215,"berangkat":0},{"tahun":2022,"terdaftar":1027,"berangkat":18},{"tahun":2023,"terdaftar":1773,"berangkat":28},{"tahun":2024,"terdaftar":1078,"berangkat":149},{"tahun":2025,"terdaftar":960,"berangkat":135},{"tahun":2026,"terdaftar":745,"berangkat":482},{"tahun":2027,"terdaftar":0,"berangkat":827},{"tahun":2028,"terdaftar":0,"berangkat":1449},{"tahun":2029,"terdaftar":0,"berangkat":793},{"tahun":2030,"terdaftar":0,"berangkat":433},{"tahun":2031,"terdaftar":0,"berangkat":345},{"tahun":2032,"terdaftar":0,"berangkat":269},{"tahun":2033,"terdaftar":0,"berangkat":163},{"tahun":2034,"terdaftar":0,"berangkat":242},{"tahun":2035,"terdaftar":0,"berangkat":252},{"tahun":2036,"terdaftar":0,"berangkat":277},{"tahun":2037,"terdaftar":0,"berangkat":85}];
+
+    // Data siap dipetakan ke Chart.js v4.4.7
+    const labelsTahun   = dataDatabase.map(item => item.tahun);
+    const dataTerdaftar = dataDatabase.map(item => item.terdaftar);
+    const dataBerangkat = dataDatabase.map(item => item.berangkat);
+
+    // 3. Inisialisasi Chart.js v4.4.7
+    const ctx = document.getElementById('hajiChart').getContext('2d');
+    
+    new Chart(ctx, {
+        type: 'bar', // Menggunakan tipe grafik batang
+        data: {
+            labels: labelsTahun, // Sumbu X (Tahun)
+            datasets: [
+                {
+                    label: 'Terdaftar',
+                    data: dataTerdaftar,
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)', // Warna biru transparan
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Berangkat',
+                    data: dataBerangkat,
+                    backgroundColor: 'rgba(46, 204, 113, 0.7)', // Warna hijau transparan
+                    borderColor: 'rgba(46, 204, 113, 1)',
+                    borderWidth: 1
+                }
+            ]
+        },
+options: {
+    responsive: true,
+    maintainAspectRatio: false, // Menjaga grafik tetap patuh pada tinggi kotak
+    plugins: {
+        // 1. KONFIGURASI JUDUL UTAMA
+        title: {
+            display: true,
+            text: 'REKAP HAJI KHUSUS',
+            font: {
+                size: 18,              // Ukuran font judul utama
+                weight: 'bold',        // Tebal teks
+                family: 'sans-serif'   // Jenis font
+            },
+            padding: {
+                top: 10,
+                bottom: 5              // Jarak ke teks sub-judul bawahnya
+            },
+            color: '#333333'           // Warna teks utama
+        },
+        // 2. KONFIGURASI SUB-JUDUL
+        subtitle: {
+            display: true,
+            text: 'Pendaftaran vs Keberangkatan',
+            font: {
+                size: 14,
+                style: 'italic',       // Membuat teks menjadi miring
+                family: 'sans-serif'
+            },
+            padding: {
+                bottom: 15             // Jarak sub-judul ke area grafik batang
+            },
+            color: '#666666'           // Warna teks abu-abu yang lebih lembut
+        },
+        // Kotak Keterangan Warna Batang
+        legend: {
+            position: 'top',
+        },
+        tooltip: {
+            mode: 'index',
+            intersect: false
+        }
+    },
+    scales: {        
+        y: {
+            type: 'logarithmic',
+            beginAtZero: true,
+            title: {
+                display: true,
+                text: 'Jumlah Jamaah'
+            }
+        },
+        x: {
+            title: {
+                display: true,
+                text: 'Tahun'
+            }
+        }
+    }
+}
+
+
+    });
+</script>

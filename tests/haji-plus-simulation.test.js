@@ -55,8 +55,25 @@ test('HajiPlusPage defaults to the leftmost Simulasi tab', () => {
   const source = read('src/components/HajiPlusPage.tsx');
 
   assert.match(source, /useState<HajiPlusTab>\(initialTab\s*\|\|\s*'simulasi'\)/);
-  assert.match(source, /const\s+TAB_CONFIG\s*=\s*\[\s*\{\s*id:\s*'simulasi'[\s\S]*\{\s*id:\s*'statistik'/);
+  // Urutan segmented control: Simulasi kiri, Statistik kanan (dideklarasikan di TabSwitcher).
+  assert.match(source, /const\s+tabs\s*=\s*\[\s*\{\s*id:\s*'simulasi'[\s\S]*?\{\s*id:\s*'statistik'/);
   assert.doesNotMatch(source, /useState<HajiPlusTab>\(initialTab\s*\|\|\s*'statistik'\)/);
+});
+
+test('each Haji Plus tab owns a URL that survives a reload', () => {
+  const page = read('src/components/HajiPlusPage.tsx');
+  const layout = read('src/components/DashboardLayout.tsx');
+
+  // Ganti tab harus menulis URL per-tab, bukan memulangkan Statistik ke /haji-plus
+  // (yang di-resolve jadi Simulasi saat reload).
+  assert.match(page, /pushState\([^)]*`\/dashboard\/ai-tools\/haji-plus\/\$\{tab\}`\)/);
+
+  // ...dan URL itu harus dikenali balik oleh router di tiga tempat yang sinkron.
+  // [^\]]* wajib: [\s\S]*? bisa lolos dari literal Set-nya dan mencocokkan
+  // 'haji-plus/statistik' yang muncul lagi di PAGE_TITLES — asersi jadi hampa.
+  assert.match(layout, /NESTED_AI_TOOL_SUBS\s*=\s*new Set\(\[[^\]]*'haji-plus\/statistik'[^\]]*\]\)/);
+  assert.match(layout, /'haji-plus\/statistik':\s*'Haji Plus'/);
+  assert.match(layout, /sub === 'haji-plus\/statistik'[\s\S]{0,120}?initialTab="statistik"/);
 });
 
 test('AIToolsPage labels the Haji Plus tool as an offer simulation', () => {

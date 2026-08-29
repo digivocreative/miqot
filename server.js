@@ -228,6 +228,7 @@ import {
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
+import { parseHajiPlusStatsHtml, isHajiPlusRows, buildHajiPlusPayload } from './lib/haji-plus-stats.js';
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
 import {
   PACKAGE_VALUE_PROMPT_VERSION,
@@ -19906,32 +19907,13 @@ app.get('/api/flight-share/:code', async (req, res) => {
 app.get('/api/haji-plus/data', authMiddleware, async (req, res) => {
   try {
     const cached = await getHajiPlusData();
+    const payload = cached && buildHajiPlusPayload(cached.rows, cached.synced_at);
 
-    if (!cached || !cached.data || cached.data.length === 0) {
-      return res.status(404).json({ error: 'Data belum tersedia' });
+    if (!payload) {
+      return res.status(404).json({ error: 'Data rekap haji khusus belum tersedia' });
     }
 
-    const data = cached.data;
-    const total = data.reduce((s, d) => s + d.pax, 0);
-    const avg = Math.round(total / data.length);
-    const peak = data.reduce((max, d) => d.pax > max.pax ? d : max, data[0]);
-    const min = data.reduce((mn, d) => d.pax < mn.pax ? d : mn, data[0]);
-    const currentYear = new Date().getFullYear();
-    const current = data.find(d => d.year === currentYear) || null;
-
-    res.json({
-      success: true,
-      data: {
-        items: data,
-        total,
-        average: avg,
-        peak,
-        min,
-        current,
-        yearCount: data.length,
-        synced_at: cached.synced_at,
-      },
-    });
+    res.json({ success: true, data: payload });
   } catch (err) {
     console.error('[HajiPlus] API error:', err);
     res.status(500).json({ error: 'Gagal mengambil data' });
@@ -22853,7 +22835,11 @@ app.get('/:packageId/itinerary', async (req, res, next) => {
 // Haji Plus: Scrape + Sync + API
 // ──────────────────────────────────────────────
 
+// Cache in-memory: { rows: [{year, terdaftar, berangkat}], synced_at }
 let hajiPlusCache = null;
+let hajiPlusScrapeInFlight = null;
+let hajiPlusScrapeCooldownUntil = 0;
+const HAJI_PLUS_SCRAPE_COOLDOWN_MS = 5 * 60 * 1000;
 
 // WAF/Cloudflare di depan alhijazindowisata.com dapat memblokir IP egress VPS
 // ini (HTTP 403). Coba dulu lewat origin IP (Host header tetap domain asli,
@@ -22864,8 +22850,7 @@ const hajiPlusOriginDispatcher = CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP
   ? new Agent({ connect: { lookup: calendarPublicFallbackOriginLookup } })
   : null;
 
-async function scrapeHajiPlusData() {
-  const cheerio = await import('cheerio');
+async function fetchHajiPlusHtml() {
   const url = 'https://alhijazindowisata.com/jadwal/grafik-haji-khusus/alhijaz-indowisata';
   const headers = { 'User-Agent': 'Mozilla/5.0' };
 
@@ -22901,52 +22886,33 @@ async function scrapeHajiPlusData() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }
 
-  const html = await res.text();
-  const $ = cheerio.load(html);
+  return res.text();
+}
 
-  // Row 0: <th>TAHUN</th><th>2026</th>... (years in th)
-  // Row 1: <th>JUMLAH</th><td>482</td>... (pax in td)
-  const rows = $('table tr');
-  if (rows.length < 2) throw new Error('Table structure changed');
-
-  const years = [];
-  const paxes = [];
-
-  rows.eq(0).find('th, td').each((_, el) => {
-    const text = $(el).text().trim();
-    if (/^\d{4}$/.test(text)) years.push(parseInt(text));
-  });
-
-  rows.eq(1).find('td').each((_, el) => {
-    const text = $(el).text().trim().replace(/[^\d]/g, '');
-    if (text) paxes.push(parseInt(text));
-  });
-
-  if (years.length === 0 || years.length !== paxes.length) {
-    throw new Error(`Parse mismatch: ${years.length} years, ${paxes.length} pax values`);
-  }
-
-  return years.map((year, i) => ({ year, pax: paxes[i] }));
+// → [{ year, terdaftar, berangkat }] untuk SELURUH tahun yang dipublikasikan
+// (2016–2037 per Agustus 2026). Pemangkasan ekor nol dilakukan per seri saat
+// agregasi, bukan di sini — lihat lib/haji-plus-stats.js.
+async function scrapeHajiPlusData() {
+  const rows = parseHajiPlusStatsHtml(await fetchHajiPlusHtml());
+  if (!rows) throw new Error('Struktur halaman rekap berubah: variabel dataDatabase & tabel sama-sama gagal diparse');
+  return rows;
 }
 
 async function syncHajiPlusData() {
   try {
     console.log('[HajiPlus] Syncing data...');
-    const data = await scrapeHajiPlusData();
+    const rows = await scrapeHajiPlusData();
+    const syncedAt = new Date().toISOString();
 
     const { error } = await supabase
       .from('haji_plus_stats')
-      .upsert({
-        id: 'current',
-        data: data,
-        synced_at: new Date().toISOString(),
-      });
+      .upsert({ id: 'current', data: rows, synced_at: syncedAt });
 
     if (error) throw error;
 
-    // Update in-memory cache
-    hajiPlusCache = { data, synced_at: new Date().toISOString() };
-    console.log(`[HajiPlus] Synced: ${data.length} years, total ${data.reduce((s, d) => s + d.pax, 0)} pax`);
+    hajiPlusCache = { rows, synced_at: syncedAt };
+    const sum = (key) => rows.reduce((s, r) => s + r[key], 0);
+    console.log(`[HajiPlus] Synced: ${rows.length} tahun, terdaftar ${sum('terdaftar')} pax, berangkat ${sum('berangkat')} pax`);
   } catch (err) {
     console.error('[HajiPlus] Sync failed:', err.message);
   }
@@ -22955,7 +22921,7 @@ async function syncHajiPlusData() {
 async function getHajiPlusData() {
   if (hajiPlusCache) return hajiPlusCache;
 
-  // Fallback to Supabase
+  // Fallback ke Supabase
   try {
     const { data, error } = await supabase
       .from('haji_plus_stats')
@@ -22964,15 +22930,31 @@ async function getHajiPlusData() {
       .single();
 
     if (!error && data) {
-      hajiPlusCache = { data: data.data, synced_at: data.synced_at };
-      return hajiPlusCache;
+      // Baris warisan hanya punya {year, pax} (satu seri). Menyajikannya apa
+      // adanya bikin tab Statistik kosong lagi, jadi lebih baik dianggap tidak
+      // ada dan dipancing scrape ulang di bawah.
+      if (isHajiPlusRows(data.data)) {
+        hajiPlusCache = { rows: data.data, synced_at: data.synced_at };
+        return hajiPlusCache;
+      }
+      console.log('[HajiPlus] Baris DB masih bentuk lama (satu seri) — scrape ulang');
+    } else if (error) {
+      console.log('[HajiPlus] DB fallback: no data or error:', error.message);
     }
-    console.log('[HajiPlus] DB fallback: no data or error:', error?.message);
   } catch (err) {
     console.error('[HajiPlus] getHajiPlusData exception:', err.message);
   }
 
-  return null;
+  // Scrape on-demand: menutup jendela antara restart server dan cron pertama,
+  // dan satu-satunya jalan di local dev (background jobs mati). Di-dedup lewat
+  // promise bersama + cooldown supaya request beruntun tidak menumpuk fetch.
+  if (Date.now() < hajiPlusScrapeCooldownUntil) return null;
+  if (!hajiPlusScrapeInFlight) {
+    hajiPlusScrapeCooldownUntil = Date.now() + HAJI_PLUS_SCRAPE_COOLDOWN_MS;
+    hajiPlusScrapeInFlight = syncHajiPlusData().finally(() => { hajiPlusScrapeInFlight = null; });
+  }
+  await hajiPlusScrapeInFlight;
+  return hajiPlusCache;
 }
 
 // ============================

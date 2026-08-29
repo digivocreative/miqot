@@ -4,7 +4,7 @@ import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, Responsi
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import FilterDropdown from './FilterDropdown';
-import { fetchHajiPlusBerangkat, type HajiPlusData, type HajiPlusItem } from '../lib/fetchHajiPlusBerangkat';
+import { fetchHajiPlusStats, HAJI_PLUS_SERIES_KEYS, type HajiPlusData, type HajiPlusItem, type HajiPlusSeries, type HajiPlusSeriesKey } from '../lib/fetchHajiPlusStats';
 
 interface ColorTheme {
   name: string; dark: string; glow: string; main: string; ring: string;
@@ -53,16 +53,22 @@ const GlobeSvg = () => (
 function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme: ColorTheme; chartType: ChartType }) {
   const t = theme;
   const yFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K` : String(v);
+  // Poster punya lebar tetap: 22 tahun keberangkatan bertabrakan kalau semua
+  // tick dipaksa tampil, sementara 11 tahun pendaftaran masih muat utuh.
+  // interval={n} = lewati n tick di antara tick yang ditampilkan.
+  const tickInterval = items.length > 12 ? Math.ceil(items.length / 11) - 1 : 0;
+  // Angka di dalam batang juga hanya terbaca selama batangnya masih lebar.
+  const showBarLabels = items.length <= 14;
 
   if (chartType === 'hbar') {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={items} layout="vertical" margin={{ top: 0, right: 4, bottom: 0, left: 0 }}>
           <XAxis type="number" hide />
-          <YAxis type="category" dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} width={36} axisLine={false} tickLine={false} interval={0} />
+          <YAxis type="category" dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} width={36} axisLine={false} tickLine={false} interval={tickInterval} />
           <Bar dataKey="pax" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {items.map((_, i) => <Cell key={i} fill={t.bars[i % t.bars.length]} />)}
-            <LabelList dataKey="pax" position="insideRight" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />
+            {showBarLabels && <LabelList dataKey="pax" position="insideRight" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
@@ -74,7 +80,7 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={items} margin={{ top: 4, right: 4, bottom: 0, left: -6 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={0} />
+          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={tickInterval} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 7, fill: '#6b7280' }} axisLine={false} tickLine={false} width={28} />
           <Area type="monotone" dataKey="pax" stroke={t.main} fill={t.areaFill} strokeWidth={2} dot={false} />
         </AreaChart>
@@ -87,7 +93,7 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={items} margin={{ top: 4, right: 4, bottom: 0, left: -6 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={0} />
+          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={tickInterval} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 7, fill: '#6b7280' }} axisLine={false} tickLine={false} width={28} />
           <Line type="monotone" dataKey="pax" stroke={t.main} strokeWidth={2} dot={(props: any) => {
             const { cx, cy, index } = props;
@@ -103,7 +109,7 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={items} margin={{ top: 4, right: 4, bottom: 0, left: -6 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={0} />
+          <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={tickInterval} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 7, fill: '#6b7280' }} axisLine={false} tickLine={false} width={28} />
           <Area type="stepAfter" dataKey="pax" stroke={t.main} fill={t.areaFill} strokeWidth={2} dot={{ r: 3, fill: t.main, stroke: 'white', strokeWidth: 1.5 }} />
         </AreaChart>
@@ -116,11 +122,11 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={items} margin={{ top: 4, right: 4, bottom: 0, left: -6 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-        <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={0} />
+        <XAxis dataKey="year" tick={{ fontSize: 8, fill: '#6b7280' }} axisLine={false} tickLine={false} interval={tickInterval} />
         <YAxis tickFormatter={yFmt} tick={{ fontSize: 7, fill: '#6b7280' }} axisLine={false} tickLine={false} width={28} />
         <Bar dataKey="pax" radius={[4, 4, 0, 0]} isAnimationActive={false}>
           {items.map((_, i) => <Cell key={i} fill={t.bars[i % t.bars.length]} />)}
-          <LabelList dataKey="pax" position="inside" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />
+          {showBarLabels && <LabelList dataKey="pax" position="inside" style={{ fontSize: 7, fontWeight: 600, fill: 'white' }} />}
         </Bar>
       </BarChart>
     </ResponsiveContainer>
@@ -129,13 +135,13 @@ function PosterChart({ items, theme, chartType }: { items: HajiPlusItem[]; theme
 
 
 // ── Poster Design ──
-function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, showTitle, contactType }: {
-  data: HajiPlusData; theme: ColorTheme; headerStyle: HeaderStyle; chartType: ChartType;
+function PosterDesign({ series, theme, headerStyle, chartType, agent, showAgent, showTitle, contactType }: {
+  series: HajiPlusSeries; theme: ColorTheme; headerStyle: HeaderStyle; chartType: ChartType;
   agent: { slug: string; name: string; phone: string; email?: string; photo: string; website: string; };
   showAgent: boolean; showTitle: boolean; contactType: 'wa' | 'email' | 'website';
 }) {
   const t = theme;
-  const items = data.items;
+  const items = series.items;
   const currentYear = new Date().getFullYear();
   const yearRange = items.length > 0 ? `${items[0].year}–${items[items.length - 1].year}` : '';
   const now = new Date();
@@ -201,7 +207,7 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
 
         {/* Title — consistent across all header styles */}
         {showTitle && (
-          <div style={{ fontSize: 18, fontWeight: 600, color: 'white', letterSpacing: -0.3, lineHeight: 1, marginBottom: 12, whiteSpace: 'nowrap' }}>Jamaah Haji Plus</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: 'white', letterSpacing: -0.3, lineHeight: 1, marginBottom: 12, whiteSpace: 'nowrap' }}>{series.label}</div>
         )}
 
         {/* Header variant */}
@@ -211,16 +217,16 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
             <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
               <div style={{ display: 'flex' }}>
                 <div style={{ flex: 1, padding: '12px', textAlign: 'center', borderRight: '0.5px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: 22, fontWeight: 500, color: 'white' }}>{fmt(data.total)}</div>
+                  <div style={{ fontSize: 22, fontWeight: 500, color: 'white' }}>{fmt(series.total)}</div>
                   <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Total</div>
                 </div>
                 <div style={{ flex: 1, padding: '12px', textAlign: 'center', borderRight: '0.5px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: 22, fontWeight: 500, color: t.accent }}>{data.current ? fmt(data.current.pax) : '—'}</div>
+                  <div style={{ fontSize: 22, fontWeight: 500, color: t.accent }}>{series.current ? fmt(series.current.pax) : '—'}</div>
                   <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Tahun ini</div>
                 </div>
                 <div style={{ flex: 1, padding: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 22, fontWeight: 500, color: 'rgba(255,255,255,0.75)' }}>{fmt(data.peak.pax)}</div>
-                  <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Rekor {data.peak.year}</div>
+                  <div style={{ fontSize: 22, fontWeight: 500, color: 'rgba(255,255,255,0.75)' }}>{fmt(series.peak.pax)}</div>
+                  <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Rekor {series.peak.year}</div>
                 </div>
               </div>
             </div>
@@ -232,21 +238,21 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
             <div style={{ background: 'linear-gradient(135deg, rgba(234,179,8,0.15), rgba(234,179,8,0.05))', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 8, padding: '6px 8px' }}>
               <div style={{ fontSize: 7, color: '#fbbf24', fontWeight: 600, marginBottom: 2 }}>🏆 TOTAL</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(data.total)}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(series.total)}</div>
             </div>
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 8px' }}>
               <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginBottom: 2 }}>🚩 REKOR</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(data.peak.pax)} <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>({data.peak.year})</span></div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(series.peak.pax)} <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>({series.peak.year})</span></div>
             </div>
-            {data.current && (
+            {series.current && (
               <div style={{ background: `${t.main}18`, border: `1px solid ${t.main}35`, borderRadius: 8, padding: '6px 8px' }}>
                 <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginBottom: 2 }}>📅 TAHUN INI</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(data.current.pax)}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(series.current.pax)}</div>
               </div>
             )}
             <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 8px' }}>
               <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginBottom: 2 }}>📊 DATA</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{data.yearCount} <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>tahun</span></div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{series.yearCount} <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>tahun</span></div>
             </div>
           </div>
         )}
@@ -256,23 +262,25 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
                 <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)', fontWeight: 600, marginBottom: 2 }}>TERENDAH</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.3)' }}>{fmt(data.min.pax)}</div>
-                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>{data.min.year}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.3)' }}>{fmt(series.min.pax)}</div>
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>{series.min.year}</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                 <div style={{ width: 28, height: 28, borderRadius: '50%', background: `${t.main}30`, border: `1px solid ${t.main}60`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ color: 'white', fontSize: 12 }}>→</span>
                 </div>
-                <span style={{ fontSize: 8, color: t.main, fontWeight: 700, marginTop: 2 }}>+{Math.round(((data.peak.pax - data.min.pax) / data.min.pax) * 100)}%</span>
+                {series.min.pax > 0 && (
+                  <span style={{ fontSize: 8, color: t.main, fontWeight: 700, marginTop: 2 }}>+{Math.round(((series.peak.pax - series.min.pax) / series.min.pax) * 100)}%</span>
+                )}
               </div>
               <div style={{ flex: 1, background: `${t.main}18`, border: `1px solid ${t.main}35`, borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
                 <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginBottom: 2 }}>TERTINGGI</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: 'white' }}>{fmt(data.peak.pax)}</div>
-                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>{data.peak.year}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: 'white' }}>{fmt(series.peak.pax)}</div>
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>{series.peak.year}</div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              {[{ l: 'Total', v: fmt(data.total) }, ...(data.current ? [{ l: String(currentYear), v: fmt(data.current.pax) }] : []), { l: 'Avg', v: fmt(data.average) }].map((s, i) => (
+              {[{ l: 'Total', v: fmt(series.total) }, ...(series.current ? [{ l: String(currentYear), v: fmt(series.current.pax) }] : []), { l: 'Avg', v: fmt(series.average) }].map((s, i) => (
                 <div key={i} style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 6px', textAlign: 'center' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>{s.v}</div>
                   <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.35)' }}>{s.l}</div>
@@ -285,7 +293,7 @@ function PosterDesign({ data, theme, headerStyle, chartType, agent, showAgent, s
         {/* Chart Card */}
         <div style={{ flex: 1, minHeight: 0, background: 'rgba(255,255,255,0.95)', borderRadius: 10, padding: '8px 10px 4px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: t.main }}>Keberangkatan per tahun</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: t.main }}>{series.key === 'terdaftar' ? 'Pendaftaran' : 'Keberangkatan'} per tahun</span>
             <span style={{ fontSize: 7, color: '#9ca3af', background: '#f3f4f6', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>jamaah</span>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
@@ -314,6 +322,7 @@ export default function HajiPlusExportPage({ agent }: {
   const [headerStyle, setHeaderStyle] = useState<HeaderStyle>('magazine');
   const [colorIdx, setColorIdx] = useState(0); // Emerald default
   const [chartType, setChartType] = useState<ChartType>('bar');
+  const [seriesKey, setSeriesKey] = useState<HajiPlusSeriesKey>('berangkat');
   const [exporting, setExporting] = useState(false);
   const [showAgent, setShowAgent] = useState(true);
   const [showTitle, setShowTitle] = useState(true);
@@ -328,7 +337,7 @@ export default function HajiPlusExportPage({ agent }: {
   // Fetch data
   useEffect(() => {
     setLoading(true);
-    fetchHajiPlusBerangkat(getAuthHeaders())
+    fetchHajiPlusStats(getAuthHeaders())
       .then(result => { if (result.ok) setData(result.data); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -347,7 +356,7 @@ export default function HajiPlusExportPage({ agent }: {
       ]);
       const resp = await fetch(dataUrl);
       const blob = await resp.blob();
-      const fileName = `haji-plus-${Date.now()}.png`;
+      const fileName = `haji-plus-${seriesKey}-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
 
       // Native share (files ONLY — no text/title/url to avoid double-image)
@@ -361,7 +370,7 @@ export default function HajiPlusExportPage({ agent }: {
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-      trackEvent('action', 'export_haji_infographic', { year: data?.current?.year?.toString() || '' });
+      trackEvent('action', 'export_haji_infographic', { year: String(new Date().getFullYear()) });
     } catch (err: any) {
       if (err?.name !== 'AbortError') console.error('Export failed:', err);
     } finally {
@@ -369,6 +378,7 @@ export default function HajiPlusExportPage({ agent }: {
     }
   };
 
+  const SERIES_LABELS: Record<HajiPlusSeriesKey, string> = { terdaftar: 'Terdaftar', berangkat: 'Berangkat' };
   const HEADER_LABELS = ['Magazine', 'Achievement', 'Contrast'];
   const HEADER_KEYS: HeaderStyle[] = ['magazine', 'achievement', 'contrast'];
   const CHART_LABELS = ['Bar', 'Area', 'Line', 'H-Bar', 'Step'];
@@ -398,6 +408,31 @@ export default function HajiPlusExportPage({ agent }: {
 
       {/* ── Compact Selectors Card ── */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4 space-y-3">
+
+        {/* Row 0: DATA (seri mana yang dijadikan poster) */}
+        <div className="flex items-center gap-3">
+          <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider w-[46px] flex-shrink-0">
+            Data
+          </span>
+          <div className="flex gap-1.5 flex-1">
+            {HAJI_PLUS_SERIES_KEYS.map(key => (
+              <button
+                key={key}
+                onClick={() => setSeriesKey(key)}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold text-center transition-all ${
+                  seriesKey === key
+                    ? 'bg-gray-800 dark:bg-white text-white dark:text-gray-800'
+                    : 'bg-gray-50 dark:bg-slate-900 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700'
+                }`}
+              >
+                {SERIES_LABELS[key]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ---- DIVIDER ---- */}
+        <div className="-mx-4 border-t border-gray-100 dark:border-slate-700/50" />
 
         {/* Row 1: HEADER */}
         <div className="flex items-center gap-3">
@@ -525,7 +560,7 @@ export default function HajiPlusExportPage({ agent }: {
         ref={posterRef}
         className="w-full overflow-hidden"
       >
-        <PosterDesign data={data} theme={theme} headerStyle={headerStyle} chartType={chartType} agent={agent} showAgent={showAgent} showTitle={showTitle} contactType={contactType} />
+        <PosterDesign series={data.series[seriesKey]} theme={theme} headerStyle={headerStyle} chartType={chartType} agent={agent} showAgent={showAgent} showTitle={showTitle} contactType={contactType} />
       </div>
 
       {/* ── Export Button ── */}
