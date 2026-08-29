@@ -31,7 +31,7 @@ const SERIES_STYLE = {
     tint: 'bg-blue-50 dark:bg-blue-900/20',
     border: 'border-blue-100 dark:border-blue-800/40',
     text: 'text-blue-600 dark:text-blue-400',
-    note: 'Dihitung menurut tahun pendaftaran. Tahun mendatang belum punya angka karena pendaftarnya belum ada.',
+    note: 'Menurut tahun pendaftaran.',
   },
   berangkat: {
     icon: PlaneTakeoff,
@@ -41,9 +41,20 @@ const SERIES_STYLE = {
     tint: 'bg-emerald-50 dark:bg-emerald-900/20',
     border: 'border-emerald-100 dark:border-emerald-800/40',
     text: 'text-emerald-600 dark:text-emerald-400',
-    note: 'Dihitung menurut tahun keberangkatan. Batang berwarna muda adalah alokasi tahun mendatang, belum realisasi.',
+    note: 'Menurut tahun keberangkatan. Muda = alokasi.',
   },
 } as const;
+
+// Recharts menulis warna sebagai atribut SVG, jadi varian `dark:` Tailwind
+// tidak berlaku — grid #f0f0f0 yang pas di kartu putih jadi garis putih
+// menyilaukan di dark mode. Dibaca saat render seperti StatistikHajiSection;
+// tombol tema ada di DashboardLayout sehingga pohon ini ikut re-render.
+function chartPalette() {
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  return isDark
+    ? { grid: '#334155', tick: '#94a3b8', label: '#cbd5e1', cursor: 'rgba(148,163,184,0.14)' }
+    : { grid: '#f1f5f9', tick: '#9ca3af', label: '#6b7280', cursor: 'rgba(148,163,184,0.12)' };
+}
 
 // ── Segmented control (Simulasi / Statistik) ──
 function TabSwitcher({ active, onSwitch }: { active: HajiPlusTab; onSwitch: (tab: HajiPlusTab) => void }) {
@@ -87,6 +98,7 @@ function ChartTooltip({ active, payload, label, color }: any) {
 // ── Satu kartu per seri: header + 3 angka ringkas + grafik batang ──
 function SeriesCard({ series, currentYear }: { series: HajiPlusSeries; currentYear: number }) {
   const style = SERIES_STYLE[series.key];
+  const palette = chartPalette();
   const Icon = style.icon;
   const hasFuture = series.lastYear > currentYear;
 
@@ -130,19 +142,19 @@ function SeriesCard({ series, currentYear }: { series: HajiPlusSeries; currentYe
         ))}
       </div>
 
-      <div className="overflow-x-auto px-2 pt-3">
+      <div className="overflow-x-auto chart-scroll px-2 pt-3">
         <div style={{ width: chartWidth, height: 190 }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={series.items} margin={{ top: 14, right: 6, bottom: 0, left: -14 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-              <XAxis dataKey="year" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval={0} />
-              <YAxis tickFormatter={yFmt} tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={38} />
-              <Tooltip cursor={{ fill: 'rgba(148,163,184,0.12)' }} content={<ChartTooltip color={style.bar} />} />
+              <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} vertical={false} />
+              <XAxis dataKey="year" tick={{ fontSize: 9, fill: palette.tick }} axisLine={false} tickLine={false} interval={0} />
+              <YAxis tickFormatter={yFmt} tick={{ fontSize: 9, fill: palette.tick }} axisLine={false} tickLine={false} width={38} />
+              <Tooltip cursor={{ fill: palette.cursor }} content={<ChartTooltip color={style.bar} />} />
               <Bar dataKey="pax" radius={[3, 3, 0, 0]} maxBarSize={26}>
                 {series.items.map(item => (
                   <Cell key={item.year} fill={item.year > currentYear ? style.soft : style.bar} />
                 ))}
-                <LabelList dataKey="pax" position="top" formatter={(v: unknown) => (Number(v) > 0 ? fmt(Number(v)) : '')} style={{ fontSize: 8, fontWeight: 600, fill: '#6b7280' }} />
+                <LabelList dataKey="pax" position="top" formatter={(v: unknown) => (Number(v) > 0 ? fmt(Number(v)) : '')} style={{ fontSize: 8, fontWeight: 600, fill: palette.label }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

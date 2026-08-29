@@ -179,6 +179,28 @@ body {
   background: #a1a1a1;
 }
 
+/* Varian gelap. Tanpa ini scrollbar terang di atas dipakai juga di dark mode —
+   paling kelihatan di kontainer yang menggulir di dalam kartu (grafik Statistik
+   Haji Plus). Sengaja lewat ::-webkit-* saja: begitu `scrollbar-color` diset,
+   Chrome mengabaikan pseudo-element ini dan warnanya lepas kendali. */
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Track kartu grafik dibuat transparan di kedua tema — bilah abu-abu penuh
+   lebar di bawah grafik terbaca seperti garis pembatas, bukan scrollbar. */
+.chart-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* AI Button - Rotating gradient border */
 @property --ai-angle {
   syntax: '<angle>';
