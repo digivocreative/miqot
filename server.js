@@ -227,7 +227,7 @@ import {
   parseMandiriKursHtml,
   shouldReplaceKursCache,
 } from './lib/kurs-mandiri.js';
-import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync } from './lib/background-jobs.js';
+import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync, msUntilNextWibHour } from './lib/background-jobs.js';
 import { parseHajiPlusStatsHtml, isHajiPlusRows, buildHajiPlusPayload } from './lib/haji-plus-stats.js';
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
 import {
@@ -22898,6 +22898,9 @@ async function scrapeHajiPlusData() {
   return rows;
 }
 
+// Mengembalikan true kalau baris DB berhasil diperbarui — runDailyHajiPlusSync
+// memakai nilai itu untuk memutuskan perlu coba ulang atau tidak. Tidak pernah
+// throw: semua galat sudah ditangkap di sini.
 async function syncHajiPlusData() {
   try {
     console.log('[HajiPlus] Syncing data...');
@@ -22913,8 +22916,10 @@ async function syncHajiPlusData() {
     hajiPlusCache = { rows, synced_at: syncedAt };
     const sum = (key) => rows.reduce((s, r) => s + r[key], 0);
     console.log(`[HajiPlus] Synced: ${rows.length} tahun, terdaftar ${sum('terdaftar')} pax, berangkat ${sum('berangkat')} pax`);
+    return true;
   } catch (err) {
     console.error('[HajiPlus] Sync failed:', err.message);
+    return false;
   }
 }
 
@@ -25627,23 +25632,29 @@ if (shouldRunBackgroundJobs()) setTimeout(async () => {
   }
 }, 90 * 1000); // 90s after startup (after calendar sync has a chance to run)
 
-// ── Haji Plus sync: daily at 05:00 WIB + on startup ──
-if (shouldRunBackgroundJobs()) setTimeout(() => syncHajiPlusData(), 10 * 1000); // 10s after startup
+// ── Haji Plus sync: harian jam 03:00 WIB + sekali saat startup ──
+const HAJI_PLUS_CRON_WIB_HOUR = 3;
+const HAJI_PLUS_RETRY_DELAY_MS = 30 * 60 * 1000;
+
+if (shouldRunBackgroundJobs()) setTimeout(() => runDailyHajiPlusSync(), 10 * 1000); // 10s after startup
+
+// Origin rekap ada di balik WAF yang sesekali menolak IP egress VPS ini. Satu
+// kegagalan jangan sampai berarti angkanya basi sehari penuh — coba ulang sekali
+// setengah jam kemudian sebelum menyerah ke siklus besok.
+async function runDailyHajiPlusSync() {
+  if (await syncHajiPlusData()) return;
+  console.warn(`[HajiPlus] Sync harian gagal; coba ulang ${HAJI_PLUS_RETRY_DELAY_MS / 60000} menit lagi`);
+  setTimeout(() => { syncHajiPlusData(); }, HAJI_PLUS_RETRY_DELAY_MS);
+}
 
 function scheduleHajiPlusCron() {
-  const now = new Date();
-  // Next 05:00 WIB (UTC+7 → 22:00 UTC day before)
-  const target = new Date(now);
-  target.setUTCHours(22, 0, 0, 0);
-  if (target <= now) target.setDate(target.getDate() + 1);
-  const msUntil = target - now;
-  console.log(`[HajiPlus] Next cron in ${Math.round(msUntil / 60000)} minutes (05:00 WIB)`);
-  setTimeout(async () => {
-    try { await syncHajiPlusData(); } catch (e) { console.error('[HajiPlus] Cron error:', e.message); }
-    // Then repeat every 24 hours
-    setInterval(async () => {
-      try { await syncHajiPlusData(); } catch (e) { console.error('[HajiPlus] Cron error:', e.message); }
-    }, 24 * 60 * 60 * 1000);
+  const msUntil = msUntilNextWibHour(HAJI_PLUS_CRON_WIB_HOUR);
+  const label = `${String(HAJI_PLUS_CRON_WIB_HOUR).padStart(2, '0')}:00 WIB`;
+  console.log(`[HajiPlus] Next cron in ${Math.round(msUntil / 60000)} minutes (${label})`);
+  setTimeout(() => {
+    runDailyHajiPlusSync();
+    // Lalu ulangi tiap 24 jam
+    setInterval(() => { runDailyHajiPlusSync(); }, 24 * 60 * 60 * 1000);
   }, msUntil);
 }
 if (shouldRunBackgroundJobs()) scheduleHajiPlusCron();
