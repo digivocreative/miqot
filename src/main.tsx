@@ -448,7 +448,9 @@ if (isPwaHost && isSsrLandingPath) {
         window.location.replace('/dashboard/settings/capi')
         return null
       }
-      if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount />
+      // Diskon di rute publik hanya untuk agent/admin yang sedang login;
+      // pengunjung (calon jamaah) tetap tidak melihat opsi diskon.
+      if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount={!isSessionValid()} />
       if (isCompare) return <ComparePage agent={agentSlugForCompare} agentSlug={compareSlug || undefined} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
