@@ -87,7 +87,11 @@ import {
   normalizeCalendarJam,
 } from './lib/calendar-jam.js';
 import { requireCommunityAccess, canModerateCommunityContent } from './lib/community-access.js';
-import { requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem, normalizeHotelMediaInput, hotelMediaUrlsRemoved, HOTEL_CITIES } from './lib/hotel-directory.js';
+import {
+  requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem,
+  normalizeHotelMediaInput, hotelMediaUrlsRemoved, HOTEL_CITIES,
+  normalizeHotelAgentMediaInput, buildHotelAgentMediaPayload,
+} from './lib/hotel-directory.js';
 import {
   unrecordedMentionRows,
   COMMUNITY_MENTION_LIMIT,
@@ -7450,6 +7454,74 @@ function withoutHotelFaq(payload) {
   return rest;
 }
 
+// ── Galeri hotel VERSI AGENT SENDIRI (permintaan user 2026-08-30) ──
+// Folder Bunny TERPISAH dari HOTEL_MEDIA_FOLDER (galeri resmi) dengan sengaja:
+// hotelMediaUrlsInUse hanya menganggap URL di `hotels.media` sebagai "masih
+// dipakai" — kalau file galeri-agent ditaruh di folder yang sama, cleanup
+// galeri resmi (dipicu tiap admin edit hotel MANA PUN) akan melihatnya sebagai
+// yatim dan menghapusnya. Isolasi folder membuat dua sistem pembersihan ini
+// tidak mungkin saling menyentuh, tanpa perlu mengubah hotelMediaUrlsInUse.
+const HOTEL_AGENT_MEDIA_FOLDER = 'hotel-agent-media';
+
+function hotelAgentMediaPublicPrefixes() {
+  const prefixes = [];
+  if (getBunnyEnabled()) prefixes.push(`https://${BUNNY_CDN_HOSTNAME}/${HOTEL_AGENT_MEDIA_FOLDER}/`);
+  const { data } = supabase.storage.from('agent-photos').getPublicUrl(`${HOTEL_AGENT_MEDIA_FOLDER}/`);
+  if (data?.publicUrl) prefixes.push(data.publicUrl);
+  return prefixes;
+}
+
+function hotelAgentMediaCdnPrefix() {
+  return getBunnyEnabled() ? `https://${BUNNY_CDN_HOSTNAME}/${HOTEL_AGENT_MEDIA_FOLDER}/` : null;
+}
+
+// Semua URL galeri-agent yang masih direferensikan DB — sengaja scan tabel
+// `hotel_agent_media` saja (lihat komentar folder di atas soal isolasinya).
+async function hotelAgentMediaUrlsInUse() {
+  const inUse = new Set();
+  const { data, error } = await supabase.from('hotel_agent_media').select('media').limit(HOTEL_MEDIA_SCAN_LIMIT);
+  if (error) throw error;
+  if ((data?.length || 0) >= HOTEL_MEDIA_SCAN_LIMIT) {
+    throw new Error('snapshot referensi galeri agent terpotong');
+  }
+  for (const row of data || []) {
+    if (!Array.isArray(row?.media)) continue;
+    for (const item of row.media) {
+      if (typeof item?.url === 'string' && item.url) inUse.add(item.url);
+    }
+  }
+  return inUse;
+}
+
+// Best-effort SETELAH mutasi DB commit — cermin cleanupHotelMediaUrls persis,
+// hanya beda folder/tabel sumber "in use".
+async function cleanupHotelAgentMediaUrls(urls, logContext) {
+  try {
+    const prefix = hotelAgentMediaCdnPrefix();
+    if (!prefix) return;
+    const candidates = [...new Set(urls)].filter((url) => typeof url === 'string' && url.startsWith(prefix));
+    if (!candidates.length) return;
+    const inUse = await hotelAgentMediaUrlsInUse();
+    const cdnPrefix = `https://${BUNNY_CDN_HOSTNAME}/`;
+    await Promise.all(candidates.filter((url) => !inUse.has(url)).map((url) =>
+      bunnyDelete(url.slice(cdnPrefix.length)).catch((err) => {
+        console.warn(`[hotel-agent-media] gagal hapus file Bunny (${logContext}):`, err?.message || err);
+      })
+    ));
+  } catch (err) {
+    console.warn(`[hotel-agent-media] lewati pembersihan media (${logContext}):`, err?.message || err);
+  }
+}
+
+function hotelAgentMediaTableMissing(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return ['42P01', 'PGRST205', 'PGRST200'].includes(code)
+    && (/hotel_agent_media/i.test(message) || code === '42P01');
+}
+
+const HOTEL_AGENT_MEDIA_MIGRATION_ERROR = 'Migrasi galeri hotel per-agent belum diterapkan';
+
 async function requireHotelAgent(req, res) {
   const agent = await getAgentById(req.user.id);
   if (!agent) {
@@ -7686,6 +7758,171 @@ app.delete('/api/hotels/media', dbLoadShedGuard, authMiddleware, adminOnly, asyn
   }
 });
 
+// ── Galeri hotel VERSI AGENT SENDIRI ── Terpisah dari hotels.media (kurasi
+// tunggal admin): satu baris per (hotel, agent) di tabel hotel_agent_media,
+// SEMUA agent boleh menulis galerinya sendiri (bukan adminOnly) — hanya
+// penulisnya atau admin yang boleh menghapusnya.
+
+// Buang unggahan galeri-agent yang belum jadi tersimpan — cermin
+// '/api/hotels/media' DELETE di atas. Harus terdaftar SEBELUM
+// '/api/hotels/:id': 'agent-media' bukan id hotel.
+app.delete('/api/hotels/agent-media', dbLoadShedGuard, authMiddleware, express.json({ limit: '2kb' }), async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+    const normalized = normalizeHotelAgentMediaInput(
+      [{ type: req.body?.type, url: req.body?.url }],
+      hotelAgentMediaPublicPrefixes(),
+      agent.slug
+    );
+    if (!normalized || normalized.length !== 1) {
+      return res.status(400).json({ error: 'URL media tidak valid' });
+    }
+    await cleanupHotelAgentMediaUrls([normalized[0].url], 'batal unggah galeri agent');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[hotel-agent-media] discard error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menghapus media' });
+  }
+});
+
+async function findHotelIdBySlug(slug) {
+  const { data, error } = await supabase
+    .from('hotels')
+    .select('id')
+    .eq('slug', String(slug || '').toLowerCase())
+    .maybeSingle();
+  if (error) {
+    if (hotelTableMissing(error)) return { error: 'migration' };
+    throw error;
+  }
+  return { id: data?.id || null };
+}
+
+app.get('/api/hotels/:slug/agent-media', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    if (!(await requireHotelAgent(req, res))) return;
+    const hotel = await findHotelIdBySlug(req.params.slug);
+    if (hotel.error) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+    if (!hotel.id) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+
+    const { data, error } = await supabase
+      .from('hotel_agent_media')
+      .select('id, media, note, updated_at, agent:agents(slug, name, photo)')
+      .eq('hotel_id', hotel.id)
+      .order('updated_at', { ascending: false });
+    if (error) {
+      if (hotelAgentMediaTableMissing(error)) return res.status(503).json({ error: HOTEL_AGENT_MEDIA_MIGRATION_ERROR });
+      throw error;
+    }
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    console.error('[hotel-agent-media] list error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal memuat galeri agent' });
+  }
+});
+
+// Upsert galeri MILIK SENDIRI. Body kosong (media: []) ditolak validator
+// (min 1 item) — hapus seluruh galeri lewat DELETE, bukan PUT array kosong.
+app.put('/api/hotels/:slug/agent-media', dbLoadShedGuard, authMiddleware, express.json({ limit: '32kb' }), async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+    const hotel = await findHotelIdBySlug(req.params.slug);
+    if (hotel.error) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+    if (!hotel.id) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+
+    const mediaPrefixes = hotelAgentMediaPublicPrefixes();
+    const result = buildHotelAgentMediaPayload(req.body, { agentSlug: agent.slug, mediaPrefixes });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    // Media lama dibaca SEBELUM upsert — item yang dibuang lewat form ikut
+    // dihapus dari Bunny (pola identik update hotel resmi di atas).
+    const { data: oldRow, error: oldRowError } = await supabase
+      .from('hotel_agent_media')
+      .select('media')
+      .eq('hotel_id', hotel.id)
+      .eq('agent_id', agent.id)
+      .maybeSingle();
+    if (oldRowError) {
+      if (hotelAgentMediaTableMissing(oldRowError)) return res.status(503).json({ error: HOTEL_AGENT_MEDIA_MIGRATION_ERROR });
+      throw oldRowError;
+    }
+
+    const { data, error } = await supabase
+      .from('hotel_agent_media')
+      .upsert(
+        {
+          hotel_id: hotel.id,
+          agent_id: agent.id,
+          media: result.data.media,
+          note: result.data.note,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'hotel_id,agent_id' }
+      )
+      .select('id, media, note, updated_at, agent:agents(slug, name, photo)')
+      .single();
+    if (error) {
+      if (hotelAgentMediaTableMissing(error)) return res.status(503).json({ error: HOTEL_AGENT_MEDIA_MIGRATION_ERROR });
+      throw error;
+    }
+
+    const removed = hotelMediaUrlsRemoved(oldRow?.media, data.media, mediaPrefixes);
+    if (removed.length) void cleanupHotelAgentMediaUrls(removed, 'edit galeri agent');
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[hotel-agent-media] upsert error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menyimpan galeri' });
+  }
+});
+
+// Hapus galeri: pemilik boleh hapus galerinya sendiri; admin boleh hapus
+// galeri agent LAIN (moderasi) lewat query ?agentSlug=.
+app.delete('/api/hotels/:slug/agent-media', dbLoadShedGuard, authMiddleware, async (req, res) => {
+  try {
+    const agent = await requireHotelAgent(req, res);
+    if (!agent) return;
+
+    const targetSlugRaw = String(req.query.agentSlug || '').trim().toLowerCase();
+    let targetAgentId = agent.id;
+    if (targetSlugRaw && targetSlugRaw !== String(agent.slug || '').toLowerCase()) {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Hanya admin yang boleh menghapus galeri agent lain' });
+      }
+      const target = await getAgentBySlug(targetSlugRaw);
+      if (!target) return res.status(404).json({ error: 'Agent tidak ditemukan' });
+      targetAgentId = target.id;
+    }
+
+    const hotel = await findHotelIdBySlug(req.params.slug);
+    if (hotel.error) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
+    if (!hotel.id) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+
+    const { data: row, error: readError } = await supabase
+      .from('hotel_agent_media')
+      .select('id, media')
+      .eq('hotel_id', hotel.id)
+      .eq('agent_id', targetAgentId)
+      .maybeSingle();
+    if (readError) {
+      if (hotelAgentMediaTableMissing(readError)) return res.status(503).json({ error: HOTEL_AGENT_MEDIA_MIGRATION_ERROR });
+      throw readError;
+    }
+    if (!row) return res.status(404).json({ error: 'Galeri tidak ditemukan' });
+
+    const { error: deleteError } = await supabase.from('hotel_agent_media').delete().eq('id', row.id);
+    if (deleteError) throw deleteError;
+
+    const removed = hotelMediaUrlsRemoved(row.media, [], hotelAgentMediaPublicPrefixes());
+    if (removed.length) void cleanupHotelAgentMediaUrls(removed, 'hapus galeri agent');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[hotel-agent-media] delete error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal menghapus galeri' });
+  }
+});
+
 app.delete('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (req, res) => {
   try {
     if (!(await requireHotelAgent(req, res))) return;
@@ -7721,8 +7958,10 @@ const hotelMediaBodyParser = express.raw({
   limit: COMMUNITY_VIDEO_MAX_BYTES,
 });
 
-// Tanpa rate-limiter khusus: unggah hanya bisa dilakukan dua admin gate
-// (nikita/bagas + adminOnly); batas ukuran & magic bytes tetap diperiksa.
+// Tanpa rate-limiter khusus. Dipakai DUA rute dengan gate beda: unggah media
+// resmi (adminOnly) dan unggah galeri-agent (semua agent, seperti media Teras
+// yang juga tanpa rate-limiter khusus) — batas ukuran & magic bytes tetap
+// diperiksa di sini terlepas dari siapa pemanggilnya.
 async function prepareHotelMediaUpload(req, res, next) {
   try {
     const agent = await requireHotelAgent(req, res);
@@ -7772,52 +8011,71 @@ function parseHotelMediaBody(req, res, next) {
   });
 }
 
+// Diekstrak dari handler /api/hotels/media supaya galeri hotel versi agent
+// (folder Bunny berbeda, gate berbeda) memakai persis logika validasi/upload
+// yang sama tanpa menyalin ulang (magic-bytes, codec H.264, dsb).
+async function performHotelMediaUpload(req, res, folder) {
+  const agent = req.hotelAgent;
+  const uploadId = req.hotelUploadId;
+  const mime = req.hotelMediaMime;
+  const mediaConfig = req.hotelMediaConfig;
+
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!buffer.length || buffer.length > mediaConfig.maxBytes) {
+    const maxSize = mediaConfig.type === 'image' ? '3MB' : '20MB';
+    return res.status(400).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
+  }
+  if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
+    return res.status(400).json({ error: 'Isi file media tidak valid' });
+  }
+  // Wajib H.264 — bukan sekadar bukan-HEVC. Media hotel dibuka berulang oleh
+  // semua agent lintas perangkat, jadi hanya baseline universal yang lolos.
+  if (mediaConfig.type === 'video') {
+    const rejectedCodec = findUnplayableVideo(buffer);
+    if (rejectedCodec) return res.status(415).json({ error: rejectedCodec.message });
+  }
+
+  const storageMime = mediaConfig.storageMime || mime;
+  const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
+  const fileName = `${folder}/${agent.slug}-${uploadId}-${contentHash}.${mediaConfig.ext}`;
+  let publicUrl;
+  if (getBunnyEnabled()) {
+    // PUT idempoten + hash konten di path: retry byte sama = overwrite objek identik.
+    await bunnyUpload(fileName, buffer, storageMime);
+    publicUrl = `https://${BUNNY_CDN_HOSTNAME}/${fileName}`;
+  } else {
+    console.warn('[hotel] Bunny CDN belum dikonfigurasi — media diunggah ke Supabase Storage');
+    const { error: uploadError } = await supabase.storage
+      .from('agent-photos')
+      .upload(fileName, buffer, {
+        contentType: storageMime,
+        cacheControl: '31536000',
+        upsert: false,
+      });
+    if (uploadError && !isCommunityStorageConflict(uploadError)) throw uploadError;
+    const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
+    publicUrl = urlData.publicUrl;
+  }
+  res.json({ success: true, url: publicUrl, type: mediaConfig.type });
+}
+
 app.post('/api/hotels/media', authMiddleware, adminOnly, prepareHotelMediaUpload, parseHotelMediaBody, async (req, res) => {
   try {
-    const agent = req.hotelAgent;
-    const uploadId = req.hotelUploadId;
-    const mime = req.hotelMediaMime;
-    const mediaConfig = req.hotelMediaConfig;
-
-    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (!buffer.length || buffer.length > mediaConfig.maxBytes) {
-      const maxSize = mediaConfig.type === 'image' ? '3MB' : '20MB';
-      return res.status(400).json({ error: `Ukuran ${mediaConfig.type === 'image' ? 'gambar' : 'video'} maksimal ${maxSize}` });
-    }
-    if (!hasExpectedCommunityMediaSignature(buffer, mime)) {
-      return res.status(400).json({ error: 'Isi file media tidak valid' });
-    }
-    // Wajib H.264 — bukan sekadar bukan-HEVC. Media hotel dibuka berulang oleh
-    // semua agent lintas perangkat, jadi hanya baseline universal yang lolos.
-    if (mediaConfig.type === 'video') {
-      const rejectedCodec = findUnplayableVideo(buffer);
-      if (rejectedCodec) return res.status(415).json({ error: rejectedCodec.message });
-    }
-
-    const storageMime = mediaConfig.storageMime || mime;
-    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
-    const fileName = `${HOTEL_MEDIA_FOLDER}/${agent.slug}-${uploadId}-${contentHash}.${mediaConfig.ext}`;
-    let publicUrl;
-    if (getBunnyEnabled()) {
-      // PUT idempoten + hash konten di path: retry byte sama = overwrite objek identik.
-      await bunnyUpload(fileName, buffer, storageMime);
-      publicUrl = `https://${BUNNY_CDN_HOSTNAME}/${fileName}`;
-    } else {
-      console.warn('[hotel] Bunny CDN belum dikonfigurasi — media diunggah ke Supabase Storage');
-      const { error: uploadError } = await supabase.storage
-        .from('agent-photos')
-        .upload(fileName, buffer, {
-          contentType: storageMime,
-          cacheControl: '31536000',
-          upsert: false,
-        });
-      if (uploadError && !isCommunityStorageConflict(uploadError)) throw uploadError;
-      const { data: urlData } = supabase.storage.from('agent-photos').getPublicUrl(fileName);
-      publicUrl = urlData.publicUrl;
-    }
-    res.json({ success: true, url: publicUrl, type: mediaConfig.type });
+    await performHotelMediaUpload(req, res, HOTEL_MEDIA_FOLDER);
   } catch (err) {
     console.error('[hotel] media upload error:', err);
+    res.status(500).json({ error: 'Gagal mengunggah media' });
+  }
+});
+
+// Upload fisik untuk galeri VERSI AGENT SENDIRI — beda dari route di atas
+// hanya pada dua hal: TANPA adminOnly (semua agent boleh unggah galerinya
+// sendiri) dan folder Bunny tujuan (lihat komentar HOTEL_AGENT_MEDIA_FOLDER).
+app.post('/api/hotels/agent-media/upload', authMiddleware, prepareHotelMediaUpload, parseHotelMediaBody, async (req, res) => {
+  try {
+    await performHotelMediaUpload(req, res, HOTEL_AGENT_MEDIA_FOLDER);
+  } catch (err) {
+    console.error('[hotel-agent-media] media upload error:', err);
     res.status(500).json({ error: 'Gagal mengunggah media' });
   }
 });

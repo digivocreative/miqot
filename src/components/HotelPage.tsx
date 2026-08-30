@@ -10,6 +10,7 @@ import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
 import HotelFilterSheet from './HotelFilterSheet';
 import MediaViewerModal from './MediaViewerModal';
+import HotelAgentGallerySection from './HotelAgentGallery';
 import { agentWatermarkText } from './PhotoWatermark';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
@@ -108,7 +109,10 @@ function readHotelView(): View {
   // WAJIB sejalan dengan getHotelPathInfo di DashboardLayout (dua pembaca URL
   // yang sama); dulu rutenya /dashboard/ai-tools/hotel jadi indeksnya 3/4/5.
   const city = decodeURIComponent(segments[2] || '');
-  if (HOTEL_CITIES.includes(city)) {
+  // Cast ke readonly string[]: HOTEL_CITIES adalah tuple literal (as const),
+  // dan .includes()-nya menolak `string` biasa meski secara runtime aman —
+  // `city` datang dari URL, bukan dari union literalnya.
+  if ((HOTEL_CITIES as readonly string[]).includes(city)) {
     const slug = decodeURIComponent(segments[3] || '');
     if (slug && segments[4] === 'media') return { kind: 'media', city, slug };
     if (slug) return { kind: 'detail', city, slug };
@@ -1108,6 +1112,11 @@ export default function HotelPage({ onNavigate, agentSlug }: {
               </div>
             </div>
           )}
+
+          {/* Galeri terpisah dari media resmi di atas: tiap agent boleh
+              menambahkan foto/video versi mereka sendiri (lihat
+              HotelAgentGallery.tsx), bukan cuma satu galeri kurasi admin. */}
+          <HotelAgentGallerySection hotelSlug={detail.slug} hotelName={detail.name} currentAgentSlug={agentSlug} />
 
           {/* Lightbox yang sama dengan halaman media — foto di galeri detail
               dibuka langsung, tanpa mampir ke halaman media dulu. */}

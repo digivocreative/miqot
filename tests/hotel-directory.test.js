@@ -16,12 +16,19 @@ import {
   hotelAreaCity,
   HOTEL_RATING_PLATFORMS,
   normalizeHotelRatingsInput,
+  HOTEL_AGENT_MEDIA_MAX_ITEMS,
+  normalizeHotelAgentMediaInput,
+  buildHotelAgentMediaPayload,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
 const IMG_URL = 'https://cdn.example.b-cdn.net/hotels/nikita-abc-123.jpg';
 const IMG_URL_2 = 'https://cdn.example.b-cdn.net/hotels/bagas-def-456.webp';
 const VID_URL = 'https://cdn.example.b-cdn.net/hotels/nikita-ghi-789.mp4';
+
+const AGENT_PREFIXES = ['https://cdn.example.b-cdn.net/hotel-agent-media/'];
+const AGENT_IMG_URL = 'https://cdn.example.b-cdn.net/hotel-agent-media/bagas-abc-123.jpg';
+const AGENT_IMG_URL_2 = 'https://cdn.example.b-cdn.net/hotel-agent-media/bagas-def-456.jpg';
 
 function stubRes() {
   return {
@@ -495,4 +502,70 @@ test('buildHotelPayload: ratings ikut whitelist dan tervalidasi', () => {
   const absent = buildHotelPayload(validInput(), OPTS);
   assert.equal(absent.ok, true);
   assert.deepEqual(absent.data.ratings, []);
+});
+
+// ── Galeri hotel VERSI AGENT SENDIRI ──
+
+test('normalizeHotelAgentMediaInput: lolos hanya untuk file milik agent sendiri', () => {
+  const own = normalizeHotelAgentMediaInput(
+    [{ type: 'image', url: AGENT_IMG_URL }],
+    AGENT_PREFIXES,
+    'bagas'
+  );
+  assert.deepEqual(own, [{ type: 'image', url: AGENT_IMG_URL }]);
+
+  // URL sah tapi nama file diawali slug agent LAIN → ditolak (anti klaim
+  // unggahan orang lain sebagai "foto versi saya").
+  const notOwner = normalizeHotelAgentMediaInput(
+    [{ type: 'image', url: AGENT_IMG_URL }],
+    AGENT_PREFIXES,
+    'nikita'
+  );
+  assert.equal(notOwner, null);
+});
+
+test('normalizeHotelAgentMediaInput: kosong ditolak, > batas maks ditolak', () => {
+  assert.equal(normalizeHotelAgentMediaInput([], AGENT_PREFIXES, 'bagas'), null);
+  assert.equal(normalizeHotelAgentMediaInput(null, AGENT_PREFIXES, 'bagas'), null);
+
+  const tooMany = Array.from({ length: HOTEL_AGENT_MEDIA_MAX_ITEMS + 1 }, (_, i) => ({
+    type: 'image',
+    url: `https://cdn.example.b-cdn.net/hotel-agent-media/bagas-${i}-hash.jpg`,
+  }));
+  assert.equal(normalizeHotelAgentMediaInput(tooMany, AGENT_PREFIXES, 'bagas'), null);
+
+  const atLimit = tooMany.slice(0, HOTEL_AGENT_MEDIA_MAX_ITEMS);
+  assert.equal(normalizeHotelAgentMediaInput(atLimit, AGENT_PREFIXES, 'bagas').length, HOTEL_AGENT_MEDIA_MAX_ITEMS);
+});
+
+test('normalizeHotelAgentMediaInput: tanpa kategori (beda sengaja dari galeri resmi)', () => {
+  const result = normalizeHotelAgentMediaInput(
+    [{ type: 'image', url: AGENT_IMG_URL, category: 'Lobby' }],
+    AGENT_PREFIXES,
+    'bagas'
+  );
+  // category diam-diam dibuang, bukan disimpan — galeri pribadi tak berkategori.
+  assert.deepEqual(result, [{ type: 'image', url: AGENT_IMG_URL }]);
+});
+
+test('buildHotelAgentMediaPayload: sah, dan catatan ikut tervalidasi', () => {
+  const ok = buildHotelAgentMediaPayload(
+    { media: [{ type: 'image', url: AGENT_IMG_URL }, { type: 'image', url: AGENT_IMG_URL_2 }], note: 'Nginap Juli 2026' },
+    { agentSlug: 'bagas', mediaPrefixes: AGENT_PREFIXES }
+  );
+  assert.equal(ok.ok, true);
+  assert.equal(ok.data.media.length, 2);
+  assert.equal(ok.data.note, 'Nginap Juli 2026');
+
+  const tooLongNote = buildHotelAgentMediaPayload(
+    { media: [{ type: 'image', url: AGENT_IMG_URL }], note: 'x'.repeat(301) },
+    { agentSlug: 'bagas', mediaPrefixes: AGENT_PREFIXES }
+  );
+  assert.equal(tooLongNote.ok, false);
+
+  const badMedia = buildHotelAgentMediaPayload(
+    { media: [] },
+    { agentSlug: 'bagas', mediaPrefixes: AGENT_PREFIXES }
+  );
+  assert.equal(badMedia.ok, false);
 });
