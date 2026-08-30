@@ -231,9 +231,9 @@ function getAIToolsSubFromPath(): string | null {
 }
 
 // Sub-path Direktori Hotel: /dashboard/hotel[/:city[/:slug]].
-// Label kota digandakan di sini (4 entri) agar chunk HotelPage tetap lazy.
+// Label kota digandakan di sini (6 entri) agar chunk HotelPage tetap lazy.
 const HOTEL_HEADER_CITY_LABELS: Record<string, string> = {
-  mekkah: 'Mekkah', madinah: 'Madinah', turki: 'Turki', dubai: 'Dubai',
+  mekkah: 'Mekkah', madinah: 'Madinah', turki: 'Turki', dubai: 'Dubai', kairo: 'Kairo', haikou: 'Haikou',
 };
 
 function getHotelPathInfo(): { city: string | null; slug: string | null; isMedia: boolean } {

@@ -32,8 +32,8 @@ function stubRes() {
   };
 }
 
-test('konstanta kota: 4 kategori tetap dan landmark hanya untuk mekkah/madinah', () => {
-  assert.deepEqual(HOTEL_CITIES, ['mekkah', 'madinah', 'turki', 'dubai']);
+test('konstanta kota: 6 kategori tetap dan landmark hanya untuk mekkah/madinah', () => {
+  assert.deepEqual(HOTEL_CITIES, ['mekkah', 'madinah', 'turki', 'dubai', 'kairo', 'haikou']);
   assert.equal(HOTEL_CITY_LANDMARKS.mekkah, 'Masjidil Haram');
   assert.equal(HOTEL_CITY_LANDMARKS.madinah, 'Masjid Nabawi');
   assert.equal(HOTEL_CITY_LANDMARKS.turki, undefined);
@@ -171,8 +171,8 @@ test('buildHotelPayload: bintang harus integer 1-5 atau null', () => {
   assert.equal(nullStars.data.stars, null);
 });
 
-test('buildHotelPayload: turki/dubai dipaksa tanpa jarak', () => {
-  for (const city of ['turki', 'dubai']) {
+test('buildHotelPayload: turki/dubai/kairo/haikou dipaksa tanpa jarak', () => {
+  for (const city of ['turki', 'dubai', 'kairo', 'haikou']) {
     const result = buildHotelPayload(validInput({ city }), OPTS);
     assert.equal(result.ok, true);
     assert.equal(result.data.distance_label, null);

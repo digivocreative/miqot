@@ -77,12 +77,14 @@ export interface HotelDetail {
   faq?: HotelFaqItemData[];
 }
 
-export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai'] as const;
+export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai', 'kairo', 'haikou'] as const;
 export const HOTEL_CITY_LABELS: Record<string, string> = {
   mekkah: 'Mekkah',
   madinah: 'Madinah',
   turki: 'Turki',
   dubai: 'Dubai',
+  kairo: 'Kairo',
+  haikou: 'Haikou',
 };
 export const HOTEL_CITY_LANDMARKS: Record<string, string> = {
   mekkah: 'Masjidil Haram',
@@ -638,7 +640,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                 onClick={() => onNavigate(`/dashboard/hotel/${city}`)}
                 className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97] dark:border-slate-700 dark:bg-slate-800"
               >
-                {/* Hanya empat kartu dan semuanya di puncak halaman: `lazy` di
+                {/* Semua kartu kategori tampil di puncak halaman: `lazy` di
                     sini justru menunda gambar yang sudah terlihat, sehingga
                     kartu tampil abu-abu dulu baru terisi. Latar abu-abu di
                     tombol = warna skeleton, jadi jeda decode tidak terlihat
