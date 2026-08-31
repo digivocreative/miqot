@@ -127,3 +127,36 @@ test('kurs fetch leads with a TLS profile that is not Node default', async () =>
   assert.ok(attempts[0].dispatcher, 'percobaan pertama wajib memakai dispatcher sidik jari khusus');
   assert.equal(attempts.at(-1).dispatcher, null, 'percobaan terakhir memakai klien bawaan');
 });
+
+test('decideKursFetchAlert stays quiet when the scrape works but rates are not published yet', async () => {
+  const { decideKursFetchAlert } = await loadKursModule();
+  const now = Date.parse('2026-08-29T03:02:00.000Z');
+
+  // Akhir pekan / libur: halaman terbaca normal, hanya tanggalnya masih kemarin.
+  // Ini BUKAN insiden — kalau ikut dialarmkan, ops dapat notifikasi tiap Sabtu
+  // dan Minggu sampai alertnya diabaikan.
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
+});
+
+test('decideKursFetchAlert raises once, holds, then re-nudges a long outage', async () => {
+  const { decideKursFetchAlert, KURS_ALERT_RENUDGE_MS } = await loadKursModule();
+  const firstFailure = Date.parse('2026-08-25T05:02:00.000Z');
+
+  assert.equal(decideKursFetchAlert({ failed: true, alertedAt: null, nowMs: firstFailure }), 'alert');
+  assert.equal(
+    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS - 1 }),
+    'quiet'
+  );
+  assert.equal(
+    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS }),
+    'alert'
+  );
+});
+
+test('decideKursFetchAlert reports recovery only to someone who got the alarm', async () => {
+  const { decideKursFetchAlert } = await loadKursModule();
+  const now = Date.parse('2026-08-31T05:02:00.000Z');
+
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: now - 60_000, nowMs: now }), 'recovered');
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
+});

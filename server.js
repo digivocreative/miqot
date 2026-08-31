@@ -226,6 +226,7 @@ import {
 } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
+  decideKursFetchAlert,
   fetchMandiriKursHtml,
   isKursCacheRefreshDue,
   isKursToday,
@@ -826,6 +827,10 @@ let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetch
 const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 const KURS_REFRESH_INTERVAL = Number(process.env.KURS_REFRESH_INTERVAL_MS || 30 * 60 * 1000); // 30 minutes
 let kursRefreshInFlight = null;
+// Pesan galat fetch/parse terakhir, atau null kalau halaman Mandiri terbaca normal.
+// Ini yang membedakan "scrape mati" dari "scrape sehat, kursnya saja belum terbit".
+let lastKursFetchError = null;
+let kursAlertedAt = null;
 
 async function loadKursFromSupabase() {
   try {
@@ -863,6 +868,7 @@ async function fetchKursMandiri() {
         updatedAt: updatedAt || new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
         fetchedAt: Date.now(),
       };
+      lastKursFetchError = null;
       if (!shouldReplaceKursCache(kursCache, nextCache)) {
         console.log(`[Kurs] Fetched older data (${nextCache.updatedAt}); keeping cache ${kursCache.updatedAt}`);
         kursCache.fetchedAt = Date.now();
@@ -886,11 +892,33 @@ async function fetchKursMandiri() {
       return isKursToday(kursCache.updatedAt);
     } else {
       console.warn('[Kurs] Gagal parse rates dari halaman Bank Mandiri');
+      lastKursFetchError = 'halaman terbaca tapi tidak ada rate yang bisa diparse';
       return false;
     }
   } catch (err) {
     console.error('[Kurs] Fetch error:', err.message);
+    lastKursFetchError = err.message;
     return false;
+  }
+}
+
+// Dipanggil sekali per siklus cron harian, jadi paling banyak satu alert per hari.
+async function settleKursFetchAlert(failed) {
+  const verdict = decideKursFetchAlert({ failed, alertedAt: kursAlertedAt, nowMs: Date.now() });
+  if (verdict === 'quiet') return;
+
+  const text = verdict === 'alert'
+    ? `\u26a0\ufe0f <b>Kurs Mandiri gagal di-scrape</b>\n`
+      + `${KURS_MAX_RETRIES}\u00d7 percobaan sejak 10:02 WIB semuanya gagal.\n`
+      + `Galat terakhir: <code>${escapeHtml(String(lastKursFetchError))}</code>\n`
+      + `Dashboard masih memakai kurs ${escapeHtml(kursCache?.updatedAt || '(kosong)')}.`
+    : `\u2705 <b>Kurs Mandiri pulih</b>\nData terbaru: ${escapeHtml(kursCache?.updatedAt || '(kosong)')}`;
+
+  try {
+    await sendOpsAlert(text);
+    kursAlertedAt = verdict === 'alert' ? Date.now() : null;
+  } catch (err) {
+    console.error('[Kurs] Ops alert gagal terkirim:', err.message);
   }
 }
 
@@ -948,6 +976,7 @@ async function fetchKursWithRetry() {
     if (isCurrent) {
       console.log(`[Kurs] Got today's rates on attempt ${attempt}`);
       sendKursUpdate().catch(err => console.error('[Kurs] post-scrape send error:', err.message));
+      await settleKursFetchAlert(false);
       return;
     }
     if (attempt < KURS_MAX_RETRIES) {
@@ -955,6 +984,7 @@ async function fetchKursWithRetry() {
       await new Promise(r => setTimeout(r, KURS_RETRY_INTERVAL));
     } else {
       console.warn(`[Kurs] Max retries reached (${KURS_MAX_RETRIES}), using latest available data`);
+      await settleKursFetchAlert(Boolean(lastKursFetchError));
     }
   }
 }
