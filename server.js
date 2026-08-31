@@ -230,8 +230,10 @@ import {
   fetchMandiriKursHtml,
   isKursCacheRefreshDue,
   isKursToday,
+  canAttemptKursFetch,
   parseMandiriKursHtml,
   shouldReplaceKursCache,
+  shouldWaitForKursFetch,
 } from './lib/kurs-mandiri.js';
 import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync, msUntilNextWibHour } from './lib/background-jobs.js';
 import { parseHajiPlusStatsHtml, isHajiPlusRows, buildHajiPlusPayload } from './lib/haji-plus-stats.js';
@@ -826,11 +828,14 @@ setInterval(() => {
 let kursCache = null; // { rates: { USD: number, ... }, updatedAt: string, fetchedAt: number }
 const KURS_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 const KURS_REFRESH_INTERVAL = Number(process.env.KURS_REFRESH_INTERVAL_MS || 30 * 60 * 1000); // 30 minutes
+// Pagu tunggu di jalur permintaan, hanya dipakai saat cache benar-benar kosong.
+const KURS_REQUEST_WAIT_MS = 4000;
 let kursRefreshInFlight = null;
 // Pesan galat fetch/parse terakhir, atau null kalau halaman Mandiri terbaca normal.
 // Ini yang membedakan "scrape mati" dari "scrape sehat, kursnya saja belum terbit".
 let lastKursFetchError = null;
 let kursAlertedAt = null;
+let lastKursAttemptAt = null;
 
 async function loadKursFromSupabase() {
   try {
@@ -926,7 +931,13 @@ async function refreshKursIfDue({ force = false } = {}) {
   if (!force && !isKursCacheRefreshDue(kursCache, Date.now(), KURS_REFRESH_INTERVAL)) {
     return isKursToday(kursCache?.updatedAt);
   }
+  // Cron harian memanggil fetchKursMandiri() langsung, jadi jeda ini hanya
+  // mengerem percobaan yang dipicu lalu lintas dashboard.
+  if (!force && !canAttemptKursFetch(lastKursAttemptAt, Date.now())) {
+    return isKursToday(kursCache?.updatedAt);
+  }
   if (!kursRefreshInFlight) {
+    lastKursAttemptAt = Date.now();
     kursRefreshInFlight = fetchKursMandiri().finally(() => {
       kursRefreshInFlight = null;
     });
@@ -1031,7 +1042,20 @@ if (shouldRunBackgroundJobs()) scheduleAnalyticsMaintenanceCron();
 // GET /api/kurs — Kurs semua mata uang (public, no auth)
 app.get('/api/kurs', async (req, res) => {
   if (isKursCacheRefreshDue(kursCache, Date.now(), KURS_REFRESH_INTERVAL)) {
-    await refreshKursIfDue();
+    // Penyegaran berjalan di latar belakang. Menunggunya di sini pernah membuat
+    // dashboard menggantung 15 detik begitu Akamai memblokir scrape Mandiri:
+    // widget Kurs digerbangi `{kursData && ...}` tanpa skeleton, jadi selama
+    // permintaan ini belum selesai widgetnya hilang sama sekali dari layar.
+    const refreshing = refreshKursIfDue()
+      .catch(err => console.error('[Kurs] Penyegaran latar belakang gagal:', err.message));
+    if (shouldWaitForKursFetch(kursCache)) {
+      // Tidak ada apa pun untuk disajikan, jadi tunggu — tapi dengan pagu sendiri,
+      // bukan sepanjang timeout gabungan semua percobaan fetch.
+      await Promise.race([
+        refreshing,
+        new Promise(resolve => setTimeout(resolve, KURS_REQUEST_WAIT_MS)),
+      ]);
+    }
   }
   if (!kursCache || Object.keys(kursCache.rates).length === 0) {
     return res.json({

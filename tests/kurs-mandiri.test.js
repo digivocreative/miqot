@@ -160,3 +160,40 @@ test('decideKursFetchAlert reports recovery only to someone who got the alarm', 
   assert.equal(decideKursFetchAlert({ failed: false, alertedAt: now - 60_000, nowMs: now }), 'recovered');
   assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
 });
+
+test('shouldWaitForKursFetch never blocks a request that already has rates to serve', async () => {
+  const { shouldWaitForKursFetch } = await loadKursModule();
+
+  // Kurs basi seminggu masih jauh lebih berguna daripada dashboard yang
+  // menggantung 15 detik menunggu upstream yang diblokir. Widget Kurs digerbangi
+  // `{kursData && ...}` tanpa skeleton, jadi permintaan yang lambat = widget hilang.
+  const basiSeminggu = {
+    rates: { USD: 17780, SAR: 4906 },
+    updatedAt: '24/08/26 09:51 WIB',
+    fetchedAt: Date.parse('2026-08-24T02:51:00.000Z'),
+  };
+  assert.equal(shouldWaitForKursFetch(basiSeminggu), false);
+});
+
+test('shouldWaitForKursFetch waits only when there is nothing at all to serve', async () => {
+  const { shouldWaitForKursFetch } = await loadKursModule();
+
+  assert.equal(shouldWaitForKursFetch(null), true);
+  assert.equal(shouldWaitForKursFetch(undefined), true);
+  assert.equal(shouldWaitForKursFetch({ rates: {}, updatedAt: '', fetchedAt: 0 }), true);
+});
+
+test('canAttemptKursFetch keeps a cooldown between outbound attempts', async () => {
+  const { canAttemptKursFetch, KURS_MIN_ATTEMPT_GAP_MS } = await loadKursModule();
+  const now = Date.parse('2026-08-31T05:00:00.000Z');
+
+  // isKursCacheRefreshDue() bernilai true TERUS selama data belum hari ini, tanpa
+  // memandang kapan percobaan terakhir. Selama permintaan masih menunggu fetch,
+  // hal itu tersamarkan karena percobaannya terserialisasi. Setelah penyegaran
+  // dipindah ke latar belakang, tanpa jeda ini tiap permintaan akan menyalakan
+  // fetch baru begitu yang sebelumnya selesai — palu bertubi ke Mandiri persis
+  // saat reputasi IP server sedang jadi masalah.
+  assert.equal(canAttemptKursFetch(null, now), true, 'belum pernah mencoba');
+  assert.equal(canAttemptKursFetch(now - 60_000, now), false, 'baru semenit lalu');
+  assert.equal(canAttemptKursFetch(now - KURS_MIN_ATTEMPT_GAP_MS, now), true, 'jeda sudah lewat');
+});
