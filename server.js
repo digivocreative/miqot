@@ -226,6 +226,7 @@ import {
 } from './lib/cdn-file-sync.js';
 import {
   CURRENCY_NAMES,
+  fetchMandiriKursHtml,
   isKursCacheRefreshDue,
   isKursToday,
   parseMandiriKursHtml,
@@ -850,26 +851,10 @@ async function loadKursFromSupabase() {
 // Returns true if fetched data is from today, false otherwise
 async function fetchKursMandiri() {
   try {
-    const res = await fetch('https://www.bankmandiri.co.id/kurs', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.bankmandiri.co.id/',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Ch-Ua': '"Chromium";v="135", "Google Chrome";v="135", "Not-A.Brand";v="8"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Cache-Control': 'no-cache',
-      },
-      signal: AbortSignal.timeout(15000),
+    const { html, via } = await fetchMandiriKursHtml({
+      onAttemptFail: (label, err) => console.warn(`[Kurs] Percobaan fetch "${label}" gagal: ${err.message}`),
     });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const html = await res.text();
+    if (via !== 'tls-chrome') console.log(`[Kurs] Fetch lolos lewat klien "${via}"`);
     const { rates, updatedAt } = parseMandiriKursHtml(html);
 
     if (Object.keys(rates).length > 0) {

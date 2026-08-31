@@ -70,3 +70,60 @@ test('shouldReplaceKursCache rejects older Mandiri timestamps', async () => {
   assert.equal(shouldReplaceKursCache(current, older), false);
   assert.equal(shouldReplaceKursCache(older, current), true);
 });
+
+test('fetchMandiriKursHtml falls back to the next client when Akamai answers 403', async () => {
+  const { fetchMandiriKursHtml } = await loadKursModule();
+  const tried = [];
+  const fetchImpl = async (url, options) => {
+    tried.push(options.dispatcher?.tag ?? 'default');
+    if (tried.length === 1) {
+      return { ok: false, status: 403, text: async () => '<title>Mandiri Maintenance</title>' };
+    }
+    return { ok: true, status: 200, text: async () => '<table>ok</table>' };
+  };
+
+  const result = await fetchMandiriKursHtml({
+    fetchImpl,
+    attempts: [
+      { label: 'tls-chrome', dispatcher: { tag: 'tls-chrome' } },
+      { label: 'default', dispatcher: null },
+    ],
+  });
+
+  assert.deepEqual(tried, ['tls-chrome', 'default']);
+  assert.equal(result.html, '<table>ok</table>');
+  assert.equal(result.via, 'default');
+});
+
+test('fetchMandiriKursHtml surfaces the last error when every client is blocked', async () => {
+  const { fetchMandiriKursHtml } = await loadKursModule();
+  const failures = [];
+
+  await assert.rejects(
+    fetchMandiriKursHtml({
+      fetchImpl: async () => ({ ok: false, status: 403, text: async () => '' }),
+      attempts: [
+        { label: 'tls-chrome', dispatcher: { tag: 'tls-chrome' } },
+        { label: 'default', dispatcher: null },
+      ],
+      onAttemptFail: (label, err) => failures.push(`${label}:${err.message}`),
+    }),
+    /HTTP 403/
+  );
+
+  assert.deepEqual(failures, ['tls-chrome:HTTP 403', 'default:HTTP 403']);
+});
+
+test('kurs fetch leads with a TLS profile that is not Node default', async () => {
+  const { MANDIRI_TLS_CIPHERS, createMandiriFetchAttempts } = await loadKursModule();
+  const tls = await import('node:tls');
+
+  // Akamai memblokir lewat sidik jari TLS: begitu daftar cipher-nya kembali
+  // sama dengan bawaan Node, ClientHello-nya kembali dikenali dan 403 lagi.
+  assert.notEqual(MANDIRI_TLS_CIPHERS, tls.DEFAULT_CIPHERS);
+
+  const attempts = createMandiriFetchAttempts();
+  assert.ok(attempts.length >= 2, 'butuh minimal satu fallback');
+  assert.ok(attempts[0].dispatcher, 'percobaan pertama wajib memakai dispatcher sidik jari khusus');
+  assert.equal(attempts.at(-1).dispatcher, null, 'percobaan terakhir memakai klien bawaan');
+});
