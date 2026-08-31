@@ -556,7 +556,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     usd: number | null;
     sar: number | null;
     updatedAt: string;
+    stale: boolean;
   } | null>(null);
+  const [kursFailed, setKursFailed] = useState(false);
   const [showShareKurs, setShowShareKurs] = useState(false);
   const [selectedBirthday, setSelectedBirthday] = useState<Birthday | null>(null);
 
@@ -571,9 +573,19 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           if (usdRate !== null) {
             // Parse "DD/MM/YY HH:MM WIB" → "Minggu, 5 April 2026 • 09:51 WIB"
             let formattedDate = d.data.updatedAt || '';
+            // Umur data, bukan sekadar "bukan hari ini". Sabtu dan Minggu memang
+            // wajar memakai kurs Jumat; menandainya basi tiap akhir pekan akan
+            // dianggap angin lalu, dan penanda yang diabaikan sama tak bergunanya
+            // dengan tidak ada penanda.
+            let staleDays = 0;
             const m = formattedDate.match(/(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}:\d{2})\s*WIB/);
             if (m) {
               const dt = new Date(2000 + parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+              const today = new Date();
+              staleDays = Math.floor(
+                (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - dt.getTime())
+                / 86400000
+              );
               const dayName = dt.toLocaleDateString('id-ID', { weekday: 'long' });
               const monthName = dt.toLocaleDateString('id-ID', { month: 'long' });
               formattedDate = `${dayName}, ${dt.getDate()} ${monthName} ${dt.getFullYear()}`;
@@ -583,11 +595,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               usd: usdRate,
               sar: sarRate,
               updatedAt: formattedDate,
+              stale: staleDays >= 3,
             });
+            return;
           }
         }
+        setKursFailed(true);
       })
-      .catch(() => {}); // silent fail — widget tidak muncul kalau gagal
+      .catch(() => setKursFailed(true));
   }, []);
 
   const formatKurs = (rate: number): string => {
@@ -1398,70 +1413,90 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           </div>
 
           {/* ── Kurs Hari Ini Widget ── */}
-          {kursData && (
-            <div style={{ order: 3 }} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
-                    <DollarSign size={14} strokeWidth={2.2} className="text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-800 dark:text-white">Kurs Hari Ini</div>
-                    <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">
-                      {kursData.updatedAt}
-                    </div>
-                  </div>
+          {/* Kartu ini SELALU dirender. Sebelumnya digerbangi `{kursData && ...}`
+              tanpa skeleton, jadi satu permintaan lambat membuatnya lenyap dari DOM —
+              bukan kosong, benar-benar tidak ada — lalu muncul mendadak dan menggeser
+              tetangganya karena disisipkan di order: 3. */}
+          <div style={{ order: 3 }} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
+                  <DollarSign size={14} strokeWidth={2.2} className="text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {kursData.usd !== null && (
-                    <button
-                      onClick={() => setShowShareKurs(true)}
-                      aria-label="Bagikan kurs"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
-                    >
-                      <Share2 size={10} strokeWidth={2.5} />
-                      Share
-                    </button>
+                <div>
+                  <div className="text-xs font-bold text-gray-800 dark:text-white">Kurs Hari Ini</div>
+                  <div className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">
+                    {kursData ? kursData.updatedAt : kursFailed ? 'Belum tersedia' : 'Memuat…'}
+                  </div>
+                  {kursData?.stale && (
+                    <div className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
+                      Belum diperbarui
+                    </div>
                   )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {kursData?.usd != null && (
                   <button
-                    onClick={() => navigatePath('/dashboard/ai-tools/kurs')}
+                    onClick={() => setShowShareKurs(true)}
+                    aria-label="Bagikan kurs"
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
                   >
-                    Kurs
-                    <ChevronRight size={10} strokeWidth={2.5} />
+                    <Share2 size={10} strokeWidth={2.5} />
+                    Share
                   </button>
-                </div>
-              </div>
-
-              {/* Rate Pills */}
-              <div className="flex gap-2">
-                {/* USD */}
-                <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🇺🇸</span>
-                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400">USD</span>
-                  </div>
-                  <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                    {formatKurs(kursData.usd!)}
-                  </span>
-                </div>
-
-                {/* SAR — hanya tampil kalau ada data SAR */}
-                {kursData.sar && (
-                  <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🇸🇦</span>
-                      <span className="text-sm font-bold text-gray-500 dark:text-slate-400">SAR</span>
-                    </div>
-                    <span className="text-[15px] font-bold text-gray-800 dark:text-white">
-                      {formatKurs(kursData.sar)}
-                    </span>
-                  </div>
                 )}
+                <button
+                  onClick={() => navigatePath('/dashboard/ai-tools/kurs')}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+                >
+                  Kurs
+                  <ChevronRight size={10} strokeWidth={2.5} />
+                </button>
               </div>
             </div>
-          )}
+
+            {/* Rate Pills */}
+            <div className="flex gap-2">
+              {kursData ? (
+                <>
+                  {/* USD */}
+                  <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🇺🇸</span>
+                      <span className="text-sm font-bold text-gray-500 dark:text-slate-400">USD</span>
+                    </div>
+                    <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+                      {formatKurs(kursData.usd!)}
+                    </span>
+                  </div>
+
+                  {/* SAR — hanya tampil kalau ada data SAR */}
+                  {kursData.sar && (
+                    <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🇸🇦</span>
+                        <span className="text-sm font-bold text-gray-500 dark:text-slate-400">SAR</span>
+                      </div>
+                      <span className="text-[15px] font-bold text-gray-800 dark:text-white">
+                        {formatKurs(kursData.sar)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : kursFailed ? (
+                <div className="flex-1 bg-gray-50 dark:bg-slate-900 rounded-xl px-3 py-2.5 text-[11px] text-gray-400 dark:text-slate-500">
+                  Kurs belum tersedia
+                </div>
+              ) : (
+                <>
+                  <div className="flex-1 h-[42px] bg-gray-50 dark:bg-slate-900 rounded-xl animate-pulse" />
+                  <div className="flex-1 h-[42px] bg-gray-50 dark:bg-slate-900 rounded-xl animate-pulse" />
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ── Admin-Only Cards (bottom of dashboard) ── */}

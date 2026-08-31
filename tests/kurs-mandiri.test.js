@@ -192,3 +192,36 @@ test('decideKursFetchAlert reports recovery only to someone who got the alarm', 
   assert.equal(decideKursFetchAlert({ failed: false, alertedAt: now - 60_000, nowMs: now }), 'recovered');
   assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
 });
+
+test('fetchMandiriKursHtml honours one total deadline, not a fresh timeout per client', async () => {
+  const { fetchMandiriKursHtml } = await loadKursModule();
+  const handed = [];
+  let clock = 0;
+
+  // Pagu per-percobaan membuat rantai tiga klien bisa memakan 3x jatah penuh.
+  // Rantai ini berjalan di latar belakang, tapi tetap tidak boleh menahan soket
+  // dan proses curl jauh lebih lama daripada satu siklus penyegaran.
+  const eatBudget = (ms) => async ({ timeoutMs }) => {
+    handed.push(timeoutMs);
+    clock += ms;
+    throw new Error('HTTP 403');
+  };
+
+  await assert.rejects(
+    fetchMandiriKursHtml({
+      attempts: [
+        { label: 'curl', run: eatBudget(9000) },
+        { label: 'tls-chrome', run: eatBudget(9000) },
+        { label: 'default', run: eatBudget(9000) },
+      ],
+      timeoutMs: 12000,
+      totalBudgetMs: 15000,
+      now: () => clock,
+    }),
+    /HTTP 403/
+  );
+
+  // Percobaan 1 dapat jatah penuh; percobaan 2 hanya sisa anggaran; percobaan 3
+  // tidak pernah dijalankan karena anggarannya sudah habis.
+  assert.deepEqual(handed, [12000, 6000]);
+});
