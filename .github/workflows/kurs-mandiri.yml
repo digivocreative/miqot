@@ -1,0 +1,42 @@
+name: Sync kurs Bank Mandiri
+
+# Akamai memblokir egress VPS produksi ke www.bankmandiri.co.id berdasarkan
+# reputasi IP — curl pun ditolak dari sana. Runner GitHub yang mengambil
+# halamannya, lalu menulis ke tabel kurs_cache di Supabase; server membaca
+# baris itu. Lihat scripts/sync-kurs-mandiri.mjs.
+
+on:
+  schedule:
+    # Mandiri menerbitkan TT Counter sekitar 09:5x WIB (WIB = UTC+7).
+    # Jam 03:05-10:05 UTC = 10:05-17:05 WIB, menangkap terbitan pagi sekaligus
+    # perubahan siang. Cron GitHub kerap telat beberapa menit; itu tidak masalah
+    # karena skripnya idempoten dan menolak memundurkan cache.
+    - cron: '5 3-10 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: kurs-mandiri
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # --omit=dev melewati playwright dkk; --ignore-scripts mencegah
+      # postinstall 'playwright install chromium' yang tidak dipakai skrip ini.
+      - name: Pasang dependensi runtime
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Ambil kurs dan tulis ke Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/sync-kurs-mandiri.mjs

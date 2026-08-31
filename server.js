@@ -837,26 +837,41 @@ let lastKursFetchError = null;
 let kursAlertedAt = null;
 let lastKursAttemptAt = null;
 
-async function loadKursFromSupabase() {
+// Baris `kurs_cache` adalah SUMBER UTAMA kurs sekarang: Akamai memblokir egress
+// VPS produksi berdasarkan reputasi IP (curl pun ditolak dari sana), jadi yang
+// men-scrape adalah cron GitHub Actions di .github/workflows/kurs-mandiri.yml.
+async function loadKursFromSupabase({ onlyIfNewer = false } = {}) {
   try {
     const { data, error } = await supabase
       .from('kurs_cache')
       .select('data, synced_at')
       .eq('id', 'mandiri')
       .single();
-    if (error || !data) return false;
-    kursCache = {
+    if (error || !data?.data?.rates) return false;
+    const fromDb = {
       rates: data.data.rates,
       updatedAt: data.data.updatedAt,
       fetchedAt: new Date(data.synced_at).getTime(),
     };
-    console.log(`[Kurs] Loaded from Supabase. USD=${kursCache.rates.USD}, synced: ${data.synced_at}`);
+    // Pembacaan berkala bisa menemukan baris yang justru LEBIH TUA daripada yang
+    // sudah ada di memori; mengadopsinya akan memundurkan kurs di dashboard.
+    if (onlyIfNewer && !shouldReplaceKursCache(kursCache, fromDb)) return false;
+    kursCache = fromDb;
+    console.log(`[Kurs] Loaded from Supabase. USD=${kursCache.rates.USD}, date=${kursCache.updatedAt}, synced: ${data.synced_at}`);
     return true;
   } catch (err) {
     console.error('[Kurs] Supabase load error:', err.message);
     return false;
   }
 }
+
+// Dibaca berkala supaya dashboard ikut segar beberapa menit setelah Actions
+// menulis, tanpa menunggu siklus harian 10:02 WIB.
+const KURS_SUPABASE_RELOAD_MS = 10 * 60 * 1000;
+setInterval(() => {
+  loadKursFromSupabase({ onlyIfNewer: true })
+    .catch(err => console.error('[Kurs] Pembacaan ulang Supabase gagal:', err.message));
+}, KURS_SUPABASE_RELOAD_MS);
 
 // Returns true if fetched data is from today, false otherwise
 async function fetchKursMandiri() {
@@ -914,7 +929,8 @@ async function settleKursFetchAlert(failed) {
 
   const text = verdict === 'alert'
     ? `\u26a0\ufe0f <b>Kurs Mandiri gagal di-scrape</b>\n`
-      + `${KURS_MAX_RETRIES}\u00d7 percobaan sejak 10:02 WIB semuanya gagal.\n`
+      + `${KURS_MAX_RETRIES}\u00d7 percobaan sejak 10:02 WIB gagal, dan baris Supabase `
+      + `dari cron GitHub Actions juga belum berisi kurs hari ini.\n`
       + `Galat terakhir: <code>${escapeHtml(String(lastKursFetchError))}</code>\n`
       + `Dashboard masih memakai kurs ${escapeHtml(kursCache?.updatedAt || '(kosong)')}.`
     : `\u2705 <b>Kurs Mandiri pulih</b>\nData terbaru: ${escapeHtml(kursCache?.updatedAt || '(kosong)')}`;
@@ -988,7 +1004,10 @@ function scheduleKursCron() {
 
 async function fetchKursWithRetry() {
   for (let attempt = 1; attempt <= KURS_MAX_RETRIES; attempt++) {
-    const isCurrent = await fetchKursMandiri();
+    // Baris dari cron GitHub Actions dulu; scrape langsung tinggal cadangan
+    // kalau kelak IP server tidak lagi diblokir.
+    await loadKursFromSupabase({ onlyIfNewer: true });
+    const isCurrent = isKursToday(kursCache?.updatedAt) || await fetchKursMandiri();
     if (isCurrent) {
       console.log(`[Kurs] Got today's rates on attempt ${attempt}`);
       sendKursUpdate().catch(err => console.error('[Kurs] post-scrape send error:', err.message));
