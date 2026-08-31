@@ -864,7 +864,7 @@ async function fetchKursMandiri() {
     const { html, via } = await fetchMandiriKursHtml({
       onAttemptFail: (label, err) => console.warn(`[Kurs] Percobaan fetch "${label}" gagal: ${err.message}`),
     });
-    if (via !== 'tls-chrome') console.log(`[Kurs] Fetch lolos lewat klien "${via}"`);
+    console.log(`[Kurs] Fetch lolos lewat klien "${via}"`);
     const { rates, updatedAt } = parseMandiriKursHtml(html);
 
     if (Object.keys(rates).length > 0) {
@@ -958,6 +958,11 @@ async function refreshKursIfDue({ force = false } = {}) {
     console.log('[Kurs] Cached kurs is due for refresh, fetching fresh...');
     await refreshKursIfDue({ force: true });
   }
+  // Lapor kegagalan scrape di sini, bukan hanya dari cron 10:02 WIB. Blokir Akamai
+  // hanya terbaca di log server yang tak selalu terjangkau, jadi sebab persisnya
+  // dikirim ke ops beberapa detik setelah restart — bukan menunggu siklus besok.
+  // Halaman yang terbaca normal tapi belum terbit hari ini tetap tidak dialarmkan.
+  if (shouldRunBackgroundJobs()) await settleKursFetchAlert(Boolean(lastKursFetchError));
 })();
 
 const KURS_RETRY_INTERVAL = 15 * 60 * 1000; // 15 minutes

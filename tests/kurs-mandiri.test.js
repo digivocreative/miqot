@@ -71,26 +71,19 @@ test('shouldReplaceKursCache rejects older Mandiri timestamps', async () => {
   assert.equal(shouldReplaceKursCache(older, current), true);
 });
 
-test('fetchMandiriKursHtml falls back to the next client when Akamai answers 403', async () => {
+test('fetchMandiriKursHtml moves to the next client when one is blocked', async () => {
   const { fetchMandiriKursHtml } = await loadKursModule();
   const tried = [];
-  const fetchImpl = async (url, options) => {
-    tried.push(options.dispatcher?.tag ?? 'default');
-    if (tried.length === 1) {
-      return { ok: false, status: 403, text: async () => '<title>Mandiri Maintenance</title>' };
-    }
-    return { ok: true, status: 200, text: async () => '<table>ok</table>' };
-  };
 
   const result = await fetchMandiriKursHtml({
-    fetchImpl,
     attempts: [
-      { label: 'tls-chrome', dispatcher: { tag: 'tls-chrome' } },
-      { label: 'default', dispatcher: null },
+      { label: 'curl', run: async () => { tried.push('curl'); throw new Error('spawn curl ENOENT'); } },
+      { label: 'tls-chrome', run: async () => { tried.push('tls-chrome'); throw new Error('HTTP 403'); } },
+      { label: 'default', run: async () => { tried.push('default'); return '<table>ok</table>'; } },
     ],
   });
 
-  assert.deepEqual(tried, ['tls-chrome', 'default']);
+  assert.deepEqual(tried, ['curl', 'tls-chrome', 'default']);
   assert.equal(result.html, '<table>ok</table>');
   assert.equal(result.via, 'default');
 });
@@ -101,20 +94,19 @@ test('fetchMandiriKursHtml surfaces the last error when every client is blocked'
 
   await assert.rejects(
     fetchMandiriKursHtml({
-      fetchImpl: async () => ({ ok: false, status: 403, text: async () => '' }),
       attempts: [
-        { label: 'tls-chrome', dispatcher: { tag: 'tls-chrome' } },
-        { label: 'default', dispatcher: null },
+        { label: 'curl', run: async () => { throw new Error('spawn curl ENOENT'); } },
+        { label: 'tls-chrome', run: async () => { throw new Error('HTTP 403'); } },
       ],
       onAttemptFail: (label, err) => failures.push(`${label}:${err.message}`),
     }),
     /HTTP 403/
   );
 
-  assert.deepEqual(failures, ['tls-chrome:HTTP 403', 'default:HTTP 403']);
+  assert.deepEqual(failures, ['curl:spawn curl ENOENT', 'tls-chrome:HTTP 403']);
 });
 
-test('kurs fetch leads with a TLS profile that is not Node default', async () => {
+test('kurs fetch leads with curl, then a TLS profile that is not Node default', async () => {
   const { MANDIRI_TLS_CIPHERS, createMandiriFetchAttempts } = await loadKursModule();
   const tls = await import('node:tls');
 
@@ -123,42 +115,12 @@ test('kurs fetch leads with a TLS profile that is not Node default', async () =>
   assert.notEqual(MANDIRI_TLS_CIPHERS, tls.DEFAULT_CIPHERS);
 
   const attempts = createMandiriFetchAttempts();
-  assert.ok(attempts.length >= 2, 'butuh minimal satu fallback');
-  assert.ok(attempts[0].dispatcher, 'percobaan pertama wajib memakai dispatcher sidik jari khusus');
-  assert.equal(attempts.at(-1).dispatcher, null, 'percobaan terakhir memakai klien bawaan');
-});
-
-test('decideKursFetchAlert stays quiet when the scrape works but rates are not published yet', async () => {
-  const { decideKursFetchAlert } = await loadKursModule();
-  const now = Date.parse('2026-08-29T03:02:00.000Z');
-
-  // Akhir pekan / libur: halaman terbaca normal, hanya tanggalnya masih kemarin.
-  // Ini BUKAN insiden — kalau ikut dialarmkan, ops dapat notifikasi tiap Sabtu
-  // dan Minggu sampai alertnya diabaikan.
-  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
-});
-
-test('decideKursFetchAlert raises once, holds, then re-nudges a long outage', async () => {
-  const { decideKursFetchAlert, KURS_ALERT_RENUDGE_MS } = await loadKursModule();
-  const firstFailure = Date.parse('2026-08-25T05:02:00.000Z');
-
-  assert.equal(decideKursFetchAlert({ failed: true, alertedAt: null, nowMs: firstFailure }), 'alert');
-  assert.equal(
-    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS - 1 }),
-    'quiet'
-  );
-  assert.equal(
-    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS }),
-    'alert'
-  );
-});
-
-test('decideKursFetchAlert reports recovery only to someone who got the alarm', async () => {
-  const { decideKursFetchAlert } = await loadKursModule();
-  const now = Date.parse('2026-08-31T05:02:00.000Z');
-
-  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: now - 60_000, nowMs: now }), 'recovered');
-  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
+  // Urutan ini bukan selera. Dari server produksi, percobaan tls-chrome
+  // MENGGANTUNG sampai timeout penuh, sementara curl punya sidik jari TLS
+  // sendiri yang terbukti lolos. Menaruh curl belakangan berarti tiap siklus
+  // penyegaran membuang satu timeout utuh sebelum sampai ke yang berpeluang jalan.
+  assert.deepEqual(attempts.map(a => a.label), ['curl', 'tls-chrome', 'default']);
+  assert.ok(attempts.every(a => typeof a.run === 'function'), 'tiap percobaan wajib punya run()');
 });
 
 test('shouldWaitForKursFetch never blocks a request that already has rates to serve', async () => {
@@ -196,4 +158,37 @@ test('canAttemptKursFetch keeps a cooldown between outbound attempts', async () 
   assert.equal(canAttemptKursFetch(null, now), true, 'belum pernah mencoba');
   assert.equal(canAttemptKursFetch(now - 60_000, now), false, 'baru semenit lalu');
   assert.equal(canAttemptKursFetch(now - KURS_MIN_ATTEMPT_GAP_MS, now), true, 'jeda sudah lewat');
+});
+
+test('decideKursFetchAlert stays quiet when the scrape works but rates are not published yet', async () => {
+  const { decideKursFetchAlert } = await loadKursModule();
+  const now = Date.parse('2026-08-29T03:02:00.000Z');
+
+  // Akhir pekan / libur: halaman terbaca normal, hanya tanggalnya masih kemarin.
+  // Ini BUKAN insiden — kalau ikut dialarmkan, ops dapat notifikasi tiap Sabtu
+  // dan Minggu sampai alertnya diabaikan.
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
+});
+
+test('decideKursFetchAlert raises once, holds, then re-nudges a long outage', async () => {
+  const { decideKursFetchAlert, KURS_ALERT_RENUDGE_MS } = await loadKursModule();
+  const firstFailure = Date.parse('2026-08-25T05:02:00.000Z');
+
+  assert.equal(decideKursFetchAlert({ failed: true, alertedAt: null, nowMs: firstFailure }), 'alert');
+  assert.equal(
+    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS - 1 }),
+    'quiet'
+  );
+  assert.equal(
+    decideKursFetchAlert({ failed: true, alertedAt: firstFailure, nowMs: firstFailure + KURS_ALERT_RENUDGE_MS }),
+    'alert'
+  );
+});
+
+test('decideKursFetchAlert reports recovery only to someone who got the alarm', async () => {
+  const { decideKursFetchAlert } = await loadKursModule();
+  const now = Date.parse('2026-08-31T05:02:00.000Z');
+
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: now - 60_000, nowMs: now }), 'recovered');
+  assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
 });
