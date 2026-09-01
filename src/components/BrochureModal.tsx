@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
-import { stampAgentOnBrochure, type BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
+import { useStampedBrochure } from '../hooks/useStampedBrochure';
+import type { BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
 
 // ============================================
 // Types
@@ -47,11 +48,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
-  // Brosur ber-identitas agent. `pending` menahan pratinjau supaya gambar asli
-  // tidak sempat terlihat lalu berkedip diganti — yang dilihat agent sejak
-  // detik pertama harus sudah yang akan dikirim.
-  const [stamped, setStamped] = useState<{ url: string; blob: Blob } | null>(null);
-  const [isStamping, setIsStamping] = useState(false);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -73,55 +69,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
     }
   }, [isOpen, imageUrl]);
 
-  // ── Identitas agent dibakar ke brosur ──
-  // Pemanggil merakit `agent` sebagai objek literal, jadi identitasnya berubah
-  // tiap render. Efek ini karena itu bergantung pada NILAI-nya, bukan objeknya;
-  // tanpa itu ia menggubah ulang gambar tanpa henti.
-  const agentKey = agent ? [agent.name, agent.phone].join('|') : '';
-  const agentRef = useRef(agent);
-  agentRef.current = agent;
-  const stampedUrlRef = useRef<string | null>(null);
-
-  const replaceStamped = (next: { url: string; blob: Blob } | null) => {
-    if (stampedUrlRef.current) URL.revokeObjectURL(stampedUrlRef.current);
-    stampedUrlRef.current = next?.url ?? null;
-    setStamped(next);
-  };
-
-  useEffect(() => () => {
-    if (stampedUrlRef.current) URL.revokeObjectURL(stampedUrlRef.current);
-    stampedUrlRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen || !displayUrl || !agentKey) {
-      setIsStamping(false);
-      replaceStamped(null);
-      return;
-    }
-    let cancelled = false;
-    setIsStamping(true);
-    (async () => {
-      try {
-        const response = await fetch(displayUrl);
-        if (!response.ok) throw new Error('Fetch failed');
-        const original = await response.blob();
-        const out = await stampAgentOnBrochure(original, agentRef.current!);
-        if (cancelled) return;
-        // Blob yang sama = tidak ada yang berhasil digambar; pakai jalur lama
-        // apa adanya ketimbang menahan satu salinan identik di memori.
-        replaceStamped(out === original ? null : { url: URL.createObjectURL(out), blob: out });
-      } catch {
-        if (!cancelled) replaceStamped(null);
-      } finally {
-        if (!cancelled) setIsStamping(false);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, displayUrl, agentKey]);
-
-  const renderUrl = stamped?.url || displayUrl;
+  // Identitas agent dibakar ke brosur. Pratinjau ditahan selama menggubah
+  // supaya gambar polos tidak sempat terlihat lalu berkedip diganti — yang
+  // dilihat agent sejak detik pertama harus sudah yang akan dikirim.
+  const { url: renderUrl, blob: stampedBlob, isStamping } = useStampedBrochure(
+    isOpen, displayUrl, agent,
+  );
 
   // Close the AI Tools menu on outside-click / Escape (without closing the modal)
   useEffect(() => {
@@ -176,8 +129,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       // Berkas yang dibagikan adalah gambar yang SAMA dengan yang barusan
       // dilihat agent — bukan diambil ulang dari CDN tanpa identitasnya.
       let blob: Blob;
-      if (stamped) {
-        blob = stamped.blob;
+      if (stampedBlob) {
+        blob = stampedBlob;
       } else {
         const response = await fetch(displayUrl);
         if (!response.ok) throw new Error('Fetch failed');

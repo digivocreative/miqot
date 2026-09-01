@@ -6,6 +6,7 @@ import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun,
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
+import { useStampedBrochure } from '../hooks/useStampedBrochure';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
@@ -612,10 +613,25 @@ _________________________
       : pkg.brosurUrl.replace(/^https?:\/\/(?:jadwal\.(?:miqot\.com|alhijaz\.co)|115\.124\.86\.220)/i, '')
     : '';
 
+  // Identitas agent dibakar ke brosur — dipakai pratinjau di dalam kartu,
+  // tombol Download, tombol Share, DAN modal layar penuh. Digubah sekali di
+  // sini supaya keempatnya memakai gambar yang sama persis; gerbangnya
+  // showBrosurPreview agar hanya kartu yang benar-benar terbuka yang bekerja.
+  const brosurAgent = useMemo(
+    () => (currentAgent && agentSlug ? { name: currentAgent.name, phone: currentAgent.phone } : null),
+    [currentAgent, agentSlug],
+  );
+  const stampedBrosur = useStampedBrochure(
+    Boolean(showBrosurPreview && !brosurError && pkg.brosurUrl),
+    brosurImageUrl,
+    brosurAgent,
+  );
+  /** Kerangka 3:4 bertahan sampai gambarnya BENAR-BENAR siap tampil. */
+  const brosurSiap = brosurLoaded && !stampedBrosur.isStamping;
+
   const downloadBrosurFile = async () => {
     try {
-      const response = await fetch(brosurImageUrl);
-      const blob = await response.blob();
+      const blob = stampedBrosur.blob ?? await (await fetch(brosurImageUrl)).blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -637,8 +653,7 @@ _________________________
   const handleShareBrosur = async () => {
     fireViewContent();
     try {
-      const response = await fetch(brosurImageUrl);
-      const blob = await response.blob();
+      const blob = stampedBrosur.blob ?? await (await fetch(brosurImageUrl)).blob();
       const file = new File([blob], `Brosur - ${pkg.nama || 'Paket'}.jpg`, { type: 'image/jpeg' });
 
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
@@ -1987,21 +2002,40 @@ _________________________
                   // (handleCardClick di root) sehingga kartu tertutup di balik popup
                   onClick={(e) => { e.stopPropagation(); fireViewContent(); setIsBrochureOpen(true); }}
                 >
-                  <div className={brosurLoaded ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-950/60 animate-pulse'}>
-                    <img
-                      src={brosurImageUrl}
-                      alt="Brosur paket"
-                      className={`w-full h-auto block transition-opacity duration-300 ${brosurLoaded ? 'opacity-100' : 'opacity-0'}`}
-                      loading="lazy"
-                      decoding="async"
-                      // Gambar dari cache bisa complete sebelum onLoad terpasang
-                      ref={(el) => { if (el?.complete && el.naturalWidth > 0) setBrosurLoaded(true); }}
-                      onLoad={() => setBrosurLoaded(true)}
-                      onError={() => setBrosurError(true)}
-                    />
+                  <div className={brosurSiap ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-950/60 animate-pulse'}>
+                    {/* Gambar ditahan selama identitas agent digubah: brosur
+                        polos yang sempat terlihat bisa ikut ter-screenshot
+                        tanpa identitas, dan menukarnya setelah tampil membuat
+                        namanya berkedip masuk. */}
+                    {!stampedBrosur.isStamping && (
+                      <img
+                        src={stampedBrosur.url}
+                        alt="Brosur paket"
+                        className={`w-full h-auto block transition-opacity duration-300 ${brosurSiap ? 'opacity-100' : 'opacity-0'}`}
+                        // JANGAN kembalikan ke "lazy" tanpa syarat. Saat ada
+                        // identitas agent, gambar ini mount TERLAMBAT — setelah
+                        // penggubahan selesai — ke layout yang sudah diam,
+                        // sementara kotaknya sendiri masih 0px tinggi. Chrome
+                        // tidak punya scroll/resize untuk mengevaluasi ulang
+                        // lazy-load-nya, jadi gambarnya tidak pernah dimuat:
+                        // pratinjau tinggal kerangka abu selamanya.
+                        //
+                        // Tanpa agent tidak ada yang berubah — gambarnya mount
+                        // seketika dan "lazy" tetap menghemat unduhan pada
+                        // deretan kartu yang sudah pernah dibuka. Dengan agent,
+                        // hemat itu memang sudah hilang: hook-nya mengambil
+                        // brosurnya lebih dulu, jadi bytenya sudah turun.
+                        loading={brosurAgent ? 'eager' : 'lazy'}
+                        decoding="async"
+                        // Gambar dari cache bisa complete sebelum onLoad terpasang
+                        ref={(el) => { if (el?.complete && el.naturalWidth > 0) setBrosurLoaded(true); }}
+                        onLoad={() => setBrosurLoaded(true)}
+                        onError={() => setBrosurError(true)}
+                      />
+                    )}
                   </div>
                   {/* Badge */}
-                  {brosurLoaded && (
+                  {brosurSiap && (
                     <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
                       <Maximize2 size={12} />
                       Lihat penuh
@@ -2474,14 +2508,12 @@ _________________________
         <BrochureModal
           isOpen={isBrochureOpen}
           onClose={() => setIsBrochureOpen(false)}
-          imageUrl={pkg.brosurUrl}
+          // Kalau kartu sudah selesai menggubah, modal memakai hasilnya apa
+          // adanya — tidak perlu menggubah ulang gambar yang sama. Kalau belum,
+          // modal menggubah sendiri dengan identitas yang sama.
+          imageUrl={stampedBrosur.blob ? stampedBrosur.url : pkg.brosurUrl}
           title={pkg.nama}
-          // Halaman agent publik: brosur yang dibagikan membawa identitas
-          // pemilik halamannya, bukan kotak kontak kosong bawaan template.
-          agent={currentAgent && agentSlug ? {
-            name: currentAgent.name,
-            phone: currentAgent.phone,
-          } : null}
+          agent={stampedBrosur.blob ? null : brosurAgent}
           onCaption={isSessionValid() ? () => {
             setIsBrochureOpen(false);
             setIsAiCopyOpen(true);
