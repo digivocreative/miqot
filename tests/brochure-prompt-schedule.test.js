@@ -6,6 +6,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import {
+  SCHEDULE_TITLE_SENTINEL,
+  readCalls,
+  readTrackedEvents,
+  releaseReferenceFile,
+  sampleSchedule,
+  schedulePromptProps,
+  waitForShareButtonReady,
+  withPromptModal,
+} from './fixtures/brochure-prompt-modal-render.js';
 
 const root = new URL('..', import.meta.url).pathname;
 
@@ -196,28 +206,116 @@ test('PackageCard passes brochure URL into the AI recreate prompt', () => {
   assert.match(source, /referenceImageUrl=\{brosurImageUrl \|\| pkg\.brosurUrl \|\| null\}/);
 });
 
-test('BrochurePromptModal shares the image and prompt through the native share sheet', () => {
-  const source = readFileSync(join(root, 'src/components/BrochurePromptModal.tsx'), 'utf8');
+/**
+ * Penjaga native share sheet.
+ *
+ * Dulu blok ini mencocokkan teks sumber BrochurePromptModal.tsx dengan ~18 regex,
+ * termasuk memaku label tombolnya ('Menyiapkan...'). Menulis ulang label itu jadi
+ * 'Sebentar...' membuat penjaganya merah tanpa satu pun perilaku berubah — dan
+ * sebaliknya, mencabut gerbang `disabled` tidak akan terdeteksi sama sekali.
+ * Sekarang modalnya benar-benar dirender di chromium dan tombolnya ditekan;
+ * yang diperiksa adalah payload yang sampai ke navigator.share().
+ */
+const SHARE_SCHEDULE = sampleSchedule();
+const SHARE_PROPS = schedulePromptProps();
 
-  assert.match(source, /function safeImageFilename/);
-  assert.match(source, /async function fetchReferenceImageFile/);
-  assert.match(source, /async function writeTextToClipboard/);
-  assert.match(source, /function copyTextSynchronously/);
-  assert.match(source, /getReferenceImageFile\?: \(\(\) => Promise<File \| null>\) \| null/);
-  assert.match(source, /const canTryNativeChatGPTShare =/);
-  assert.match(source, /Boolean\(toAbsoluteUrl\(referenceImageUrl\) \|\| getReferenceImageFile\)/);
-  assert.match(source, /const nativeSharePrompt = useMemo/);
-  assert.match(source, /buildNativeSharePrompt\(\{/);
-  assert.match(source, /const file = getReferenceImageFile/);
-  assert.match(source, /buildImageAndPromptShareData\(file, nativeSharePrompt\)/);
-  assert.match(source, /navigator\.canShare\?\.\(shareData\)/);
-  assert.match(source, /navigator\.share\(shareData\)/);
-  assert.match(source, /file_count: shareData\.files\?\.length \|\| 0/);
-  assert.match(source, /prompt_transport: 'share_text'/);
-  assert.match(source, /payload_fields: Object\.keys\(shareData\)\.sort\(\)\.join\(','\)/);
-  assert.match(source, /setPreparedReferenceFile\(file\)/);
-  assert.doesNotMatch(source, /Pilih ChatGPT di menu berbagi/);
-  assert.match(source, /isNativeSharePending[\s\S]{0,120}\? 'Menyiapkan\.\.\.'[\s\S]{0,80}: 'ChatGPT'/);
+test('BrochurePromptModal shares the brochure image plus the compact prompt through the native share sheet', async () => {
+  const { CHATGPT_NATIVE_SHARE_SAFE_BUDGET } = await importPromptBuilder();
+
+  await withPromptModal({ props: SHARE_PROPS }, async ({ page, file, chatgptButton }) => {
+    await waitForShareButtonReady(page);
+    await chatgptButton.click();
+    await page.waitForFunction(() => window.__calls.share.length > 0);
+
+    const calls = await readCalls(page);
+    assert.equal(calls.share.length, 1, 'navigator.share harus dipanggil tepat sekali');
+    assert.equal(calls.open.length, 0, 'jangan buka chatgpt.com saat share sheet berhasil');
+
+    const [shared] = calls.share;
+    // Persis dua field: iOS membuat activity item tambahan kalau `title` ikut.
+    assert.deepEqual(shared.keys, ['files', 'text']);
+    assert.deepEqual(shared.files, [file], 'file brosur yang disiapkan harus ikut utuh');
+
+    // Yang dibagikan wajib prompt native yang ringkas — BUKAN prompt panjang di textarea.
+    const longPrompt = await page.locator('textarea[readonly]').inputValue();
+    assert.ok(
+      longPrompt.length > CHATGPT_NATIVE_SHARE_SAFE_BUDGET,
+      `prompt textarea cuma ${longPrompt.length} chars; skenario ini tidak lagi membedakan keduanya`,
+    );
+    assert.notEqual(shared.text, longPrompt);
+    assert.ok(
+      shared.text.length <= CHATGPT_NATIVE_SHARE_SAFE_BUDGET,
+      `teks share ${shared.text.length} chars, melewati budget ${CHATGPT_NATIVE_SHARE_SAFE_BUDGET}`,
+    );
+    // Terikat ke data yang dikirim, bukan ke teks tetap mana pun.
+    assert.ok(shared.text.includes(SCHEDULE_TITLE_SENTINEL), 'teks share tidak dirakit dari schedule yang dikirim');
+    assert.ok(shared.text.includes(`SEMUA ${SHARE_SCHEDULE.packages.length}`));
+
+    const events = await readTrackedEvents(page);
+    const shareEvent = events.find((e) => e.eventName === 'brochure_prompt_share_chatgpt');
+    assert.ok(shareEvent, `event share tidak terkirim; yang tercatat: ${events.map((e) => e.eventName).join(', ')}`);
+    assert.equal(shareEvent.metadata.prompt_transport, 'share_text');
+    assert.equal(shareEvent.metadata.file_count, 1);
+    assert.equal(shareEvent.metadata.payload_fields, 'files,text');
+
+    // Bukti payload dicatat SEBELUM share, jadi tetap ada walau share gagal/dibatalkan.
+    const payloadEvent = events.find((e) => e.eventName === 'brochure_prompt_share_payload');
+    assert.ok(payloadEvent, 'ringkasan payload tidak dicatat');
+    assert.ok(events.indexOf(payloadEvent) < events.indexOf(shareEvent));
+  });
+});
+
+test('BrochurePromptModal blocks the share button until the brochure file is ready', async () => {
+  await withPromptModal({ props: SHARE_PROPS, holdReferenceFile: true }, async ({ page, chatgptButton }) => {
+    await chatgptButton.waitFor({ state: 'attached' });
+    assert.equal(await chatgptButton.isDisabled(), true, 'tombol harus terkunci selama file brosur disiapkan');
+
+    // Klik paksa: kalau gerbangnya dicabut, handler-nya jalan tanpa file dan
+    // langsung jatuh ke fallback buka chatgpt.com — persis bug yang dijaga.
+    await chatgptButton.dispatchEvent('click');
+    const early = await readCalls(page);
+    assert.deepEqual(early.share, [], 'share tidak boleh dicoba sebelum file brosur siap');
+    assert.deepEqual(early.open, [], 'fallback chatgpt.com tidak boleh jalan sebelum file brosur siap');
+
+    await releaseReferenceFile(page);
+    await waitForShareButtonReady(page);
+
+    await chatgptButton.click();
+    await page.waitForFunction(() => window.__calls.share.length > 0);
+    const after = await readCalls(page);
+    assert.equal(after.share.length, 1, 'setelah file siap, klik harus membuka share sheet');
+    assert.equal(after.open.length, 0);
+  });
+});
+
+test('BrochurePromptModal falls back to chatgpt.com when the native share sheet is unavailable', async () => {
+  await withPromptModal({ props: SHARE_PROPS, nativeShare: false }, async ({ page, chatgptButton }) => {
+    await waitForShareButtonReady(page);
+    await chatgptButton.click();
+    await page.waitForFunction(() => window.__calls.open.length > 0);
+
+    const calls = await readCalls(page);
+    assert.deepEqual(calls.share, []);
+    assert.equal(calls.open.length, 1);
+    assert.equal(calls.open[0][0], 'https://chatgpt.com/');
+  });
+});
+
+test('BrochurePromptModal treats a cancelled share sheet as done, not as a reason to open chatgpt.com', async () => {
+  await withPromptModal({ props: SHARE_PROPS, shareResult: 'abort' }, async ({ page, chatgptButton }) => {
+    await waitForShareButtonReady(page);
+    await chatgptButton.click();
+    await page.waitForFunction(() => window.__calls.share.length > 0);
+    await waitForShareButtonReady(page);
+
+    const calls = await readCalls(page);
+    assert.equal(calls.share.length, 1);
+    assert.deepEqual(calls.open, [], 'batal ≠ gagal: jangan lempar pengguna ke chatgpt.com');
+
+    const events = await readTrackedEvents(page);
+    assert.ok(events.some((e) => e.eventName === 'brochure_prompt_share_cancelled'));
+    assert.ok(!events.some((e) => e.eventName === 'brochure_prompt_open_chatgpt'));
+  });
 });
 
 test('BrochureSchedulePage wires the AI recreate prompt modal', () => {
