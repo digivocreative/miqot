@@ -12,9 +12,13 @@ import CustomDomainTrigger from './CustomDomainTrigger';
 import { useCustomDomain } from '../hooks/useCustomDomain';
 import { getAgentPublicUrl } from '../lib/agentUrls';
 import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
+// Aturan validasi dipakai bersama dengan server (PUT /api/landing-config)
+// supaya yang divalidasi di layar persis yang diterima server.
+import { TRACKING_SCRIPT_LIMIT, trackingScriptError } from '../../lib/landing-tracking-script.js';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
+
 const OG_MAX_BYTES = 5 * 1024 * 1024;
 const OG_IDEAL_W = 1200;
 const OG_IDEAL_H = 630;
@@ -37,6 +41,7 @@ interface FieldDraft {
   title: string;
   description: string;
   og_image_url: string | null;
+  tracking_script: string;
 }
 
 interface ConfigState {
@@ -64,6 +69,7 @@ function buildDraft(rawPerType: any): FieldDraft {
     title: (rawPerType?.title ?? '') as string,
     description: (rawPerType?.description ?? '') as string,
     og_image_url: (rawPerType?.og_image_url ?? null) as string | null,
+    tracking_script: (rawPerType?.tracking_script ?? '') as string,
   };
 }
 
@@ -208,8 +214,10 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
     return (
       draft.umroh.title !== loaded.umroh.title ||
       draft.umroh.description !== loaded.umroh.description ||
+      draft.umroh.tracking_script !== loaded.umroh.tracking_script ||
       draft.haji.title !== loaded.haji.title ||
-      draft.haji.description !== loaded.haji.description
+      draft.haji.description !== loaded.haji.description ||
+      draft.haji.tracking_script !== loaded.haji.tracking_script
     );
   }, [loaded, draft]);
 
@@ -218,12 +226,14 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
     return (
       draft.umroh.title.length > TITLE_LIMIT ||
       draft.umroh.description.length > DESC_LIMIT ||
+      trackingScriptError(draft.umroh.tracking_script) !== null ||
       draft.haji.title.length > TITLE_LIMIT ||
-      draft.haji.description.length > DESC_LIMIT
+      draft.haji.description.length > DESC_LIMIT ||
+      trackingScriptError(draft.haji.tracking_script) !== null
     );
   }, [draft]);
 
-  const updateField = (type: LandingType, key: 'title' | 'description', value: string) => {
+  const updateField = (type: LandingType, key: 'title' | 'description' | 'tracking_script', value: string) => {
     setDraft(prev => prev ? { ...prev, [type]: { ...prev[type], [key]: value } } : prev);
   };
 
@@ -235,16 +245,34 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
-          umroh: { title: draft.umroh.title, description: draft.umroh.description },
-          haji: { title: draft.haji.title, description: draft.haji.description },
+          umroh: {
+            title: draft.umroh.title,
+            description: draft.umroh.description,
+            tracking_script: draft.umroh.tracking_script,
+          },
+          haji: {
+            title: draft.haji.title,
+            description: draft.haji.description,
+            tracking_script: draft.haji.tracking_script,
+          },
         }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Gagal menyimpan');
       const serverData = json.data || {};
       const nextLoaded: ConfigState = {
-        umroh: { ...draft.umroh, title: serverData.umroh?.title ?? '', description: serverData.umroh?.description ?? '' },
-        haji: { ...draft.haji, title: serverData.haji?.title ?? '', description: serverData.haji?.description ?? '' },
+        umroh: {
+          ...draft.umroh,
+          title: serverData.umroh?.title ?? '',
+          description: serverData.umroh?.description ?? '',
+          tracking_script: serverData.umroh?.tracking_script ?? '',
+        },
+        haji: {
+          ...draft.haji,
+          title: serverData.haji?.title ?? '',
+          description: serverData.haji?.description ?? '',
+          tracking_script: serverData.haji?.tracking_script ?? '',
+        },
       };
       setLoaded(nextLoaded);
       setDraft({ umroh: { ...nextLoaded.umroh }, haji: { ...nextLoaded.haji } });
@@ -331,7 +359,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       const putRes = await fetch('/api/landing-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ [type]: { title: '', description: '' } }),
+        body: JSON.stringify({ [type]: { title: '', description: '', tracking_script: '' } }),
       });
       const putJson = await putRes.json();
       if (!putRes.ok || !putJson.success) throw new Error(putJson.error || 'Reset gagal');
@@ -431,6 +459,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             resetting={resetting === 'umroh'}
             onChangeTitle={(v) => updateField('umroh', 'title', v)}
             onChangeDesc={(v) => updateField('umroh', 'description', v)}
+            onChangeTracking={(v) => updateField('umroh', 'tracking_script', v)}
             onUploadOg={(file) => handleOgFilePick('umroh', file)}
             onResetOg={() => handleOgReset('umroh')}
             onResetAll={() => handleCardReset('umroh')}
@@ -457,6 +486,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             resetting={resetting === 'haji'}
             onChangeTitle={(v) => updateField('haji', 'title', v)}
             onChangeDesc={(v) => updateField('haji', 'description', v)}
+            onChangeTracking={(v) => updateField('haji', 'tracking_script', v)}
             onUploadOg={(file) => handleOgFilePick('haji', file)}
             onResetOg={() => handleOgReset('haji')}
             onResetAll={() => handleCardReset('haji')}
@@ -734,6 +764,7 @@ interface CardProps {
   resetting: boolean;
   onChangeTitle: (v: string) => void;
   onChangeDesc: (v: string) => void;
+  onChangeTracking: (v: string) => void;
   onUploadOg: (file: File) => void;
   onResetOg: () => void;
   onResetAll: () => void;
@@ -762,7 +793,7 @@ const ACCENTS: Record<'emerald' | 'amber', {
 function LandingCard({
   type, accent,
   draft, loaded, defaults, currentDescription, uploading, resetting,
-  onChangeTitle, onChangeDesc, onUploadOg, onResetOg, onResetAll,
+  onChangeTitle, onChangeDesc, onChangeTracking, onUploadOg, onResetOg, onResetAll,
   agentPhoto, agentName, agentSlug,
 }: CardProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -770,6 +801,8 @@ function LandingCard({
 
   const titleLen = draft.title.length;
   const descLen = draft.description.length;
+  const trackingLen = draft.tracking_script.length;
+  const trackingErr = trackingScriptError(draft.tracking_script);
   const titleOver = titleLen > TITLE_LIMIT;
   const descOver = descLen > DESC_LIMIT;
 
@@ -777,7 +810,7 @@ function LandingCard({
   const effectiveDesc = draft.description.trim() || currentDescription;
 
   const showDefaultOgBtn = !!draft.og_image_url;
-  const hasAnyCustom = !!(loaded.title || loaded.description || loaded.og_image_url);
+  const hasAnyCustom = !!(loaded.title || loaded.description || loaded.og_image_url || loaded.tracking_script);
 
   return (
     <div className="rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm">
@@ -906,6 +939,48 @@ function LandingCard({
               Kosong → pakai deskripsi Alhijaz default
             </p>
           )}
+        </div>
+
+        {/* Tracking script — disuntik apa adanya sebelum </body> */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${a.dot}`} />
+              Tracking Script
+            </label>
+            <span className={`text-[10px] font-mono font-medium ${counterColor(trackingLen, TRACKING_SCRIPT_LIMIT)}`}>
+              {trackingLen}/{TRACKING_SCRIPT_LIMIT}
+            </span>
+          </div>
+          <textarea
+            value={draft.tracking_script}
+            onChange={(e) => onChangeTracking(e.target.value)}
+            placeholder={'<!-- Meta Pixel Code -->\n<script>\n  ...\n</script>'}
+            rows={5}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            className={`w-full px-3 py-2.5 text-[12px] font-mono leading-relaxed rounded-xl bg-white dark:bg-slate-900 border resize-y min-h-[110px] text-gray-800 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 outline-none transition-all focus:ring-2 ${
+              trackingErr
+                ? 'border-red-400 dark:border-red-500 focus:ring-red-500/20 focus:border-red-500'
+                : `border-gray-200 dark:border-slate-700 ${a.focusBorder} ${a.focusRing}`
+            }`}
+          />
+          {trackingErr ? (
+            <p className="text-[10px] text-red-500 mt-1 pl-0.5">{trackingErr}</p>
+          ) : (
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1 pl-0.5">
+              Ditempel apa adanya tepat sebelum <code>&lt;/body&gt;</code>. Kosong → tidak ada yang disuntik.
+            </p>
+          )}
+          <div className="mt-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 p-2.5 flex gap-2">
+            <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+              Skrip berjalan penuh di halaman ini. Tempel hanya dari sumber yang Anda percaya
+              (Meta Pixel, Google Ads/Analytics, TikTok). Snippet asal salin bisa mencuri data
+              pengunjung Anda.
+            </p>
+          </div>
         </div>
 
         {/* WhatsApp preview — compact, as confirmation */}

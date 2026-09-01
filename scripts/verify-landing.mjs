@@ -83,8 +83,8 @@ for (const p of PAGES) {
 
 for (const p of PAGES) {
   const mod = await import(new URL('../' + p.out, import.meta.url).href + '?t=' + Date.now());
-  const render = async () =>
-    (await mod.onRequest({ params: { slug: SLUG }, request: new Request('http://localhost/') })).text();
+  const render = async (agentOverride) =>
+    (await mod.onRequest({ params: { slug: SLUG }, request: new Request('http://localhost/'), agentOverride })).text();
 
   console.log(`\n=== ${p.name} (tanpa BUNNY_CDN_HOSTNAME) ===`);
   delete process.env.BUNNY_CDN_HOSTNAME;
@@ -123,6 +123,24 @@ for (const p of PAGES) {
       check(p.name, `${label} dibuang dari output`, !marker.test(html));
     }
   }
+
+  // ── Tracking script agent ──
+  // Snippet ditempel APA ADANYA sebelum </body>. Dua hal yang gampang rusak
+  // diam-diam: (1) minify membuang komentar HTML — banyak pixel diawali
+  // <!-- ... -->, jadi suntikan harus SESUDAH minify; (2) String.replace
+  // menafsirkan $1/$& di replacement, dan snippet sungguhan memang memuatnya.
+  const TRACKING = "<!-- Meta Pixel Code -->\n<script>fbq('init','1');"
+    + "var a=s.replace(/(\\d+)/,'$1-$&');</script>";
+  const withTracking = await render({
+    name: AGENT_NAME, phone: '6287878573311', photo: '/agents/bagas.jpg',
+    landing: { title: null, description: null, og_image_url: null, tracking_script: TRACKING },
+  });
+  check(p.name, 'tracking script tersuntik byte-exact', withTracking.includes(TRACKING),
+    'komentar HTML / $1 / $& termakan — cek urutan suntik vs minify');
+  check(p.name, 'tracking script tepat sebelum </body>',
+    withTracking.indexOf(TRACKING) < withTracking.lastIndexOf('</body>')
+    && withTracking.indexOf(TRACKING) > withTracking.indexOf('/api/capi/'));
+  check(p.name, 'tanpa tracking script → tak ada sisa', !html.includes('fbq('));
 
   console.log(`=== ${p.name} (dengan BUNNY_CDN_HOSTNAME=cdn.test) ===`);
   process.env.BUNNY_CDN_HOSTNAME = 'cdn.test';

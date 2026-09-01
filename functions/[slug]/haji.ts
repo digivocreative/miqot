@@ -99,6 +99,7 @@ interface AgentOverride {
     title?: string | null;
     description?: string | null;
     og_image_url?: string | null;
+    tracking_script?: string | null;
   };
 }
 
@@ -417,7 +418,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '})();'
     + '</sc' + 'ript>';
 
-  html = html.replace('</body>', stickyBarHtml + '\n' + capiScript + '\n</body>');
+  // Pemakaian fungsi (bukan string) sebagai replacement itu WAJIB: string
+  // replacement menafsirkan $&, $', $` dan $1 — nama agent yang mengandung '$'
+  // sudah cukup untuk menyalin potongan halaman ke tempat yang salah, tanpa
+  // ada galat.
+  html = html.replace('</body>', () => stickyBarHtml + '\n' + capiScript + '\n</body>');
 
   // 6. Add padding-bottom to body so sticky bar doesn't overlap content
   html = html.replace(/<body /, '<body style="padding-bottom:76px" ');
@@ -430,6 +435,23 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   html = html.replace(/\n\s*\n/g, '\n');
   html = html.replace(/^\s+$/gm, '');
   html = html.replace(/>\s+</g, '> <');
+
+  // ═══════════════════════════════════════════════════
+  // 10. TRACKING SCRIPT AGENT
+  // ═══════════════════════════════════════════════════
+  // Disuntik PALING AKHIR — sesudah minify, bukan sebelumnya:
+  //   - minify membuang komentar HTML, dan banyak snippet pixel diawali
+  //     <!-- Meta Pixel Code -->; ikut hilang tanpa jejak kalau disuntik duluan
+  //   - minify merapatkan spasi antar-tag (`>\s+<` → `> <`)
+  // Posisi terakhir juga berarti snippet yang error tidak menggagalkan sticky
+  // bar & CAPI yang sudah dieksekusi lebih dulu.
+  // Isinya sengaja TIDAK disanitasi (lihat catatan di endpoint PUT
+  // /api/landing-config); replacement fungsi dipakai agar $1/$& di dalam
+  // snippet tidak ditafsirkan sebagai pola pengganti.
+  const trackingScript = (agentOverride?.landing?.tracking_script || '').trim();
+  if (trackingScript) {
+    html = html.replace('</body>', () => trackingScript + '\n</body>');
+  }
 
   return html;
 }
