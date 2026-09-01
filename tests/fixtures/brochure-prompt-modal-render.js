@@ -73,6 +73,47 @@ const viteUrlSuffix = {
  */
 export const SHARE_BUTTON = '[data-share-chatgpt]';
 
+/** Nilai __APP_VERSION__ yang dibakar ke bundel harness. */
+export const HARNESS_APP_VERSION = 'harness-9.9.9';
+
+/**
+ * Judul sengaja KAPITAL dan penuh token khas: prompt native menyalinnya apa
+ * adanya, jadi ia sekaligus jadi probe kebocoran — kalau isi prompt sampai
+ * ikut terkirim ke analytics, token ini yang tertangkap. Probe yang selamat
+ * dari lowercase/slug tidak membuktikan apa pun.
+ */
+export const SCHEDULE_TITLE_SENTINEL = 'BROSUR SENTINEL ZQX 4417 SEPTEMBER';
+
+/** Jadwal contoh; cukup untuk membuat prompt panjang melewati budget native share. */
+export function sampleSchedule(overrides = {}) {
+  return {
+    title: SCHEDULE_TITLE_SENTINEL,
+    displayMode: 'seat',
+    packages: Array.from({ length: 13 }, (_, index) => ({
+      nama: `PAKET UMROH RAHMAH ${index + 1} 12HR`,
+      tgl: `${index + 1} September 2026`,
+      hari: 12,
+      seatSisa: 7 + index,
+      harga: `mulai Rp ${33 + index}.900.000`,
+      maskapai: 'SAUDIA AIRLINES',
+      landing: 'Jeddah',
+      hotel: ['Makkah: Movenpick Hajar Tower (★★★★★)', 'Madinah: Taiba Front Hotel (★★★★★)'],
+    })),
+    ...overrides,
+  };
+}
+
+/** Prop BrochurePromptModal untuk konteks Brosur Jadwal (jalur getReferenceImageFile). */
+export function schedulePromptProps(overrides = {}) {
+  return {
+    agent: { name: 'Agen Test', phone: '6281234567890', website: 'alhijaz.test/agen' },
+    schedule: sampleSchedule(),
+    context: 'schedule',
+    title: 'Brosur Sentinel',
+    ...overrides,
+  };
+}
+
 let bundlePromise = null;
 
 async function buildHarnessBundle() {
@@ -100,7 +141,6 @@ async function buildHarnessBundle() {
     import { createElement } from 'react';
     import { createRoot } from 'react-dom/client';
     import { BrochurePromptModal } from '@/components/BrochurePromptModal';
-    import { buildNativeSharePrompt } from '@/components/brochure-prompt/buildBrochurePrompt';
     import { trackedEvents } from ${JSON.stringify(analyticsShim)};
 
     /** File brosur "asli": isinya unik supaya ukuran & nama ikut terbukti lolos. */
@@ -136,7 +176,7 @@ async function buildHarnessBundle() {
       releaseReferenceFile?.();
     }
 
-    export { buildNativeSharePrompt, trackedEvents };
+    export { trackedEvents };
   `);
 
   const shims = {
@@ -162,6 +202,9 @@ async function buildHarnessBundle() {
     define: {
       'process.env.NODE_ENV': '"production"',
       'import.meta.env': '{}',
+      // Di prod nilai ini disuntik vite. Tanpa define, komponen jatuh ke 'dev'
+      // dan asersi app_version tidak lagi membuktikan penanda bundle ikut terkirim.
+      __APP_VERSION__: JSON.stringify(HARNESS_APP_VERSION),
     },
     loader: {
       '.webp': 'dataurl', '.png': 'dataurl', '.jpg': 'dataurl',
@@ -181,6 +224,7 @@ async function buildHarnessBundle() {
  * @param {boolean} [opts.nativeShare] pasang navigator.share/canShare (default true)
  * @param {boolean} [opts.holdReferenceFile] tahan penyiapan file sampai releaseFile()
  * @param {'ok'|'abort'|'fail'} [opts.shareResult] hasil navigator.share
+ * @param {boolean} [opts.canShareResult] paksa navigator.canShare menolak payload
  */
 export async function withPromptModal(opts, body) {
   const {
@@ -188,6 +232,7 @@ export async function withPromptModal(opts, body) {
     nativeShare = true,
     holdReferenceFile = false,
     shareResult = 'ok',
+    canShareResult = true,
   } = opts;
 
   // Bundel dipakai ulang antar skenario; browser-nya TIDAK. Chromium yang
@@ -202,13 +247,17 @@ export async function withPromptModal(opts, body) {
     await page.setContent('<!doctype html><html><body></body></html>');
 
     // Stub dulu, mount belakangan: canTryNativeChatGPTShare dibaca saat render.
-    await page.evaluate(({ nativeShare, shareResult }) => {
-      window.__calls = { share: [], open: [] };
+    await page.evaluate(({ nativeShare, shareResult, canShareResult }) => {
+      window.__calls = { share: [], open: [], canShare: [] };
       window.open = (...args) => { window.__calls.open.push(args); return null; };
       if (!nativeShare) return;
       Object.defineProperty(navigator, 'canShare', {
         configurable: true,
-        value: (data) => Array.isArray(data?.files) && data.files.length > 0,
+        value: (data) => {
+          window.__calls.canShare.push(Object.keys(data || {}).sort());
+          if (!canShareResult) return false;
+          return Array.isArray(data?.files) && data.files.length > 0;
+        },
       });
       Object.defineProperty(navigator, 'share', {
         configurable: true,
@@ -226,7 +275,7 @@ export async function withPromptModal(opts, body) {
           if (shareResult === 'fail') throw new Error('share-gagal');
         },
       });
-    }, { nativeShare, shareResult });
+    }, { nativeShare, shareResult, canShareResult });
 
     await page.addScriptTag({ path: bundle });
     const file = await page.evaluate(
@@ -261,12 +310,4 @@ export function readCalls(page) {
 /** Event analytics yang dikirim komponen (trackEvent asli di-shim jadi perekam). */
 export function readTrackedEvents(page) {
   return page.evaluate(() => window.BrochurePromptHarness.trackedEvents.map((e) => ({ ...e })));
-}
-
-/** Prompt native-share yang seharusnya ikut terkirim, dihitung ulang independen. */
-export function expectedNativeSharePrompt(page, input) {
-  return page.evaluate(
-    (input) => window.BrochurePromptHarness.buildNativeSharePrompt(input),
-    input,
-  );
 }

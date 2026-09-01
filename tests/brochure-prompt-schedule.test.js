@@ -7,9 +7,12 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import {
+  SCHEDULE_TITLE_SENTINEL,
   readCalls,
   readTrackedEvents,
   releaseReferenceFile,
+  sampleSchedule,
+  schedulePromptProps,
   waitForShareButtonReady,
   withPromptModal,
 } from './fixtures/brochure-prompt-modal-render.js';
@@ -213,29 +216,8 @@ test('PackageCard passes brochure URL into the AI recreate prompt', () => {
  * Sekarang modalnya benar-benar dirender di chromium dan tombolnya ditekan;
  * yang diperiksa adalah payload yang sampai ke navigator.share().
  */
-const SHARE_SCHEDULE = {
-  // Judul sengaja KAPITAL: prompt native menyalinnya apa adanya, jadi probe ini
-  // ikut mati kalau suatu saat ada normalisasi (lowercase/slug) di jalurnya.
-  title: 'BROSUR SENTINEL ZQX 4417 SEPTEMBER',
-  displayMode: 'seat',
-  packages: Array.from({ length: 13 }, (_, index) => ({
-    nama: `PAKET UMROH RAHMAH ${index + 1} 12HR`,
-    tgl: `${index + 1} September 2026`,
-    hari: 12,
-    seatSisa: 7 + index,
-    harga: `mulai Rp ${33 + index}.900.000`,
-    maskapai: 'SAUDIA AIRLINES',
-    landing: 'Jeddah',
-    hotel: ['Makkah: Movenpick Hajar Tower (★★★★★)', 'Madinah: Taiba Front Hotel (★★★★★)'],
-  })),
-};
-
-const SHARE_PROPS = {
-  agent: { name: 'Agen Test', phone: '6281234567890', website: 'alhijaz.test/agen' },
-  schedule: SHARE_SCHEDULE,
-  context: 'schedule',
-  title: 'Brosur Sentinel',
-};
+const SHARE_SCHEDULE = sampleSchedule();
+const SHARE_PROPS = schedulePromptProps();
 
 test('BrochurePromptModal shares the brochure image plus the compact prompt through the native share sheet', async () => {
   const { CHATGPT_NATIVE_SHARE_SAFE_BUDGET } = await importPromptBuilder();
@@ -266,7 +248,7 @@ test('BrochurePromptModal shares the brochure image plus the compact prompt thro
       `teks share ${shared.text.length} chars, melewati budget ${CHATGPT_NATIVE_SHARE_SAFE_BUDGET}`,
     );
     // Terikat ke data yang dikirim, bukan ke teks tetap mana pun.
-    assert.ok(shared.text.includes(SHARE_SCHEDULE.title), 'teks share tidak dirakit dari schedule yang dikirim');
+    assert.ok(shared.text.includes(SCHEDULE_TITLE_SENTINEL), 'teks share tidak dirakit dari schedule yang dikirim');
     assert.ok(shared.text.includes(`SEMUA ${SHARE_SCHEDULE.packages.length}`));
 
     const events = await readTrackedEvents(page);
