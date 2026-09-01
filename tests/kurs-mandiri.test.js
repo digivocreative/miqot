@@ -104,6 +104,28 @@ test('CURRENCY_NAMES matches exactly what kursdollar publishes', async () => {
   );
 });
 
+test('pickSupportedRates drops currencies this build no longer publishes', async () => {
+  const { pickSupportedRates } = await loadKursModule();
+
+  // Baris `kurs_cache` bisa saja ditulis oleh deploy lama yang masih menayangkan
+  // 17 mata uang. Mengadopsinya mentah-mentah setelah restart akan menghidupkan
+  // lagi CHF/DKK/NOK/SEK — angka yang sumbernya sudah tidak punya, alias beku
+  // yang menyamar segar. Cache tidak boleh bisa memperkenalkan kembali mata uang
+  // yang kode berjalan sudah buang.
+  const dariCacheLama = {
+    USD: 17820, SAR: 4918, CHF: 22321, DKK: 2850, NOK: 1965, SEK: 1894,
+  };
+
+  assert.deepEqual(pickSupportedRates(dariCacheLama), { USD: 17820, SAR: 4918 });
+});
+
+test('pickSupportedRates survives a missing or malformed cache row', async () => {
+  const { pickSupportedRates } = await loadKursModule();
+
+  assert.deepEqual(pickSupportedRates(null), {});
+  assert.deepEqual(pickSupportedRates({ USD: 'bukan angka', SAR: 4918 }), { SAR: 4918 });
+});
+
 test('isKursCacheRefreshDue refreshes old same-day cache', async () => {
   const { isKursCacheRefreshDue } = await loadKursModule();
   const oldSameDayCache = {

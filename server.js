@@ -194,6 +194,7 @@ import {
   tallyBy,
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
+import { normalizeTrackingScript } from './lib/landing-tracking-script.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import {
   inferJourneyOrderFromItinerary,
@@ -232,6 +233,7 @@ import {
   isKursToday,
   canAttemptKursFetch,
   parseKursdollarHtml,
+  pickSupportedRates,
   shouldReplaceKursCache,
   shouldWaitForKursFetch,
 } from './lib/kurs-mandiri.js';
@@ -848,8 +850,13 @@ async function loadKursFromSupabase({ onlyIfNewer = false } = {}) {
       .eq('id', 'mandiri')
       .single();
     if (error || !data?.data?.rates) return false;
+    // Disaring, bukan diadopsi mentah: baris ini bisa ditulis deploy lama yang
+    // masih menayangkan 17 mata uang, dan restart tidak boleh menghidupkan lagi
+    // CHF/DKK/NOK/SEK yang sumbernya sudah tidak punya.
+    const rates = pickSupportedRates(data.data.rates);
+    if (Object.keys(rates).length === 0) return false;
     const fromDb = {
-      rates: data.data.rates,
+      rates,
       updatedAt: data.data.updatedAt,
       fetchedAt: new Date(data.synced_at).getTime(),
     };
@@ -1532,13 +1539,15 @@ function getDefaultLandingConfig(agent) {
   return {
     umroh: {
       title: `Umroh | ${name} | PT Alhijaz Indowisata`,
-      description: null,   // null = don't inject; raw HTML description stays
-      og_image_url: null,  // null = fall back to /og/{slug}.png
+      description: null,     // null = don't inject; raw HTML description stays
+      og_image_url: null,    // null = fall back to /og/{slug}.png
+      tracking_script: null, // null = tidak menyuntik apa pun sebelum </body>
     },
     haji: {
       title: `Haji Plus | ${name} | PT Alhijaz Indowisata`,
       description: null,
       og_image_url: null,
+      tracking_script: null,
     },
   };
 }
@@ -1551,11 +1560,13 @@ function mergeLandingConfig(agent) {
       title: custom.umroh?.title || defaults.umroh.title,
       description: custom.umroh?.description ?? defaults.umroh.description,
       og_image_url: custom.umroh?.og_image_url ?? defaults.umroh.og_image_url,
+      tracking_script: custom.umroh?.tracking_script ?? defaults.umroh.tracking_script,
     },
     haji: {
       title: custom.haji?.title || defaults.haji.title,
       description: custom.haji?.description ?? defaults.haji.description,
       og_image_url: custom.haji?.og_image_url ?? defaults.haji.og_image_url,
+      tracking_script: custom.haji?.tracking_script ?? defaults.haji.tracking_script,
     },
   };
 }
@@ -4221,7 +4232,7 @@ app.get('/api/landing-config', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/landing-config — save title & description for umroh and/or haji
+// PUT /api/landing-config — save title, description & tracking script for umroh and/or haji
 app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }), async (req, res) => {
   try {
     const agent = await getAgentById(req.user.id);
@@ -4239,6 +4250,11 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
       return trimmed;
     };
 
+    // Tracking script agent disuntik APA ADANYA sebelum </body>; aturan
+    // validasinya ada di lib/landing-tracking-script.js supaya panel dan server
+    // tidak pernah berbeda. Batas ukuran ditegakkan di sana, bukan lewat
+    // express.json per-route (limit per-route inert di repo ini — yang mengikat
+    // parser global 10mb di paling atas).
     const patches = {};
     for (const type of ['umroh', 'haji']) {
       const patch = req.body?.[type];
@@ -4246,6 +4262,7 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
       patches[type] = {
         title: normalizeField(patch.title, 60),
         description: normalizeField(patch.description, 160),
+        tracking_script: normalizeTrackingScript(patch.tracking_script),
       };
     }
 
@@ -4260,6 +4277,7 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
         if (!patch) continue;
         if (patch.title !== undefined) next[type].title = patch.title;
         if (patch.description !== undefined) next[type].description = patch.description;
+        if (patch.tracking_script !== undefined) next[type].tracking_script = patch.tracking_script;
       }
       return next;
     });
@@ -4268,7 +4286,7 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
     res.json({ success: true, data: merged });
   } catch (err) {
     console.error('[landing-config] PUT error:', err.message);
-    const status = /Melebihi batas/.test(err.message) ? 400 : 500;
+    const status = /Melebihi batas|Tidak boleh memuat/.test(err.message) ? 400 : 500;
     res.status(status).json({ error: err.message || 'Gagal menyimpan konfigurasi' });
   }
 });
