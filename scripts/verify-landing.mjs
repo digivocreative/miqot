@@ -3,10 +3,37 @@
 // Build cepat (esbuild saja, tanpa vite) lalu render via onRequest.
 // Pakai: npm run verify:landing
 import { buildSync } from 'esbuild';
+import { readFileSync } from 'fs';
 
 const SLUG = 'bagas'; // phone 6287878573311 ≠ DEFAULT_PHONE → bisa assert rewrite CTA
+const AGENT_NAME = 'Bagas Pramudita';
 const PAGES = [
-  { name: 'umroh', entry: 'functions/[slug]/umroh.ts', out: 'functions/umroh-landing.mjs' },
+  {
+    name: 'umroh',
+    entry: 'functions/[slug]/umroh.ts',
+    out: 'functions/umroh-landing.mjs',
+    template: 'public/umroh.html',
+    // Pembuangan section dipaku ke id Elementor. Kalau template di-ekspor ulang
+    // dan id-nya berubah, regex pembuangnya jadi no-op TANPA galat.
+    // Karena itu tiap aturan diperiksa DUA SISI: penandanya harus masih ADA di
+    // template (kalau tidak, jangkarnya basi — assertion-nya jadi hampa dan
+    // "lulus" tanpa menguji apa pun) dan harus HILANG di output. Penanda sengaja
+    // memakai isi (teks/nama file), bukan id, karena id tetap muncul di CSS
+    // per-widget walau section-nya sudah dibuang.
+    // Penanda memakai nama file gambar, bukan teks judulnya: judul section juga
+    // dikutip di komentar CSS blok tipografi mobile, jadi penanda berbasis teks
+    // ikut "ketemu" di head dan bikin assertion gagal palsu.
+    removals: [
+      ['section voucher', /voucher-diskon-alhijaz-indowisata/],
+      ['section footer pusat', /nikita-alhijaz-indowisata/],
+      ['sticky bar lama (Fast Response)', /Konsultasi via WA \(Fast Response\)/],
+      ['gambar ulasan 4-1', /2026\/03\/4-1\.avif/],
+    ],
+    extras: [
+      ['tipografi mobile ikut terkirim', (h) => h.includes('id="alhijaz-mobile-typography"')],
+      ['tombol Lihat Semua Keunggulan ada', (h) => h.includes('Lihat Semua Keunggulan')],
+    ],
+  },
   { name: 'haji', entry: 'functions/[slug]/haji.ts', out: 'functions/haji-landing.mjs' },
 ];
 
@@ -45,7 +72,24 @@ for (const p of PAGES) {
   check(p.name, 'preload hero image fetchpriority=high', /<link rel="preload"[^>]*as="image"[^>]*fetchpriority="high"/.test(html));
   check(p.name, 'CTA pakai nomor agent', html.includes('https://api.whatsapp.com/send?phone=6287878573311'));
   check(p.name, '0 wa.me default tersisa', !html.includes('wa.me/62822900020'));
+  // Router WA pusat: bentuk bawaan ekspor WordPress. Kalau lolos, semua lead
+  // halaman agent mendarat di nomor pusat, bukan nomor agent.
+  check(p.name, '0 router wa.alhijazindonesia.com tersisa', !html.includes('wa.alhijazindonesia.com'));
+  check(p.name, 'sticky bar agent disuntik', /class="alhijaz-sticky"/.test(html) && html.includes(AGENT_NAME));
+  check(p.name, 'FAB WhatsApp disuntik', /id="alhijazFab"/.test(html));
+  check(p.name, '<title> memuat nama agent', new RegExp('<title>[^<]*' + AGENT_NAME).test(html));
+  check(p.name, 'og:title memuat nama agent', new RegExp('og:title" content="[^"]*' + AGENT_NAME).test(html));
+  check(p.name, 'script CAPI disuntik', html.includes('/api/capi/'));
   check(p.name, 'asset tetap relatif tanpa env (>10)', count(html, /(["'(])\/wp-content\//g) > 10);
+  for (const [label, fn] of p.extras || []) check(p.name, label, fn(html));
+  if (p.removals?.length) {
+    const template = readFileSync(new URL('../' + p.template, import.meta.url), 'utf-8');
+    for (const [label, marker] of p.removals) {
+      check(p.name, `jangkar "${label}" masih ada di template`, marker.test(template),
+        'penanda hilang dari template — jangkar basi, uji pembuangannya jadi hampa');
+      check(p.name, `${label} dibuang dari output`, !marker.test(html));
+    }
+  }
 
   console.log(`=== ${p.name} (dengan BUNNY_CDN_HOSTNAME=cdn.test) ===`);
   process.env.BUNNY_CDN_HOSTNAME = 'cdn.test';

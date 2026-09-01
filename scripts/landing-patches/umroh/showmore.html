@@ -1,0 +1,33 @@
+<script type="text/javascript">
+/* Vanilla JS: script inline ini berjalan SEBELUM jquery.min.js dimuat di akhir body,
+   jadi tidak boleh bergantung pada jQuery (dulu: ReferenceError → tombol tak pernah muncul). */
+function ShowMoreLessFeatured(elem){
+	var frame = document.getElementById('frameshowmorefeatured');
+	if (frame) {
+		var cols = frame.querySelectorAll('.elementor-top-column');
+		for (var i = 0; i < cols.length; i++) cols[i].classList.add('expanded');
+	}
+	elem.style.display = 'none';
+}
+(function(){
+	function initShowMoreFeatured(){
+		var frame = document.getElementById('frameshowmorefeatured');
+		if (!frame) return;
+		var cols = frame.querySelectorAll('.elementor-top-column');
+		for (var i = 0; i < cols.length; i++) {
+			cols[i].style.setProperty('--calc-height', (cols[i].scrollHeight + 20) + 'px');
+		}
+		var btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'show-more-or-less-featured elementor-animation-bob';
+		btn.setAttribute('onclick', 'ShowMoreLessFeatured(this)');
+		btn.innerHTML = '<span>Lihat Semua Keunggulan</span> <i class="fas fa-angle-down"></i>';
+		frame.appendChild(btn);
+	}
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initShowMoreFeatured);
+	} else {
+		initShowMoreFeatured();
+	}
+})();
+</script>

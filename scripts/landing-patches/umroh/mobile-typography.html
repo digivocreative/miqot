@@ -1,0 +1,127 @@
+<style id="alhijaz-mobile-typography" type="text/css">
+/* ============================================================================
+   Tipografi & spacing mobile (2026-06-07) — melengkapi blok mobile bawaan
+   Elementor di CSS minified yang tidak lengkap (145/190 selector font tanpa
+   nilai mobile) dan menyeragamkan judul section yang campur 24-32px.
+   Skala: hero 30 / judul section 26 / judul kartu 19 / baris paket 17.
+   Selector meniru pola Elementor → menang lewat urutan kaskade, tanpa
+   !important, CSS lama tidak disentuh. Spec: docs/superpowers/specs/
+   2026-06-07-umroh-mobile-typography-design.md
+   ============================================================================ */
+@media (max-width: 767px) {
+	/* Judul section utama — seragam 26px (Mengapa Memilih, Daftarkan Diri,
+	   Dokumentasi Jamaah, Perlengkapan Umroh; sebelumnya 28-32px) */
+	.elementor-1291 .elementor-element.elementor-element-4c21a8ce .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-16260372 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-61fac271 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-83b623f .elementor-heading-title {
+		font-size: 26px;
+	}
+	/* Sub-hero "Travel Umroh Akreditasi A" (23px → 20px) */
+	.elementor-1291 .elementor-element.elementor-element-58a04b4c .elementor-heading-title {
+		font-size: 20px;
+	}
+	/* Caption "Situs Resmi PT Alhijaz Indowisata (Pusat)" (20px → 16px) */
+	.elementor-1291 .elementor-element.elementor-element-1fd42544 .elementor-heading-title {
+		font-size: 16px;
+	}
+	/* Quote review "BAGUS SEKALI ⭐⭐⭐⭐⭐" (26px desktop tanpa nilai mobile → 20px,
+	   tidak lagi lebih besar dari judul section Google Review) */
+	.elementor-1291 .elementor-element.elementor-element-3e2402e1 .elementor-heading-title {
+		font-size: 20px;
+	}
+	/* "Mau Promo Spesial Alhijaz? Tunjukkan Voucher Ini!" (25px → 22px) */
+	.elementor-1291 .elementor-element.elementor-element-e801ae2 .elementor-heading-title {
+		font-size: 22px;
+	}
+	/* Judul kartu why-us: Resmi Kemenag RI, Akreditasi "A", Hotel Dekat Masjid,
+	   dll. (22px desktop tanpa nilai mobile → 19px) */
+	.elementor-1291 .elementor-element.elementor-element-409665d9 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-74fb4b91 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4796d3a5 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-3d8dc842 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-414de20e .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7118372e .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7378f1e3 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-114090ac .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-13786a9f .elementor-heading-title {
+		font-size: 19px;
+	}
+	/* Tombol "Konsultasi Pendaftaran Umroh" (22px → 18px, samakan dgn CTA lain) */
+	.elementor-1291 .elementor-element.elementor-element-4e5a69c5 .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-343ada1c .elementor-button {
+		font-size: 18px;
+	}
+	/* Tanggal keberangkatan paket "Agustus - Desember 2026" (20px → 18px) */
+	.elementor-1291 .elementor-element.elementor-element-5c7adc48 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-ae303ec .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-f83cb5b .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-5c3e9d6 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-717b65f8 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-6a8f0798 .elementor-heading-title {
+		font-size: 18px;
+	}
+	/* Baris detail kartu paket: "10 Hari", maskapai, "Hotel ⭐⭐⭐⭐", dll.
+	   (20px desktop tanpa nilai mobile → 17px) */
+	.elementor-1291 .elementor-element.elementor-element-2186f90f .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-eb2d708 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-32ac0b01 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-1faa11fc .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4fded2a .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-22ef064 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-ff28bbc .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-53f247c .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-533d1fa .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-3f92c5f .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-b90c488 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-9a534db .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-2ea002f .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-43dd5b5 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-1cf3109 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-cf84dcf .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-67705362 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-340b209c .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-695b7757 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-64e64350 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7a232957 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-423d2105 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-2f2ae961 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-6c283528 .elementor-heading-title {
+		font-size: 17px;
+	}
+	/* Ikon baris detail kartu paket (20px → 17px, sejajar dgn teks barisnya) */
+	.elementor-1291 .elementor-element.elementor-element-2155384 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-2c44ad7 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-301cce3 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-3416e2fd .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-44a4e4f .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-497e652 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-4a2c54fb .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-4cb94723 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-4d0eba4a .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-54812dac .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-58f9f9c2 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-5a79437 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-5e67f280 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-6f040df .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-6f7266fd .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-70302de0 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-7a1f88a2 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-7c35e6a8 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-870785b .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-871fbde .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-ba66771 .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-bf61bdb .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-e9e546c .elementor-icon,
+	.elementor-1291 .elementor-element.elementor-element-fc47b83 .elementor-icon {
+		font-size: 17px;
+	}
+	/* Divider "Legalitas Perusahaan", "Rekening Rupiah", "Rekening Dollar"
+	   (20px → 18px) */
+	.elementor-1291 .elementor-element.elementor-element-1319c95 .elementor-divider__text,
+	.elementor-1291 .elementor-element.elementor-element-7569d249 .elementor-divider__text,
+	.elementor-1291 .elementor-element.elementor-element-42279494 .elementor-divider__text {
+		font-size: 18px;
+	}
+}
+</style>

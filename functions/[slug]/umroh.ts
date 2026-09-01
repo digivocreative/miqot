@@ -145,6 +145,11 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
 
   // 1. Replace WhatsApp links (generic regex approach)
   //    Template standalone memakai wa.me/<DEFAULT_PHONE>?text=... — rewrite ke nomor agent.
+  //    Jaring pengaman: ekspor mentah WordPress memakai router pusat
+  //    wa.alhijazindonesia.com/?message=... — kalau bentuk itu lolos ke template
+  //    (scripts/import-umroh-template.mjs seharusnya sudah menormalkannya),
+  //    tetap arahkan ke nomor agent, jangan biarkan lead lari ke pusat.
+  html = html.replace(/https:\/\/wa\.alhijazindonesia\.com\/\?message=([^"]*)/g, waBase + '&text=$1');
   //    With message param: preserve the original message text
   html = html.replace(/https:\/\/wa\.me\/\d+\?text=([^"]*)/g, waBase + '&text=$1');
   //    Bare link (no text param): add default umroh text
@@ -154,12 +159,12 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   const customTitle = agentOverride?.landing?.title;
   const pageTitle = customTitle || ('Umroh | ' + agentName + ' | PT Alhijaz Indowisata');
   const safeTitle = escapeHtmlAttr(pageTitle);
+  //    Dijangkarkan ke TAG-nya, bukan ke bunyi judul bawaan template: judul WP
+  //    ikut berubah tiap kali halaman sumber di-edit, dan regex yang memaku teks
+  //    lama akan mati diam-diam (halaman agent kehilangan nama agent di tab).
+  html = html.replace(/<title>[\s\S]*?<\/title>/, '<title>' + safeTitle + '<' + '/title>');
   html = html.replace(
-    /<title>Paket Umroh \| Travel Umroh Terbaik \| PT Alhijaz Indowisata<\/title>/,
-    '<title>' + safeTitle + '<' + '/title>'
-  );
-  html = html.replace(
-    /(<meta property="og:title" content=")Paket Umroh \| Travel Umroh Terbaik \| PT Alhijaz Indowisata(")/,
+    /(<meta property="og:title" content=")[^"]*(")/,
     '$1' + safeTitle + '$2'
   );
 
