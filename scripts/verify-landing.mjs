@@ -4,6 +4,7 @@
 // Pakai: npm run verify:landing
 import { buildSync } from 'esbuild';
 import { readFileSync } from 'fs';
+import { trackingScriptError } from '../lib/landing-tracking-script.js';
 
 const SLUG = 'bagas'; // phone 6287878573311 ≠ DEFAULT_PHONE → bisa assert rewrite CTA
 const AGENT_NAME = 'Bagas Pramudita';
@@ -124,13 +125,18 @@ for (const p of PAGES) {
     }
   }
 
-  // ── Tracking script agent ──
+  // ── Tracking script agent (hanya tracker LPWA WatZap) ──
   // Snippet ditempel APA ADANYA sebelum </body>. Dua hal yang gampang rusak
-  // diam-diam: (1) minify membuang komentar HTML — banyak pixel diawali
+  // diam-diam: (1) minify membuang komentar HTML — snippet resmi diawali
   // <!-- ... -->, jadi suntikan harus SESUDAH minify; (2) String.replace
-  // menafsirkan $1/$& di replacement, dan snippet sungguhan memang memuatnya.
-  const TRACKING = "<!-- Meta Pixel Code -->\n<script>fbq('init','1');"
-    + "var a=s.replace(/(\\d+)/,'$1-$&');</script>";
+  // menafsirkan $1/$& di replacement, dan query tracker memang bisa memuatnya.
+  const TRACKING = '<!-- LPWA Tracker -->\n'
+    + '<script src="https://secure.watzap.chat/wzp/v1/baxia.js?project=wzp_$1&amp;r=$&" '
+    + 'data-wzp-project="wzp_$1"></script>';
+  // Sampelnya harus benar-benar lolos validator — kalau tidak, yang diuji di
+  // sini bentuk yang tak akan pernah sampai ke landing page.
+  check(p.name, 'sampel tracking lolos validator', trackingScriptError(TRACKING) === null,
+    trackingScriptError(TRACKING) || '');
   const withTracking = await render({
     name: AGENT_NAME, phone: '6287878573311', photo: '/agents/bagas.jpg',
     landing: { title: null, description: null, og_image_url: null, tracking_script: TRACKING },
@@ -140,7 +146,18 @@ for (const p of PAGES) {
   check(p.name, 'tracking script tepat sebelum </body>',
     withTracking.indexOf(TRACKING) < withTracking.lastIndexOf('</body>')
     && withTracking.indexOf(TRACKING) > withTracking.indexOf('/api/capi/'));
-  check(p.name, 'tanpa tracking script → tak ada sisa', !html.includes('fbq('));
+  check(p.name, 'tanpa tracking script → tak ada sisa', !html.includes('watzap'));
+
+  // Baris landing_config yang tersimpan sebelum aturan "hanya WatZap" berlaku
+  // masih bisa memuat snippet vendor lain — gerbang di titik suntik yang
+  // menahannya, bukan validasi saat menyimpan.
+  const FOREIGN = "<script>fbq('init','1');</script>";
+  const withForeign = await render({
+    name: AGENT_NAME, phone: '6287878573311', photo: '/agents/bagas.jpg',
+    landing: { title: null, description: null, og_image_url: null, tracking_script: FOREIGN },
+  });
+  check(p.name, 'snippet non-WatZap tersimpan lama tidak ikut disuntik',
+    !withForeign.includes('fbq('), 'gerbang trackingScriptError di titik suntik jebol');
 
   console.log(`=== ${p.name} (dengan BUNNY_CDN_HOSTNAME=cdn.test) ===`);
   process.env.BUNNY_CDN_HOSTNAME = 'cdn.test';

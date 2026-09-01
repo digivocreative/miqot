@@ -4250,11 +4250,12 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
       return trimmed;
     };
 
-    // Tracking script agent disuntik APA ADANYA sebelum </body>; aturan
-    // validasinya ada di lib/landing-tracking-script.js supaya panel dan server
-    // tidak pernah berbeda. Batas ukuran ditegakkan di sana, bukan lewat
-    // express.json per-route (limit per-route inert di repo ini — yang mengikat
-    // parser global 10mb di paling atas).
+    // Tracking script agent disuntik APA ADANYA sebelum </body>, dan yang
+    // diterima HANYA tracker LPWA WatZap (<script src> ke host watzap.chat, tanpa
+    // skrip inline). Aturannya ada di lib/landing-tracking-script.js supaya
+    // panel dan server tidak pernah berbeda. Batas ukuran ditegakkan di sana,
+    // bukan lewat express.json per-route (limit per-route inert di repo ini —
+    // yang mengikat parser global 10mb di paling atas).
     const patches = {};
     for (const type of ['umroh', 'haji']) {
       const patch = req.body?.[type];
@@ -4286,7 +4287,7 @@ app.put('/api/landing-config', authMiddleware, express.json({ limit: '100kb' }),
     res.json({ success: true, data: merged });
   } catch (err) {
     console.error('[landing-config] PUT error:', err.message);
-    const status = /Melebihi batas|Tidak boleh memuat/.test(err.message) ? 400 : 500;
+    const status = /^Tracking script:|Melebihi batas/.test(err.message) ? 400 : 500;
     res.status(status).json({ error: err.message || 'Gagal menyimpan konfigurasi' });
   }
 });

@@ -6,6 +6,7 @@
  */
 import { replaceFaIcons, rewriteAssetsToCdn, deferBlockingStylesheets, eagerizeImg, LANDING_FONT_CSS, SVG_FA_CSS, FONT_PRELOAD_HTML } from './fa-icons';
 import { UMROH_USED_CSS } from './landing-critical';
+import { trackingScriptError } from '../../lib/landing-tracking-script.js';
 
 export const AGENTS: Record<string, { name: string; phone: string; website: string; photo: string }> = {
   'bagas':       { name: 'Bagas Pramudita',     phone: '6287878573311', website: 'alhijaz.co',                  photo: '/agents/bagas.jpg' },
@@ -390,11 +391,14 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
   //   - minify merapatkan spasi antar-tag (`>\s+<` → `> <`)
   // Posisi terakhir juga berarti snippet yang error tidak menggagalkan sticky
   // bar & CAPI yang sudah dieksekusi lebih dulu.
-  // Isinya sengaja TIDAK disanitasi (lihat catatan di endpoint PUT
-  // /api/landing-config); replacement fungsi dipakai agar $1/$& di dalam
-  // snippet tidak ditafsirkan sebagai pola pengganti.
+  // Yang boleh masuk HANYA tracker LPWA WatZap. Validatornya dipanggil lagi di
+  // sini, bukan cuma saat menyimpan: baris landing_config yang tersimpan
+  // SEBELUM aturan ini berlaku masih bisa memuat snippet vendor lain, dan
+  // hanya gerbang di titik suntik yang menahannya.
+  // Replacement fungsi dipakai agar $1/$& di dalam snippet tidak ditafsirkan
+  // sebagai pola pengganti.
   const trackingScript = (agentOverride?.landing?.tracking_script || '').trim();
-  if (trackingScript) {
+  if (trackingScript && trackingScriptError(trackingScript) === null) {
     html = html.replace('</body>', () => trackingScript + '\n</body>');
   }
 

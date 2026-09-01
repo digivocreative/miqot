@@ -941,12 +941,12 @@ function LandingCard({
           )}
         </div>
 
-        {/* Tracking script — disuntik apa adanya sebelum </body> */}
+        {/* Tracking script — hanya tracker LPWA WatZap, disuntik apa adanya sebelum </body> */}
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300 flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${a.dot}`} />
-              Tracking Script
+              Tracking Script LPWA
             </label>
             <span className={`text-[10px] font-mono font-medium ${counterColor(trackingLen, TRACKING_SCRIPT_LIMIT)}`}>
               {trackingLen}/{TRACKING_SCRIPT_LIMIT}
@@ -955,8 +955,8 @@ function LandingCard({
           <textarea
             value={draft.tracking_script}
             onChange={(e) => onChangeTracking(e.target.value)}
-            placeholder={'<!-- Meta Pixel Code -->\n<script>\n  ...\n</script>'}
-            rows={5}
+            placeholder={'<script src="https://secure.watzap.chat/wzp/v1/baxia.js?project=..."></script>'}
+            rows={3}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -966,21 +966,9 @@ function LandingCard({
                 : `border-gray-200 dark:border-slate-700 ${a.focusBorder} ${a.focusRing}`
             }`}
           />
-          {trackingErr ? (
+          {trackingErr && (
             <p className="text-[10px] text-red-500 mt-1 pl-0.5">{trackingErr}</p>
-          ) : (
-            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1 pl-0.5">
-              Ditempel apa adanya tepat sebelum <code>&lt;/body&gt;</code>. Kosong → tidak ada yang disuntik.
-            </p>
           )}
-          <div className="mt-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 p-2.5 flex gap-2">
-            <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
-              Skrip berjalan penuh di halaman ini. Tempel hanya dari sumber yang Anda percaya
-              (Meta Pixel, Google Ads/Analytics, TikTok). Snippet asal salin bisa mencuri data
-              pengunjung Anda.
-            </p>
-          </div>
         </div>
 
         {/* WhatsApp preview — compact, as confirmation */}
