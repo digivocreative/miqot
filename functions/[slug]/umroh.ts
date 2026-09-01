@@ -227,26 +227,21 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '.elementor-element-796244f7 .elementor-button{font-size:16px!important;padding:14px 30px!important;border-color:#149626!important}'
     + '.elementor-element-796244f7 > .elementor-widget-container{margin:20px 0 0!important}'
     // ── Mobile responsive overrides ──
+    // Penyetelan tipografi & spacing mobile TIDAK ada di sini: satu-satunya
+    // tempatnya adalah blok <style id="alhijaz-mobile-typography"> di template
+    // (sumber: scripts/landing-patches/umroh/mobile-typography.html). Blok itu
+    // dulu diadu dengan salinan ber-!important di sini, dan keduanya sempat
+    // beda angka — judul section jadi 24px di halaman agent tapi 26px di
+    // template, tanpa ada yang sadar. Yang tersisa di sini hanya rule yang
+    // memang milik transform (ikon icon-box yang ukurannya ikut ikon SVG hasil
+    // replaceFaIcons, bukan icon-font bawaan).
     + '@media(max-width:767px){'
-    // Hero "Umroh Pasti Berangkat" heading (60px → 32px)
-    + '.elementor-element-25901017 .elementor-heading-title{font-size:32px!important;line-height:40px!important}'
-    // Hero WA button mobile
-    + '.elementor-element-796244f7 .elementor-button{font-size:15px!important;padding:13px 24px!important}'
-    + '.elementor-element-796244f7 > .elementor-widget-container{margin:15px 0 0!important}'
-    // Section headings (46-50px → 24px)
-    + '.elementor-element-83b623f .elementor-heading-title,'
-    + '.elementor-element-7ef60bcc .elementor-heading-title,'
-    + '.elementor-element-61fac271 .elementor-heading-title,'
-    + '.elementor-element-14a03f8b .elementor-heading-title,'
-    + '.elementor-element-1d41e06a .elementor-heading-title'
-    + '{font-size:24px!important;line-height:32px!important}'
-    // Icon box icons (41px → 28px)
     + '.elementor-element-6d00c198 .elementor-icon,'
     + '.elementor-element-5c4b7ac7 .elementor-icon,'
     + '.elementor-element-553ebb7e .elementor-icon,'
     + '.elementor-element-4baee391 .elementor-icon,'
     + '.elementor-element-18727aa0 .elementor-icon'
-    + '{font-size:28px!important}'
+    + '{font-size:26px!important}'
     + '}'
     + '</st' + 'yle>\n'
     + '<' + '/head>'

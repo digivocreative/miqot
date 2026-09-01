@@ -32,6 +32,12 @@ const PAGES = [
     extras: [
       ['tipografi mobile ikut terkirim', (h) => h.includes('id="alhijaz-mobile-typography"')],
       ['tombol Lihat Semua Keunggulan ada', (h) => h.includes('Lihat Semua Keunggulan')],
+      // Penyetelan mobile pernah hidup di DUA tempat sekaligus — blok
+      // alhijaz-mobile-typography di template dan salinan ber-!important yang
+      // disuntik umroh.ts — dengan angka yang diam-diam berbeda. Invarian:
+      // tidak boleh ada satu pun elemen yang diatur di kedua blok mobile.
+      ['tak ada elemen diatur 2 blok mobile sekaligus', (h) => mobileRuleOverlap(h).length === 0,
+        (h) => 'bentrok: ' + mobileRuleOverlap(h).join(', ')],
     ],
   },
   { name: 'haji', entry: 'functions/[slug]/haji.ts', out: 'functions/haji-landing.mjs' },
@@ -43,6 +49,33 @@ function check(page, label, ok, detail = '') {
   else { failures++; console.log(`  ❌ [${page}] ${label}${detail ? ' — ' + String(detail).slice(0, 160) : ''}`); }
 }
 function count(html, re) { return (html.match(re) || []).length; }
+
+/** Semua <style> di output, dipisah jadi isi masing-masing. */
+function styleBlocks(html) {
+  return [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+}
+/** Id elemen Elementor yang diatur di dalam blok @media mobile pada satu CSS. */
+function mobileScopedIds(css) {
+  const start = css.search(/@media\s*\(\s*max-width:\s*767px\s*\)/);
+  if (start === -1) return new Set();
+  // Ambil sampai penutup kurawal media query (nesting cuma 1 tingkat di sini).
+  let depth = 0, i = css.indexOf('{', start), end = css.length;
+  for (let j = i; j < css.length; j++) {
+    if (css[j] === '{') depth++;
+    else if (css[j] === '}' && --depth === 0) { end = j; break; }
+  }
+  const body = css.slice(i, end);
+  return new Set([...body.matchAll(/elementor-element-([0-9a-f]{6,})\b/g)].map((m) => m[1]));
+}
+/** Id yang diatur di blok mobile alhijaz-mobile-typography DAN di blok mobile lain. */
+function mobileRuleOverlap(html) {
+  const blocks = styleBlocks(html);
+  const typo = blocks.find((b) => b.includes('Tipografi & spacing mobile'));
+  if (!typo) return ['blok alhijaz-mobile-typography tidak ditemukan'];
+  const owned = mobileScopedIds(typo);
+  const others = blocks.filter((b) => b !== typo).flatMap((b) => [...mobileScopedIds(b)]);
+  return [...new Set(others.filter((id) => owned.has(id)))];
+}
 
 for (const p of PAGES) {
   buildSync({ entryPoints: [p.entry], outfile: p.out, format: 'esm', platform: 'node', bundle: true });
@@ -81,7 +114,7 @@ for (const p of PAGES) {
   check(p.name, 'og:title memuat nama agent', new RegExp('og:title" content="[^"]*' + AGENT_NAME).test(html));
   check(p.name, 'script CAPI disuntik', html.includes('/api/capi/'));
   check(p.name, 'asset tetap relatif tanpa env (>10)', count(html, /(["'(])\/wp-content\//g) > 10);
-  for (const [label, fn] of p.extras || []) check(p.name, label, fn(html));
+  for (const [label, fn, detail] of p.extras || []) check(p.name, label, fn(html), detail ? detail(html) : '');
   if (p.removals?.length) {
     const template = readFileSync(new URL('../' + p.template, import.meta.url), 'utf-8');
     for (const [label, marker] of p.removals) {

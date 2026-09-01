@@ -166,42 +166,96 @@ body {
 
 <style id="alhijaz-mobile-typography" type="text/css">
 /* ============================================================================
-   Tipografi & spacing mobile (2026-06-07) — melengkapi blok mobile bawaan
-   Elementor di CSS minified yang tidak lengkap (145/190 selector font tanpa
-   nilai mobile) dan menyeragamkan judul section yang campur 24-32px.
-   Skala: hero 30 / judul section 26 / judul kartu 19 / baris paket 17.
+   Tipografi & spacing mobile — SATU-SATUNYA tempat penyetelan mobile umroh.
+   Melengkapi blok mobile bawaan Elementor di CSS minified yang tidak lengkap
+   (145/190 selector font tanpa nilai mobile) dan menyeragamkan yang campur.
+
+   Skala (disetel untuk layar 360–420px, 2026-09-01):
+     hero 27 / judul section 21 / judul kartu 17 / baris kartu 16 / body 15
+   Sebelumnya: hero 32 / judul section 24–26 / judul kartu 19 / baris 17–18,
+   dengan bintang dekoratif 37px — lebih besar dari judul mana pun di halaman.
+
    Selector meniru pola Elementor → menang lewat urutan kaskade, tanpa
-   !important, CSS lama tidak disentuh. Spec: docs/superpowers/specs/
+   !important (kecuali satu, ditandai di tempatnya: melawan inline style di
+   markup). CSS lama tidak disentuh. Blok ini WAJIB jadi stylesheet terakhir
+   di head. Spec awal: docs/superpowers/specs/
    2026-06-07-umroh-mobile-typography-design.md
    ============================================================================ */
 @media (max-width: 767px) {
-	/* Judul section utama — seragam 26px (Mengapa Memilih, Daftarkan Diri,
-	   Dokumentasi Jamaah, Perlengkapan Umroh; sebelumnya 28-32px) */
-	.elementor-1291 .elementor-element.elementor-element-4c21a8ce .elementor-heading-title,
+
+	/* ── Hero ──────────────────────────────────────────────────────────── */
+	/* "Umroh Pasti Berangkat / Hanya 29 JUTA (ALL-IN)" (32px → 27px).
+	   Tetap teks terbesar di halaman, tapi 2 baris di 360px tanpa sesak. */
+	.elementor-1291 .elementor-element.elementor-element-25901017 .elementor-heading-title {
+		font-size: 27px;
+		line-height: 1.2;
+	}
+	/* Sub-hero "Travel Umroh Akreditasi A" (20px → 17px) */
+	.elementor-1291 .elementor-element.elementor-element-58a04b4c .elementor-heading-title {
+		font-size: 17px;
+		line-height: 1.4;
+	}
+	/* Caption "Situs Resmi PT Alhijaz Indowisata (Pusat)" (16px → 15px) */
+	.elementor-1291 .elementor-element.elementor-element-1fd42544 .elementor-heading-title {
+		font-size: 15px;
+	}
+	/* Tombol WA hero */
+	.elementor-1291 .elementor-element.elementor-element-796244f7 .elementor-button {
+		font-size: 16px;
+		padding: 13px 24px;
+	}
+	.elementor-1291 .elementor-element.elementor-element-796244f7 > .elementor-widget-container {
+		margin: 22px 0 0;
+	}
+
+	/* ── Judul section — seragam 21px ──────────────────────────────────── */
+	/* Sebelumnya campur 24px (Perlengkapan, Dokumentasi, Penghargaan, Profil)
+	   dan 26px (Mengapa Memilih, Daftarkan Diri). Google Review malah masih
+	   memakai line-height desktop 64px untuk teks 24px — satu baris judul
+	   memakan 64px tinggi. */
+	.elementor-1291 .elementor-element.elementor-element-2a18d1ea .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-16260372 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-1d41e06a .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4c21a8ce .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-14a03f8b .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-61fac271 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-83b623f .elementor-heading-title {
-		font-size: 26px;
+		font-size: 21px;
+		line-height: 1.25;
 	}
-	/* Sub-hero "Travel Umroh Akreditasi A" (23px → 20px) */
-	.elementor-1291 .elementor-element.elementor-element-58a04b4c .elementor-heading-title {
-		font-size: 20px;
+
+	/* ── Google Review ─────────────────────────────────────────────────── */
+	.elementor-1291 .elementor-element.elementor-element-2cf1b871 .elementor-heading-title {
+		font-size: 15px;
+		line-height: 1.5;
 	}
-	/* Caption "Situs Resmi PT Alhijaz Indowisata (Pusat)" (20px → 16px) */
-	.elementor-1291 .elementor-element.elementor-element-1fd42544 .elementor-heading-title {
-		font-size: 16px;
-	}
-	/* Quote review "BAGUS SEKALI ⭐⭐⭐⭐⭐" (26px desktop tanpa nilai mobile → 20px,
-	   tidak lagi lebih besar dari judul section Google Review) */
+	/* "BAGUS SEKALI ⭐⭐⭐⭐⭐" (20px → 17px) */
 	.elementor-1291 .elementor-element.elementor-element-3e2402e1 .elementor-heading-title {
+		font-size: 17px;
+		line-height: 1.4;
+	}
+	/* Baris bintangnya memakai inline style="font-size:37px" di markup — teks
+	   TERBESAR di halaman, mengalahkan judul hero. Inline style cuma bisa
+	   dilawan !important; ini satu-satunya di blok ini. */
+	.elementor-1291 .elementor-element.elementor-element-3e2402e1 .elementor-heading-title span {
+		font-size: 24px !important;
+		margin-top: 4px !important;
+	}
+
+	/* ── Profil Alhijaz ────────────────────────────────────────────────── */
+	/* Baris bintang dekoratif (24px → 20px) */
+	.elementor-1291 .elementor-element.elementor-element-7ef60bcc .elementor-heading-title {
 		font-size: 20px;
+		line-height: 1.2;
 	}
-	/* "Mau Promo Spesial Alhijaz? Tunjukkan Voucher Ini!" (25px → 22px) */
-	.elementor-1291 .elementor-element.elementor-element-e801ae2 .elementor-heading-title {
-		font-size: 22px;
+	.elementor-1291 .elementor-element.elementor-element-3846ae59 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-38610a19 .elementor-heading-title {
+		font-size: 15px;
+		line-height: 1.55;
 	}
-	/* Judul kartu why-us: Resmi Kemenag RI, Akreditasi "A", Hotel Dekat Masjid,
-	   dll. (22px desktop tanpa nilai mobile → 19px) */
+
+	/* ── Kartu "Mengapa Harus Memilih Alhijaz" ─────────────────────────── */
+	/* Judul kartu (19px → 17px) */
 	.elementor-1291 .elementor-element.elementor-element-409665d9 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-74fb4b91 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-4796d3a5 .elementor-heading-title,
@@ -211,24 +265,41 @@ body {
 	.elementor-1291 .elementor-element.elementor-element-7378f1e3 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-114090ac .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-13786a9f .elementor-heading-title {
-		font-size: 19px;
+		font-size: 17px;
+		line-height: 1.3;
 	}
-	/* Tombol "Konsultasi Pendaftaran Umroh" (22px → 18px, samakan dgn CTA lain) */
-	.elementor-1291 .elementor-element.elementor-element-4e5a69c5 .elementor-button,
-	.elementor-1291 .elementor-element.elementor-element-343ada1c .elementor-button {
-		font-size: 18px;
+	/* Isi kartu (17px → 15px) */
+	.elementor-1291 .elementor-element.elementor-element-4abb4942 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-a793328 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7f7432aa .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-692b0dba .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-2b75f2d0 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-57967081 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-755894f9 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-243f110c .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-43050873 .elementor-heading-title {
+		font-size: 15px;
+		line-height: 1.5;
 	}
-	/* Tanggal keberangkatan paket "Agustus - Desember 2026" (20px → 18px) */
+
+	/* ── Kartu paket ───────────────────────────────────────────────────── */
+	/* Tanggal keberangkatan & harga (18px → 17px) */
 	.elementor-1291 .elementor-element.elementor-element-5c7adc48 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-ae303ec .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-f83cb5b .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-5c3e9d6 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-717b65f8 .elementor-heading-title,
-	.elementor-1291 .elementor-element.elementor-element-6a8f0798 .elementor-heading-title {
-		font-size: 18px;
+	.elementor-1291 .elementor-element.elementor-element-6a8f0798 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-281b0df7 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-0c58c08 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-13ca440 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-d47ab51 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-114b48ae .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-5723b546 .elementor-heading-title {
+		font-size: 17px;
+		line-height: 1.3;
 	}
-	/* Baris detail kartu paket: "10 Hari", maskapai, "Hotel ⭐⭐⭐⭐", dll.
-	   (20px desktop tanpa nilai mobile → 17px) */
+	/* Baris detail: "9 Hari", maskapai, "Hotel ⭐⭐⭐⭐" (17px → 16px) */
 	.elementor-1291 .elementor-element.elementor-element-2186f90f .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-eb2d708 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-32ac0b01 .elementor-heading-title,
@@ -253,9 +324,10 @@ body {
 	.elementor-1291 .elementor-element.elementor-element-423d2105 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-2f2ae961 .elementor-heading-title,
 	.elementor-1291 .elementor-element.elementor-element-6c283528 .elementor-heading-title {
-		font-size: 17px;
+		font-size: 16px;
+		line-height: 1.35;
 	}
-	/* Ikon baris detail kartu paket (20px → 17px, sejajar dgn teks barisnya) */
+	/* Ikon baris detail — sejajar ukuran dgn teks barisnya (17px → 16px) */
 	.elementor-1291 .elementor-element.elementor-element-2155384 .elementor-icon,
 	.elementor-1291 .elementor-element.elementor-element-2c44ad7 .elementor-icon,
 	.elementor-1291 .elementor-element.elementor-element-301cce3 .elementor-icon,
@@ -280,14 +352,159 @@ body {
 	.elementor-1291 .elementor-element.elementor-element-bf61bdb .elementor-icon,
 	.elementor-1291 .elementor-element.elementor-element-e9e546c .elementor-icon,
 	.elementor-1291 .elementor-element.elementor-element-fc47b83 .elementor-icon {
+		font-size: 16px;
+	}
+	/* Nama hotel per kota (18px → 16px; sering 2 baris di 360px) */
+	.elementor-1291 .elementor-element.elementor-element-2a7a47cc .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-3dbcd66b .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4520a9c .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-0f2c8f6 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-f47ea8e .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-bbafcc0 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-b02ba1b .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-cca78cc .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-8490fc8 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-259c92d .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4533cae4 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-4df76ed0 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-f8eab00 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-6d485a2c .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-5cfd4cc7 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-23fd680b .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-24e8ddc1 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7525aa51 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-760d0541 .elementor-heading-title {
+		font-size: 16px;
+		line-height: 1.35;
+	}
+	/* Baris fasilitas miring "Full Include…", "FREE Ayam Al-Baik" (16px → 15px) */
+	.elementor-1291 .elementor-element.elementor-element-0477632 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-7b152dc .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-867a75d .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-9ba6ead .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-9fd11c2 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-9871e47 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-e9225fa .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-d809d01 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-b328761 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-51009aa .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-d85b519 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-e8f2c3b .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-d98b73a .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-8326da0 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-0b9fb94 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-5378be5 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-3fae06a .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-de1bfaf .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-f1921bd .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-a6d66ee .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-d1f7ab4 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-a8e3e8e .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-6e6dab2 .elementor-heading-title,
+	.elementor-1291 .elementor-element.elementor-element-564d431 .elementor-heading-title {
+		font-size: 15px;
+	}
+	/* Tombol CTA per kartu paket (17px → 16px) */
+	.elementor-1291 .elementor-element.elementor-element-48c8d05e .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-fe638eb .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-f9e4b02 .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-525e99b .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-28552e49 .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-2ad838df .elementor-button {
+		font-size: 16px;
+		padding: 11px 30px;
+	}
+
+	/* ── CTA besar & footer ────────────────────────────────────────────── */
+	/* "Konsultasi Pendaftaran Umroh" (18px → 17px) */
+	.elementor-1291 .elementor-element.elementor-element-4e5a69c5 .elementor-button,
+	.elementor-1291 .elementor-element.elementor-element-343ada1c .elementor-button {
 		font-size: 17px;
 	}
-	/* Divider "Legalitas Perusahaan", "Rekening Rupiah", "Rekening Dollar"
-	   (20px → 18px) */
+	/* "Mau Promo Spesial Alhijaz?" (22px → 20px) */
+	.elementor-1291 .elementor-element.elementor-element-e801ae2 .elementor-heading-title {
+		font-size: 20px;
+	}
+	/* Divider "Legalitas Perusahaan", "Rekening Rupiah", "Rekening Dollar" */
 	.elementor-1291 .elementor-element.elementor-element-1319c95 .elementor-divider__text,
 	.elementor-1291 .elementor-element.elementor-element-7569d249 .elementor-divider__text,
 	.elementor-1291 .elementor-element.elementor-element-42279494 .elementor-divider__text {
-		font-size: 18px;
+		font-size: 17px;
+	}
+
+	/* ========================================================================
+	   SPACING — jarak vertikal warisan desktop yang tak pernah disetel mobile
+	   ======================================================================== */
+
+	/* Section "Daftarkan Diri Anda Sekarang Juga!" isinya elementor-hidden-mobile,
+	   jadi di mobile cuma menyisakan kotak kosong setinggi ~20px. */
+	.elementor-1291 .elementor-element.elementor-element-a68b222 {
+		display: none;
+	}
+
+	/* Padding kolom bawaan Elementor 10px atas+bawah di SETIAP baris detail
+	   kartu paket: 20px terbuang untuk satu baris teks 16px, dikali ~24 baris.
+	   Dipersempit hanya di dalam 6 kolom kartu paket. */
+	.elementor-1291 .elementor-element.elementor-element-14f6a27e .elementor-inner-section .elementor-column > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-0ced713 .elementor-inner-section .elementor-column > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-34817f7 .elementor-inner-section .elementor-column > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-3da70fd .elementor-inner-section .elementor-column > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-412a2f79 .elementor-inner-section .elementor-column > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-6486e2cd .elementor-inner-section .elementor-column > .elementor-element-populated {
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+
+	/* Profil Alhijaz: jarak ke section sebelumnya + padding dalam */
+	.elementor-1291 .elementor-element.elementor-element-4c9c46b3 {
+		margin-top: 24px;
+		padding: 24px 0;
+	}
+
+	/* "Mengapa Harus Memilih Alhijaz" — judul dan kartunya */
+	.elementor-1291 .elementor-element.elementor-element-1a4dc7b8 > .elementor-element-populated {
+		padding: 0 12px 20px;
+	}
+	.elementor-1291 .elementor-element.elementor-element-4c21a8ce > .elementor-widget-container {
+		margin: 20px 12px 0;
+	}
+	.elementor-1291 .elementor-element.elementor-element-a376fbb > .elementor-widget-container {
+		margin: -8px 0 4px;
+	}
+	.elementor-1291 .elementor-element.elementor-element-1cc01a63 > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-76b67bda > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-1eb64c53 > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-15fdbb8c > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-3108bdc8 > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-1d256b88 > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-7980296e > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-4ff59a39 > .elementor-element-populated,
+	.elementor-1291 .elementor-element.elementor-element-1001dac > .elementor-element-populated {
+		padding: 18px 16px;
+	}
+	/* Ikon kartu why-us dipaku 100px di wp-custom-css tanpa nilai mobile —
+	   sepertiga tinggi kartu cuma untuk lencana. */
+	.elementor-1291 .icon-whyus img {
+		height: 82px;
+	}
+
+	/* Penghargaan & Prestasi: margin-top warisan desktop 60px */
+	.elementor-1291 .elementor-element.elementor-element-597d5f14 {
+		margin-top: 28px;
+	}
+	/* Dokumentasi Jamaah (padding 50/30) */
+	.elementor-1291 .elementor-element.elementor-element-670e8301 {
+		padding: 32px 0 24px;
+	}
+	/* Perlengkapan Umroh (padding 20/30) */
+	.elementor-1291 .elementor-element.elementor-element-84c8c4e {
+		padding: 16px 0 20px;
+	}
+	/* Jarak judul section ke isinya (margin-bottom 10px warisan desktop) */
+	.elementor-1291 .elementor-element.elementor-element-14a03f8b > .elementor-widget-container,
+	.elementor-1291 .elementor-element.elementor-element-61fac271 > .elementor-widget-container,
+	.elementor-1291 .elementor-element.elementor-element-83b623f > .elementor-widget-container {
+		margin-bottom: 6px;
 	}
 }
 </style>
