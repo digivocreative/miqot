@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { stampAgentOnBrochure, type BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
 
 // ============================================
 // Types
@@ -27,17 +28,30 @@ interface BrochureModalProps {
    * itinerary yang bertema burgundy Alhijaz (permintaan user 2026-07-31).
    */
   tone?: 'emerald' | 'burgundy';
+  /**
+   * Kalau diisi, identitas agent dibakar ke piksel brosur — mengisi kotak
+   * kontak kosong yang memang disediakan tiap template di strip bawah.
+   * Pratinjau dan berkas yang dibagikan memakai gambar yang SAMA: agent melihat
+   * persis apa yang akan diterima calon jamaah. Gagal apa pun (CORS, template
+   * tak dikenal, kanvas) → brosur asli, seperti sebelum fitur ini ada.
+   */
+  agent?: BrochureAgentIdentity | null;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald' }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  // Brosur ber-identitas agent. `pending` menahan pratinjau supaya gambar asli
+  // tidak sempat terlihat lalu berkedip diganti — yang dilihat agent sejak
+  // detik pertama harus sudah yang akan dikirim.
+  const [stamped, setStamped] = useState<{ url: string; blob: Blob } | null>(null);
+  const [isStamping, setIsStamping] = useState(false);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -58,6 +72,58 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       setAiMenuOpen(false);
     }
   }, [isOpen, imageUrl]);
+
+  // ── Identitas agent dibakar ke brosur ──
+  // Pemanggil merakit `agent` sebagai objek literal, jadi identitasnya berubah
+  // tiap render. Efek ini karena itu bergantung pada NILAI-nya, bukan objeknya;
+  // tanpa itu ia menggubah ulang gambar tanpa henti.
+  const agentKey = agent
+    ? [agent.name, agent.phone, agent.photo || '', agent.landing || ''].join('|')
+    : '';
+  const agentRef = useRef(agent);
+  agentRef.current = agent;
+  const stampedUrlRef = useRef<string | null>(null);
+
+  const replaceStamped = (next: { url: string; blob: Blob } | null) => {
+    if (stampedUrlRef.current) URL.revokeObjectURL(stampedUrlRef.current);
+    stampedUrlRef.current = next?.url ?? null;
+    setStamped(next);
+  };
+
+  useEffect(() => () => {
+    if (stampedUrlRef.current) URL.revokeObjectURL(stampedUrlRef.current);
+    stampedUrlRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || !displayUrl || !agentKey) {
+      setIsStamping(false);
+      replaceStamped(null);
+      return;
+    }
+    let cancelled = false;
+    setIsStamping(true);
+    (async () => {
+      try {
+        const response = await fetch(displayUrl);
+        if (!response.ok) throw new Error('Fetch failed');
+        const original = await response.blob();
+        const out = await stampAgentOnBrochure(original, agentRef.current!);
+        if (cancelled) return;
+        // Blob yang sama = tidak ada yang berhasil digambar; pakai jalur lama
+        // apa adanya ketimbang menahan satu salinan identik di memori.
+        replaceStamped(out === original ? null : { url: URL.createObjectURL(out), blob: out });
+      } catch {
+        if (!cancelled) replaceStamped(null);
+      } finally {
+        if (!cancelled) setIsStamping(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, displayUrl, agentKey]);
+
+  const renderUrl = stamped?.url || displayUrl;
 
   // Close the AI Tools menu on outside-click / Escape (without closing the modal)
   useEffect(() => {
@@ -109,9 +175,16 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
     const fileName = `Brosur-${safeTitle}.png`;
 
     try {
-      const response = await fetch(displayUrl);
-      if (!response.ok) throw new Error('Fetch failed');
-      const blob = await response.blob();
+      // Berkas yang dibagikan adalah gambar yang SAMA dengan yang barusan
+      // dilihat agent — bukan diambil ulang dari CDN tanpa identitasnya.
+      let blob: Blob;
+      if (stamped) {
+        blob = stamped.blob;
+      } else {
+        const response = await fetch(displayUrl);
+        if (!response.ok) throw new Error('Fetch failed');
+        blob = await response.blob();
+      }
       const blobUrl = window.URL.createObjectURL(blob);
 
       const img = new Image();
@@ -255,15 +328,20 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
             <div className="flex justify-center">
               <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
                 {/* Loading Spinner */}
-                {!isImageLoaded && displayUrl && (
+                {(!isImageLoaded || isStamping) && displayUrl && (
                   <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
                     <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
                   </div>
                 )}
 
-                {displayUrl && (
+                {/* Penahan tinggi selagi identitas agent digubah. Tanpa ini
+                    pembungkusnya kolaps ke tinggi padding dan spinner di atas
+                    jadi gepeng. Rasio 3:4 = rasio brosur (1080×1440, 1200×1600). */}
+                {displayUrl && isStamping && <div className="w-full aspect-[3/4] rounded-lg" />}
+
+                {displayUrl && !isStamping && (
                   <img
-                    src={displayUrl}
+                    src={renderUrl}
                     alt={`Brosur ${title}`}
                     className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     style={{

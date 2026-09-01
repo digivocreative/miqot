@@ -5,6 +5,7 @@ import { BrochureModal } from './BrochureModal';
 import { CaptionAIModal } from './CaptionAIModal';
 import { BrochurePromptModal } from './BrochurePromptModal';
 import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
+import { landingUrlForAgent } from './BrochureScheduleTemplate';
 import type { BrochureAgent, BrochurePackage } from './BrochureScheduleTemplate';
 
 // BrochurePromptModal sudah statis di BrochureSchedulePage (dipakai mode
@@ -357,6 +358,12 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
             imageUrl={selected.brosur || ''}
             title={selected.nama}
             tone="emerald"
+            agent={{
+              name: agent.name,
+              phone: agent.phone,
+              photo: agent.photo,
+              landing: landingUrlForAgent(agent),
+            }}
             onCaption={() => setView('caption')}
             // Butuh nama tier untuk mengunci fakta paket di backend; 1 dari 66
             // paket tidak punya harga sehingga tier-nya kosong — di situ alat

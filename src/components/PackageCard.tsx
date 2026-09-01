@@ -2476,6 +2476,14 @@ _________________________
           onClose={() => setIsBrochureOpen(false)}
           imageUrl={pkg.brosurUrl}
           title={pkg.nama}
+          // Halaman agent publik: brosur yang dibagikan membawa identitas
+          // pemilik halamannya, bukan kotak kontak kosong bawaan template.
+          agent={currentAgent && agentSlug ? {
+            name: currentAgent.name,
+            phone: currentAgent.phone,
+            photo: currentAgent.photo,
+            landing: `alhijaz.co/${agentSlug}`,
+          } : null}
           onCaption={isSessionValid() ? () => {
             setIsBrochureOpen(false);
             setIsAiCopyOpen(true);

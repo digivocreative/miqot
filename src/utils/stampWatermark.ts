@@ -1,4 +1,5 @@
 import { WATERMARK } from '../components/PhotoWatermark';
+import { canvasToBlob, decodeImageBlob } from './canvasImage';
 
 // Membakar watermark ke PIKSEL foto, bukan sekadar menumpuknya di DOM.
 // Lapisan DOM di lightbox hanya selamat kalau agent men-screenshot; berkas
@@ -7,45 +8,6 @@ import { WATERMARK } from '../components/PhotoWatermark';
 //
 // Semua angka rupa datang dari WATERMARK di PhotoWatermark.tsx supaya berkas
 // yang tersimpan sebanding dengan yang dilihat agent di layar.
-
-async function decode(blob: Blob): Promise<{ bitmap: CanvasImageSource; width: number; height: number; close: () => void }> {
-  // createImageBitmap jalur cepat (tanpa layout); <img> jadi jaring pengaman
-  // untuk peramban lama yang tidak punya atau menolak format sumbernya.
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bitmap = await createImageBitmap(blob);
-      return { bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
-    } catch { /* jatuh ke <img> di bawah */ }
-  }
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Gambar tidak bisa dibaca'));
-      el.src = url;
-    });
-    return {
-      bitmap: img,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-      close: () => URL.revokeObjectURL(url),
-    };
-  } catch (err) {
-    URL.revokeObjectURL(url);
-    throw err;
-  }
-}
-
-function toBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      blob => (blob ? resolve(blob) : reject(new Error('Kanvas gagal menghasilkan berkas'))),
-      type,
-      quality,
-    );
-  });
-}
 
 /**
  * Mengembalikan salinan foto dengan watermark tercetak di piksel.
@@ -60,7 +22,7 @@ function toBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promi
  */
 export async function stampWatermarkOnImage(blob: Blob, text: string): Promise<Blob> {
   if (!text) return blob;
-  const { bitmap, width, height, close } = await decode(blob);
+  const { bitmap, width, height, close } = await decodeImageBlob(blob);
   try {
     if (!width || !height) throw new Error('Ukuran gambar tidak terbaca');
     const canvas = document.createElement('canvas');
@@ -105,7 +67,7 @@ export async function stampWatermarkOnImage(blob: Blob, text: string): Promise<B
     // (jpg, webp, avif) keluar sebagai JPEG — paling aman dibuka di galeri
     // ponsel dan aplikasi chat mana pun.
     const png = blob.type === 'image/png';
-    return await toBlob(canvas, png ? 'image/png' : 'image/jpeg', png ? 1 : 0.92);
+    return await canvasToBlob(canvas, png ? 'image/png' : 'image/jpeg', png ? 1 : 0.92);
   } finally {
     close();
   }
