@@ -227,11 +227,11 @@ import {
 import {
   CURRENCY_NAMES,
   decideKursFetchAlert,
-  fetchMandiriKursHtml,
+  fetchKursHtml,
   isKursCacheRefreshDue,
   isKursToday,
   canAttemptKursFetch,
-  parseMandiriKursHtml,
+  parseKursdollarHtml,
   shouldReplaceKursCache,
   shouldWaitForKursFetch,
 } from './lib/kurs-mandiri.js';
@@ -837,9 +837,9 @@ let lastKursFetchError = null;
 let kursAlertedAt = null;
 let lastKursAttemptAt = null;
 
-// Baris `kurs_cache` adalah SUMBER UTAMA kurs sekarang: Akamai memblokir egress
-// VPS produksi berdasarkan reputasi IP (curl pun ditolak dari sana), jadi yang
-// men-scrape adalah cron GitHub Actions di .github/workflows/kurs-mandiri.yml.
+// `kurs_cache` adalah cache tulis-lewat milik server ini sendiri: dia yang
+// menulisnya tiap kali scrape berhasil, dan membacanya sekali saat boot supaya
+// restart tidak memulai dengan dashboard kosong. Tidak ada penulis lain.
 async function loadKursFromSupabase({ onlyIfNewer = false } = {}) {
   try {
     const { data, error } = await supabase
@@ -865,22 +865,12 @@ async function loadKursFromSupabase({ onlyIfNewer = false } = {}) {
   }
 }
 
-// Dibaca berkala supaya dashboard ikut segar beberapa menit setelah Actions
-// menulis, tanpa menunggu siklus harian 10:02 WIB.
-const KURS_SUPABASE_RELOAD_MS = 10 * 60 * 1000;
-setInterval(() => {
-  loadKursFromSupabase({ onlyIfNewer: true })
-    .catch(err => console.error('[Kurs] Pembacaan ulang Supabase gagal:', err.message));
-}, KURS_SUPABASE_RELOAD_MS);
-
 // Returns true if fetched data is from today, false otherwise
 async function fetchKursMandiri() {
   try {
-    const { html, via } = await fetchMandiriKursHtml({
-      onAttemptFail: (label, err) => console.warn(`[Kurs] Percobaan fetch "${label}" gagal: ${err.message}`),
-    });
-    console.log(`[Kurs] Fetch lolos lewat klien "${via}"`);
-    const { rates, updatedAt } = parseMandiriKursHtml(html);
+    const { html, via } = await fetchKursHtml();
+    console.log(`[Kurs] Fetch lolos lewat "${via}"`);
+    const { rates, updatedAt } = parseKursdollarHtml(html);
 
     if (Object.keys(rates).length > 0) {
       const nextCache = {
@@ -929,8 +919,7 @@ async function settleKursFetchAlert(failed) {
 
   const text = verdict === 'alert'
     ? `\u26a0\ufe0f <b>Kurs Mandiri gagal di-scrape</b>\n`
-      + `${KURS_MAX_RETRIES}\u00d7 percobaan sejak 10:02 WIB gagal, dan baris Supabase `
-      + `dari cron GitHub Actions juga belum berisi kurs hari ini.\n`
+      + `${KURS_MAX_RETRIES}\u00d7 percobaan sejak 10:20 WIB gagal.\n`
       + `Galat terakhir: <code>${escapeHtml(String(lastKursFetchError))}</code>\n`
       + `Dashboard masih memakai kurs ${escapeHtml(kursCache?.updatedAt || '(kosong)')}.`
     : `\u2705 <b>Kurs Mandiri pulih</b>\nData terbaru: ${escapeHtml(kursCache?.updatedAt || '(kosong)')}`;
@@ -963,7 +952,7 @@ async function refreshKursIfDue({ force = false } = {}) {
 
 // On startup: load from Supabase, then fetch fresh if cache is missing or stale.
 // Telegram broadcast is NOT triggered here — only after the scheduled daily
-// scrape (10:02 WIB) succeeds. This prevents re-broadcasting whenever the
+// scrape (10:20 WIB) succeeds. This prevents re-broadcasting whenever the
 // server restarts during the day.
 (async () => {
   const loaded = await loadKursFromSupabase();
@@ -974,9 +963,11 @@ async function refreshKursIfDue({ force = false } = {}) {
     console.log('[Kurs] Cached kurs is due for refresh, fetching fresh...');
     await refreshKursIfDue({ force: true });
   }
-  // Lapor kegagalan scrape di sini, bukan hanya dari cron 10:02 WIB. Blokir Akamai
-  // hanya terbaca di log server yang tak selalu terjangkau, jadi sebab persisnya
-  // dikirim ke ops beberapa detik setelah restart — bukan menunggu siklus besok.
+  // Lapor kegagalan scrape di sini, bukan hanya dari cron 10:20 WIB. Sumber yang
+  // tak terjangkau hanya terbaca di log server yang tak selalu terjangkau juga,
+  // jadi sebab persisnya dikirim ke ops beberapa detik setelah restart — bukan
+  // menunggu siklus besok. Ini satu-satunya jaring yang tersisa sejak pipeline
+  // GitHub Actions dibongkar, jadi jangan dilemahkan.
   // Halaman yang terbaca normal tapi belum terbit hari ini tetap tidak dialarmkan.
   if (shouldRunBackgroundJobs()) await settleKursFetchAlert(Boolean(lastKursFetchError));
 })();
@@ -986,9 +977,12 @@ const KURS_MAX_RETRIES = 8;
 
 function scheduleKursCron() {
   const now = new Date();
-  // 10:02 WIB = 03:02 UTC
+  // 10:20 WIB = 03:20 UTC. Mandiri menerbitkan sekitar 09:5x, tapi kursdollar
+  // baru menangkapnya pada 10:10 (semua baris historisnya berstempel 10:10).
+  // Siklus 10:02 yang lama selalu delapan menit terlalu pagi dan cuma tertolong
+  // retry, yang ikut menunda broadcast Telegram harian.
   const next = new Date(now);
-  next.setUTCHours(3, 2, 0, 0);
+  next.setUTCHours(3, 20, 0, 0);
   if (next <= now) {
     next.setUTCDate(next.getUTCDate() + 1);
   }
@@ -1004,9 +998,6 @@ function scheduleKursCron() {
 
 async function fetchKursWithRetry() {
   for (let attempt = 1; attempt <= KURS_MAX_RETRIES; attempt++) {
-    // Baris dari cron GitHub Actions dulu; scrape langsung tinggal cadangan
-    // kalau kelak IP server tidak lagi diblokir.
-    await loadKursFromSupabase({ onlyIfNewer: true });
     const isCurrent = isKursToday(kursCache?.updatedAt) || await fetchKursMandiri();
     if (isCurrent) {
       console.log(`[Kurs] Got today's rates on attempt ${attempt}`);

@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const fixture = () => readFileSync(
+  fileURLToPath(new URL('./fixtures/kursdollar-mandiri.html', import.meta.url)),
+  'utf8',
+);
 
 async function loadKursModule() {
   try {
@@ -9,31 +16,92 @@ async function loadKursModule() {
   }
 }
 
-test('parseMandiriKursHtml reads TT Counter sell rates and timestamp', async () => {
-  const { parseMandiriKursHtml } = await loadKursModule();
-  const html = `
+test('parseKursdollarHtml reads the DD/TT sell rates of the newest date', async () => {
+  const { parseKursdollarHtml } = await loadKursModule();
+
+  const parsed = parseKursdollarHtml(fixture());
+
+  // Diadu langsung dengan TT Counter di www.bankmandiri.co.id pada 1 Sep 2026
+  // 09:54 WIB: USD 17820, SAR 4918, SGD 14099. DD/TT di kursdollar adalah seri
+  // yang sama persis, jadi angka di dashboard tidak bergeser sedikit pun.
+  assert.equal(parsed.rates.USD, 17820);
+  assert.equal(parsed.rates.SAR, 4918);
+  assert.equal(parsed.rates.SGD, 14099);
+  assert.equal(parsed.updatedAt, '01/09/26 10:10 WIB');
+});
+
+test('parseKursdollarHtml refuses to read any section other than DD/TT', async () => {
+  const { parseKursdollarHtml } = await loadKursModule();
+
+  const parsed = parseKursdollarHtml(fixture());
+
+  // Ini penjaga terpenting di berkas ini. Di halaman yang sama, Bank Notes
+  // tanggal 01/09 kebetulan identik dengan DD/TT tanggal 31/08 di SEMUA mata
+  // uang, jadi salah seksi menghasilkan angka yang tampak wajar dan lolos tanpa
+  // satu pun gejala - persis mode gagal yang menyandera kurs seminggu penuh.
+  assert.notEqual(parsed.rates.USD, 17830, 'itu Bank Notes, bukan DD/TT');
+  assert.notEqual(parsed.rates.USD, 17720, 'itu Special Rate, bukan DD/TT');
+});
+
+test('parseKursdollarHtml returns nothing rather than guessing when DD/TT is gone', async () => {
+  const { parseKursdollarHtml } = await loadKursModule();
+
+  // Kalau kursdollar mengganti nama seksinya, diam-diam jatuh ke tabel pertama
+  // jauh lebih berbahaya daripada kosong: kosong memicu alarm ops, angka yang
+  // salah tidak.
+  const parsed = parseKursdollarHtml(`
     <table>
-      <thead>
-        <tr>
-          <th>Mata Uang</th>
-          <th>Special Rate*<br>22/05/26 - 09:19 WIB</th>
-          <th>TT Counter<br>22/05/26 - 09:35 WIB</th>
-          <th>Bank Notes<br>22/05/26 - 09:32 WIB</th>
-        </tr>
-        <tr><th></th><th>Beli</th><th>Jual</th><th>Beli</th><th>Jual</th><th>Beli</th><th>Jual</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>USD</td><td>17.690,00</td><td>17.720,00</td><td>17.480,00</td><td>17.780,00</td><td>17.480,00</td><td>17.780,00</td></tr>
-        <tr><td>SAR</td><td>4.703,00</td><td>4.722,00</td><td>4.500,00</td><td>4.909,00</td><td>4.500,00</td><td>4.909,00</td></tr>
-      </tbody>
+      <tr><td>Bank Notes</td></tr>
+      <tr><td>Tanggal Update</td><td>( USD ) US Dollar</td></tr>
+      <tr><td>Selasa 01/09/2026 10:10</td><td>Beli</td><td>17.530,00</td></tr>
+      <tr><td>Jual</td><td>17.830,00</td></tr>
     </table>
-  `;
+  `);
 
-  const parsed = parseMandiriKursHtml(html);
+  assert.deepEqual(parsed.rates, {});
+  assert.equal(parsed.updatedAt, null);
+});
 
-  assert.equal(parsed.updatedAt, '22/05/26 09:35 WIB');
-  assert.equal(parsed.rates.USD, 17780);
-  assert.equal(parsed.rates.SAR, 4909);
+test('parseKursdollarHtml locates currencies by header, not by column position', async () => {
+  const { parseKursdollarHtml } = await loadKursModule();
+
+  // Urutan kolom kursdollar berbeda dari Mandiri dan bisa bergeser kapan saja.
+  // Parser lama memaku TT Counter ke cells[4]; di sini kolomnya sengaja dibalik.
+  const parsed = parseKursdollarHtml(`
+    <table>
+      <tr><td>DD/TT</td></tr>
+      <tr><td>Tanggal Update</td><td>( SAR ) Saudi Riyal</td><td>( USD ) US Dollar</td></tr>
+      <tr><td>Selasa 01/09/2026 10:10</td><td>Beli</td><td>507,00</td><td>17.520,00</td></tr>
+      <tr><td>Jual</td><td>4.918,00</td><td>17.820,00</td></tr>
+    </table>
+  `);
+
+  assert.equal(parsed.rates.SAR, 4918);
+  assert.equal(parsed.rates.USD, 17820);
+});
+
+test('parseKursdollarHtml emits a timestamp the existing WIB contract understands', async () => {
+  const { parseKursdollarHtml, parseMandiriTimestamp, isKursToday } = await loadKursModule();
+
+  const { updatedAt } = parseKursdollarHtml(fixture());
+
+  // Seluruh hilir - isKursToday, shouldReplaceKursCache, penanda stale, kartu
+  // share - membaca format `DD/MM/YY HH:MM WIB`. Normalisasi di parser inilah
+  // yang membuat pergantian sumber tidak menyentuh satu pun dari mereka.
+  assert.ok(parseMandiriTimestamp(updatedAt), 'tanggal kursdollar wajib ternormalkan');
+  assert.equal(isKursToday(updatedAt, new Date('2026-09-01T04:00:00Z')), true);
+  assert.equal(isKursToday(updatedAt, new Date('2026-09-02T04:00:00Z')), false);
+});
+
+test('CURRENCY_NAMES matches exactly what kursdollar publishes', async () => {
+  const { CURRENCY_NAMES } = await loadKursModule();
+
+  // Menayangkan mata uang yang sumbernya tidak punya berarti angka beku yang
+  // menyamar segar; CHF/DKK/NOK/SEK karena itu dibuang, dan KRW ikut masuk.
+  assert.deepEqual(
+    Object.keys(CURRENCY_NAMES).sort(),
+    ['AUD', 'CAD', 'CNY', 'EUR', 'GBP', 'HKD', 'JPY', 'KRW', 'MYR', 'NZD', 'SAR', 'SGD', 'THB', 'USD'],
+  );
 });
 
 test('isKursCacheRefreshDue refreshes old same-day cache', async () => {
@@ -69,58 +137,6 @@ test('shouldReplaceKursCache rejects older Mandiri timestamps', async () => {
 
   assert.equal(shouldReplaceKursCache(current, older), false);
   assert.equal(shouldReplaceKursCache(older, current), true);
-});
-
-test('fetchMandiriKursHtml moves to the next client when one is blocked', async () => {
-  const { fetchMandiriKursHtml } = await loadKursModule();
-  const tried = [];
-
-  const result = await fetchMandiriKursHtml({
-    attempts: [
-      { label: 'curl', run: async () => { tried.push('curl'); throw new Error('spawn curl ENOENT'); } },
-      { label: 'tls-chrome', run: async () => { tried.push('tls-chrome'); throw new Error('HTTP 403'); } },
-      { label: 'default', run: async () => { tried.push('default'); return '<table>ok</table>'; } },
-    ],
-  });
-
-  assert.deepEqual(tried, ['curl', 'tls-chrome', 'default']);
-  assert.equal(result.html, '<table>ok</table>');
-  assert.equal(result.via, 'default');
-});
-
-test('fetchMandiriKursHtml surfaces the last error when every client is blocked', async () => {
-  const { fetchMandiriKursHtml } = await loadKursModule();
-  const failures = [];
-
-  await assert.rejects(
-    fetchMandiriKursHtml({
-      attempts: [
-        { label: 'curl', run: async () => { throw new Error('spawn curl ENOENT'); } },
-        { label: 'tls-chrome', run: async () => { throw new Error('HTTP 403'); } },
-      ],
-      onAttemptFail: (label, err) => failures.push(`${label}:${err.message}`),
-    }),
-    /HTTP 403/
-  );
-
-  assert.deepEqual(failures, ['curl:spawn curl ENOENT', 'tls-chrome:HTTP 403']);
-});
-
-test('kurs fetch leads with curl, then a TLS profile that is not Node default', async () => {
-  const { MANDIRI_TLS_CIPHERS, createMandiriFetchAttempts } = await loadKursModule();
-  const tls = await import('node:tls');
-
-  // Akamai memblokir lewat sidik jari TLS: begitu daftar cipher-nya kembali
-  // sama dengan bawaan Node, ClientHello-nya kembali dikenali dan 403 lagi.
-  assert.notEqual(MANDIRI_TLS_CIPHERS, tls.DEFAULT_CIPHERS);
-
-  const attempts = createMandiriFetchAttempts();
-  // Urutan ini bukan selera. Dari server produksi, percobaan tls-chrome
-  // MENGGANTUNG sampai timeout penuh, sementara curl punya sidik jari TLS
-  // sendiri yang terbukti lolos. Menaruh curl belakangan berarti tiap siklus
-  // penyegaran membuang satu timeout utuh sebelum sampai ke yang berpeluang jalan.
-  assert.deepEqual(attempts.map(a => a.label), ['curl', 'tls-chrome', 'default']);
-  assert.ok(attempts.every(a => typeof a.run === 'function'), 'tiap percobaan wajib punya run()');
 });
 
 test('shouldWaitForKursFetch never blocks a request that already has rates to serve', async () => {
@@ -193,35 +209,25 @@ test('decideKursFetchAlert reports recovery only to someone who got the alarm', 
   assert.equal(decideKursFetchAlert({ failed: false, alertedAt: null, nowMs: now }), 'quiet');
 });
 
-test('fetchMandiriKursHtml honours one total deadline, not a fresh timeout per client', async () => {
-  const { fetchMandiriKursHtml } = await loadKursModule();
-  const handed = [];
-  let clock = 0;
+test('fetchKursHtml abandons a hung source instead of holding the socket open', async () => {
+  const { fetchKursHtml } = await loadKursModule();
 
-  // Pagu per-percobaan membuat rantai tiga klien bisa memakan 3x jatah penuh.
-  // Rantai ini berjalan di latar belakang, tapi tetap tidak boleh menahan soket
-  // dan proses curl jauh lebih lama daripada satu siklus penyegaran.
-  const eatBudget = (ms) => async ({ timeoutMs }) => {
-    handed.push(timeoutMs);
-    clock += ms;
-    throw new Error('HTTP 403');
-  };
+  // Rantai anti-Akamai sudah dibongkar, tapi pagunya tidak: kursdollar yang
+  // menggantung tetap tidak boleh menahan proses lebih lama dari satu siklus
+  // penyegaran. Yang dijaga di sini adalah pagu itu diteruskan ke fetch, bukan
+  // dibiarkan tak terbatas.
+  let handed = null;
 
   await assert.rejects(
-    fetchMandiriKursHtml({
-      attempts: [
-        { label: 'curl', run: eatBudget(9000) },
-        { label: 'tls-chrome', run: eatBudget(9000) },
-        { label: 'default', run: eatBudget(9000) },
-      ],
+    fetchKursHtml({
       timeoutMs: 12000,
-      totalBudgetMs: 15000,
-      now: () => clock,
+      fetchImpl: async (_url, opts) => {
+        handed = opts?.signal ?? null;
+        throw new Error('HTTP 503');
+      },
     }),
-    /HTTP 403/
+    /HTTP 503/,
   );
 
-  // Percobaan 1 dapat jatah penuh; percobaan 2 hanya sisa anggaran; percobaan 3
-  // tidak pernah dijalankan karena anggarannya sudah habis.
-  assert.deepEqual(handed, [12000, 6000]);
+  assert.ok(handed, 'fetch wajib menerima AbortSignal, bukan berjalan tanpa pagu');
 });

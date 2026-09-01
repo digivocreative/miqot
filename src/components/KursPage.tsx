@@ -4,10 +4,9 @@ import { ChevronDown, TrendingUp, Search } from 'lucide-react';
 
 // Currency → Country flag emoji
 const FLAG: Record<string, string> = {
-  AUD: '🇦🇺', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳', DKK: '🇩🇰',
-  EUR: '🇪🇺', GBP: '🇬🇧', HKD: '🇭🇰', JPY: '🇯🇵', MYR: '🇲🇾',
-  NOK: '🇳🇴', NZD: '🇳🇿', SAR: '🇸🇦', SEK: '🇸🇪', SGD: '🇸🇬',
-  THB: '🇹🇭', USD: '🇺🇸',
+  AUD: '🇦🇺', CAD: '🇨🇦', CNY: '🇨🇳', EUR: '🇪🇺', GBP: '🇬🇧',
+  HKD: '🇭🇰', JPY: '🇯🇵', KRW: '🇰🇷', MYR: '🇲🇾', NZD: '🇳🇿',
+  SAR: '🇸🇦', SGD: '🇸🇬', THB: '🇹🇭', USD: '🇺🇸',
 };
 
 interface KursData {
