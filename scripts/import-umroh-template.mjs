@@ -67,6 +67,16 @@ rule('CTA WhatsApp → wa.me/62822900020',
 rule('Selector script pembersih link WA',
   'a[href*="wa.alhijazindonesia.com"]', 'a[href*="wa.me"]', 1);
 
+// Pre-text kartu Promo di sumber WordPress masih memaku tanggal keberangkatan
+// lama ("tanggal 29 Agustus 2026") padahal judul kartunya sudah jadi rentang
+// bulan — jamaah membuka WhatsApp dengan menanyakan paket yang tidak ada lagi.
+// Diseragamkan dengan 5 CTA paket lain: "Paket Umroh <X> di Alhijaz".
+// Kalau aturan ini 0 kecocokan: kemungkinan besar copy di WordPress SUDAH
+// diperbaiki — periksa bunyi barunya, lalu perbarui atau hapus aturan ini.
+rule('pre-text Promo tanpa tanggal mati',
+  'Assalamualaikum,%20Saya%20mau%20tanya%20Paket%20Umroh%20Promo%20Alhijaz%2029%20Juta-an%20tanggal%2029%20Agustus%202026',
+  'Assalamualaikum,%20Saya%20mau%20tanya%20Paket%20Umroh%20Promo%2029%20Juta-an%20di%20Alhijaz', 1);
+
 // ── 2. Asset absolut → relatif ──────────────────────────────────────────────
 // Wajib: rewriteAssetsToCdn() hanya mengenali path root-relative, dan template
 // tidak boleh menarik apa pun dari situs lama.
@@ -135,6 +145,7 @@ const invariants = [
   ['0 alhijazindonesia.com (selain wa.*)', !/(?<!wa\.)alhijazindonesia\.com/.test(html)],
   ['0 wa.alhijazindonesia.com', !html.includes('wa.alhijazindonesia.com')],
   ['CTA wa.me ada (>=13)', (html.match(/https:\/\/wa\.me\/62822900020\?text=/g) || []).length >= 13],
+  ['0 tanggal keberangkatan mati di pre-text CTA', !/29%20Agustus%202026/.test(html)],
   ['judul masih dikenali transform', html.includes('<title>Paket Umroh | Travel Umroh Terbaik | PT Alhijaz Indowisata</title>')],
   ['hero 64c34f3d ada (jangkar sticky bar)', html.includes('elementor-element-64c34f3d')],
   ['gambar promo penanda eager ada', html.includes('umroh-promo-alhijaz-indowisata')],
