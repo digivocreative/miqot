@@ -7,6 +7,13 @@
  * yang salah kelihatan sebagai teks bertabrakan — dan karena keduanya jadi bisa
  * diuji tanpa DOM sama sekali.
  *
+ * Isinya sengaja cuma DUA: nama dan nomor WhatsApp, dalam SATU baris. Foto dan
+ * alamat landing sempat ada lalu dibuang (permintaan user 2026-09-01) justru
+ * demi ukuran huruf: satu baris berarti seluruh tinggi kotak jadi milik satu
+ * baris teks, bukan dibagi dua, dan ruang bekas foto (±1,14× tinggi isi)
+ * ikut jatuh ke teks. Di kotak pil yang paling sempit sekalipun itu menaikkan
+ * ukuran huruf sekitar sepertiga.
+ *
  * ATURAN POKOK: setiap ukuran adalah turunan TINGGI KOTAK, tidak pernah lebar
  * layar dan tidak pernah piksel tetap. Sama seperti WATERMARK di
  * src/components/PhotoWatermark.tsx, dan alasannya sama: berkas yang diunduh
@@ -21,30 +28,31 @@
 export const AGENT_BLOCK = {
   /**
    * Tinggi isi dibatasi oleh LEBAR kotak juga, bukan tingginya saja. Tanpa ini,
-   * kotak 520×160 (template berlatar putih) menghasilkan foto setinggi 160 px
-   * yang menabrak dua sisi dan nama sebesar judul.
+   * kotak 520×160 (template berlatar putih) menghasilkan huruf setinggi judul
+   * yang toh langsung disusutkan lagi oleh pemas baris di bawah.
    */
   widthCapRatio: 0.115,
   /** Jarak isi ke tepi kiri/kanan kotak, kelipatan tinggi isi. */
   padXRatio: 0.3,
-  photoRatio: 0.9,
-  photoRingRatio: 0.045,
-  photoGapRatio: 0.24,
-  nameRatio: 0.45,
-  landingRatio: 0.3,
-  nameLineRatio: 1.12,
-  landingLineRatio: 1.3,
-  waIconRatio: 0.55,
-  waGapRatio: 0.16,
-  /** Jarak minimum antara kolom teks kiri dan blok WhatsApp di kanan. */
-  columnGapRatio: 0.25,
-  /** Nama boleh menyusut sampai serapuh ini sebelum dipotong elipsis. */
-  nameShrinkFloor: 0.72,
-  /** Blok WhatsApp tidak boleh memakan lebih dari separuh lebar yang tersedia. */
-  waMaxShareOfRow: 0.5,
   /**
-   * Kotak yang lebih pendek dari ini (relatif lebarnya) bukan slot kontak yang
-   * bisa diisi dengan layak — pemanggil sebaiknya jatuh ke pita tambahan.
+   * Ukuran huruf awal = tinggi isi × ini. Satu baris, jadi angkanya jauh lebih
+   * besar daripada saat masih ada baris alamat di bawah nama (dulu 0,45).
+   * Ini titik AWAL; pemas baris di bawah yang menentukan angka akhirnya.
+   */
+  singleLineRatio: 0.7,
+  /** Lantai penyusutan sebelum nama mulai dipotong elipsis. */
+  fontFloorRatio: 0.34,
+  /**
+   * Ikon dan jarak ikut UKURAN HURUF, bukan tinggi kotak — supaya saat baris
+   * disusutkan agar muat, ikonnya ikut mengecil dan proporsinya tetap.
+   */
+  waIconRatio: 1,
+  waGapRatio: 0.32,
+  /** Jarak minimum antara nama dan blok WhatsApp, kelipatan ukuran huruf. */
+  columnGapRatio: 0.6,
+  /**
+   * Kotak yang lebih pendek dari ini bukan slot kontak yang bisa diisi dengan
+   * layak — pemanggil sebaiknya jatuh ke pita tambahan.
    */
   minHeight: 18,
   /**
@@ -55,10 +63,8 @@ export const AGENT_BLOCK = {
   fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   colors: {
     name: '#8A0B0A',
-    landing: '#A8635F',
     phone: '#8A0B0A',
     waIcon: '#1FA855',
-    photoRing: '#C9A24D',
   },
 };
 
@@ -81,14 +87,13 @@ export function ellipsize(text, maxWidth, measureAt) {
  * @param {object} input
  * @param {{x: number, y: number, width: number, height: number}} input.slot
  * @param {string} input.name Nama agent, apa adanya.
- * @param {string} input.landing Mis. "alhijaz.co/nikita".
  * @param {string} input.phone Nomor SIAP TAMPIL, mis. "0812-3456-7890".
- *   Pemformatan tinggal di pemanggil (formatPhoneDisplay) supaya modul ini
- *   tidak ikut memikul aturan nomor Indonesia.
+ *   Pemformatan tinggal di pemanggil supaya modul ini tidak ikut memikul
+ *   aturan nomor Indonesia.
  * @param {(text: string, fontSize: number, weight: number) => number} input.measure
  * @returns {object | null} null kalau kotaknya terlalu kecil untuk diisi.
  */
-export function layoutAgentBlock({ slot, name, landing, phone, measure }) {
+export function layoutAgentBlock({ slot, name, phone, measure }) {
   if (!slot || !(slot.width > 0) || !(slot.height > 0) || typeof measure !== 'function') return null;
 
   const B = AGENT_BLOCK;
@@ -99,79 +104,51 @@ export function layoutAgentBlock({ slot, name, landing, phone, measure }) {
   const rowWidth = slot.width - padX * 2;
   if (rowWidth <= 0) return null;
 
-  const top = slot.y + (slot.height - contentHeight) / 2;
-  const midY = top + contentHeight / 2;
-
-  const photoSize = contentHeight * B.photoRatio;
-  const photoX = slot.x + padX;
-  const photoY = top + (contentHeight - photoSize) / 2;
-  const textX = photoX + photoSize + contentHeight * B.photoGapRatio;
-
-  const nameSizeMax = contentHeight * B.nameRatio;
-  const landingSize = contentHeight * B.landingRatio;
-
-  // ── Blok WhatsApp di kanan, diukur lebih dulu: ia yang menentukan sisa ruang
-  //    untuk nama, bukan sebaliknya. Nomor tidak boleh pernah terpotong.
-  const waIconSize = contentHeight * B.waIconRatio;
-  const waGap = contentHeight * B.waGapRatio;
-  const phoneText = String(phone || '');
-  let waFontSize = nameSizeMax;
-  let waTextWidth = phoneText ? measure(phoneText, waFontSize, 700) : 0;
-  const waBudget = rowWidth * B.waMaxShareOfRow;
-  const waFloor = contentHeight * 0.28;
-  while (phoneText && waIconSize + waGap + waTextWidth > waBudget && waFontSize > waFloor) {
-    waFontSize = Math.max(waFloor, waFontSize - 0.5);
-    waTextWidth = measure(phoneText, waFontSize, 700);
-  }
-  const waWidth = phoneText ? waIconSize + waGap + waTextWidth : 0;
-  const waX = slot.x + slot.width - padX - waWidth;
-
-  // ── Kolom teks kiri mengisi apa pun yang tersisa.
-  const textBudget = Math.max(0, waX - textX - (phoneText ? contentHeight * B.columnGapRatio : 0));
-
   const nameText = String(name || '');
-  let nameSize = nameSizeMax;
-  const nameFloor = nameSizeMax * B.nameShrinkFloor;
-  while (nameText && measure(nameText, nameSize, 700) > textBudget && nameSize > nameFloor) {
-    nameSize = Math.max(nameFloor, nameSize - 0.5);
-  }
-  const nameFinal = ellipsize(nameText, textBudget, (t) => measure(t, nameSize, 700));
-  const landingFinal = ellipsize(String(landing || ''), textBudget, (t) => measure(t, landingSize, 500));
+  const phoneText = String(phone || '');
+  if (!nameText && !phoneText) return null;
 
-  const nameLineH = nameSize * B.nameLineRatio;
-  const landingLineH = landingFinal ? landingSize * B.landingLineRatio : 0;
-  const stackH = (nameFinal ? nameLineH : 0) + landingLineH;
-  const textTop = top + (contentHeight - stackH) / 2;
+  const left = slot.x + padX;
+  const right = slot.x + slot.width - padX;
+  const midY = slot.y + slot.height / 2;
+
+  const waWidthAt = (fs) =>
+    phoneText ? fs * B.waIconRatio + fs * B.waGapRatio + measure(phoneText, fs, 700) : 0;
+  const rowWidthAt = (fs) => {
+    const nameW = nameText ? measure(nameText, fs, 700) : 0;
+    const gap = nameText && phoneText ? fs * B.columnGapRatio : 0;
+    return nameW + gap + waWidthAt(fs);
+  };
+
+  // Satu ukuran huruf untuk nama DAN nomor: dua ukuran berbeda pada satu baris
+  // pendek terbaca sebagai ketidaksengajaan. Dipaskan turun sampai muat.
+  const floor = contentHeight * B.fontFloorRatio;
+  let fontSize = contentHeight * B.singleLineRatio;
+  while (fontSize > floor && rowWidthAt(fontSize) > rowWidth) {
+    fontSize = Math.max(floor, fontSize - 0.5);
+  }
+
+  // Nomor tidak pernah dipotong — itu satu-satunya isi yang kalau salah,
+  // brosurnya jadi menyesatkan, bukan sekadar jelek.
+  const waWidth = waWidthAt(fontSize);
+  const waX = right - waWidth;
+  const nameBudget = Math.max(0, (phoneText ? waX - fontSize * B.columnGapRatio : right) - left);
+  const nameFinal = ellipsize(nameText, nameBudget, (t) => measure(t, fontSize, 700));
+
+  const waIconSize = fontSize * B.waIconRatio;
 
   return {
     contentHeight,
-    top,
-    photo: {
-      x: photoX,
-      y: photoY,
-      size: photoSize,
-      ringWidth: Math.max(1, contentHeight * B.photoRingRatio),
-    },
-    name: nameFinal
-      ? { x: textX, y: textTop, fontSize: nameSize, lineHeight: nameLineH, text: nameFinal }
-      : null,
-    landing: landingFinal
-      ? {
-          x: textX,
-          y: textTop + (nameFinal ? nameLineH : 0),
-          fontSize: landingSize,
-          lineHeight: landingLineH,
-          text: landingFinal,
-        }
-      : null,
+    fontSize,
+    midY,
+    name: nameFinal ? { x: left, midY, text: nameFinal } : null,
     wa: phoneText
       ? {
           iconX: waX,
           iconY: midY - waIconSize / 2,
           iconSize: waIconSize,
-          textX: waX + waIconSize + waGap,
+          textX: waX + waIconSize + fontSize * B.waGapRatio,
           midY,
-          fontSize: waFontSize,
           text: phoneText,
         }
       : null,

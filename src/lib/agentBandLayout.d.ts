@@ -1,6 +1,6 @@
 /**
- * Deklarasi tipe untuk src/lib/agentBandLayout.js — tata letak blok identitas
- * agent di dalam kotak kontak brosur.
+ * Deklarasi tipe untuk src/lib/agentBandLayout.js — tata letak nama + nomor
+ * WhatsApp agent di dalam kotak kontak brosur, satu baris.
  */
 
 import type { ContactSlot } from './brochureContactSlot';
@@ -11,35 +11,24 @@ export type MeasureText = (text: string, fontSize: number, weight: number) => nu
 export interface AgentBandInput {
   slot: ContactSlot;
   name: string;
-  landing: string;
   /** Nomor SIAP TAMPIL, mis. "0812-3456-7890". */
   phone: string;
   measure: MeasureText;
 }
 
-export interface AgentTextPiece {
-  x: number;
-  /** Tepi ATAS baris — penggambar memakai textBaseline 'top'. */
-  y: number;
-  fontSize: number;
-  lineHeight: number;
-  text: string;
-}
-
 export interface AgentBandLayout {
   contentHeight: number;
-  top: number;
-  photo: { x: number; y: number; size: number; ringWidth: number };
-  name: AgentTextPiece | null;
-  landing: AgentTextPiece | null;
+  /** Satu ukuran untuk nama DAN nomor. */
+  fontSize: number;
+  /** Sumbu tengah vertikal baris — penggambar memakai textBaseline 'middle'. */
+  midY: number;
+  name: { x: number; midY: number; text: string } | null;
   wa: {
     iconX: number;
     iconY: number;
     iconSize: number;
     textX: number;
-    /** Sumbu tengah vertikal nomor — penggambar memakai textBaseline 'middle'. */
     midY: number;
-    fontSize: number;
     text: string;
   } | null;
 }
@@ -47,26 +36,17 @@ export interface AgentBandLayout {
 export declare const AGENT_BLOCK: {
   readonly widthCapRatio: number;
   readonly padXRatio: number;
-  readonly photoRatio: number;
-  readonly photoRingRatio: number;
-  readonly photoGapRatio: number;
-  readonly nameRatio: number;
-  readonly landingRatio: number;
-  readonly nameLineRatio: number;
-  readonly landingLineRatio: number;
+  readonly singleLineRatio: number;
+  readonly fontFloorRatio: number;
   readonly waIconRatio: number;
   readonly waGapRatio: number;
   readonly columnGapRatio: number;
-  readonly nameShrinkFloor: number;
-  readonly waMaxShareOfRow: number;
   readonly minHeight: number;
   readonly fontFamily: string;
   readonly colors: {
     readonly name: string;
-    readonly landing: string;
     readonly phone: string;
     readonly waIcon: string;
-    readonly photoRing: string;
   };
 };
 

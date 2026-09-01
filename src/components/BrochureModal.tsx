@@ -77,9 +77,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   // Pemanggil merakit `agent` sebagai objek literal, jadi identitasnya berubah
   // tiap render. Efek ini karena itu bergantung pada NILAI-nya, bukan objeknya;
   // tanpa itu ia menggubah ulang gambar tanpa henti.
-  const agentKey = agent
-    ? [agent.name, agent.phone, agent.photo || '', agent.landing || ''].join('|')
-    : '';
+  const agentKey = agent ? [agent.name, agent.phone].join('|') : '';
   const agentRef = useRef(agent);
   agentRef.current = agent;
   const stampedUrlRef = useRef<string | null>(null);

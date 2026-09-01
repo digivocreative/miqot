@@ -2,7 +2,8 @@
 //
 // Brosur datang dari hulu sebagai gambar jadi, dan setiap template menyisakan
 // satu kotak kosong di strip bawah untuk diisi kontak — selama ini terkirim ke
-// calon jamaah dalam keadaan kosong. Modul ini mengisinya.
+// calon jamaah dalam keadaan kosong. Modul ini mengisinya, dengan dua hal saja:
+// nama dan nomor WhatsApp, sebesar yang muat.
 //
 // Pembagian kerjanya sengaja tiga lapis, karena ketiganya gagal dengan cara
 // yang berbeda dan hanya lapisan ketiga yang butuh DOM:
@@ -24,10 +25,6 @@ export interface BrochureAgentIdentity {
   name: string;
   /** Nomor mentah apa adanya dari data agent; dinormalkan di sini. */
   phone: string;
-  /** URL foto. Diambil sebagai blob supaya kanvas tidak pernah ternoda. */
-  photo?: string | null;
-  /** Alamat siap tampil tanpa protokol, mis. "alhijaz.co/nikita". */
-  landing?: string | null;
 }
 
 /** Glif WhatsApp resmi — sama persis dengan src/components/bio/WhatsAppIcon.tsx. */
@@ -42,10 +39,8 @@ const WA_PATH =
 const ON_WHITE = AGENT_BLOCK.colors;
 const ON_BAND = {
   name: '#FFFFFF',
-  landing: '#E8CE97',
   phone: '#FFFFFF',
   waIcon: '#DEAF59',
-  photoRing: '#DEAF59',
 };
 
 /** Pita tambahan dipakai HANYA kalau tidak ada kotak kosong yang ditemukan. */
@@ -57,74 +52,6 @@ const FALLBACK_BAND = {
   hairline: '#DEAF59',
   hairlineRatio: 0.033,
 };
-
-const INITIALS_BG = '#8B0000';
-
-function initialsOf(name: string): string {
-  const parts = String(name || '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(p => p[0]?.toUpperCase() || '')
-    .join('');
-  return parts || 'A';
-}
-
-/**
- * Foto diambil sebagai BLOB lalu didekode, bukan dipasang langsung ke <img
- * crossOrigin>. Foto agent bisa tinggal di Supabase Storage (lintas origin);
- * memasangnya langsung akan menodai kanvas dan membuat toBlob melempar SETELAH
- * semuanya tergambar. Lewat blob, kanvas tidak pernah ternoda.
- */
-async function loadPhoto(url: string): Promise<CanvasImageSource | null> {
-  try {
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    const decoded = await decodeImageBlob(blob);
-    return decoded.bitmap;
-  } catch {
-    return null;
-  }
-}
-
-function drawPhoto(
-  ctx: CanvasRenderingContext2D,
-  photo: CanvasImageSource | null,
-  box: AgentBandLayout['photo'],
-  name: string,
-  ringColor: string,
-) {
-  const r = box.size / 2;
-  const cx = box.x + r;
-  const cy = box.y + r;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-  if (photo) {
-    ctx.drawImage(photo, box.x, box.y, box.size, box.size);
-  } else {
-    ctx.fillStyle = INITIALS_BG;
-    ctx.fillRect(box.x, box.y, box.size, box.size);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = `700 ${box.size * 0.4}px ${AGENT_BLOCK.fontFamily}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(initialsOf(name), cx, cy);
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r - box.ringWidth / 2, 0, Math.PI * 2);
-  ctx.strokeStyle = ringColor;
-  ctx.lineWidth = box.ringWidth;
-  ctx.stroke();
-  ctx.restore();
-}
 
 function drawWhatsApp(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) {
   if (typeof Path2D !== 'function') return;
@@ -139,31 +66,19 @@ function drawWhatsApp(ctx: CanvasRenderingContext2D, x: number, y: number, size:
 function drawBlock(
   ctx: CanvasRenderingContext2D,
   layout: AgentBandLayout,
-  photo: CanvasImageSource | null,
-  name: string,
   palette: typeof ON_WHITE,
 ) {
-  drawPhoto(ctx, photo, layout.photo, name, palette.photoRing);
-
   ctx.save();
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${layout.fontSize}px ${AGENT_BLOCK.fontFamily}`;
   if (layout.name) {
-    ctx.textBaseline = 'top';
     ctx.fillStyle = palette.name;
-    ctx.font = `700 ${layout.name.fontSize}px ${AGENT_BLOCK.fontFamily}`;
-    ctx.fillText(layout.name.text, layout.name.x, layout.name.y);
-  }
-  if (layout.landing) {
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = palette.landing;
-    ctx.font = `500 ${layout.landing.fontSize}px ${AGENT_BLOCK.fontFamily}`;
-    ctx.fillText(layout.landing.text, layout.landing.x, layout.landing.y);
+    ctx.fillText(layout.name.text, layout.name.x, layout.name.midY);
   }
   if (layout.wa) {
     drawWhatsApp(ctx, layout.wa.iconX, layout.wa.iconY, layout.wa.iconSize, palette.waIcon);
-    ctx.textBaseline = 'middle';
     ctx.fillStyle = palette.phone;
-    ctx.font = `700 ${layout.wa.fontSize}px ${AGENT_BLOCK.fontFamily}`;
     ctx.fillText(layout.wa.text, layout.wa.textX, layout.wa.midY);
   }
   ctx.restore();
@@ -188,7 +103,6 @@ export async function stampAgentOnBrochure(
   const name = String(agent?.name || '').trim();
   const normalized = normalizeWaNumber(agent?.phone);
   const phone = normalized ? formatWaDisplay(normalized, '-') : '';
-  const landing = String(agent?.landing || '').trim();
   if (!name && !phone) return blob;
 
   let decoded: Awaited<ReturnType<typeof decodeImageBlob>> | null = null;
@@ -218,10 +132,9 @@ export async function stampAgentOnBrochure(
 
     // Kotak ketemu → gambar di atas kanvas asli, rasio tidak berubah.
     if (slot) {
-      const layout = layoutAgentBlock({ slot, name, landing, phone, measure: measurerFor(baseCtx) });
+      const layout = layoutAgentBlock({ slot, name, phone, measure: measurerFor(baseCtx) });
       if (!layout) return blob;
-      const photo = agent.photo ? await loadPhoto(agent.photo) : null;
-      drawBlock(baseCtx, layout, photo, name, ON_WHITE);
+      drawBlock(baseCtx, layout, ON_WHITE);
       return await encode(base, blob);
     }
 
@@ -244,10 +157,9 @@ export async function stampAgentOnBrochure(
     ctx.fillRect(0, height, width, Math.max(1, bandHeight * FALLBACK_BAND.hairlineRatio));
 
     const bandSlot: ContactSlot = { x: 0, y: height, width, height: bandHeight };
-    const layout = layoutAgentBlock({ slot: bandSlot, name, landing, phone, measure: measurerFor(ctx) });
+    const layout = layoutAgentBlock({ slot: bandSlot, name, phone, measure: measurerFor(ctx) });
     if (!layout) return blob;
-    const photo = agent.photo ? await loadPhoto(agent.photo) : null;
-    drawBlock(ctx, layout, photo, name, ON_BAND);
+    drawBlock(ctx, layout, ON_BAND);
     return await encode(tall, blob);
   } catch {
     return blob;

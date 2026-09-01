@@ -2481,8 +2481,6 @@ _________________________
           agent={currentAgent && agentSlug ? {
             name: currentAgent.name,
             phone: currentAgent.phone,
-            photo: currentAgent.photo,
-            landing: `alhijaz.co/${agentSlug}`,
           } : null}
           onCaption={isSessionValid() ? () => {
             setIsBrochureOpen(false);
