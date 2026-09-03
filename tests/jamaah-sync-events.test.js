@@ -296,3 +296,133 @@ test('dedupeJamaahSyncEvents: pax yang sama dari dua fase legacy tidak dobel di 
   assert.equal(clean.pembayaranCicilan.length, 1);
   assert.equal(clean.pembayaranCicilan[0].jumlah, 1000000);
 });
+
+// Skenario nyata AIW0030482 (2026-09-03): booking UHUD 15 pax daftar 30 Agt
+// dengan DP Rp1jt/pax, lalu GUSTIN NURISMA KARYA + KINZA menyusul 3 Sep dengan
+// bayar=0 ("BELUM BAYAR" di AWAPI). Gate level-booking lama mengumumkan mereka
+// sebagai jamaah baru — agent membacanya sebagai "berarti sudah DP".
+const NOW_0482 = new Date('2026-09-03T08:07:00Z');
+
+function paxSusulan(nama, jmId, over = {}) {
+  return {
+    nama,
+    id_umroh: 'AIW0030482',
+    jm_id: jmId,
+    paket: 'UHUD',
+    bayar: 1000000,
+    sisa: 33200000,
+    tgl_berangkat: '2027-01-04',
+    tgl_daftar: '2026-08-30',
+    notif_new_sent_at: '2026-08-30T14:37:02Z',
+    notif_last_bayar: 1000000,
+    ...over,
+  };
+}
+
+test('pax menyusul ke booking yang saudaranya sudah DP di batch LAIN → senyap sampai bayar sendiri', () => {
+  const existing = asExistingMap([
+    paxSusulan('INTAN RAHMI NASYA', 'JM67590'),
+    paxSusulan('DEVAN ZAMPUTRA', 'JM67591'),
+  ]);
+  const incoming = [
+    paxSusulan('INTAN RAHMI NASYA', 'JM67590'),
+    paxSusulan('DEVAN ZAMPUTRA', 'JM67591'),
+    paxSusulan('GUSTIN NURISMA KARYA', 'JM67997', {
+      bayar: 0, sisa: 35200000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+    paxSusulan('KINZA LABHRAINN ARIRI', 'JM67998', {
+      bayar: 0, sisa: 36700000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+  ];
+
+  const events = computeJamaahSyncEvents({
+    incomingRows: incoming,
+    existingByKey: existing,
+    watermarkEnabled: true,
+    now: NOW_0482,
+  });
+
+  assert.equal(events.jamaahBaru.length, 0);
+  assert.equal(events.pembayaranCicilan.length, 0);
+  assert.equal(events.pembayaranPelunasan.length, 0);
+});
+
+test('pax menyusul yang ditahan tidak hilang: begitu DP-nya masuk, diumumkan sebagai jamaah baru', () => {
+  const existing = asExistingMap([
+    paxSusulan('INTAN RAHMI NASYA', 'JM67590'),
+    paxSusulan('GUSTIN NURISMA KARYA', 'JM67997', {
+      bayar: 0, sisa: 35200000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+  ]);
+  const incoming = [
+    paxSusulan('INTAN RAHMI NASYA', 'JM67590'),
+    paxSusulan('GUSTIN NURISMA KARYA', 'JM67997', {
+      bayar: 1000000, sisa: 34200000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+  ];
+
+  const events = computeJamaahSyncEvents({
+    incomingRows: incoming,
+    existingByKey: existing,
+    watermarkEnabled: true,
+    now: NOW_0482,
+  });
+
+  assert.deepEqual(events.jamaahBaru.map(e => e.nama), ['GUSTIN NURISMA KARYA']);
+  assert.equal(events.jamaahBaru[0].bayar, 1000000);
+  // Kedatangan + DP-nya dibawa satu pesan; tidak dobel jadi event cicilan.
+  assert.equal(events.pembayaranCicilan.length, 0);
+});
+
+test('batch-scoping tidak menelan saudara se-batch: pax bayar=0 di TANGGAL DAFTAR yang sama tetap diumumkan', () => {
+  const incoming = [
+    paxSusulan('IBU', 'JM67590', {
+      bayar: 0, sisa: 34200000, notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+    paxSusulan('ANAK', 'JM67591', {
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+    // Pax batch berikutnya, belum bayar → tetap ditahan.
+    paxSusulan('MENYUSUL', 'JM67997', {
+      bayar: 0, sisa: 35200000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+  ];
+
+  const events = computeJamaahSyncEvents({
+    incomingRows: incoming,
+    existingByKey: new Map(),
+    watermarkEnabled: true,
+    now: NOW_0482,
+  });
+
+  assert.deepEqual(events.jamaahBaru.map(e => e.nama).sort(), ['ANAK', 'IBU']);
+});
+
+test('tgl_daftar tidak terbaca → jatuh kembali ke kredit level booking (jangan sampai kedatangan hilang)', () => {
+  const incoming = [
+    paxSusulan('PEMBAYAR TANPA TANGGAL', 'JM67590', {
+      tgl_daftar: null, notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+    paxSusulan('SAUDARA', 'JM67997', {
+      bayar: 0, sisa: 35200000, tgl_daftar: '2026-09-03',
+      notif_new_sent_at: null, notif_last_bayar: null,
+    }),
+  ];
+
+  const events = computeJamaahSyncEvents({
+    incomingRows: incoming,
+    existingByKey: new Map(),
+    watermarkEnabled: true,
+    now: NOW_0482,
+  });
+
+  assert.deepEqual(
+    events.jamaahBaru.map(e => e.nama).sort(),
+    ['PEMBAYAR TANPA TANGGAL', 'SAUDARA'],
+  );
+});
