@@ -226,7 +226,7 @@ export function SerambiNabawiTemplate({ month, agent, displayMode = 'hari' }: Br
           display: 'inline-flex', alignItems: 'center', gap: 12, marginTop: 14,
           padding: '12px 28px', borderRadius: 999, background: '#FFFFFF',
           border: `1.5px solid ${GOLD_MID}`, boxShadow: WARM_SHADOW,
-          fontSize: 26, fontWeight: 700, color: INK, lineHeight: 1,
+          fontSize: 26, fontWeight: 700, color: INK, lineHeight: 1, whiteSpace: 'nowrap',
         }}>
           <GlobeIcon />
           {landingUrl}
@@ -455,6 +455,7 @@ export function SerambiNabawiTemplate({ month, agent, displayMode = 'hari' }: Br
             <strong style={{
               fontFamily: BROCHURE_SERIF_FONT_STACK, fontWeight: 800,
               fontSize: agentName.length > 22 ? 28 : 34, color: INK, lineHeight: 1.05,
+              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
             }}>{agentName}</strong>
           </div>
           {phone && (

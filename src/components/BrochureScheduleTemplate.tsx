@@ -685,6 +685,10 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
         <div style={{
           position: 'relative',
           display: 'inline-block',
+          // Kotak ini menyusut pas ke lebar judul, jadi slack-nya nol begitu
+          // klon ekspor memakunya. nowrap menurun ke tiga lapis span di
+          // bawahnya (bayangan, outline, isi) sekaligus.
+          whiteSpace: 'nowrap',
           fontSize: monthTitleFontSize,
           fontWeight: 900,
           lineHeight: 0.96,
@@ -731,6 +735,9 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           justifyContent: 'center',
           width: 'max-content',
           maxWidth: '100%',
+          // Garis miring di alhijaz.co/<slug> adalah peluang patah baris, dan
+          // width:max-content tidak menyisakan slack sedikit pun.
+          whiteSpace: 'nowrap',
           padding: '8px 20px 9px',
           margin: '5px auto 0',
           borderRadius: 999,
@@ -1138,7 +1145,21 @@ export function BrochureScheduleTemplate({ month, agent, showFullDate = false, v
           <span style={{ fontSize: 24, color: theme.footerLabel, fontWeight: 800, letterSpacing: 0 }}>
             Info &amp; Pendaftaran:
           </span>
-          <strong style={{ fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 3 }}>
+          <strong style={{
+            fontSize: agentNameFontSize,
+            fontWeight: 900,
+            color: '#fff',
+            lineHeight: 1.05,
+            marginTop: 3,
+            // Kolomnya hanya ~350px: nama panjang memang perlu beberapa
+            // baris. Kotak berbatas (bukan tinggi yang kebetulan pas) supaya
+            // baris ekstra terpotong, bukan menimpa pil footer di klon ekspor.
+            // Batasnya 3 baris: nama agent terpanjang yang beredar tetap utuh.
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}>
             {agentName}
           </strong>
         </div>

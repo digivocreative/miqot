@@ -178,9 +178,9 @@ function PosterDesign({ series, theme, headerStyle, chartType, agent, showAgent,
           </div>
           {/* Right: Agent info */}
           {showAgent && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 10, fontWeight: 500, color: 'white' }}>{agent.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+              <div style={{ textAlign: 'right', minWidth: 0 }}>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 10, fontWeight: 500, color: 'white' }}>{agent.name}</div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 }}>
                   {contactType === 'wa' && agent.phone && (
                     <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)' }}>{agent.phone.startsWith('62') ? '0' + agent.phone.slice(2) : agent.phone}</span>
@@ -293,7 +293,7 @@ function PosterDesign({ series, theme, headerStyle, chartType, agent, showAgent,
         {/* Chart Card */}
         <div style={{ flex: 1, minHeight: 0, background: 'rgba(255,255,255,0.95)', borderRadius: 10, padding: '8px 10px 4px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: t.main }}>{series.key === 'terdaftar' ? 'Pendaftaran' : 'Keberangkatan'} per tahun</span>
+            <span style={{ whiteSpace: 'nowrap', fontSize: 9, fontWeight: 700, color: t.main }}>{series.key === 'terdaftar' ? 'Pendaftaran' : 'Keberangkatan'} per tahun</span>
             <span style={{ fontSize: 7, color: '#9ca3af', background: '#f3f4f6', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>jamaah</span>
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>

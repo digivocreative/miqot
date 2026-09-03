@@ -143,7 +143,7 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
       {/* Stub tanggal */}
       <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, background: stubBg, color: '#fff' }}>
         <span style={{ fontFamily: BROCHURE_OSWALD_FONT_STACK, fontWeight: 700, fontSize: 42, lineHeight: 1, fontSynthesis: 'none' }}>{formatDepartureDay(p.berangkat_tgl)}</span>
-        <span style={{ fontFamily: BROCHURE_FONT_STACK, fontWeight: 700, fontSize: 16, letterSpacing: 0.5, fontSynthesis: 'none' }}>
+        <span style={{ fontFamily: BROCHURE_FONT_STACK, fontWeight: 700, fontSize: 16, letterSpacing: 0.5, fontSynthesis: 'none', whiteSpace: 'nowrap' }}>
           {monthAbbrFromIso(p.berangkat_tgl, MONTH_ABBR_ID)} {yearFromIso(p.berangkat_tgl)}
         </span>
       </div>
@@ -190,6 +190,7 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '7px 13px',
             borderRadius: 5, border: '3px solid #DC2626', color: '#DC2626', background: 'rgba(255,255,255,0.85)',
             fontFamily: BROCHURE_FONT_STACK, fontSize: 19, fontWeight: 900, letterSpacing: 0.8, transform: 'rotate(-8deg)',
+            whiteSpace: 'nowrap',
           }}>SOLD OUT</span>
         ) : (
           <>
@@ -205,16 +206,16 @@ function TicketRow({ p, displayMode }: { p: BrochurePackage; displayMode: 'hari'
             </span>
             {showSeat && (
               <span style={seatCritical ? {
-                fontSize: 15, fontWeight: 800, color: '#7C2D12', letterSpacing: 0.3,
+                fontSize: 15, fontWeight: 800, color: '#7C2D12', letterSpacing: 0.3, whiteSpace: 'nowrap',
                 background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 999, padding: '2.5px 10px',
               } : {
-                fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3,
+                fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3, whiteSpace: 'nowrap',
               }}>
                 {typeof seat === 'number' ? `SISA ${seat} SEAT${seatCritical ? '!' : ''}` : 'SISA - SEAT'}
               </span>
             )}
             {showDuration && (
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#334155', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
                 {tripDays} HARI
               </span>
             )}
@@ -289,7 +290,7 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 10, padding: '9px 22px 10px', borderRadius: 999,
           background: '#fff', border: '1.5px solid #D8DEE7', boxShadow: '0 6px 16px rgba(15,23,42,0.07)',
-          color: RED, fontSize: 23, fontWeight: 900, lineHeight: 1,
+          color: RED, fontSize: 23, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap',
         }}>
           <PlaneIcon size={19} />
           {landingUrl}
@@ -338,7 +339,10 @@ export function BoardingPassTemplate({ month, agent, displayMode = 'hari' }: Bro
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
           <span style={{ fontSize: 20, fontWeight: 700, color: '#94A3B8' }}>Info &amp; Pendaftaran:</span>
-          <strong style={{ fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 2 }}>{agentName}</strong>
+          <strong style={{
+            fontSize: agentNameFontSize, fontWeight: 900, color: '#fff', lineHeight: 1.05, marginTop: 2,
+            display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>{agentName}</strong>
         </div>
         {phone && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0, whiteSpace: 'nowrap' }}>

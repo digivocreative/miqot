@@ -10,6 +10,8 @@
 //
 // Tes ini meniru selisih metrik font itu dengan menyuntik letter-spacing ke klon
 // yang SUDAH dipaku, lalu menuntut tidak ada satu pun teks yang patah baris.
+// Mekanik pengukurannya dipakai bersama penjaga poster Haji Plus & Brosur
+// Jadwal — lihat tests/fixtures/export-wrap-probe.js.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -17,13 +19,11 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
+import { METRIC_DRIFT, describeWrapped, measureClonedTextLines, wrappedReadings } from './fixtures/export-wrap-probe.js';
+
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const HARNESS = '/tests/fixtures/haji-offer-card-harness.html';
-
-// Selisih metrik font yang ditiru: 2% dari font-size per karakter, jadi setara di
-// semua ukuran teks kartu (~4% lebih lebar per string). Nilai di lapangan lebih
-// kecil dari ini, tapi kotak yang dipaku bocor pada selisih sekecil apa pun.
-const METRIC_DRIFT = '0.06em';
+const CARD = '[data-haji-offer-card]';
 
 const KURS_PAYLOAD = {
   success: true,
@@ -58,48 +58,6 @@ async function openHarness(paketLabel) {
   return { context, page, pageErrors };
 }
 
-// Menjalankan pipeline kloning yang asli, memasang klonnya ke dokumen dengan
-// selisih metrik font, lalu melaporkan jumlah baris tiap simpul teks daun.
-// Badan fungsi ini dieksekusi di dalam browser, jadi ia tidak boleh menutup
-// variabel apa pun dari Node — `drift` wajib lewat argumen page.evaluate().
-const measureClonedTextLines = async drift => {
-  const card = document.querySelector('[data-haji-offer-card]');
-  const svg = await window.__modernScreenshot.domToForeignObjectSvg(card, { scale: 1 });
-  const clone = svg.querySelector('foreignObject > *');
-  if (!clone) throw new Error('klon tidak ditemukan di dalam foreignObject');
-
-  const stage = document.createElement('div');
-  stage.id = '__wrap_probe__';
-  stage.setAttribute('style', 'position:absolute;left:-99999px;top:0;');
-  const nudge = document.createElement('style');
-  // !important supaya menang atas letter-spacing inline yang ikut disalin ke klon.
-  nudge.textContent = `#__wrap_probe__, #__wrap_probe__ * { letter-spacing: ${drift} !important; }`;
-  stage.appendChild(clone);
-  document.body.append(nudge, stage);
-
-  const readings = [];
-  let pinnedBoxes = 0;
-  for (const el of clone.querySelectorAll('*')) {
-    if (el.style.width.endsWith('px') && el.style.height.endsWith('px')) pinnedBoxes += 1;
-
-    const children = Array.from(el.childNodes);
-    const isTextLeaf = children.length > 0
-      && children.every(node => node.nodeType === Node.TEXT_NODE)
-      && el.textContent.trim().length > 0;
-    if (!isTextLeaf) continue;
-
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const rects = Array.from(range.getClientRects()).filter(r => r.width > 0.5 && r.height > 0.5);
-    const lines = new Set(rects.map(r => Math.round(r.top))).size;
-    readings.push({ text: el.textContent.trim().slice(0, 48), lines });
-  }
-
-  stage.remove();
-  nudge.remove();
-  return { readings, pinnedBoxes };
-};
-
 describe('Kartu penawaran Haji Plus tahan selisih metrik font', { concurrency: false }, () => {
   before(async () => {
     viteServer = await createServer({
@@ -123,7 +81,7 @@ describe('Kartu penawaran Haji Plus tahan selisih metrik font', { concurrency: f
     test(`paket ${paket}: tidak ada teks yang patah baris di klon ekspor`, { timeout: 120_000 }, async () => {
       const { context, page, pageErrors } = await openHarness(paket);
       try {
-        const baseline = await page.evaluate(measureClonedTextLines, 'normal');
+        const baseline = await page.evaluate(measureClonedTextLines, { selector: CARD, drift: 'normal' });
 
         // Prasyarat yang membuat tes ini bermakna: modern-screenshot memang memaku
         // kotak ke piksel. Kalau suatu saat tidak lagi, tes ini jadi hampa dan
@@ -134,15 +92,20 @@ describe('Kartu penawaran Haji Plus tahan selisih metrik font', { concurrency: f
         );
         assert.ok(baseline.readings.length >= 15, 'klon harus memuat simpul teks kartu');
 
-        const baselineWrapped = baseline.readings.filter(r => r.lines !== 1);
-        assert.deepEqual(baselineWrapped, [], 'tanpa selisih font pun kartu harus satu baris per label');
+        const baselineWrapped = wrappedReadings(baseline.readings);
+        assert.equal(
+          baselineWrapped.length,
+          0,
+          `tanpa selisih font pun kartu harus satu baris per label:\n${describeWrapped(baselineWrapped)}`,
+        );
 
-        const drifted = await page.evaluate(measureClonedTextLines, METRIC_DRIFT);
-        const driftedWrapped = drifted.readings.filter(r => r.lines !== 1);
-        assert.deepEqual(
-          driftedWrapped,
-          [],
-          'teks patah baris saat font render sedikit lebih lebar — baris kedua akan menimpa elemen di bawahnya',
+        const drifted = await page.evaluate(measureClonedTextLines, { selector: CARD, drift: METRIC_DRIFT });
+        const driftedWrapped = wrappedReadings(drifted.readings);
+        assert.equal(
+          driftedWrapped.length,
+          0,
+          'teks patah baris saat font render sedikit lebih lebar — baris kedua akan '
+            + `menimpa elemen di bawahnya:\n${describeWrapped(driftedWrapped)}`,
         );
 
         assert.deepEqual(pageErrors, [], 'harness tidak boleh melempar error');

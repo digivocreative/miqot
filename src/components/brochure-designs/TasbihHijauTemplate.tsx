@@ -186,7 +186,7 @@ export function TasbihHijauTemplate({ month, agent, displayMode = 'hari' }: Broc
           padding: '10px 26px 11px', borderRadius: 999,
           background: EMERALD_GRAD, color: '#FFFFFF',
           boxShadow: '0 10px 24px rgba(15,138,95,0.28)',
-          fontSize: 24, fontWeight: 900, lineHeight: 1,
+          fontSize: 24, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap',
         }}>
           {landingUrl}
         </div>
@@ -389,6 +389,7 @@ export function TasbihHijauTemplate({ month, agent, displayMode = 'hari' }: Broc
           <strong style={{
             fontSize: agentName.length > 22 ? 32 : 38, fontWeight: 900,
             color: EMERALD_DEEP, lineHeight: 1.05,
+            display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
           }}>{agentName}</strong>
         </div>
         {phone && (
