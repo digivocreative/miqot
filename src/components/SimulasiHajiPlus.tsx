@@ -629,6 +629,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
         <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
           <div
             ref={cardRef}
+            data-haji-offer-card=""
             style={{
               width: OFFER_CARD_WIDTH,
               height: OFFER_CARD_HEIGHT,
@@ -664,7 +665,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <div style={{ textAlign: 'right' as const, maxWidth: 150 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.name}</div>
-                      <div style={{ fontSize: 8.4, color: 'rgba(255,255,255,0.76)', marginTop: 1 }}>Konsultan Haji Plus</div>
+                      <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.4, color: 'rgba(255,255,255,0.76)', marginTop: 1 }}>Konsultan Haji Plus</div>
                     </div>
                     <div style={{ position: 'relative', width: 36, height: 36, flexShrink: 0 }}>
                       {agentPhotoSrc && !agentPhotoFailed ? (
@@ -685,7 +686,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
 
             {/* Title + Nama */}
             <div style={{ padding: '12px 24px 8px', textAlign: 'center' as const }}>
-              <div style={{ fontSize: 8.8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#6b7280' }}>Simulasi Biaya Haji Plus</div>
+              <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#6b7280' }}>Simulasi Biaya Haji Plus</div>
               <div style={{ fontSize: 23, fontWeight: 750, color: '#1f2937', marginTop: 4, lineHeight: '1.05', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>{namaJamaah || 'Calon Jamaah'}</div>
             </div>
 
@@ -704,13 +705,13 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                 <div style={{ minWidth: 0, maxWidth: 178 }}>
                   <div style={{ fontSize: 10, color: '#fbbf24' }}>{'★'.repeat(pkg.stars)}</div>
                   <div style={{ fontSize: 17, fontWeight: 750, color: '#ffffff', marginTop: 3, lineHeight: '1.1', whiteSpace: 'nowrap' as const }}>Paket {pkg.name}</div>
-                  <div style={{ fontSize: 9.2, color: 'rgba(255,255,255,0.82)', marginTop: 5 }}>Hotel Bintang {pkg.stars}</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9.2, color: 'rgba(255,255,255,0.82)', marginTop: 5 }}>Hotel Bintang {pkg.stars}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
-                  <div style={{ display: 'inline-block', fontSize: 8.5, fontWeight: 700, color: '#ffffff', padding: '3px 7px', borderRadius: 999, background: 'rgba(255,255,255,0.18)', marginBottom: 6 }}>Tipe kamar {selectedRoom.label}</div>
-                  <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.76)', marginBottom: 2 }}>Estimasi harga {tahunBerangkat} / jamaah</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, display: 'inline-block', fontSize: 8.5, fontWeight: 700, color: '#ffffff', padding: '3px 7px', borderRadius: 999, background: 'rgba(255,255,255,0.18)', marginBottom: 6 }}>Tipe kamar {selectedRoom.label}</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.5, color: 'rgba(255,255,255,0.76)', marginBottom: 2 }}>Estimasi harga {tahunBerangkat} / jamaah</div>
                   <div style={{ fontSize: 24, fontWeight: 750, color: '#ffffff', lineHeight: '1' }}>{fmtUSD(calc.escalatedPriceUSD)}</div>
-                  <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>harga dasar {calc.currentYear}: {fmtUSD(calc.basePriceUSD)}</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>harga dasar {calc.currentYear}: {fmtUSD(calc.basePriceUSD)}</div>
                 </div>
               </div>
             </div>
@@ -725,26 +726,26 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               gridTemplateRows: '34px 55px 55px 1fr',
             }}>
               <div style={{ padding: '0 16px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center' }}>
-                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#64748b' }}>Rincian Pembayaran</div>
+                <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0, color: '#64748b' }}>Rincian Pembayaran</div>
               </div>
 
               <div style={{ padding: '0 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>DP Pendaftaran</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 12, fontWeight: 600, color: '#1f2937' }}>DP Pendaftaran</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.dpUSD)}</div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
-                  <div style={{ fontSize: 9.5, color: '#64748b' }}>Dibayar sekarang (harga hari ini)</div>
-                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.dpIDR)}</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9.5, color: '#64748b' }}>Dibayar sekarang (harga hari ini)</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>≈ {fmtRp(calc.dpIDR)}</div>
                 </div>
               </div>
 
               <div style={{ padding: '0 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1f2937' }}>Sisa Pelunasan</div>
+                  <div style={{ whiteSpace: 'nowrap' as const, fontSize: 12, fontWeight: 600, color: '#1f2937' }}>Sisa Pelunasan</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937' }}>{fmtUSD(calc.sisaUSD)}</div>
                 </div>
-                <div style={{ fontSize: 9, color: '#d97706', marginTop: 2 }}>Maks. {calc.deadlineLabel} · harga {tahunBerangkat}</div>
+                <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9, color: '#d97706', marginTop: 2 }}>Maks. {calc.deadlineLabel} · harga {tahunBerangkat}</div>
               </div>
 
               <div style={{ padding: '0 16px', background: isRahmah ? '#ecfdf5' : '#eff6ff', display: 'flex', flexDirection: 'column' as const, justifyContent: 'center' }}>
@@ -762,8 +763,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
             {/* Proyeksi Harga Paket */}
             <div style={{ margin: '0 24px 10px', padding: '8px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                <div style={{ fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Per Jamaah</div>
-                <div style={{ fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>estimasi ~{pctLabel(priceRate)}/th</div>
+                <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9, fontWeight: 750, color: '#64748b' }}>Proyeksi Harga Per Jamaah</div>
+                <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.5, fontWeight: 700, color: isRahmah ? '#059669' : '#2563eb' }}>estimasi ~{pctLabel(priceRate)}/th</div>
               </div>
               {exportLadder.map((e, i) => {
                 const width = 45 + (exportLadder.length > 1 ? (i / (exportLadder.length - 1)) * 55 : 55);
@@ -807,7 +808,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
               <div style={{ position: 'relative', width: '100%' }}>
                 {agent ? (
                   <>
-                    <div style={{ fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
+                    <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
                     <div style={{ fontSize: 15, fontWeight: 750, color: '#ffffff', marginTop: 3, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>Hubungi {agent.name}</div>
                     <div style={{ fontSize: 9.8, color: 'rgba(255,255,255,0.78)', marginTop: 4, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {agentPhone}{agent.website ? ` · ${agent.website}` : ''}
@@ -815,8 +816,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
                   </>
                 ) : (
                   <>
-                    <div style={{ fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
-                    <div style={{ fontSize: 9.8, color: 'rgba(255,255,255,0.78)', marginTop: 4 }}>alhijazindowisata.com</div>
+                    <div style={{ whiteSpace: 'nowrap' as const, fontSize: 8.8, fontWeight: 700, color: 'rgba(255,255,255,0.68)' }}>Amankan Porsi Haji Plus Sekarang</div>
+                    <div style={{ whiteSpace: 'nowrap' as const, fontSize: 9.8, color: 'rgba(255,255,255,0.78)', marginTop: 4 }}>alhijazindowisata.com</div>
                   </>
                 )}
               </div>
