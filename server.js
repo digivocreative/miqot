@@ -24036,14 +24036,26 @@ function sendSpaShell(req, res, html) {
 // segmennya seluas /:apa/:apa, jadi ia harus jadi yang TERAKHIR menawar.
 // ──────────────────────────────────────────────
 
+/**
+ * Origin sebagaimana dilihat PENGUNJUNG, bukan sebagaimana dilihat proses ini.
+ *
+ * req.protocol selalu 'http' (Express tak dipasang `trust proxy`), dan
+ * x-forwarded-proto TIDAK bisa dipercaya di sini: Cloudflare menjangkau origin
+ * lewat nginx :80, dan nginx menimpanya dengan $scheme hop-nya sendiri — jadi
+ * header itu bernilai 'http' justru pada request yang datang dari halaman
+ * https. og:image ber-skema http di halaman https memaksa crawler lewat satu
+ * hop redirect dan sebagian membuangnya. Seluruh permukaan publik (alhijaz.co
+ * maupun custom domain) hanya disajikan lewat https, jadi satu-satunya yang
+ * benar-benar http adalah host lokal saat pengembangan.
+ */
+function publicOrigin(req) {
+  const host = req.get('host') || 'alhijaz.co';
+  const isLocalHost = /^(?:localhost|127\.|0\.0\.0\.0|\[?::1\]?)/i.test(host);
+  return `${isLocalHost ? 'http' : 'https'}://${host}`;
+}
+
 function renderPackageShareSSR(req, res, { agent, facts, pagePath }) {
-  // req.protocol selalu 'http' di balik Caddy/Cloudflare (Express tidak
-  // dipasang `trust proxy`), dan og:image ber-skema http di halaman https
-  // memaksa crawler lewat satu hop redirect — sebagian malah membuangnya.
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-  const origin = req.customDomain
-    ? `https://${req.customDomain}`
-    : `${forwardedProto || req.protocol || 'https'}://${req.get('host')}`;
+  const origin = req.customDomain ? `https://${req.customDomain}` : publicOrigin(req);
   const pageUrl = `${origin}${pagePath}`;
   const { title, description } = buildPackageShareMeta({ ...facts, agentName: agent?.name || '' });
 
