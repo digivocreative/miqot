@@ -43,8 +43,9 @@ import {
   calendarPublicFallbackOriginLookup,
   CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
 } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
+import { PACKAGE_ID_RE, buildPackageShareMeta } from './lib/package-share-meta.js';
 import { computeSafeDeletions } from './lib/sync-cleanup.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { computeJamaahSyncEvents, emptyJamaahSyncEvents, hasJamaahSyncEvents, mergeJamaahSyncEvents, jamaahRowKey, toMoney, hasJamaahPayment, datePlusDaysKey, isFutureRelevantJamaah } from './lib/jamaah-sync-events.js';
@@ -23563,6 +23564,110 @@ app.get('/og/itinerary/:slug/:packageId.png', async (req, res) => {
   }
 });
 
+// ──────────────────────────────────────────────
+// Share satu paket: kartu OG /og/paket/[:slug/]:jadwalId.png
+//
+// Fakta kartu diambil lewat helper brochure-schedule yang sama dengan halaman
+// paket, jadi kartu share tidak bisa menyebut harga/durasi yang berbeda dari
+// yang dibaca jamaah di halamannya.
+// ──────────────────────────────────────────────
+
+async function loadPackageShareRow(packageId) {
+  const { data } = await supabase
+    .from('umroh_schedules')
+    .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, pulang_tgl, seat_sisa, paket_harga, paket_hotel')
+    .eq('jadwal_id', packageId)
+    // jadwal_id unik per year_code. Kalau kode yang sama muncul di dua tahun,
+    // yang layak dibagikan adalah keberangkatan terbaru.
+    .order('year_code', { ascending: false })
+    .limit(1);
+  return data?.[0] || null;
+}
+
+function packageShareFacts(row) {
+  const details = pickBrochurePackageDetails(row.paket_harga, row.paket_hotel);
+  const isWaitingList = isWaitingListPackageName(row.jadwal_nama);
+  return {
+    packageId: row.jadwal_id,
+    // "WAITINGLIST" adalah penampung peminat, bukan keberangkatan — namanya
+    // apa adanya akan tayang di WhatsApp sebagai judul paket.
+    paketName: isWaitingList ? 'DAFTAR TUNGGU UMROH' : row.jadwal_nama,
+    isWaitingList,
+    departDate: row.berangkat_tgl,
+    // Durasi dari nama paket lebih dipercaya daripada selisih tanggal: paket
+    // berekstensi (Turki/Dubai/Cairo) menyimpan tanggal leg umrohnya saja.
+    durationDays: extractDurationFromName(row.jadwal_nama)
+      || countBrochureTripDays(row.berangkat_tgl, row.pulang_tgl),
+    airline: row.maskapai,
+    priceFrom: details?.harga ?? null,
+    priceRoom: details?.room ?? null,
+    seatSisa: parseSeatSisa(row.seat_sisa),
+    hotels: details?.hotel || [],
+  };
+}
+
+// Bot menyimpan preview per-URL. Tanpa penanda versi, paket yang harganya naik
+// atau kursinya menipis tetap tampil dengan kartu lama sampai cache bot habis.
+function packageOgVersion(facts, agent) {
+  return crypto.createHash('sha1')
+    .update(JSON.stringify([
+      facts.paketName, facts.departDate, facts.durationDays, facts.airline,
+      facts.priceFrom, facts.priceRoom, facts.seatSisa, facts.hotels,
+      agent?.slug || '', agent?.photo || '',
+    ]))
+    .digest('hex').slice(0, 10);
+}
+
+async function sendPackageOgPng(res, { agent, packageId }) {
+  const row = await loadPackageShareRow(packageId);
+  if (!row) return res.status(404).type('text/plain').send('not found');
+
+  const facts = packageShareFacts(row);
+  const agentPhotoBuffer = agent ? await loadAgentPhotoBuffer(agent.photo, agent.slug) : null;
+  const png = await generatePackageOgPng({
+    ...facts,
+    agentName: agent?.name || '',
+    agentPhotoBuffer,
+  });
+
+  return res.set({
+    'Content-Type': 'image/png',
+    'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+  }).send(png);
+}
+
+app.get('/og/paket/:slug/:packageId.png', async (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  if (!/^[a-z0-9-]{1,64}$/.test(slug) || !PACKAGE_ID_RE.test(packageId)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved?.agent) return res.status(404).type('text/plain').send('not found');
+    return await sendPackageOgPng(res, { agent: resolved.agent, packageId });
+  } catch (err) {
+    console.error('[og/paket] generation failed:', slug, packageId, err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
+// Kartu tanpa agent, untuk link telanjang alhijaz.co/:jadwalId. Sengaja TIDAK
+// menyimpulkan agent dari host: middleware deteksi custom domain melewati path
+// .png, jadi req.customDomainAgent selalu kosong di sini.
+app.get('/og/paket/:packageId.png', async (req, res) => {
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  if (!PACKAGE_ID_RE.test(packageId)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    return await sendPackageOgPng(res, { agent: null, packageId });
+  } catch (err) {
+    console.error('[og/paket] generation failed (tanpa slug):', packageId, err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
 // Serve static assets from dist/ first, then fallback to public/
 // This ensures uploaded files (e.g. agent photos in public/agents/)
 // are always accessible, even if they were added after the last build.
@@ -23890,6 +23995,161 @@ app.get('/teras/:code', async (req, res, next) => {
   }
 });
 
+// Kirim shell SPA yang sudah disuntik meta. Dipakai SPA fallback DAN rute SSR
+// share paket, supaya kebijakan cache-nya cuma hidup di satu tempat.
+function sendSpaShell(req, res, html) {
+  res.set('Content-Type', 'text/html');
+  // HTML on custom domain embeds per-host __AGENT_CONTEXT__ — never cache it,
+  // or the next visitor on this origin gets the previous agent's shell.
+  if (req.customDomain) {
+    res.set('Cache-Control', 'private, no-store, must-revalidate');
+    return res.send(html);
+  }
+  // alhijaz.co / agent-slug shell: revalidate on every load via ETag so a reload
+  // returns a tiny 304 instead of re-downloading the whole HTML. Deliberately
+  // no-cache (not a long max-age): `vite build` empties dist/ each deploy, so a
+  // cached shell pinned by max-age could reference purged hashed chunks → broken
+  // app. no-cache = always conditional-GET → 304 when unchanged, fresh 200 right
+  // after a deploy. The OG/title/context injection above is part of the hashed body.
+  // Weak ETag (W/): Caddy's `encode` strips STRONG ETags because gzip/zstd changes
+  // the body bytes, which would defeat the 304 at the edge. A weak validator asserts
+  // only semantic equivalence, so it survives compression — the browser echoes it
+  // back in If-None-Match and we can still 304.
+  const etag = 'W/"' + crypto.createHash('sha256').update(html).digest('hex').slice(0, 32) + '"';
+  res.set('ETag', etag);
+  res.set('Cache-Control', 'no-cache');
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
+  return res.send(html);
+}
+
+// ──────────────────────────────────────────────
+// Share satu paket: SSR meta untuk /:slug/:jadwalId (+ /:jadwalId)
+//
+// Halamannya SPA. Sebelum ini bot hanya melihat meta generik milik agent
+// ("Jadwal Umroh Alhijaz | <agent>") karena judul/deskripsi paket baru ditulis
+// App.tsx SETELAH hydrate — dan crawler tidak menjalankan JS. Handler ini
+// menulis judul, deskripsi, dan kartu OG per paket di server.
+//
+// Terdaftar sesudah express.static dan tepat sebelum SPA fallback: pola dua
+// segmennya seluas /:apa/:apa, jadi ia harus jadi yang TERAKHIR menawar.
+// ──────────────────────────────────────────────
+
+function renderPackageShareSSR(req, res, { agent, facts, pagePath }) {
+  const origin = req.customDomain
+    ? `https://${req.customDomain}`
+    : `${req.protocol}://${req.get('host')}`;
+  const pageUrl = `${origin}${pagePath}`;
+  const { title, description } = buildPackageShareMeta({ ...facts, agentName: agent?.name || '' });
+
+  // Slug SELALU ikut di URL kartu saat agent-nya diketahui — termasuk di custom
+  // domain. Middleware deteksi host melewati semua path berakhiran .png
+  // (isSharedStaticRequestPath), jadi rute gambar tak pernah bisa menyimpulkan
+  // agent dari host: bentuk tanpa slug di sana akan menghasilkan kartu tanpa
+  // nama agent. Bentuk telanjang hanya untuk link yang memang tak beragent.
+  const ogPath = agent
+    ? `/og/paket/${String(agent.slug || '').toLowerCase()}/${facts.packageId}.png`
+    : `/og/paket/${facts.packageId}.png`;
+  const ogImage = `${origin}${ogPath}?v=${packageOgVersion(facts, agent)}`;
+
+  let html = getIndexHtml();
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtmlAttr(title)}</title>`);
+  html = html.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${escapeHtmlAttr(description)}" />`
+  );
+  // Buang tag bawaan index.html supaya yang disuntik di bawah jadi satu-satunya
+  // sumber: .replace() untuk tag yang tak ada gagal diam-diam.
+  html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
+  html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
+
+  // Tanpa ini halaman paket kehilangan kartu agent + tombol Chat-nya: App.tsx
+  // membaca __AGENT_CONTEXT__ yang biasanya disuntik SPA fallback.
+  const agentContextScript = agent
+    ? `\n    <script>window.__AGENT_CONTEXT__ = ${serializeInlineJson(buildAgentContextPayload(agent, req.customDomain || null))};</script>`
+    : '';
+
+  const metaTags = `
+    <link rel="canonical" href="${escapeHtmlAttr(pageUrl)}" />
+    <meta property="og:title" content="${escapeHtmlAttr(title)}" />
+    <meta property="og:description" content="${escapeHtmlAttr(description)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />
+    <meta property="og:site_name" content="Alhijaz Indowisata" />
+    <meta property="og:image" content="${escapeHtmlAttr(ogImage)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="${escapeHtmlAttr(`Kartu paket ${title}`)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtmlAttr(title)}" />
+    <meta name="twitter:description" content="${escapeHtmlAttr(description)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />${agentContextScript}
+    `;
+  html = html.replace('</head>', `${metaTags}</head>`);
+
+  return sendSpaShell(req, res, html);
+}
+
+app.get('/:slug/:packageId', async (req, res, next) => {
+  // Custom domain membuang slug sendiri lewat middleware canonicalize, jadi
+  // bentuk dua segmen di sana bukan link paket.
+  if (req.customDomain) return next();
+  const slug = String(req.params.slug || '').toLowerCase();
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  if (!PACKAGE_ID_RE.test(packageId) || RESERVED_SPA_SLUGS.has(slug)) return next();
+
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // slug asing → SPA fallback
+    if (resolved.redirect) return res.redirect(301, `/${resolved.redirect}/${packageId}`);
+
+    const row = await loadPackageShareRow(packageId);
+    if (!row) return next(); // bukan jadwal → biarkan SPA yang bilang tidak ketemu
+
+    return renderPackageShareSSR(req, res, {
+      agent: resolved.agent,
+      facts: packageShareFacts(row),
+      pagePath: `/${String(resolved.agent.slug || slug).toLowerCase()}/${packageId}`,
+    });
+  } catch (err) {
+    console.error('[paket-share] SSR error:', slug, packageId, err.message);
+    return next(); // fallback ke SPA tanpa meta paket
+  }
+});
+
+// Bentuk satu segmen: link paket di custom domain (agent dari host) dan link
+// telanjang alhijaz.co/:jadwalId yang memang tidak membawa agent.
+app.get('/:packageId', async (req, res, next) => {
+  const packageId = String(req.params.packageId || '').toUpperCase();
+  if (!PACKAGE_ID_RE.test(packageId)) return next();
+
+  try {
+    let agent = req.customDomainAgent || null;
+    if (!agent) {
+      const asSlug = packageId.toLowerCase();
+      if (RESERVED_SPA_SLUGS.has(asSlug)) return next();
+      // Slug agent selalu menang atas jadwal_id: halaman agent tak boleh
+      // tertutup hanya karena namanya kebetulan berbentuk kode paket.
+      if (await getAgentBySlug(asSlug)) return next();
+    }
+
+    const row = await loadPackageShareRow(packageId);
+    if (!row) return next();
+
+    return renderPackageShareSSR(req, res, {
+      agent,
+      facts: packageShareFacts(row),
+      pagePath: `/${packageId}`,
+    });
+  } catch (err) {
+    console.error('[paket-share] SSR error (tanpa slug):', packageId, err.message);
+    return next();
+  }
+});
+
 // SPA fallback — inject OG tags for agent slugs (or custom-domain agent)
 app.get('{*path}', async (req, res) => {
   let html = getIndexHtml();
@@ -24024,30 +24284,7 @@ app.get('{*path}', async (req, res) => {
     html = html.replace('</head>', `${metaTags}</head>`);
   }
 
-  res.set('Content-Type', 'text/html');
-  // HTML on custom domain embeds per-host __AGENT_CONTEXT__ — never cache it,
-  // or the next visitor on this origin gets the previous agent's shell.
-  if (req.customDomain) {
-    res.set('Cache-Control', 'private, no-store, must-revalidate');
-    return res.send(html);
-  }
-  // alhijaz.co / agent-slug shell: revalidate on every load via ETag so a reload
-  // returns a tiny 304 instead of re-downloading the whole HTML. Deliberately
-  // no-cache (not a long max-age): `vite build` empties dist/ each deploy, so a
-  // cached shell pinned by max-age could reference purged hashed chunks → broken
-  // app. no-cache = always conditional-GET → 304 when unchanged, fresh 200 right
-  // after a deploy. The OG/title/context injection above is part of the hashed body.
-  // Weak ETag (W/): Caddy's `encode` strips STRONG ETags because gzip/zstd changes
-  // the body bytes, which would defeat the 304 at the edge. A weak validator asserts
-  // only semantic equivalence, so it survives compression — the browser echoes it
-  // back in If-None-Match and we can still 304.
-  const etag = 'W/"' + crypto.createHash('sha256').update(html).digest('hex').slice(0, 32) + '"';
-  res.set('ETag', etag);
-  res.set('Cache-Control', 'no-cache');
-  if (req.headers['if-none-match'] === etag) {
-    return res.status(304).end();
-  }
-  res.send(html);
+  return sendSpaShell(req, res, html);
 });
 
 app.listen(PORT, () => {

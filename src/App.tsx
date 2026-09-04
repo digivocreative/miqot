@@ -810,9 +810,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   };
 
 
-  // Set document title & meta tags for single-package view
+  // Set document title & meta tags for single-package view.
+  // Hanya CADANGAN: server sudah menulis judul, deskripsi, dan kartu OG paket
+  // (renderPackageShareSSR di server.js) untuk setiap jadwal yang ada di DB —
+  // menimpanya di sini cuma membuat judul tab berkedip ganti bentuk. Yang tersisa
+  // untuk ditangani di klien adalah paket yang SSR-nya menyerah (kode tak ada di
+  // umroh_schedules) dan halaman jatuh ke meta generik milik agent.
   useEffect(() => {
     if (!singlePackageId) return;
+    if (document.querySelector('meta[property="og:image"][content*="/og/paket/"]')) return;
     const pkg = packages.find(p => p.jadwalId === singlePackageId);
     if (pkg) {
       const agentName = currentAgent?.name || '';
