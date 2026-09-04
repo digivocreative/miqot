@@ -31,6 +31,8 @@ import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/b
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
 
+// Ikut tersalin bersama URL paket, bukan hiasan: lihat handleCopyPackageLink.
+const PACKAGE_LINK_COPY_PREFIX = '👉 ';
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
@@ -577,8 +579,12 @@ _________________________
     setLinkCheckVisible(false);
     setIsLinkCopying(true);
 
+    // Penanda 👉 di depan URL: pesan WhatsApp yang isinya HANYA link ditampilkan
+    // sebagai kartu preview saja, dan agent kehilangan alamatnya di layar.
+    const copyText = `${PACKAGE_LINK_COPY_PREFIX}${shareUrl}`;
+
     const [copied] = await Promise.all([
-      copyTextToClipboard(shareUrl),
+      copyTextToClipboard(copyText),
       new Promise<void>((resolve) => window.setTimeout(resolve, LINK_COPY_LOADING_MS)),
     ]);
 
@@ -603,7 +609,7 @@ _________________________
       return;
     }
 
-    window.prompt('Salin link paket:', shareUrl);
+    window.prompt('Salin link paket:', copyText);
   };
 
   // Handle Screenshot & Share (Smart Styling Strategy)
