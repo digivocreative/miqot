@@ -427,6 +427,57 @@ function HotelRatings({ ratings }: { ratings: HotelRatingItem[] }) {
   );
 }
 
+// Foto banner kartu kategori. Enam kartu memuat fotonya BERBARENGAN, dan dua
+// kartu terbawah (Kairo & Haikou) ada di bawah lipatan layar ponsel — di sana
+// browser menurunkan prioritas unduhannya (terukur: kartu terakhir dapat
+// prioritas "Low"), jadi keduanya baru kebagian pita setelah empat kartu di
+// atasnya rampung. JPEG digambar bertahap dari atas ke bawah, sehingga foto
+// yang belum utuh tampil sebagai kartu separuh terisi — persis keluhan
+// "muncul tidak sempurna". Dua penawarnya di sini:
+//   • fetchpriority=high menyamakan antrean keenam kartu; semuanya ISI halaman
+//     ini, tak ada yang sekadar hiasan di ekor daftar panjang;
+//   • foto baru ditampilkan setelah benar-benar termuat — sebelum itu kartu
+//     memakai placeholder berdenyut (bentuk & warna sama dengan skeleton),
+//     bukan gambar separuh jadi.
+// Ukuran berkasnya ditangani di sisi unggah: HotelKelolaPage menyusutkan
+// banner ke lebar kartu dan menyimpannya sebagai WebP.
+const BANNER_IMG_PRIORITY = { fetchpriority: 'high' } as Record<string, string>;
+
+function HotelCityBanner({ src, alt }: { src: string; alt: string }) {
+  // Menyimpan URL yang sudah selesai (bukan boolean): admin bisa mengganti
+  // banner, dan URL baru harus kembali menunggu tanpa perlu efek reset.
+  // 'ready' = tampilkan foto; 'failed' = hentikan denyut tapi biarkan foto
+  // tersembunyi, jadi kartu gagal-muat menyisakan latar polos + label kota,
+  // bukan ikon gambar rusak atau placeholder yang berdenyut selamanya.
+  const [settled, setSettled] = useState<{ src: string; state: 'ready' | 'failed' } | null>(null);
+  const state = settled && settled.src === src ? settled.state : 'loading';
+  // Nilai lama dikembalikan apa adanya saat status tidak berubah: ref callback
+  // di bawah dipanggil ulang SETIAP commit, jadi objek baru tiap panggilan =
+  // render tanpa henti.
+  const settle = (next: 'ready' | 'failed') =>
+    setSettled(prev => (prev && prev.src === src && prev.state === next ? prev : { src, state: next }));
+  return (
+    <>
+      <img
+        // Foto dari cache selesai SEBELUM React sempat memasang onLoad —
+        // tanpa pemeriksaan .complete di ref, kartu tersangkut di placeholder
+        // pada kunjungan berikutnya.
+        ref={img => { if (img?.complete && img.naturalWidth > 0) settle('ready'); }}
+        src={src}
+        alt={alt}
+        onLoad={() => settle('ready')}
+        onError={() => settle('failed')}
+        decoding="async"
+        {...BANNER_IMG_PRIORITY}
+        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 motion-reduce:transition-none ${state === 'ready' ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {state === 'loading' && (
+        <div className="absolute inset-0 bg-gray-100 dark:bg-slate-800 animate-pulse motion-reduce:animate-none" />
+      )}
+    </>
+  );
+}
+
 // Cache antar-mount (umur proses, sengaja BUKAN localStorage). Direktori hotel
 // jarang berubah, tapi halamannya di-unmount tiap kali agent keluar ke daftar
 // Tools — tanpa cache, tiap masuk kembali mengulang skeleton walau datanya
@@ -644,13 +695,11 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                 onClick={() => onNavigate(`/dashboard/hotel/${city}`)}
                 className="relative h-40 overflow-hidden rounded-2xl border border-gray-100 bg-gray-100 shadow-sm text-left transition-all hover:shadow-lg active:scale-[0.97] dark:border-slate-700 dark:bg-slate-800"
               >
-                {/* Semua kartu kategori tampil di puncak halaman: `lazy` di
-                    sini justru menunda gambar yang sudah terlihat, sehingga
-                    kartu tampil abu-abu dulu baru terisi. Latar abu-abu di
-                    tombol = warna skeleton, jadi jeda decode tidak terlihat
-                    sebagai kilatan putih. */}
+                {/* Semua kartu kategori adalah isi halaman ini: `lazy` di
+                    sini justru menunda gambar yang sebentar lagi terlihat.
+                    Prioritas & keadaan "belum termuat" diurus HotelCityBanner. */}
                 {bannerSrc ? (
-                  <img src={bannerSrc} alt={HOTEL_CITY_LABELS[city]} className="absolute inset-0 h-full w-full object-cover" decoding="async" />
+                  <HotelCityBanner src={bannerSrc} alt={HOTEL_CITY_LABELS[city]} />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 dark:from-teal-600 dark:to-teal-800">
                     <Building2 size={32} className="text-white/70" />

@@ -25,6 +25,10 @@ const skeletonSource = readFileSync(
   new URL('../src/components/HotelSkeletons.tsx', import.meta.url),
   'utf8',
 );
+const kelolaSource = readFileSync(
+  new URL('../src/components/HotelKelolaPage.tsx', import.meta.url),
+  'utf8',
+);
 
 test('fallback Suspense rute hotel memakai skeleton, bukan spinner', () => {
   assert.match(layoutSource, /import HotelRouteSkeleton.*from '\.\/HotelSkeletons'/);
@@ -61,6 +65,32 @@ test('kartu kategori menunggu banner supaya gambarnya tidak berganti sendiri', (
   // `lazy` pada empat kartu di puncak halaman justru menunda gambar yang sudah
   // terlihat.
   assert.doesNotMatch(pageSource, /alt=\{HOTEL_CITY_LABELS\[city\]\}[^>]*loading="lazy"/);
+});
+
+/**
+ * Keluhan lanjutan: dua kartu terbawah (Kairo & Haikou) lambat muncul dan
+ * kerap tampil separuh. Sebabnya tiga lapis, dan ketiganya dijaga di sini:
+ * foto sebesar layar penuh untuk kartu 160px, prioritas unduh rendah untuk
+ * kartu di bawah lipatan, dan gambar yang ditampilkan selagi masih digambar.
+ */
+test('banner kartu kategori tampil utuh, bukan separuh tergambar', () => {
+  assert.match(pageSource, /function HotelCityBanner/);
+  assert.match(pageSource, /onLoad=\{\(\) => settle\('ready'\)\}/);
+  assert.match(pageSource, /state === 'ready' \? 'opacity-100' : 'opacity-0'/);
+  // Foto dari cache selesai sebelum React memasang onLoad — tanpa ini kartu
+  // tersangkut di placeholder pada kunjungan berikutnya.
+  assert.match(pageSource, /img\?\.complete && img\.naturalWidth > 0/);
+  // Kartu di bawah lipatan diberi prioritas rendah oleh browser; keenam kartu
+  // adalah isi halaman ini, jadi antreannya disamakan.
+  assert.match(pageSource, /fetchpriority: 'high'/);
+});
+
+test('banner diunggah seukuran kartu, bukan seukuran foto galeri', () => {
+  assert.match(kelolaSource, /BANNER_PRESET: ResizePreset = \{ maxWidth: 1280, mime: 'image\/webp'/);
+  assert.match(kelolaSource, /resizeHotelPhoto\(file, BANNER_PRESET\)/);
+  // Peramban tanpa encoder WebP mengembalikan PNG — foto PNG justru lebih
+  // besar dari JPEG, jadi hasil di luar tipe yang diminta diulang sebagai JPEG.
+  assert.match(kelolaSource, /encode\('image\/jpeg', 0\.85/);
 });
 
 test('data direktori di-cache antar-mount (masuk ulang tanpa skeleton)', () => {

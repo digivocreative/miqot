@@ -474,6 +474,25 @@ export default defineConfig({
             },
           },
           {
+            // Hotel directory photos on Bunny (category banners + galleries).
+            // Filenames are content-addressed (…-<sha256>.<ext>), so a replaced
+            // photo is a NEW url — a cached entry can never go stale. Six banners
+            // load at once on /dashboard/hotel; without this every visit re-fetched
+            // them from the CDN whenever the browser's own cache had been evicted
+            // (mobile Safari evicts aggressively), which is what made the last two
+            // cards crawl in on cellular.
+            urlPattern: /^https:\/\/[^/]+\.b-cdn\.net\/(?:hotels|hotel-agent-media)\/.*\.(?:jpg|jpeg|png|webp)/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'hotel-media',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: {
+                maxEntries: 120,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+              },
+            },
+          },
+          {
             // Stable origin paths can change bytes without changing their URL.
             // Never resurrect an old brochure/itinerary from the service worker;
             // successful mirrors use immutable, fingerprinted CDN URLs instead.

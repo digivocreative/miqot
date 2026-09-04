@@ -98,13 +98,24 @@ function formFromDetail(detail: HotelDetail): FormState {
 
 // Salinan pendekatan resizeCommunityPhoto (Teras): maks 1600px, JPEG 0.85,
 // latar putih untuk PNG transparan.
-function resizeHotelPhoto(file: File): Promise<Blob> {
+//
+// Banner kategori memakai preset sendiri (BANNER_PRESET): kartunya cuma
+// selebar lembar dashboard (max-w-lg) setinggi 160px, sementara Direktori
+// Hotel memuat KEENAM banner sekaligus. Foto 1600px/JPEG di sana berarti
+// ~1,6MB sekali buka halaman — di jaringan seluler dua kartu terbawah baru
+// tuntas beberapa detik kemudian. 1280px + WebP memangkasnya ~2/3 tanpa beda
+// yang terlihat di kartu sekecil itu.
+type ResizePreset = { maxWidth: number; mime: string; quality: number };
+const PHOTO_PRESET: ResizePreset = { maxWidth: 1600, mime: 'image/jpeg', quality: 0.85 };
+const BANNER_PRESET: ResizePreset = { maxWidth: 1280, mime: 'image/webp', quality: 0.82 };
+
+function resizeHotelPhoto(file: File, preset: ResizePreset = PHOTO_PRESET): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const maxWidth = 1600;
+      const maxWidth = preset.maxWidth;
       const scale = Math.min(1, maxWidth / img.width);
       const width = Math.max(1, Math.round(img.width * scale));
       const height = Math.max(1, Math.round(img.height * scale));
@@ -116,11 +127,18 @@ function resizeHotelPhoto(file: File): Promise<Blob> {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        blob => (blob ? resolve(blob) : reject(new Error('Gagal memproses foto'))),
-        'image/jpeg',
-        0.85
-      );
+      // Peramban yang tak bisa MENGENKODE WebP mengembalikan PNG diam-diam
+      // (canvas.toBlob jatuh ke tipe bawaan) — PNG foto justru jauh lebih
+      // besar dari JPEG, jadi hasil di luar tipe yang diminta diulang sebagai
+      // JPEG alih-alih diunggah apa adanya.
+      const encode = (mime: string, quality: number, onDone: (blob: Blob | null) => void) =>
+        canvas.toBlob(onDone, mime, quality);
+      encode(preset.mime, preset.quality, blob => {
+        if (blob && (blob.type === preset.mime || preset.mime === 'image/jpeg')) { resolve(blob); return; }
+        encode('image/jpeg', 0.85, fallback => (
+          fallback ? resolve(fallback) : reject(new Error('Gagal memproses foto'))
+        ));
+      });
     };
     // Gagal decode paling sering = HEIC/HEIF iPhone di perangkat non-Apple.
     img.onerror = () => {
@@ -293,7 +311,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     }
     setBannerBusy(city);
     try {
-      const blob = await resizeHotelPhoto(file);
+      const blob = await resizeHotelPhoto(file, BANNER_PRESET);
       if (blob.size > MAX_IMAGE_BYTES) throw new Error('Foto banner terlalu besar (maks 3MB).');
       const url = await uploadHotelMedia(blob);
       await saveBanner(city, url);
