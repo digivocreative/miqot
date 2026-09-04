@@ -24037,9 +24037,13 @@ function sendSpaShell(req, res, html) {
 // ──────────────────────────────────────────────
 
 function renderPackageShareSSR(req, res, { agent, facts, pagePath }) {
+  // req.protocol selalu 'http' di balik Caddy/Cloudflare (Express tidak
+  // dipasang `trust proxy`), dan og:image ber-skema http di halaman https
+  // memaksa crawler lewat satu hop redirect — sebagian malah membuangnya.
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const origin = req.customDomain
     ? `https://${req.customDomain}`
-    : `${req.protocol}://${req.get('host')}`;
+    : `${forwardedProto || req.protocol || 'https'}://${req.get('host')}`;
   const pageUrl = `${origin}${pagePath}`;
   const { title, description } = buildPackageShareMeta({ ...facts, agentName: agent?.name || '' });
 
