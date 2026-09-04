@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronRight, Copy, Link2, Users } from 'lucide-react';
 import { normalizeWaNumber } from '../../utils/phone';
 import { trackEvent } from '../../utils/analytics';
+import { shareLinkCopyText } from '../../utils/share';
 import { getDestinationFlags, fmtTgl, fmtTglLong, realDateKey } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup, DestinationFlag } from '../../../lib/berangkat-groups.js';
 
@@ -229,11 +230,12 @@ function ItineraryLinkRow({ group, agentSlug }: { group: BerangkatGroup; agentSl
 
   const copyLink = async () => {
     trackEvent('action', 'copy_itinerary_link', { paket: group.paket });
+    const copyText = shareLinkCopyText(shareUrl);
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(copyText);
     } catch {
       // Clipboard ditolak / bukan secure context — agen tetap bisa menyalin manual
-      window.prompt('Salin link:', shareUrl);
+      window.prompt('Salin link:', copyText);
       return;
     }
     setCopied(true);

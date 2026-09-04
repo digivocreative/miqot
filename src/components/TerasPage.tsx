@@ -77,6 +77,7 @@ import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } f
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import { trackEvent } from '../utils/analytics';
+import { shareLinkCopyText } from '../utils/share';
 import {
   extractMentionSlugs,
   detectMentionQuery,
@@ -2163,12 +2164,13 @@ export default function TerasPage({
 
   const copyShareLink = useCallback(async () => {
     if (!shareUrl) return;
+    const copyText = shareLinkCopyText(shareUrl);
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
+        await navigator.clipboard.writeText(copyText);
       } else {
         const helper = document.createElement('textarea');
-        helper.value = shareUrl;
+        helper.value = copyText;
         helper.setAttribute('readonly', '');
         helper.style.position = 'fixed';
         helper.style.opacity = '0';

@@ -10,7 +10,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
-import { canShareFiles, downloadBlob } from '../utils/share';
+import { canShareFiles, downloadBlob, shareLinkCopyText } from '../utils/share';
 import { getPackageById } from '@/services/data-service';
 import { AGENTS_DATA } from '@/data/agents';
 import { canRenderItineraryPdf } from '../../lib/itinerary-pdf.js';
@@ -173,10 +173,11 @@ export function ItineraryModal({
   const copyShareLink = async () => {
     if (!shareUrl) return;
     trackEvent('action', 'copy_itinerary_link', { paket: title });
+    const copyText = shareLinkCopyText(shareUrl);
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(copyText);
     } catch {
-      window.prompt('Salin link:', shareUrl);
+      window.prompt('Salin link:', copyText);
       return;
     }
     setLinkCopied(true);

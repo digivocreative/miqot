@@ -23,6 +23,7 @@ import { cheapestTierOf, minPriceInTier } from '@/lib/packagePricing';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
+import { shareLinkCopyText } from '@/utils/share';
 import { CaptionAIModal } from './CaptionAIModal';
 import { PackageValueModal } from './PackageValueModal';
 import { BrochurePromptModal } from './BrochurePromptModal';
@@ -31,8 +32,6 @@ import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/b
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
 let cachedInterFontCSS: string | null = null;
 
-// Ikut tersalin bersama URL paket, bukan hiasan: lihat handleCopyPackageLink.
-const PACKAGE_LINK_COPY_PREFIX = '👉 ';
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
@@ -579,9 +578,7 @@ _________________________
     setLinkCheckVisible(false);
     setIsLinkCopying(true);
 
-    // Penanda 👉 di depan URL: pesan WhatsApp yang isinya HANYA link ditampilkan
-    // sebagai kartu preview saja, dan agent kehilangan alamatnya di layar.
-    const copyText = `${PACKAGE_LINK_COPY_PREFIX}${shareUrl}`;
+    const copyText = shareLinkCopyText(shareUrl);
 
     const [copied] = await Promise.all([
       copyTextToClipboard(copyText),

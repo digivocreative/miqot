@@ -59,3 +59,18 @@ export async function shareCaption(text: string, phone?: string | null): Promise
   }
   window.open(buildWaLink(text, phone), '_blank', 'noopener,noreferrer');
 }
+
+/**
+ * Penanda yang ikut tersalin di depan URL saat agent menekan tombol "Link".
+ *
+ * Bukan hiasan: pesan WhatsApp yang isinya HANYA sebuah URL ditampilkan sebagai
+ * kartu preview saja, jadi alamatnya sendiri tak terbaca penerima — dan pesannya
+ * tampak kosong begitu preview-nya gagal dimuat. Sebaris teks di depan link
+ * membuat pesan itu selalu punya isi.
+ */
+export const SHARE_LINK_COPY_PREFIX = '👉 ';
+
+/** Teks yang benar-benar masuk clipboard untuk sebuah link share. */
+export function shareLinkCopyText(url: string): string {
+  return `${SHARE_LINK_COPY_PREFIX}${url}`;
+}
