@@ -578,7 +578,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
                   Pulang
                 </span>
               )}
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide ${status.badge}`}>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide ${status.badge}`} title={status.hint}>
                 {currentFlightStatus === 'en-route' && (
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
                 )}

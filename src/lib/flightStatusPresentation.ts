@@ -11,6 +11,8 @@ interface FlightStatusPresentation {
   color: string;
   bg: string;
   badge: string;
+  /** Penjelasan singkat untuk status yang tidak menjelaskan dirinya sendiri. */
+  hint?: string;
 }
 
 export const FLIGHT_STATUS_PRESENTATION: Record<FlightDisplayStatus, FlightStatusPresentation> = {
@@ -51,6 +53,7 @@ export const FLIGHT_STATUS_PRESENTATION: Record<FlightDisplayStatus, FlightStatu
     color: '#64748b',
     bg: 'bg-slate-500',
     badge: 'bg-slate-50 text-slate-700 border border-slate-200',
+    hint: 'Belum ada konfirmasi terbaru dari pelacak penerbangan — jam yang tampil mengikuti jadwal.',
   },
 };
 

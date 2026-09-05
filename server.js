@@ -14868,7 +14868,7 @@ function mapAirLabsToFlightStatus(apiData, calendarEvent, flightSegment = null) 
   // Validate raw provider identity before any missing route/time fields are
   // filled from the calendar. Missing evidence fails closed.
   if (!flightSegment || !providerFlightMatchesSegment(apiData, flightSegment)) {
-    console.log(`[FlightAPI] Provider evidence mismatch/incomplete for ${parsed.flightIata} ${expectedDepDate} — skipping`);
+    console.log(`[FlightAPI] Provider evidence mismatch/incomplete for ${parsed.flightIata} ${expectedDepDate} (provider dep ${apiData.dep_time || '?'} ${apiData.dep_iata || '?'}-${apiData.arr_iata || '?'}) — skipping`);
     return null;
   }
 
@@ -20160,11 +20160,15 @@ app.get('/api/flight-share/:code', async (req, res) => {
       .select('id, event_date, flight_iata, dep_iata, arr_iata, dep_scheduled, dep_actual, arr_scheduled, arr_estimated, status, duration, progress, raw_api, synced_at')
       .eq('id', liveId)
       .single();
+    // share.flight_date is the card's local key (the derived departure date);
+    // a flight timetabled just before midnight keeps its scheduled clock on
+    // the day before. The row was fetched by that exact key, so a day of
+    // tolerance cannot reach another instance of the flight number.
     const matchedLiveData = flightStatusRowMatchesSegment(liveRow, {
       flightIata,
       flightDate: share.flight_date,
       route: { dep: share.dep_iata, arr: share.arr_iata },
-    }) ? liveRow : null;
+    }, { dateToleranceDays: 1 }) ? liveRow : null;
     const liveData = matchedLiveData?.status === 'scheduled'
       && providerBackedDisplayStatus(matchedLiveData) !== 'scheduled'
       ? null

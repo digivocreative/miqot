@@ -240,7 +240,7 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
                 <span className="text-[11px] font-bold text-gray-800 dark:text-white truncate">
                   {formatFlightNumberCompact(segment.flightNumber)}
                 </span>
-                <span className={`text-[7px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`}>
+                <span className={`text-[7px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`} title={sc.hint}>
                   {sc.label}
                 </span>
                 {segment.delayed > 0 && (
@@ -808,7 +808,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                       <span className="min-w-0 truncate text-[12px] font-bold text-gray-800 dark:text-white">
                         {formatFlightNumberCompact(summaryFlight.flightNumber)}
                       </span>
-                      <span className={`${FLIGHT_BADGE_CLASS} ${sc.bg}`}>
+                      <span className={`${FLIGHT_BADGE_CLASS} ${sc.bg}`} title={sc.hint}>
                         {sc.label}
                       </span>
                       {isReturn && (

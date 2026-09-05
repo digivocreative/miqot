@@ -255,3 +255,53 @@ test('proyeksi membuang payload kosong dan field non-bukti', () => {
     updated: 1786634204,
   });
 });
+
+// ── Delay yang diumumkan sebelum berangkat ────────────────────────────────────
+// SV821 CGK–MED 2026-09-05: AirLabs `scheduled` + delay 20 mnt, `updated` 12:39
+// WIB, take-off 15:50. Ini klaim jadwal — tak boleh dinilai dengan jendela
+// 75 menit milik pesawat yang sedang terbang, dan bukan pelacakan LIVE.
+const preDepartureDelay = {
+  status: 'delayed',
+  synced_at: '2026-07-10T12:57:00Z',
+  raw_api: {
+    status: 'scheduled',
+    updated: seconds('2026-07-10T10:30:00Z'),
+    dep_time_ts: seconds('2026-07-10T14:00:00Z'),
+    dep_estimated_ts: seconds('2026-07-10T14:20:00Z'),
+    arr_time_ts: seconds('2026-07-10T23:00:00Z'),
+    arr_estimated_ts: seconds('2026-07-10T23:20:00Z'),
+    dep_delayed: 20,
+  },
+};
+
+test('a delay announced before departure stays a delay on the scheduled window and is not LIVE', () => {
+  assert.equal(isFreshProviderFlight(preDepartureDelay, now), true);
+  assert.equal(isLiveProviderFlight(preDepartureDelay, now), false);
+  assert.equal(providerBackedDisplayStatus(preDepartureDelay, now), 'delayed');
+  // Our own sync stamp still expires it on the scheduled window.
+  const staleSync = { ...preDepartureDelay, synced_at: '2026-07-10T06:00:00Z' };
+  assert.equal(isFreshProviderFlight(staleSync, now), false);
+  assert.equal(providerBackedDisplayStatus(staleSync, now), 'unverified');
+});
+
+test('once its estimated departure has passed, a delay claim is judged like any airborne claim', () => {
+  const afterDeparture = Date.parse('2026-07-10T14:30:00Z');
+  // No actual departure, provider evidence frozen since the morning.
+  assert.equal(isLiveProviderFlight(preDepartureDelay, afterDeparture), false);
+  assert.equal(providerBackedDisplayStatus(preDepartureDelay, afterDeparture), 'unverified');
+  // An actual departure makes it airborne: fresh evidence keeps it delayed and LIVE.
+  const departed = {
+    ...preDepartureDelay,
+    synced_at: '2026-07-10T14:28:00Z',
+    raw_api: { ...preDepartureDelay.raw_api, dep_actual_ts: seconds('2026-07-10T14:22:00Z'), updated: seconds('2026-07-10T14:25:00Z') },
+  };
+  assert.equal(isLiveProviderFlight(departed, afterDeparture), true);
+  assert.equal(providerBackedDisplayStatus(departed, afterDeparture), 'delayed');
+});
+
+test('the cache projection keeps a pre-departure delay judged the same way', () => {
+  const cached = { ...preDepartureDelay, raw_api: projectProviderEvidence(preDepartureDelay.raw_api) };
+  assert.equal(providerBackedDisplayStatus(cached, now), providerBackedDisplayStatus(preDepartureDelay, now));
+  assert.equal(isLiveProviderFlight(cached, now), isLiveProviderFlight(preDepartureDelay, now));
+  assert.equal(isFreshProviderFlight(cached, now), isFreshProviderFlight(preDepartureDelay, now));
+});
