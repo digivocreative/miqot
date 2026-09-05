@@ -165,6 +165,29 @@ function eventCanUseMutawifReader(event, options) {
   );
 }
 
+// Tabel detail publik kadang memuat GROUP yang sama dua kali (5 Sep 2026:
+// grup 33 tampil kembar identik di modal berangkat & pulang). Karena `id`
+// diturunkan dari GROUP, dua baris itu bertabrakan dalam satu perintah upsert
+// dan Postgres menolak seluruh batch ("ON CONFLICT DO UPDATE command cannot
+// affect row a second time"). Simpan kemunculan pertama; baris kedua yang
+// isinya berbeda dicatat agar terlihat, tetapi tidak boleh menggagalkan sync.
+export function dedupeDetailRowsById(event, rows) {
+  const seen = new Map();
+  for (const row of rows) {
+    const first = seen.get(row.id);
+    if (!first) {
+      seen.set(row.id, row);
+      continue;
+    }
+    const identical = JSON.stringify(first.raw_data) === JSON.stringify(row.raw_data);
+    console.warn(
+      `[Calendar] Baris kembar ${row.id} dari detail publik ${event.date}/${event.type} `
+      + `(${identical ? 'identik' : 'BERBEDA isi'}) — kemunculan pertama dipakai`,
+    );
+  }
+  return [...seen.values()];
+}
+
 async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback, readerOptions) {
   const eventKey = `${event.date}_${event.type}`;
   let details;
@@ -247,7 +270,7 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
     }
   }
 
-  const rows = details.map((detail, idx) => {
+  const rows = dedupeDetailRowsById(event, details.map((detail, idx) => {
     const rowKey = detail.jadwal_id || detail.group_number || `row${idx + 1}`;
     const id = `${event.date}_${event.type}_${rowKey}`;
     const detailData = { ...detail };
@@ -265,7 +288,7 @@ async function resolvePublicEventRows(event, scheduleFallbackById, forceFallback
       _mutawif_regression_candidate: mutawifSourceAvailable && !mutawifSourceValid,
       synced_at: new Date().toISOString(),
     };
-  });
+  }));
 
   return {
     rows,

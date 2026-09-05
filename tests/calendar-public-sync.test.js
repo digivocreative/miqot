@@ -657,6 +657,39 @@ test('syncCalendar aborts safely when existing MUTAWIF cannot be read', async ()
   }
 });
 
+test('baris GROUP kembar identik dari modal publik tidak menggagalkan upsert', async () => {
+  // Reproduksi 5 Sep 2026: _kmodal.php menampilkan grup 33 dua kali persis sama,
+  // sehingga dua baris ber-id sama masuk satu batch upsert dan Postgres menolak.
+  const duplicatedRow = PUBLIC_MODAL_HTML.match(/<tr>\s*<td>10<\/td>[\s\S]*?<\/tr>/)[0];
+  const modalWithDuplicate = PUBLIC_MODAL_HTML.replace(duplicatedRow, `${duplicatedRow}${duplicatedRow}`);
+  const originalFetch = global.fetch;
+  try {
+    global.fetch = async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/jadwal/kegiatan/alhijaz-indowisata') {
+        return htmlResponse(PUBLIC_PAGE_HTML);
+      }
+      if (parsed.pathname === '/jadwal/_kmodal.php') {
+        return htmlResponse(modalWithDuplicate);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const syncCalendar = await loadSyncCalendar();
+    const supabase = createFakeSupabase();
+    const result = await syncCalendar(supabase);
+
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.rowsUpserted, 1);
+    assert.deepEqual(
+      supabase.state.upserted.map(row => row.id),
+      [`${SYNC_EVENT_DATE}_keberangkatan_10`],
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('syncCalendar reports upsert failure and never attempts stale-delete first', async () => {
   const originalFetch = global.fetch;
   try {
