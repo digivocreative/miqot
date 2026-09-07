@@ -175,17 +175,23 @@ teks. Ini tugas tersendiri dengan tesnya sendiri, bukan bagian dari tugas tata l
 
 ## Data & refactor terarah
 
-`src/lib/packageDetail.ts` (baru, murni, tanpa React):
+**Koreksi 2026-09-07 (saat menyusun rencana):** sebagian besar helper ternyata SUDAH punya
+rumah sendiri dan tinggal dipakai ulang — `cheapestTierOf`/`minPriceInTier` di
+`src/lib/packagePricing.ts`, `getPackageJourneySteps`/`getLandingStepIndex`/`getLandingCityName`
+di `src/utils/journey.ts`, `getTemperature` di `src/data/temperatureData.ts`, `getDistance` di
+`src/data/hotelService.ts`, `lookupHotelMetadata` di `src/data/hotelMetadata.ts`. Yang benar-benar
+masih terkurung di dalam `PackageCard.tsx` hanya empat.
 
-- `resolvePricing(pkg, tier)`
-- `resolveHotels(pkg, tier)`
-- `extraHotelsOf(pkg)`
-- `journeyStepsOf(pkg)`
-- `durationDaysOf(pkg)`
-- `temperaturesOf(pkg)`
+`src/lib/packageDetail.ts` (baru, murni, tanpa React) — hanya empat fungsi:
 
-Semua ini sekarang dihitung inline di dalam `PackageCard.tsx`. Dipindah apa adanya — **tanpa
-perubahan perilaku** — lalu dipakai bersama oleh kartu dan kedua rail. Rail bukan salinan markup
+- `tiersOf(pkg)` — daftar tier dengan "Hemat" di-hoist ke depan (`PackageCard.tsx:264`)
+- `extraHotelsOf(pkg, activeTier)` — hotel kota plus/transit + fallback antar-tier
+  (`PackageCard.tsx:367`)
+- `hotelStarsOf(name, stars)` — helper modul di `PackageCard.tsx:38`
+- `hotelDistanceOf(name, distance)` — helper modul di `PackageCard.tsx:44`
+
+Dipindah apa adanya — **tanpa perubahan perilaku** — lalu dipakai bersama oleh kartu dan kedua
+rail. Sisanya diimpor dari modul yang sudah ada, tidak dipindah lagi. Rail bukan salinan markup
 kartu; presentasinya baru, datanya satu sumber. Pemindahan ini ditutup unit test lebih dulu,
 sebelum rail memakainya.
 
