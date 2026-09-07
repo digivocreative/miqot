@@ -25,6 +25,7 @@ import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
 import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { AnimatePresence } from 'framer-motion';
 import { useWideLayout } from '@/hooks/useWideLayout';
 import RailShell from '@/components/jadwal-rails/RailShell';
 import ItineraryRail from '@/components/jadwal-rails/ItineraryRail';
@@ -1006,10 +1007,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           Dulu ini `pt-48` (192px) dan langsung meleset 14px begitu baris header
           dikecilkan di mobile — karena itu angkanya sekarang datang dari
           --filter-header-h yang diukur FilterHeader sendiri. */}
-      <main
-        className="jadwal-shell px-4 pb-8"
-        style={{ paddingTop: 'calc(var(--filter-header-h) + 11px)' }}
-      >
+      <main className="jadwal-shell jadwal-list-main px-4 pb-8">
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-16">
@@ -1138,16 +1136,18 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* ============================================ */}
       {/* RAIL DESKTOP (>=1024px) — lihat .jadwal-rail di src/index.css */}
       {/* ============================================ */}
-      {selectedPkg && (
-        <RailShell side="left">
-          <ItineraryRail pkg={selectedPkg} />
-        </RailShell>
-      )}
-      {selectedPkg && (
-        <RailShell side="right">
-          <DetailRail pkg={selectedPkg} />
-        </RailShell>
-      )}
+      <AnimatePresence>
+        {selectedPkg && (
+          <RailShell key="rail-kiri" side="left" contentKey={selectedPkg.jadwalId}>
+            <ItineraryRail pkg={selectedPkg} />
+          </RailShell>
+        )}
+        {selectedPkg && (
+          <RailShell key="rail-kanan" side="right" contentKey={selectedPkg.jadwalId}>
+            <DetailRail pkg={selectedPkg} />
+          </RailShell>
+        )}
+      </AnimatePresence>
 
       {/* ============================================ */}
       {/* FILTER MODAL */}

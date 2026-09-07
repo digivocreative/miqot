@@ -30,12 +30,14 @@
      WIDE_MEDIA_QUERY di src/lib/wideLayout.ts — kalau berbeda, rail tampil tanpa
      pernah diisi. */
   --jadwal-col-w: 512px;
-  /* Dua lebar terpisah: rail KIRI memuat dokumen itinerary penuh (versi web
-     dirancang untuk ~448px), rail KANAN hanya kartu hotel. Menyamakan keduanya
-     memaksa yang kiri sempit atau yang kanan boros. */
-  --jadwal-rail-left-w: 0px;
-  --jadwal-rail-right-w: 0px;
+  /* Kedua rail SELEBAR SAMA. Lebar berbeda membuat margin luar timpang (terukur
+     132px kiri lawan 198px kanan di viewport 1629px) karena keduanya dijangkar
+     ke kolom tengah yang di tengah halaman — sisa ruangnya jadi tidak sama. */
+  --jadwal-rail-w: 0px;
   --jadwal-rail-gap: 24px;
+  /* Jarak dari bawah header ke isi pertama — dipakai BERSAMA oleh kolom tengah
+     dan kedua rail supaya ketiganya mulai di garis yang sama. */
+  --jadwal-top-gap: 11px;
 }
 
 @media (min-width: 640px) {
@@ -49,24 +51,28 @@
 @media (min-width: 1024px) {
   :root {
     --jadwal-col-w: 420px;
-    --jadwal-rail-left-w: 250px;
-    --jadwal-rail-right-w: 250px;
+    --jadwal-rail-w: 250px;
   }
 }
 
 @media (min-width: 1280px) {
   :root {
     --jadwal-col-w: 512px;
-    --jadwal-rail-left-w: 340px;
-    --jadwal-rail-right-w: 300px;
+    --jadwal-rail-w: 340px;
   }
 }
 
 @media (min-width: 1440px) {
   :root {
-    --jadwal-rail-left-w: 400px;
-    --jadwal-rail-right-w: 340px;
+    --jadwal-rail-w: 400px;
   }
+}
+
+/* Offset kolom tengah di bawah header `fixed`. Dulu inline style di App.tsx
+   dengan angka 11 yang ditulis sendiri; sekarang satu token bersama rail supaya
+   ketiganya tidak pernah lagi meleset satu sama lain. */
+.jadwal-list-main {
+  padding-top: calc(var(--filter-header-h) + var(--jadwal-top-gap));
 }
 
 .jadwal-shell {
@@ -117,7 +123,7 @@
      seperti kolom tengah — itulah yang membuatnya menyatu. */
   top: 0;
   bottom: 0;
-  padding-top: var(--filter-header-visible-h, var(--filter-header-h));
+  padding-top: calc(var(--filter-header-visible-h, var(--filter-header-h)) + var(--jadwal-top-gap));
   padding-bottom: 28px;
   /* Batas bawah dilarutkan, bukan dipotong. Tanpa ini isi rail terpenggal
      mendadak di tepi viewport dan railnya terbaca seperti panel yang ditempel;
@@ -146,12 +152,12 @@
 }
 
 .jadwal-rail--left {
-  width: var(--jadwal-rail-left-w);
+  width: var(--jadwal-rail-w);
   right: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
 }
 
 .jadwal-rail--right {
-  width: var(--jadwal-rail-right-w);
+  width: var(--jadwal-rail-w);
   left: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
 }
 

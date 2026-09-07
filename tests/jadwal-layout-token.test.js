@@ -41,29 +41,39 @@ function rule(selector) {
 test('lebar kolom & rail dasar = 512px / 0', () => {
   const b = baseRootBlock();
   assert.match(b, /--jadwal-col-w:\s*512px/);
-  assert.match(b, /--jadwal-rail-left-w:\s*0px/);
-  assert.match(b, /--jadwal-rail-right-w:\s*0px/);
+  assert.match(b, /--jadwal-rail-w:\s*0px/);
   assert.match(b, /--jadwal-rail-gap:\s*24px/);
+  assert.match(b, /--jadwal-top-gap:\s*11px/);
 });
 
-test('1024px: kolom menyempit ke 420, kedua rail 250', () => {
+test('1024px: kolom menyempit ke 420, rail 250', () => {
   const b = rootBlockAtWidth(1024);
   assert.match(b, /--jadwal-col-w:\s*420px/);
-  assert.match(b, /--jadwal-rail-left-w:\s*250px/);
-  assert.match(b, /--jadwal-rail-right-w:\s*250px/);
+  assert.match(b, /--jadwal-rail-w:\s*250px/);
 });
 
-test('1280px: kolom kembali 512; rail kiri lebih lebar dari kanan', () => {
+test('1280px: kolom kembali 512, rail 340', () => {
   const b = rootBlockAtWidth(1280);
   assert.match(b, /--jadwal-col-w:\s*512px/);
-  assert.match(b, /--jadwal-rail-left-w:\s*340px/);
-  assert.match(b, /--jadwal-rail-right-w:\s*300px/);
+  assert.match(b, /--jadwal-rail-w:\s*340px/);
 });
 
-test('1440px: rail kiri 400 (dokumen itinerary), kanan 340', () => {
-  const b = rootBlockAtWidth(1440);
-  assert.match(b, /--jadwal-rail-left-w:\s*400px/);
-  assert.match(b, /--jadwal-rail-right-w:\s*340px/);
+test('1440px: rail 400', () => {
+  assert.match(rootBlockAtWidth(1440), /--jadwal-rail-w:\s*400px/);
+});
+
+/**
+ * Kedua rail WAJIB selebar sama. Lebar berbeda membuat margin luar timpang —
+ * terukur 132px di kiri lawan 198px di kanan pada viewport 1629px — dan itu
+ * terbaca sebagai komposisi yang tidak rapi, bukan sebagai rail yang lebih
+ * penting di satu sisi.
+ */
+test('kiri dan kanan selebar sama di tiap breakpoint', () => {
+  for (const w of [1024, 1280, 1440]) {
+    const b = rootBlockAtWidth(w);
+    assert.doesNotMatch(b, /--jadwal-rail-left-w|--jadwal-rail-right-w/,
+      `breakpoint ${w} masih memakai lebar rail terpisah`);
+  }
 });
 
 /**
@@ -71,10 +81,9 @@ test('1440px: rail kiri 400 (dokumen itinerary), kanan 340', () => {
  * tidak rail-nya tertindih kolom. Dihitung, bukan dikira-kira.
  */
 test('rail muat di selokan pada tiap breakpoint', () => {
-  for (const [vw, col, left, right] of [[1024, 420, 250, 250], [1280, 512, 340, 300], [1440, 512, 400, 340]]) {
+  for (const [vw, col, rail] of [[1024, 420, 250], [1280, 512, 340], [1440, 512, 400]]) {
     const gutter = (vw - col) / 2;
-    assert.ok(left + 24 < gutter, `rail kiri ${left}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
-    assert.ok(right + 24 < gutter, `rail kanan ${right}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
+    assert.ok(rail + 24 < gutter, `rail ${rail}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
   }
 });
 
@@ -128,10 +137,7 @@ test('rail membentang dari atas viewport, jarak lewat padding', () => {
  * baris pertamanya tersembunyi di balik header.
  */
 test('padding rail mengikuti tinggi header hidup, dengan fallback', () => {
-  assert.match(
-    rule('.jadwal-rail'),
-    /padding-top:\s*var\(--filter-header-visible-h,\s*var\(--filter-header-h\)\)/,
-  );
+  assert.match(rule('.jadwal-rail'), /var\(--filter-header-visible-h,\s*var\(--filter-header-h\)\)/);
 });
 
 /**
@@ -153,4 +159,15 @@ test('tepi bawah rail memudar, tidak terpotong keras', () => {
   assert.match(body, /-webkit-mask-image:\s*linear-gradient\(to bottom/);
   assert.match(body, /[^-]mask-image:\s*linear-gradient\(to bottom/);
   assert.match(body, /transparent 100%\)/);
+});
+
+/**
+ * Kartu tengah dan kedua rail harus mulai di GARIS yang sama di bawah header.
+ * Sebelumnya kartu turun 11px sementara rail 0px, jadi hotel di rail kanan
+ * terlihat mepet ke header sementara kartu tidak — dan ketiganya tidak sebaris.
+ * Satu token, bukan dua angka yang kebetulan sama.
+ */
+test('kartu dan rail memakai jarak-atas dari token yang sama', () => {
+  assert.match(rule('.jadwal-list-main'), /padding-top:\s*calc\(var\(--filter-header-h\)\s*\+\s*var\(--jadwal-top-gap\)\)/);
+  assert.match(rule('.jadwal-rail'), /padding-top:\s*calc\(var\(--filter-header-visible-h,\s*var\(--filter-header-h\)\)\s*\+\s*var\(--jadwal-top-gap\)\)/);
 });
