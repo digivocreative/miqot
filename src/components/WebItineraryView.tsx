@@ -29,6 +29,12 @@ interface Props {
   /** Diteruskan ke JourneyStrip: pelacakan unduhan PDF kantor. Nama event beda
    *  per permukaan (share publik vs portal jamaah), jadi pemanggil yang tahu. */
   onPdfDownload?: () => void;
+  /** Buang bidang latar milik komponen ini (krem #F6F1EA dan putih di keadaan
+   *  memuat/galat) sehingga kartu harinya duduk langsung di atas latar
+   *  pemanggil. Dipakai rail kiri halaman jadwal: di sana latar halaman sudah
+   *  berbranding, dan panel di atas panel terbaca sebagai kotak bertumpuk.
+   *  Default false — halaman share dan portal jamaah tidak berubah. */
+  transparentSurface?: boolean;
 }
 
 // Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
@@ -58,10 +64,12 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 
 export default function WebItineraryView({
   content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom, onPdfDownload,
+  transparentSurface,
 }: Props) {
+  const surface = transparentSurface ? '' : 'bg-white';
   if (loading) {
     return (
-      <div className="bg-white px-4 py-5" aria-busy>
+      <div className={`${surface} px-4 py-5`} aria-busy>
         <div className="h-24 animate-pulse rounded-2xl bg-itin-canvas" />
         {[0, 1, 2].map(i => (
           <div key={i} className="mt-5 flex gap-3">
@@ -83,7 +91,7 @@ export default function WebItineraryView({
   // Kosong = error (spec State): jangan pernah membuat pengguna kandas — PDF selalu jalan keluar.
   if (error || !rawDays?.length) {
     return (
-      <div className="flex flex-col items-center bg-white px-6 py-14 text-center">
+      <div className={`flex flex-col items-center ${surface} px-6 py-14 text-center`}>
         <AlertCircle size={22} className="text-itin-ink3" />
         <p className="mt-2 text-sm font-semibold text-itin-ink">Tampilan web belum tersedia</p>
         <p className="mt-1 max-w-[260px] text-xs leading-5 text-itin-ink3">
@@ -126,7 +134,7 @@ export default function WebItineraryView({
   );
 
   return (
-    <div className="bg-[#F6F1EA] pb-4">
+    <div className={`${transparentSurface ? '' : 'bg-[#F6F1EA]'} pb-4`}>
       {!summaryAtBottom && <div className="pt-3">{journeyStrip}</div>}
       <div className={summaryAtBottom ? 'pt-0.5' : ''}>
         {dayISO.map((iso, i) => (

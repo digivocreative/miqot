@@ -36,13 +36,19 @@ export default function ItineraryRail({ pkg }: Props) {
   );
 
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_6px_22px_-8px_rgba(58,42,31,0.18)] dark:shadow-black/40">
+    // -mt-3 menetralkan 12px milik WebItineraryView sendiri (pt-0.5 pada
+    // pembungkus hari + mt-2.5 pada kartu hari pertama). Tanpa itu isi rail kiri
+    // mulai 12px lebih rendah daripada rail kanan dan kartu di kolom tengah —
+    // terukur 204 lawan 192. Vertikal saja: margin negatif horizontal akan
+    // meluber keluar kotak rail yang `overflow-y: auto`.
+    <div className="-mt-3">
       <WebItineraryView
         content={content}
         loading={state === 'loading'}
         error={state === 'unavailable' ? 'Itinerary belum tersinkron dari dokumen sumber.' : null}
         paket={pkg}
         summaryAtBottom
+        transparentSurface
         onRetryPdf={pkg.itineraryUrl ? () => window.open(pkg.itineraryUrl, '_blank', 'noopener') : undefined}
       />
     </div>

@@ -134,7 +134,9 @@ export default function DetailRail({ pkg }: Props) {
   ].filter((r) => r.name);
 
   return (
-    <div className="space-y-3">
+    // px-3 menyamai sisipan horizontal milik WebItineraryView (mx-3 pada kartu
+    // hari) di rail kiri, jadi lebar isi kedua rail sama persis.
+    <div className="space-y-3 px-3">
       {rows.map((row) => {
         const hit = matchHotelPhoto(row.name, directory);
         return (
