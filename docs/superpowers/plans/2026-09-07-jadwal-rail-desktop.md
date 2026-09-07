@@ -25,6 +25,39 @@
 
 ---
 
+## Hasil eksekusi (2026-09-07)
+
+Task 1–8 + analytics SELESAI dan ter-commit di `main`: `9b5d409`, `717f0cc`, `8047874`,
+`5b7eb06`, `dc96719`, `ccdb4fb`, `fb3cca9`, `8edc07f`. Build hijau, 63 tes hijau.
+
+Empat hal berubah dari rencana saat dikerjakan:
+
+1. **Task 1 salah menunjuk berkas.** `App.tsx:878` ternyata `<main>` halaman **Detail Paket**
+   (cabang render terpisah), bukan daftar — yang benar `:968`. Halaman Detail Paket dan modal
+   Tampilan Ringkas sengaja TIDAK ikut token: keduanya tidak punya rail, jadi menyempitkan
+   kolomnya di 1024px hanya regresi.
+
+2. **Task 4 dibalik total oleh temuan saat eksekusi.** Keputusan "kartu tidak memuai di ≥1024"
+   ternyata mengunci SELURUH tombol aksi (8 tombol + baris agent) di dalam panel yang tak
+   pernah terbuka — agent kehilangan ujung percakapannya. Diganti: kartu tetap memuai, tapi
+   lima blok yang sudah tampil di rail disembunyikan lewat `data-rail-hidden` + satu aturan
+   CSS. Panel muai ~3.000px → ~150px, dan nol handler perlu keluar dari `PackageCard`.
+   Prop `isSelected` diganti `railMode`. Keputusan ini dikonfirmasi user.
+
+3. **Task 9 sebagian besar GUGUR.** `handleScreenshot` sudah memaku klon ke `width: 560px`
+   ([PackageCard.tsx:630](../../../src/components/PackageCard.tsx)), jadi kolom 420px tidak
+   pernah bocor ke gambar ekspor — normalisasi lebar yang dikhawatirkan spec tidak perlu.
+   Yang tetap dikerjakan hanya `clone.classList.remove('jadwal-rail-mode')`, tanpa itu klon
+   mewarisi penanda dan gambar ekspor kehilangan kelima blok.
+
+4. **Refactor jauh lebih kecil dari dugaan spec** — lihat koreksi di spec-nya.
+
+**Belum dikerjakan:** Task 10 (Fase 2 — endpoint publik hotel + foto di tab Hotel).
+
+**Perlu deploy:** `server.js` (dua event publik baru) — tanpa restart, event di-drop 400 senyap.
+
+---
+
 ## File Structure
 
 **Dibuat:**
