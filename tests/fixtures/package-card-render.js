@@ -116,6 +116,10 @@ async function loadBundle() {
     import PackageCard from '@/components/PackageCard';
     import { recorded } from ${JSON.stringify(motionShim)};
 
+    // Comparator memo ikut diekspor: render SSR sekali jalan tidak pernah memicu
+    // memo, jadi prop yang lupa didaftarkan di sana lolos semua tes render.
+    export { arePackageCardPropsEqual } from '@/components/PackageCard';
+
     export function render(props) {
       recorded.length = 0;
       const html = renderToStaticMarkup(createElement(PackageCard, props));
@@ -250,9 +254,17 @@ export function samplePackage(overrides = {}) {
  *   `motion` = urutan prop yang diterima tiap komponen framer-motion saat render.
  */
 export async function renderPackageCard({ package: pkg, ...props } = {}) {
-  bundlePromise ??= loadBundle();
-  const { render } = await bundlePromise;
+  const { render } = await loadPackageCardModule();
   return render({ package: pkg ?? samplePackage(), ...props });
+}
+
+/**
+ * Modul PackageCard hasil bundling — untuk menguji ekspor non-komponen
+ * (mis. arePackageCardPropsEqual) tanpa lewat render.
+ */
+export async function loadPackageCardModule() {
+  bundlePromise ??= loadBundle();
+  return bundlePromise;
 }
 
 /** Ambil prop motion untuk elemen ber-atribut tertentu (mis. 'data-expand-panel'). */

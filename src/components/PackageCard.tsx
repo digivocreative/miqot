@@ -53,6 +53,12 @@ interface PackageCardProps {
   onCompare?: (jadwalId: string) => void;
   /** Whether this package is currently selected for comparison */
   isComparing?: boolean;
+  /**
+   * Layar lebar (>=1024px): kartu ditandai "sedang dibahas" TANPA memuai —
+   * seluruh detailnya tampil di rail kiri/kanan. Kalau kartu ikut memuai,
+   * isinya dobel dengan rail dan scroll panjang saat presentasi kembali lagi.
+   */
+  isSelected?: boolean;
 }
 
 // Gradient presets for screenshot background
@@ -131,6 +137,7 @@ const copyTextToClipboard = async (text: string): Promise<boolean> => {
 function PackageCardImpl({
   package: pkg,
   isExpanded = false,
+  isSelected = false,
   onToggle,
   instantCollapse = false,
   onExpandChange,
@@ -1611,7 +1618,7 @@ _________________________
         bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
         [contain-intrinsic-size:auto_241px] ${isSettledClosed ? '[content-visibility:auto]' : ''}
         transition-[box-shadow,border-color] duration-300 ease-out
-        ${isExpanded
+        ${isExpanded || isSelected
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
           : 'border-gray-100 dark:border-slate-800'
         }
@@ -2635,9 +2642,14 @@ _________________________
 // comparator skips re-render when the render-affecting props are referentially equal.
 // onToggle is intentionally omitted — its closure depends only on the (stable)
 // package id and a functional setState, so it never goes stale.
-const arePackageCardPropsEqual = (prev: PackageCardProps, next: PackageCardProps) =>
+// Diekspor supaya invariannya bisa diuji langsung (tests/package-card-selected.test.js).
+// Render SSR sekali jalan tidak pernah memicu memo, jadi tanpa ekspor ini setiap
+// prop yang lupa didaftarkan di sini akan lolos semua tes dan gagal senyap di
+// browser: komponen tidak render ulang, perubahannya tidak pernah terlihat.
+export const arePackageCardPropsEqual = (prev: PackageCardProps, next: PackageCardProps) =>
   prev.package === next.package &&
   prev.isExpanded === next.isExpanded &&
+  prev.isSelected === next.isSelected &&
   prev.instantCollapse === next.instantCollapse &&
   prev.agent === next.agent &&
   prev.isSingleView === next.isSingleView &&

@@ -25,6 +25,7 @@ import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
 import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { useWideLayout } from '@/hooks/useWideLayout';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
@@ -705,6 +706,11 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   expandedCardIdRef.current = expandedCardId;
   const [instantCollapseId, setInstantCollapseId] = useState<string | null>(null);
 
+  // >=1024px: kartu tidak memuai, detailnya pindah ke rail kiri/kanan.
+  // Dipanggil di sini karena hook wajib jalan di setiap render — di bawah ada
+  // early return untuk halaman Detail Paket.
+  const isWide = useWideLayout();
+
   const GLIDE_TRIGGER_RATIO = 0.62; // header di bawah 62% tinggi layar → glide
   const GLIDE_TARGET_GAP = 12;      // jarak header kartu dari dasar header fixed
   const GLIDE_DURATION_MS = 500;    // seirama animasi expand panel (spring ~0.55s di PackageCard)
@@ -776,6 +782,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   const handleToggleCard = (id: string) => {
     const currentId = expandedCardIdRef.current;
+
+    // Layar lebar: tinggi kartu tidak pernah berubah, jadi seluruh kompensasi
+    // gulir di bawah tidak berlaku. Menjalankannya justru menjangkar kartu yang
+    // diam dan menggeser daftar tanpa sebab.
+    if (isWide) {
+      setInstantCollapseId(null);
+      setExpandedCardId(prevId => (prevId === id ? null : id));
+      return;
+    }
+
     if (currentId !== null && currentId !== id) {
       // Pindah kartu: kartu lama menutup instan, hanya kartu baru yang beranimasi.
       setInstantCollapseId(currentId);
@@ -798,6 +814,17 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     }
     setExpandedCardId(prevId => prevId === id ? null : id);
   };
+
+  // Escape membatalkan pilihan di layar lebar. Di bawah 1024px tombol ini tidak
+  // dipasang sama sekali — menutup kartu di sana punya kompensasi gulirnya sendiri.
+  useEffect(() => {
+    if (!isWide || !expandedCardId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpandedCardId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isWide, expandedCardId]);
 
   const handleResetFilters = () => {
     setFilterMode('AVAILABLE');
@@ -1017,7 +1044,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                 <PackageCard
                   key={pkg.jadwalId}
                   package={pkg}
-                  isExpanded={expandedCardId === pkg.jadwalId}
+                  isExpanded={!isWide && expandedCardId === pkg.jadwalId}
+                  isSelected={isWide && expandedCardId === pkg.jadwalId}
                   instantCollapse={instantCollapseId === pkg.jadwalId}
                   onToggle={() => handleToggleCard(pkg.jadwalId)}
                   agent={currentAgent}
