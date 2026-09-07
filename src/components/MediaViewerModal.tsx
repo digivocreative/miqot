@@ -27,6 +27,12 @@ interface MediaViewerModalProps {
    * viewer ini — mis. media Teras — tidak ikut kena watermark.
    */
   watermark?: string;
+  /**
+   * Tampilkan strip thumbnail di kaki viewer. Opt-in: permukaan yang membuka
+   * satu media saja (mis. lampiran Teras) tidak butuh, dan stripnya memakan
+   * ruang gambar. Dipakai galeri hotel di rail jadwal.
+   */
+  showThumbnails?: boolean;
   onClose: () => void;
 }
 
@@ -76,22 +82,44 @@ async function fetchMediaBlob(url: string): Promise<Blob> {
 /** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
 interface PreparedMedia { blob: Blob; stamped: boolean }
 
-export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, onClose }: MediaViewerModalProps) {
+export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, showThumbnails, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(() => Math.max(0, Math.min(media.length - 1, initialIndex)));
   const [direction, setDirection] = useState(0);
+  // Strip hanya berguna kalau ada yang bisa dilompati.
+  const thumbsVisible = Boolean(showThumbnails) && media.length > 1;
+  const thumbStripRef = useRef<HTMLDivElement>(null);
   // Video hanya diputar otomatis kalau memang item itu yang dibuka: kliknya
   // sendiri sudah gestur "mau nonton". Slide ke item lain mulai dari diam.
   const [autoPlay, setAutoPlay] = useState(() => media[initialIndex]?.type === 'video');
   const [busy, setBusy] = useState<'download' | 'share' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!thumbsVisible) return;
+    const strip = thumbStripRef.current;
+    const aktif = strip?.querySelector<HTMLElement>(`[data-thumb-index="${index}"]`);
+    // 'nearest' supaya strip tidak melompat saat thumbnail aktif sudah terlihat.
+    aktif?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  }, [index, thumbsVisible]);
+
   const navigate = useCallback((delta: number) => {
     setIndex(current => {
       const next = Math.max(0, Math.min(media.length - 1, current + delta));
       if (next === current) return current;
       setDirection(delta);
+      setAutoPlay(false);
+      return next;
+    });
+  }, [media.length]);
+
+  /** Lompat ke satu media tertentu; arah slide diturunkan dari posisi relatifnya. */
+  const goTo = useCallback((target: number) => {
+    setIndex(current => {
+      const next = Math.max(0, Math.min(media.length - 1, target));
+      if (next === current) return current;
+      setDirection(next > current ? 1 : -1);
       setAutoPlay(false);
       return next;
     });
@@ -296,7 +324,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
       )}
 
       <div
-        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 pb-16 pt-16"
+        className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 pt-16 ${thumbsVisible ? 'pb-32' : 'pb-16'}`}
         onClick={event => { if (event.target === event.currentTarget) onClose(); }}
       >
         <AnimatePresence mode="popLayout" custom={direction} initial={false}>
@@ -372,7 +400,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
             onClick={() => navigate(-1)}
             disabled={index === 0}
             aria-label="Media sebelumnya"
-            className="absolute left-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0"
+            className="absolute left-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-25"
           >
             <ChevronLeft size={22} />
           </button>
@@ -381,14 +409,46 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
             onClick={() => navigate(1)}
             disabled={index === media.length - 1}
             aria-label="Media berikutnya"
-            className="absolute right-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-0"
+            className="absolute right-2 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/60 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-25"
           >
             <ChevronRight size={22} />
           </button>
         </>
       )}
 
-      <p className="pointer-events-none absolute inset-x-16 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 truncate text-center text-xs font-medium text-white/75">
+      {thumbsVisible && (
+        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-6">
+          <div ref={thumbStripRef} className="no-scrollbar flex justify-start gap-2 overflow-x-auto px-4 sm:justify-center">
+            {media.map((item, i) => (
+              <button
+                key={`${item.url}-${i}`}
+                type="button"
+                data-thumb-index={i}
+                onClick={() => goTo(i)}
+                aria-label={`Buka media ke-${i + 1}`}
+                aria-current={i === index}
+                className={`h-12 w-16 shrink-0 overflow-hidden rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                  i === index ? 'opacity-100 ring-2 ring-white' : 'opacity-50 hover:opacity-80'
+                }`}
+              >
+                <img
+                  src={item.poster || item.url}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p
+        className={`pointer-events-none absolute inset-x-16 z-20 truncate text-center text-xs font-medium text-white/75 ${
+          thumbsVisible ? 'bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]'
+        }`}
+      >
         {label}
       </p>
     </motion.div>,

@@ -184,6 +184,7 @@ export default function DetailRail({ pkg, agentSlug }: Props) {
               media={galeri.photos.map((url) => ({ type: 'image' as const, url }))}
               label={galeri.name}
               watermark={agentWatermarkText(agentSlug)}
+              showThumbnails
               onClose={() => setGaleri(null)}
             />
           </Suspense>
