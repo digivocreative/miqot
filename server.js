@@ -7711,6 +7711,56 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
   }
 });
 
+// ── Direktori hotel untuk halaman jadwal PUBLIK ──
+// Rail kanan halaman jadwal menampilkan thumbnail hotel, dan pengunjungnya
+// jamaah tanpa login — seluruh /api/hotels lain ber-authMiddleware.
+//
+// Yang dibuka SENGAJA minimum: nama, kota, bintang, jarak, area, dan satu foto
+// sampul. Deskripsi, daftar media penuh, rating, FAQ, dan media per-agent TIDAK
+// ikut. Semuanya sudah tercetak di brosur yang memang disebar ke calon jamaah.
+//
+// Rute ini WAJIB terdaftar sebelum '/api/hotels/:slug' — kalau tidak, 'public'
+// tertangkap sebagai slug hotel. Pola yang sama dipakai '/api/hotels/banners'.
+let publicHotelCache = { at: 0, data: null };
+const PUBLIC_HOTEL_CACHE_MS = 5 * 60 * 1000;
+
+app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
+  try {
+    if (publicHotelCache.data && Date.now() - publicHotelCache.at < PUBLIC_HOTEL_CACHE_MS) {
+      return res.json({ success: true, data: publicHotelCache.data, cached: true });
+    }
+    const { data, error } = await supabase
+      .from('hotels')
+      .select('name, city, stars, distance_label, walk_label, area, media')
+      .order('name', { ascending: true });
+    if (error) {
+      // Migrasi belum jalan = fitur belum ada, bukan galat server. Rail kanan
+      // tetap menampilkan hotel tanpa foto.
+      if (hotelTableMissing(error)) return res.json({ success: true, data: [] });
+      throw error;
+    }
+    const slim = (data || []).map((row) => {
+      const media = Array.isArray(row.media) ? row.media : [];
+      const cover = media.find((m) => m?.type === 'image')?.url || null;
+      return {
+        name: row.name,
+        city: row.city,
+        stars: row.stars ?? null,
+        distance_label: row.distance_label ?? null,
+        walk_label: row.walk_label ?? null,
+        area: row.area ?? null,
+        cover,
+      };
+    });
+    publicHotelCache = { at: Date.now(), data: slim };
+    res.json({ success: true, data: slim, cached: false });
+  } catch (err) {
+    console.error('[hotel] public list error:', err?.message || err);
+    // Rail kanan sanggup tampil tanpa foto; jangan bikin halaman publik merah.
+    res.json({ success: true, data: [] });
+  }
+});
+
 app.get('/api/hotels/:slug', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
     if (!(await requireHotelAgent(req, res))) return;
@@ -7743,8 +7793,8 @@ app.post('/api/hotels', dbLoadShedGuard, authMiddleware, adminOnly, async (req, 
       if (hotelTableMissing(slugError)) return res.status(503).json({ error: HOTEL_MIGRATION_ERROR });
       throw slugError;
     }
-    // 'banners' dipesan rute GET/PUT /api/hotels/banners — jangan sampai jadi slug hotel.
-    const slug = slugifyHotelName(result.data.name, [...(slugRows || []).map((r) => r.slug), 'banners']);
+    // 'banners' dan 'public' dipesan rute statis di atas — jangan sampai jadi slug hotel.
+    const slug = slugifyHotelName(result.data.name, [...(slugRows || []).map((r) => r.slug), 'banners', 'public']);
 
     const insertRow = { ...result.data, slug, created_by: agent.id, updated_by: agent.id };
     let { data, error } = await supabase.from('hotels').insert(insertRow).select().single();
@@ -19080,10 +19130,9 @@ const VALID_PUBLIC_EVENTS = [
   // 'pulang' | 'urut' | 'tersedia' (nama yang sama dengan param URL-nya).
   // 'tersedia' = tombol "hanya seat tersedia", value 'on' | 'off'.
   'jadwal_filter',
-  // Rail desktop halaman jadwal (>=1024px). 'jadwal_rail_open' metadata
-  // { paket }, 'jadwal_rail_tab' metadata { tab: 'hotel'|'biaya'|'brosur' }.
+  // Rail desktop halaman jadwal (>=1024px), metadata { paket }.
   // Public event yang tidak ada di daftar ini di-drop 400 secara SENYAP.
-  'jadwal_rail_open', 'jadwal_rail_tab',
+  'jadwal_rail_open',
   'ask_ai_opened', 'ask_ai_chip_tapped', 'ask_ai_free_query', 'ask_ai_wa_clicked',
   'bio_view', 'bio_social_click',
   // Portal Jamaah is jamaah-authenticated (magic-link session, NOT the agent
@@ -19212,7 +19261,7 @@ const ALL_EVENT_LABELS = {
   inquiry_submitted: 'Inquiry Masuk',
   page_view: 'Page View', wa_click_public: 'WA Click Public',
   jadwal_filter: 'Filter Jadwal',
-  jadwal_rail_open: 'Rail Paket Dibuka', jadwal_rail_tab: 'Rail Tab',
+  jadwal_rail_open: 'Rail Paket Dibuka',
   ask_ai_opened: 'Ask AI Dibuka', ask_ai_chip_tapped: 'Ask AI Chip',
   ask_ai_free_query: 'Ask AI Query', ask_ai_wa_clicked: 'Ask AI WA',
   bio_view: 'Kunjungan Bio', bio_social_click: 'Klik Sosial Bio',

@@ -55,10 +55,12 @@ interface PackageCardProps {
   isComparing?: boolean;
   /**
    * Layar lebar (>=1024px): kartu tetap memuai supaya SELURUH tombol aksi dan
-   * modalnya tetap terjangkau, tapi blok yang sudah pindah ke rail
-   * (perjalanan, brosur, hotel plus, rincian biaya, suhu) disembunyikan.
-   * Panel muai jadi tinggal baris tombol, jadi gulir ~3.000px tetap hilang
-   * TANPA memindahkan satu pun handler keluar dari komponen ini.
+   * modalnya tetap terjangkau, tapi dua blok yang sudah pindah ke rail
+   * disembunyikan — perjalanan (rail kiri memuat itinerary lengkap) dan hotel
+   * plus (rail kanan memuat semua hotel berikut fotonya).
+   *
+   * Rincian biaya, brosur, dan suhu SENGAJA tetap di kartu: keduanya sudah
+   * bekerja di sana, memindahkannya hanya memecah satu hal jadi dua tempat.
    */
   railMode?: boolean;
 }
@@ -1819,7 +1821,7 @@ _________________________
                pertama rantai setiap kali rute berakhir di MED. Kartu ini SELALU
                dirender walau rantainya kosong — kalau tidak, landing dan manasik
                ikut hilang untuk paket yang urutannya tak bisa disimpulkan. */}
-          <div data-rail-hidden className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+          <div data-rail-hidden="perjalanan" className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="mb-5 flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-900 dark:text-emerald-400 dark:ring-slate-700">
@@ -1926,7 +1928,6 @@ _________________________
                sendiri, jadi hasil "Simpan" tidak perlu ikut memuatnya. */}
           {showBrosurPreview && !brosurError && pkg.brosurUrl && (
             <div
-              data-rail-hidden
               ref={brosurSectionRef}
               className="mb-4"
               data-screenshot-ignore
@@ -2003,7 +2004,7 @@ _________________________
 
           {/* Extra Hotels (Plus/Transit) - Conditional Section */}
           {extraHotels.length > 0 && (
-            <div data-rail-hidden className="mb-4 pt-3 border-t border-dashed border-gray-200 dark:border-slate-700">
+            <div data-rail-hidden="hotel-plus" className="mb-4 pt-3 border-t border-dashed border-gray-200 dark:border-slate-700">
               <h4 className="text-[10px] uppercase font-bold text-gray-400 mb-2 tracking-wider flex items-center gap-1">
                 <Building2 size={12} />
                 <span>Akomodasi Plus / Transit</span>
@@ -2280,7 +2281,7 @@ _________________________
           )}
 
           {/* ---- Pricing Table (Compact) ---- */}
-          <div data-rail-hidden className="mb-4">
+          <div className="mb-4">
             <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
             </h4>
@@ -2381,7 +2382,7 @@ _________________________
             ];
 
             return (
-              <div data-temp-section data-rail-hidden className="mb-4 bg-white dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <div data-temp-section className="mb-4 bg-white dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center mb-4">
                   <h4 
                     className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"

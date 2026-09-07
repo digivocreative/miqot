@@ -1153,7 +1153,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           title={selectedPkg.nama}
           onClose={() => setExpandedCardId(null)}
         >
-          <DetailRail pkg={selectedPkg} agentSlug={currentAgentSlug} />
+          <DetailRail pkg={selectedPkg} />
         </RailShell>
       )}
 

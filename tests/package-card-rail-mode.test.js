@@ -14,9 +14,9 @@ import {
  * ikut terkunci di dalam panel yang tak pernah terbuka, dan agent kehilangan
  * justru ujung percakapannya.
  *
- * Yang disembunyikan cuma blok yang sudah tampil di rail: perjalanan, brosur,
- * hotel plus, rincian biaya, suhu. Panel muai tinggal baris tombol, jadi gulir
- * ~3.000px hilang TANPA memindahkan satu pun handler keluar dari PackageCard.
+ * Yang disembunyikan HANYA dua blok yang benar-benar pindah: perjalanan (rail
+ * kiri memuat itinerary lengkap) dan hotel plus (rail kanan memuat semua hotel
+ * berikut fotonya). Rincian biaya, brosur, dan suhu tetap tinggal di kartu.
  */
 
 test('railMode menandai kartu supaya blok yang pindah ke rail tersembunyi', async () => {
@@ -43,21 +43,31 @@ test('railMode TIDAK menghalangi kartu memuai — tombol harus tetap terjangkau'
  * antara blok-blok itu, jadi menyembunyikan satu wilayah utuh ikut menelan
  * tombolnya — persis masalah yang sedang dihindari.
  */
-test('blok yang pindah ke rail semuanya bertanda saat kartu terbuka', async () => {
+test('blok perjalanan bertanda — rail kiri sudah memuat itinerary lengkap', async () => {
   const { html } = await renderPackageCard({ package: samplePackage(), isExpanded: true });
-  const marked = html.match(/data-rail-hidden/g) ?? [];
-  assert.ok(
-    marked.length >= 3,
-    `hanya ${marked.length} blok bertanda — blok yang pindah ke rail akan tampil dobel`,
+  assert.match(html, /data-rail-hidden="perjalanan"/);
+});
+
+/**
+ * Ini yang paling gampang salah arah: rincian biaya, brosur, dan suhu SENGAJA
+ * tinggal di kartu. Kalau ikut tertandai, ketiganya lenyap dari layar lebar
+ * tanpa ada penggantinya di rail mana pun.
+ */
+test('suhu TIDAK bertanda — sengaja tetap di kartu', async () => {
+  const { html } = await renderPackageCard({ package: samplePackage(), isExpanded: true });
+  assert.doesNotMatch(
+    html,
+    /data-temp-section[^>]*data-rail-hidden|data-rail-hidden[^>]*data-temp-section/,
+    'suhu tidak pindah ke rail mana pun — menandainya membuatnya hilang begitu saja',
   );
 });
 
-test('blok suhu ikut bertanda, di elemen yang sama dengan penanda ekspor', async () => {
+test('yang bertanda tidak lebih dari dua blok', async () => {
   const { html } = await renderPackageCard({ package: samplePackage(), isExpanded: true });
-  assert.match(
-    html,
-    /data-temp-section[^>]*data-rail-hidden|data-rail-hidden[^>]*data-temp-section/,
-    'data-temp-section dipakai kode screenshot; keduanya harus di elemen yang sama',
+  const marked = html.match(/data-rail-hidden=/g) ?? [];
+  assert.ok(
+    marked.length <= 2,
+    `${marked.length} blok bertanda — hanya perjalanan dan hotel plus yang pindah ke rail`,
   );
 });
 
