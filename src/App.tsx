@@ -28,6 +28,7 @@ import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { useWideLayout } from '@/hooks/useWideLayout';
 import RailShell from '@/components/jadwal-rails/RailShell';
 import ItineraryRail from '@/components/jadwal-rails/ItineraryRail';
+import DetailRail from '@/components/jadwal-rails/DetailRail';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
@@ -1142,6 +1143,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           onClose={() => setExpandedCardId(null)}
         >
           <ItineraryRail pkg={selectedPkg} agentSlug={railAgentSlug} />
+        </RailShell>
+      )}
+      {selectedPkg && (
+        <RailShell
+          side="right"
+          title={selectedPkg.nama}
+          onClose={() => setExpandedCardId(null)}
+        >
+          <DetailRail pkg={selectedPkg} />
         </RailShell>
       )}
 

@@ -98,3 +98,16 @@ export function hotelStarsOf(name?: string, stars?: string): string {
 export function hotelDistanceOf(name?: string, distance?: string): string {
   return String(distance || '').trim() || lookupHotelMetadata(name || '').distance || getDistance(name || '');
 }
+
+/**
+ * Sel tabel harga: "Rp 1.234.567" bila sah, "-" polos bila tidak.
+ *
+ * "-" sengaja TANPA prefix "Rp" — "Rp -" terbaca seperti harga nol, bukan
+ * "harga tidak tersedia".
+ */
+export function formatHargaCell(price: string | undefined | null): string {
+  if (!price) return '-';
+  const num = parseInt(String(price), 10);
+  if (!Number.isFinite(num)) return '-';
+  return `Rp ${new Intl.NumberFormat('id-ID').format(num)}`;
+}

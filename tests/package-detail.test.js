@@ -13,7 +13,8 @@ import { loadTs } from './fixtures/load-ts.js';
  * transit/plus (Cairo, Dubai, Istanbul) bersifat itinerary-wide, BUKAN per-tier,
  * tapi upstream kadang hanya mengisinya di salah satu tier.
  */
-const { tiersOf, extraHotelsOf, hotelStarsOf, hotelDistanceOf } = await loadTs('src/lib/packageDetail.ts');
+const { tiersOf, extraHotelsOf, hotelStarsOf, hotelDistanceOf, formatHargaCell } =
+  await loadTs('src/lib/packageDetail.ts');
 
 test('tier "Hemat" selalu di depan, sisanya mempertahankan urutan asli', () => {
   assert.deepEqual(tiersOf({ UHUD: {}, HEMAT: {}, RAHMAH: {} }), ['HEMAT', 'UHUD', 'RAHMAH']);
@@ -81,4 +82,14 @@ test('jarak dari payload menang; kosong jatuh ke metadata', () => {
 test('hotel tak dikenal tidak mengarang bintang atau jarak', () => {
   assert.equal(hotelStarsOf('HOTEL YANG TIDAK ADA', ''), '');
   assert.equal(hotelDistanceOf('HOTEL YANG TIDAK ADA', ''), '');
+});
+
+test('sel harga: "-" polos tanpa "Rp" saat harga tidak ada', () => {
+  assert.equal(formatHargaCell(undefined), '-');
+  assert.equal(formatHargaCell(''), '-');
+  assert.equal(formatHargaCell('bukan angka'), '-');
+});
+
+test('sel harga memakai pemisah ribuan Indonesia', () => {
+  assert.equal(formatHargaCell('33900000'), 'Rp 33.900.000');
 });

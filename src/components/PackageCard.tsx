@@ -18,7 +18,7 @@ import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { cheapestTierOf, minPriceInTier } from '@/lib/packagePricing';
-import { extraHotelsOf, hotelDistanceOf, hotelStarsOf, tiersOf } from '@/lib/packageDetail';
+import { extraHotelsOf, formatHargaCell, hotelDistanceOf, hotelStarsOf, tiersOf } from '@/lib/packageDetail';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
@@ -404,11 +404,6 @@ function PackageCardImpl({
     return new Intl.NumberFormat('id-ID').format(num);
   };
 
-  // Pricing-table cell: "Rp 1.234.567" when valid, plain "-" (no stray "Rp") when harga tidak ada.
-  const formatHargaCell = (price: string | undefined): string => {
-    const formatted = formatRupiah(price);
-    return formatted === '-' ? '-' : `Rp ${formatted}`;
-  };
 
   // Handle card click
   const handleCardClick = (e: React.MouseEvent) => {
