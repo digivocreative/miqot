@@ -42,7 +42,7 @@ test('lebar kolom & rail dasar = 512px / 0', () => {
   const b = baseRootBlock();
   assert.match(b, /--jadwal-col-w:\s*512px/);
   assert.match(b, /--jadwal-rail-w:\s*0px/);
-  assert.match(b, /--jadwal-rail-gap:\s*24px/);
+  assert.match(b, /--jadwal-rail-gap:\s*12px/);
   assert.match(b, /--jadwal-top-gap:\s*11px/);
 });
 
@@ -83,7 +83,7 @@ test('kiri dan kanan selebar sama di tiap breakpoint', () => {
 test('rail muat di selokan pada tiap breakpoint', () => {
   for (const [vw, col, rail] of [[1024, 380, 280], [1280, 512, 340], [1440, 512, 400]]) {
     const gutter = (vw - col) / 2;
-    assert.ok(rail + 24 < gutter, `rail ${rail}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
+    assert.ok(rail + 12 < gutter, `rail ${rail}px + 12 tidak muat di selokan ${gutter}px pada ${vw}`);
   }
 });
 
@@ -170,4 +170,16 @@ test('tepi bawah rail memudar, tidak terpotong keras', () => {
 test('kartu dan rail memakai jarak-atas dari token yang sama', () => {
   assert.match(rule('.jadwal-list-main'), /padding-top:\s*calc\(var\(--filter-header-h\)\s*\+\s*var\(--jadwal-top-gap\)\)/);
   assert.match(rule('.jadwal-rail'), /padding-top:\s*calc\(var\(--filter-header-visible-h,\s*var\(--filter-header-h\)\)\s*\+\s*var\(--jadwal-top-gap\)\)/);
+});
+
+/**
+ * Selokan scrollbar disisakan di KEDUA tepi rail.
+ *
+ * Dengan `stable` saja, selokan hanya di tepi kanan tiap rail — dan tepi kanan
+ * rail KIRI justru yang menghadap kolom tengah. Akibatnya jarak yang terlihat
+ * jadi timpang: terukur 42px di kiri lawan 36px di kanan. `both-edges`
+ * menyamakannya dengan ongkos 6px lebar kartu.
+ */
+test('selokan scrollbar disisakan di kedua tepi, bukan sebelah saja', () => {
+  assert.match(rule('.jadwal-rail'), /scrollbar-gutter:\s*stable both-edges/);
 });

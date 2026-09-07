@@ -34,7 +34,11 @@
      132px kiri lawan 198px kanan di viewport 1629px) karena keduanya dijangkar
      ke kolom tengah yang di tengah halaman — sisa ruangnya jadi tidak sama. */
   --jadwal-rail-w: 0px;
-  --jadwal-rail-gap: 24px;
+  /* Jarak kotak rail ke kolom tengah. Yang DILIHAT mata lebih besar dari ini:
+     tiap rail menyisipkan kartunya 12px ke dalam, plus selokan scrollbar 6px —
+     jadi 12px di sini terbaca 30px dari tepi kartu ke tepi kartu. Dulu 24px,
+     dan terukur 42px/36px: terlalu jauh sekaligus timpang. */
+  --jadwal-rail-gap: 12px;
   /* Jarak dari bawah header ke isi pertama — dipakai BERSAMA oleh kolom tengah
      dan kedua rail supaya ketiganya mulai di garis yang sama. */
   --jadwal-top-gap: 11px;
@@ -140,10 +144,12 @@
      meloncat sekaligus sementara headernya meluncur halus. */
   transition: padding-top 300ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow-y: auto;
-  /* Sisakan selokan scrollbar SELALU, bahkan saat isinya muat. Tanpa ini rail
-     yang bisa digulir menjadi 6px lebih sempit daripada yang tidak, dan lebar
-     kartu kiri-kanan berayun mengikuti panjang isi — terukur 370 lawan 376. */
-  scrollbar-gutter: stable;
+  /* Sisakan selokan scrollbar SELALU, bahkan saat isinya muat — tanpa ini lebar
+     kartu kiri-kanan berayun mengikuti panjang isi (terukur 370 lawan 376).
+     `both-edges`, bukan `stable` saja: selokan tunggal hanya jatuh di tepi kanan
+     tiap rail, dan tepi kanan rail KIRI justru yang menghadap kolom tengah —
+     jaraknya jadi timpang 42px lawan 36px. Ongkosnya 6px lebar kartu. */
+  scrollbar-gutter: stable both-edges;
   overscroll-behavior: contain;
   z-index: 30;
 }
