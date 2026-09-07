@@ -74,9 +74,17 @@ function mediaFileName(label: string, index: number, url: string, mime: string):
 }
 
 async function fetchMediaBlob(url: string): Promise<Blob> {
-  const res = await fetch(url);
+  // mode cors eksplisit: berkasnya dibaca ke kanvas (watermark), jadi respons
+  // opaque tidak berguna. Rute service worker untuk foto CDN sengaja hanya
+  // menangkap <img> (lihat vite.config.ts) supaya fetch ini tidak disodori
+  // cache opaque milik <img> — itu yang dulu membuat Bagikan selalu gagal.
+  const res = await fetch(url, { mode: 'cors' });
   if (!res.ok) throw new Error(`Media tidak bisa diambil (${res.status})`);
   return res.blob();
+}
+
+function isAbortError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError';
 }
 
 /** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
@@ -136,19 +144,49 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
   // Satu jalur penyiapan untuk Download DAN Share: ambil dari CDN, lalu bakar
   // watermark ke pikselnya. Video dilewati (bawahnya milik kontrol pemutar,
   // dan membakar teks ke video butuh transcode).
+  //
+  // Hasilnya disimpan per URL selama modal terbuka: foto yang sedang tampil
+  // disiapkan LEBIH AWAL (efek di bawah), supaya saat tombol Bagikan ditekan
+  // navigator.share() bisa dipanggil tanpa satu pun await di depannya. Safari
+  // iOS mencabut izin share sheet begitu gestur ketuk "habis" oleh fetch +
+  // bakar kanvas yang memakan lebih dari sedetik → NotAllowedError.
+  const preparedRef = useRef(new Map<string, PreparedMedia>());
+  useEffect(() => { preparedRef.current.clear(); }, [watermark]);
+
   const prepareMedia = useCallback(async (item: ViewerMediaItem): Promise<PreparedMedia> => {
+    const cached = preparedRef.current.get(item.url);
+    if (cached) return cached;
     const blob = await fetchMediaBlob(item.url);
-    if (!watermark || item.type !== 'image') return { blob, stamped: false };
-    try {
-      return { blob: await stampWatermarkOnImage(blob, watermark), stamped: true };
-    } catch {
-      // Gagal membakar (kanvas ternoda, format aneh) TIDAK boleh membatalkan
-      // unduhan — berkas asli tetap diberikan, dan pemanggil memberi tahu
-      // bahwa watermark-nya tidak ikut. Diam-diam menyerahkan foto polos
-      // justru yang paling berbahaya.
-      return { blob, stamped: false };
+    let prepared: PreparedMedia = { blob, stamped: false };
+    if (watermark && item.type === 'image') {
+      try {
+        prepared = { blob: await stampWatermarkOnImage(blob, watermark), stamped: true };
+      } catch {
+        // Gagal membakar (kanvas ternoda, format aneh) TIDAK boleh membatalkan
+        // unduhan — berkas asli tetap diberikan, dan pemanggil memberi tahu
+        // bahwa watermark-nya tidak ikut. Diam-diam menyerahkan foto polos
+        // justru yang paling berbahaya.
+      }
     }
+    preparedRef.current.set(item.url, prepared);
+    return prepared;
   }, [watermark]);
+
+  // Pemanasan: siapkan foto aktif sedikit setelah slide berhenti (jeda supaya
+  // geser cepat melewati banyak foto tidak memicu decode beruntun). Hanya bila
+  // perangkat punya share sheet — di desktop Download menunggu klik saja.
+  const activeUrl = media[index]?.url;
+  const activeType = media[index]?.type;
+  useEffect(() => {
+    if (!activeUrl || activeType !== 'image') return;
+    if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return;
+    const timer = window.setTimeout(() => {
+      prepareMedia({ type: 'image', url: activeUrl }).catch(() => {
+        // Galatnya dilaporkan saat tombol benar-benar ditekan.
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [activeUrl, activeType, prepareMedia]);
 
   const handleDownload = useCallback(async () => {
     const item = media[index];
@@ -178,28 +216,48 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     if (!item || busy) return;
     setBusy('share');
     setActionError(null);
-    try {
-      const { blob, stamped } = await prepareMedia(item);
-      const file = new File([blob], mediaFileName(label, index, stamped ? '' : item.url, blob.type), {
+
+    const toFile = ({ blob, stamped }: PreparedMedia) =>
+      new File([blob], mediaFileName(label, index, stamped ? '' : item.url, blob.type), {
         type: blob.type || 'application/octet-stream',
       });
-      // Berkas dulu (WhatsApp menerima medianya langsung); hanya kalau
-      // perangkat menolak berkas, bagikan tautannya.
+
+    // Berkas dulu (WhatsApp menerima medianya langsung); hanya kalau
+    // perangkat menolak berkas, bagikan tautannya.
+    const shareFile = async (file: File) => {
       if (canShareFiles([file])) {
         await navigator.share({ files: [file] });
-        return;
+        return true;
       }
       if (typeof navigator.share === 'function') {
         // Jalur terakhir: yang dibagikan tautan CDN mentah — foto di ujung
         // tautan itu TIDAK ber-watermark, karena bukan berkas kita yang lewat.
         await navigator.share({ title: label, url: item.url });
-        return;
+        return true;
       }
-      setActionError('Perangkat ini tidak mendukung berbagi langsung — pakai Download.');
+      return false;
+    };
+
+    let prepared: PreparedMedia | null = preparedRef.current.get(item.url) ?? null;
+    try {
+      // Jalur cepat: berkas sudah hangat → navigator.share() dipanggil masih di
+      // dalam gestur ketuk. Jalur lambat (belum hangat) menunggu dulu; Chrome
+      // memberi jeda 5 detik, Safari lebih pelit — galatnya ditangani di bawah.
+      if (!prepared) prepared = await prepareMedia(item);
+      const shared = await shareFile(toFile(prepared));
+      if (!shared) setActionError('Perangkat ini tidak mendukung berbagi langsung — pakai Download.');
     } catch (err) {
       // Batal dari share sheet bukan kegagalan.
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      setActionError('Gagal membagikan media.');
+      if (isAbortError(err)) return;
+      console.warn('[media-viewer] bagikan gagal:', err);
+      if (prepared) {
+        // Share sheet ditolak peramban (mis. gestur kedaluwarsa) padahal
+        // berkasnya sudah ada: jangan buntu, serahkan lewat unduhan.
+        downloadBlob(prepared.blob, toFile(prepared).name);
+        setActionError('Bagikan ditolak peramban — berkas diunduh sebagai gantinya.');
+      } else {
+        setActionError('Gagal mengambil media dari CDN. Coba lagi.');
+      }
     } finally {
       setBusy(null);
     }

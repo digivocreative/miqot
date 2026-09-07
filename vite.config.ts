@@ -481,7 +481,17 @@ export default defineConfig({
             // them from the CDN whenever the browser's own cache had been evicted
             // (mobile Safari evicts aggressively), which is what made the last two
             // cards crawl in on cellular.
-            urlPattern: /^https:\/\/[^/]+\.b-cdn\.net\/(?:hotels|hotel-agent-media)\/.*\.(?:jpg|jpeg|png|webp)/i,
+            //
+            // HANYA untuk pemuatan <img> (destination 'image'). Respons <img>
+            // lintas-origin bersifat opaque; kalau rute ini juga menangkap
+            // fetch() dari JS (tombol Download/Bagikan di MediaViewerModal,
+            // mode cors), SW menyodorkan respons opaque itu ke permintaan cors
+            // → fetch ditolak peramban ("Gagal membagikan media") persis setelah
+            // fotonya tampil di layar. fetch() dari JS lewat langsung ke CDN
+            // (ACAO: *) dan memakai HTTP cache peramban seperti biasa.
+            urlPattern: ({ request, url }: { request: Request; url: URL }) =>
+              request.destination === 'image' &&
+              /^https:\/\/[^/]+\.b-cdn\.net\/(?:hotels|hotel-agent-media)\/.*\.(?:jpg|jpeg|png|webp)/i.test(url.href),
             handler: 'CacheFirst',
             options: {
               cacheName: 'hotel-media',
