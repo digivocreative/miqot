@@ -34,11 +34,13 @@
      132px kiri lawan 198px kanan di viewport 1629px) karena keduanya dijangkar
      ke kolom tengah yang di tengah halaman — sisa ruangnya jadi tidak sama. */
   --jadwal-rail-w: 0px;
-  /* Jarak kotak rail ke kolom tengah. Yang DILIHAT mata lebih besar dari ini:
-     tiap rail menyisipkan kartunya 12px ke dalam, plus selokan scrollbar 6px —
-     jadi 12px di sini terbaca 30px dari tepi kartu ke tepi kartu. Dulu 24px,
-     dan terukur 42px/36px: terlalu jauh sekaligus timpang. */
-  --jadwal-rail-gap: 12px;
+  /* Jarak kotak rail ke kolom tengah. Yang DILIHAT mata SELALU lebih besar:
+     tiap rail menyisipkan kartunya 12px ke dalam (mx-3 milik DayRail, komponen
+     bersama) plus selokan scrollbar 6px. Jadi 0px di sini pun terbaca 18px dari
+     tepi kartu ke tepi kartu — dan 18px itulah lantainya selama sisipan 12px
+     masih milik komponen bersama.
+     Riwayat: 24px (terbaca 42/36, timpang) -> 12px (30) -> 0px (18). */
+  --jadwal-rail-gap: 0px;
   /* Jarak dari bawah header ke isi pertama — dipakai BERSAMA oleh kolom tengah
      dan kedua rail supaya ketiganya mulai di garis yang sama. */
   --jadwal-top-gap: 11px;

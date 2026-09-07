@@ -42,7 +42,7 @@ test('lebar kolom & rail dasar = 512px / 0', () => {
   const b = baseRootBlock();
   assert.match(b, /--jadwal-col-w:\s*512px/);
   assert.match(b, /--jadwal-rail-w:\s*0px/);
-  assert.match(b, /--jadwal-rail-gap:\s*12px/);
+  assert.match(b, /--jadwal-rail-gap:\s*0px/);
   assert.match(b, /--jadwal-top-gap:\s*11px/);
 });
 
@@ -83,7 +83,7 @@ test('kiri dan kanan selebar sama di tiap breakpoint', () => {
 test('rail muat di selokan pada tiap breakpoint', () => {
   for (const [vw, col, rail] of [[1024, 380, 280], [1280, 512, 340], [1440, 512, 400]]) {
     const gutter = (vw - col) / 2;
-    assert.ok(rail + 12 < gutter, `rail ${rail}px + 12 tidak muat di selokan ${gutter}px pada ${vw}`);
+    assert.ok(rail < gutter, `rail ${rail}px tidak muat di selokan ${gutter}px pada ${vw}`);
   }
 });
 
