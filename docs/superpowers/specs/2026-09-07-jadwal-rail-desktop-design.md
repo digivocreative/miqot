@@ -248,3 +248,24 @@ Halaman ini publik-by-slug, jadi **wajib `trackPublicEvent`**, bukan `trackEvent
    lebar baru karena tinggi header bisa berubah saat kolom menyempit.
 4. **Fase 2 endpoint publik** — permukaan publik baru; butuh load-shed guard dan cache, dan hanya
    boleh mengembalikan subset kolom yang aman.
+
+---
+
+## Revisi 2026-09-07 (setelah melihat hasilnya berjalan)
+
+Dua perubahan atas permintaan user, sesudah rail versi pertama dipakai:
+
+1. **Rail kanan hanya hotel, dengan foto.** Tab Hotel · Biaya · Brosur dibuang. Rincian biaya
+   dan brosur kembali tinggal di dalam kartu — keduanya sudah bekerja di sana, memindahkannya
+   hanya memecah satu hal jadi dua tempat. Foto datang dari `GET /api/hotels/public` yang baru:
+   baca-saja, tanpa auth, cache 5 menit, dan hanya membuka nama, kota, bintang, jarak, area,
+   satu foto sampul. Pencocokan nama di `src/lib/hotelThumbs.ts`, sengaja ketat.
+
+2. **Rail kiri jadi pratinjau LENGKAP itinerary versi kita** — `WebItineraryView` yang sama
+   persis dipakai halaman share, bukan ringkasan hari buatan rail. Empat helper ringkasan yang
+   ditulis untuk versi pertama jadi kode mati dan dibuang.
+
+Akibatnya `data-rail-hidden` menyempit dari lima blok ke dua: perjalanan dan hotel plus.
+
+Fase 2 di bagian "Foto hotel — dua fase" di atas **sudah tidak berlaku**: endpoint publiknya
+dikerjakan sekarang karena foto jadi inti rail kanan, bukan pemanis.
