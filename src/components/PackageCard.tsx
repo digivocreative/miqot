@@ -54,11 +54,13 @@ interface PackageCardProps {
   /** Whether this package is currently selected for comparison */
   isComparing?: boolean;
   /**
-   * Layar lebar (>=1024px): kartu ditandai "sedang dibahas" TANPA memuai —
-   * seluruh detailnya tampil di rail kiri/kanan. Kalau kartu ikut memuai,
-   * isinya dobel dengan rail dan scroll panjang saat presentasi kembali lagi.
+   * Layar lebar (>=1024px): kartu tetap memuai supaya SELURUH tombol aksi dan
+   * modalnya tetap terjangkau, tapi blok yang sudah pindah ke rail
+   * (perjalanan, brosur, hotel plus, rincian biaya, suhu) disembunyikan.
+   * Panel muai jadi tinggal baris tombol, jadi gulir ~3.000px tetap hilang
+   * TANPA memindahkan satu pun handler keluar dari komponen ini.
    */
-  isSelected?: boolean;
+  railMode?: boolean;
 }
 
 // Gradient presets for screenshot background
@@ -137,7 +139,7 @@ const copyTextToClipboard = async (text: string): Promise<boolean> => {
 function PackageCardImpl({
   package: pkg,
   isExpanded = false,
-  isSelected = false,
+  railMode = false,
   onToggle,
   instantCollapse = false,
   onExpandChange,
@@ -617,6 +619,10 @@ _________________________
       // 1. CLONE & GHOST STRATEGY
       const original = cardRef.current;
       const clone = original.cloneNode(true) as HTMLElement;
+      // Klon mewarisi kelas root kartu. Tanpa baris ini, gambar ekspor ikut
+      // kehilangan perjalanan, brosur, rincian biaya, dan suhu — semua yang
+      // disembunyikan railMode di layar — walau isinya ada di DOM.
+      clone.classList.remove('jadwal-rail-mode');
 
       // Setup Ghost Element (Invisible but Rendered)
       Object.assign(clone.style, {
@@ -1613,7 +1619,8 @@ _________________________
         bg-white dark:bg-slate-900 relative overflow-hidden cursor-pointer border-y sm:border-x pb-1
         [contain-intrinsic-size:auto_241px] ${isSettledClosed ? '[content-visibility:auto]' : ''}
         transition-[box-shadow,border-color] duration-300 ease-out
-        ${isExpanded || isSelected
+        ${railMode ? 'jadwal-rail-mode' : ''}
+        ${isExpanded
           ? 'border-emerald-100 dark:border-emerald-900 shadow-[0_2px_12px_rgba(5,150,105,0.12)]'
           : 'border-gray-100 dark:border-slate-800'
         }
@@ -1812,7 +1819,7 @@ _________________________
                pertama rantai setiap kali rute berakhir di MED. Kartu ini SELALU
                dirender walau rantainya kosong — kalau tidak, landing dan manasik
                ikut hilang untuk paket yang urutannya tak bisa disimpulkan. */}
-          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+          <div data-rail-hidden className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="mb-5 flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-900 dark:text-emerald-400 dark:ring-slate-700">
@@ -1919,6 +1926,7 @@ _________________________
                sendiri, jadi hasil "Simpan" tidak perlu ikut memuatnya. */}
           {showBrosurPreview && !brosurError && pkg.brosurUrl && (
             <div
+              data-rail-hidden
               ref={brosurSectionRef}
               className="mb-4"
               data-screenshot-ignore
@@ -1995,7 +2003,7 @@ _________________________
 
           {/* Extra Hotels (Plus/Transit) - Conditional Section */}
           {extraHotels.length > 0 && (
-            <div className="mb-4 pt-3 border-t border-dashed border-gray-200 dark:border-slate-700">
+            <div data-rail-hidden className="mb-4 pt-3 border-t border-dashed border-gray-200 dark:border-slate-700">
               <h4 className="text-[10px] uppercase font-bold text-gray-400 mb-2 tracking-wider flex items-center gap-1">
                 <Building2 size={12} />
                 <span>Akomodasi Plus / Transit</span>
@@ -2272,7 +2280,7 @@ _________________________
           )}
 
           {/* ---- Pricing Table (Compact) ---- */}
-          <div className="mb-4">
+          <div data-rail-hidden className="mb-4">
             <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               Rincian Biaya Paket
             </h4>
@@ -2373,7 +2381,7 @@ _________________________
             ];
 
             return (
-              <div data-temp-section className="mb-4 bg-white dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <div data-temp-section data-rail-hidden className="mb-4 bg-white dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center mb-4">
                   <h4 
                     className="text-[11px] font-semibold uppercase tracking-[0.05em] flex items-center gap-2"
@@ -2644,7 +2652,7 @@ _________________________
 export const arePackageCardPropsEqual = (prev: PackageCardProps, next: PackageCardProps) =>
   prev.package === next.package &&
   prev.isExpanded === next.isExpanded &&
-  prev.isSelected === next.isSelected &&
+  prev.railMode === next.railMode &&
   prev.instantCollapse === next.instantCollapse &&
   prev.agent === next.agent &&
   prev.isSingleView === next.isSingleView &&

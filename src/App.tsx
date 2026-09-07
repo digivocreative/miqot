@@ -786,15 +786,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const handleToggleCard = (id: string) => {
     const currentId = expandedCardIdRef.current;
 
-    // Layar lebar: tinggi kartu tidak pernah berubah, jadi seluruh kompensasi
-    // gulir di bawah tidak berlaku. Menjalankannya justru menjangkar kartu yang
-    // diam dan menggeser daftar tanpa sebab.
-    if (isWide) {
-      setInstantCollapseId(null);
-      setExpandedCardId(prevId => (prevId === id ? null : id));
-      return;
-    }
-
     if (currentId !== null && currentId !== id) {
       // Pindah kartu: kartu lama menutup instan, hanya kartu baru yang beranimasi.
       setInstantCollapseId(currentId);
@@ -1057,8 +1048,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                 <PackageCard
                   key={pkg.jadwalId}
                   package={pkg}
-                  isExpanded={!isWide && expandedCardId === pkg.jadwalId}
-                  isSelected={isWide && expandedCardId === pkg.jadwalId}
+                  isExpanded={expandedCardId === pkg.jadwalId}
+                  railMode={isWide}
                   instantCollapse={instantCollapseId === pkg.jadwalId}
                   onToggle={() => handleToggleCard(pkg.jadwalId)}
                   agent={currentAgent}
