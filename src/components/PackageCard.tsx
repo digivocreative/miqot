@@ -15,11 +15,10 @@ import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { getDistance } from '@/data/hotelService';
-import { lookupHotelMetadata } from '@/data/hotelMetadata';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { cheapestTierOf, minPriceInTier } from '@/lib/packagePricing';
+import { extraHotelsOf, hotelDistanceOf, hotelStarsOf, tiersOf } from '@/lib/packageDetail';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
@@ -35,16 +34,6 @@ let cachedInterFontCSS: string | null = null;
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
-
-function hotelStars(name?: string, stars?: string): string {
-  const raw = String(stars || '').trim();
-  if (raw && raw !== '0') return raw;
-  return lookupHotelMetadata(name || '').stars || '';
-}
-
-function hotelDistance(name?: string, distance?: string): string {
-  return String(distance || '').trim() || lookupHotelMetadata(name || '').distance || getDistance(name || '');
-}
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -261,13 +250,7 @@ function PackageCardImpl({
 
   // Available pricing tiers (e.g. HEMAT, UHUD, RAHMAH).
   // "Hemat" selalu di-hoist ke tab paling kiri; tier lain mempertahankan urutan aslinya (sort stabil).
-  const tiers = useMemo(
-    () =>
-      Object.keys(pkg.harga).sort(
-        (a, b) => Number(b.trim().toLowerCase() === 'hemat') - Number(a.trim().toLowerCase() === 'hemat')
-      ),
-    [pkg.harga]
-  );
+  const tiers = useMemo(() => tiersOf(pkg.harga), [pkg.harga]);
 
   // Active tier drives BOTH the hotel block (above) and the pricing table.
   // Falls back to the cheapest tier when nothing is selected or the selection
@@ -364,59 +347,7 @@ function PackageCardImpl({
   /**
    * Extract extra hotels (Turkey, Cairo, etc.)
    */
-  const extraHotels = useMemo(() => {
-    if (!hotelInfo) return [];
-
-    const extras: Array<{ city: string; name: string; star: string }> = [];
-    
-    // Mapping keys to readable city labels
-    const potentialCities = [
-      { key: 'istanbul', label: 'Istanbul' },
-      { key: 'bursa', label: 'Bursa' },
-      { key: 'ankara', label: 'Ankara' },
-      { key: 'cappadocia', label: 'Cappadocia' },
-      { key: 'cairo', label: 'Cairo' },
-      { key: 'alexandria', label: 'Alexandria' },
-      { key: 'dubai', label: 'Dubai' },
-      { key: 'aqsha', label: 'Aqsha' },
-      { key: 'amman', label: 'Amman' },
-      { key: 'petra', label: 'Petra' },
-      { key: 'haikou', label: 'Haikou' },
-    ];
-
-    // Kota transit/plus (Cairo, Istanbul, dst.) bersifat itinerary-wide, BUKAN per-tier —
-    // tier hanya membedakan hotel Mekkah/Madinah. Upstream kadang hanya mengisi hotel kota
-    // ini di salah satu tier (mis. UHUD), sehingga HEMAT/RAHMAH kosong. Fallback: kalau tier
-    // aktif tak punya hotel utk kota tsb, ambil dari tier lain yang punya agar "Akomodasi Plus"
-    // tetap muncul di semua tier. Tier aktif tetap menang bila punya nilai sendiri.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const otherTiers = Object.values(pkg.hotel || {}) as any[];
-
-    potentialCities.forEach(city => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const info = hotelInfo as any;
-      let hotelName = info[`${city.key}_hotel`];
-      let hotelStar = info[`${city.key}_bintang`] || '0';
-
-      if (!hotelName) {
-        const fallback = otherTiers.find(t => t && t[`${city.key}_hotel`]);
-        if (fallback) {
-          hotelName = fallback[`${city.key}_hotel`];
-          hotelStar = fallback[`${city.key}_bintang`] || '0';
-        }
-      }
-
-      if (hotelName) {
-        extras.push({
-          city: city.label,
-          name: hotelName,
-          star: hotelStar
-        });
-      }
-    });
-
-    return extras;
-  }, [hotelInfo, pkg.hotel]);
+  const extraHotels = useMemo(() => extraHotelsOf(hotelInfo, pkg.hotel), [hotelInfo, pkg.hotel]);
 
   const journeySteps = useMemo(() => {
     return getPackageJourneySteps(pkg, extraHotels.map(hotel => hotel.city));
@@ -1794,8 +1725,8 @@ _________________________
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {(() => {
-                const stars = hotelStars(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_bintang);
-                const dist = hotelDistance(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_jarak);
+                const stars = hotelStarsOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_bintang);
+                const dist = hotelDistanceOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_jarak);
                 return stars || dist ? (
                   <div className="flex items-center gap-0.5" data-stars-row>
                     {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
@@ -1827,8 +1758,8 @@ _________________________
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {(() => {
-                const stars = hotelStars(hotelInfo?.madinah_hotel, hotelInfo?.madinah_bintang);
-                const dist = hotelDistance(hotelInfo?.madinah_hotel, hotelInfo?.madinah_jarak);
+                const stars = hotelStarsOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_bintang);
+                const dist = hotelDistanceOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_jarak);
                 return stars || dist ? (
                   <div className="flex items-center gap-0.5" data-stars-row>
                     {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
