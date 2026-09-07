@@ -41,24 +41,41 @@ function rule(selector) {
 test('lebar kolom & rail dasar = 512px / 0', () => {
   const b = baseRootBlock();
   assert.match(b, /--jadwal-col-w:\s*512px/);
-  assert.match(b, /--jadwal-rail-w:\s*0px/);
+  assert.match(b, /--jadwal-rail-left-w:\s*0px/);
+  assert.match(b, /--jadwal-rail-right-w:\s*0px/);
   assert.match(b, /--jadwal-rail-gap:\s*24px/);
 });
 
-test('1024px: kolom menyempit ke 420, rail 270', () => {
+test('1024px: kolom menyempit ke 420, kedua rail 250', () => {
   const b = rootBlockAtWidth(1024);
   assert.match(b, /--jadwal-col-w:\s*420px/);
-  assert.match(b, /--jadwal-rail-w:\s*270px/);
+  assert.match(b, /--jadwal-rail-left-w:\s*250px/);
+  assert.match(b, /--jadwal-rail-right-w:\s*250px/);
 });
 
-test('1280px: kolom kembali 512, rail 320', () => {
+test('1280px: kolom kembali 512; rail kiri lebih lebar dari kanan', () => {
   const b = rootBlockAtWidth(1280);
   assert.match(b, /--jadwal-col-w:\s*512px/);
-  assert.match(b, /--jadwal-rail-w:\s*320px/);
+  assert.match(b, /--jadwal-rail-left-w:\s*340px/);
+  assert.match(b, /--jadwal-rail-right-w:\s*300px/);
 });
 
-test('1440px: rail 368', () => {
-  assert.match(rootBlockAtWidth(1440), /--jadwal-rail-w:\s*368px/);
+test('1440px: rail kiri 400 (dokumen itinerary), kanan 340', () => {
+  const b = rootBlockAtWidth(1440);
+  assert.match(b, /--jadwal-rail-left-w:\s*400px/);
+  assert.match(b, /--jadwal-rail-right-w:\s*340px/);
+});
+
+/**
+ * Rail + jarak + separuh kolom tidak boleh melebihi separuh viewport, kalau
+ * tidak rail-nya tertindih kolom. Dihitung, bukan dikira-kira.
+ */
+test('rail muat di selokan pada tiap breakpoint', () => {
+  for (const [vw, col, left, right] of [[1024, 420, 250, 250], [1280, 512, 340, 300], [1440, 512, 400, 340]]) {
+    const gutter = (vw - col) / 2;
+    assert.ok(left + 24 < gutter, `rail kiri ${left}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
+    assert.ok(right + 24 < gutter, `rail kanan ${right}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
+  }
 });
 
 test('.jadwal-shell memakai token, bukan angka mati', () => {

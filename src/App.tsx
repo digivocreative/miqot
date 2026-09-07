@@ -1144,7 +1144,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           title={selectedPkg.nama}
           onClose={() => setExpandedCardId(null)}
         >
-          <ItineraryRail pkg={selectedPkg} agentSlug={railAgentSlug} />
+          <ItineraryRail pkg={selectedPkg} />
         </RailShell>
       )}
       {selectedPkg && (

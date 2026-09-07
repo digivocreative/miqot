@@ -30,7 +30,11 @@
      WIDE_MEDIA_QUERY di src/lib/wideLayout.ts — kalau berbeda, rail tampil tanpa
      pernah diisi. */
   --jadwal-col-w: 512px;
-  --jadwal-rail-w: 0px;
+  /* Dua lebar terpisah: rail KIRI memuat dokumen itinerary penuh (versi web
+     dirancang untuk ~448px), rail KANAN hanya kartu hotel. Menyamakan keduanya
+     memaksa yang kiri sempit atau yang kanan boros. */
+  --jadwal-rail-left-w: 0px;
+  --jadwal-rail-right-w: 0px;
   --jadwal-rail-gap: 24px;
 }
 
@@ -45,20 +49,23 @@
 @media (min-width: 1024px) {
   :root {
     --jadwal-col-w: 420px;
-    --jadwal-rail-w: 270px;
+    --jadwal-rail-left-w: 250px;
+    --jadwal-rail-right-w: 250px;
   }
 }
 
 @media (min-width: 1280px) {
   :root {
     --jadwal-col-w: 512px;
-    --jadwal-rail-w: 320px;
+    --jadwal-rail-left-w: 340px;
+    --jadwal-rail-right-w: 300px;
   }
 }
 
 @media (min-width: 1440px) {
   :root {
-    --jadwal-rail-w: 368px;
+    --jadwal-rail-left-w: 400px;
+    --jadwal-rail-right-w: 340px;
   }
 }
 
@@ -103,7 +110,6 @@
   position: fixed;
   top: var(--filter-header-h);
   bottom: 24px;
-  width: var(--jadwal-rail-w);
   overflow-y: auto;
   overscroll-behavior: contain;
   z-index: 30;
@@ -116,10 +122,12 @@
 }
 
 .jadwal-rail--left {
+  width: var(--jadwal-rail-left-w);
   right: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
 }
 
 .jadwal-rail--right {
+  width: var(--jadwal-rail-right-w);
   left: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
 }
 
