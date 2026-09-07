@@ -97,6 +97,10 @@ test('.jadwal-shell memakai token, bukan angka mati', () => {
   const body = rule('.jadwal-shell');
   assert.match(body, /max-width:\s*var\(--jadwal-col-w\)/);
   assert.doesNotMatch(body, /max-width:\s*\d/, 'lebar dipaku angka — token jadi tak berguna');
+  // Bar agent = `fixed left-4 right-4` memakai kelas ini. `width: 100%` di elemen
+  // fixed berarti lebar viewport → over-constrained, `right` diabaikan, bar meluap
+  // ke kanan di HP. Lebar harus tetap auto (shrink ke left/right).
+  assert.doesNotMatch(body, /(^|[^-])width:\s*100%/, 'width:100% membuat bar fixed meluap ke kanan');
 });
 
 test('rail duduk di selokan, dihitung dari lebar kolom', () => {

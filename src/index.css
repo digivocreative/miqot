@@ -97,7 +97,11 @@
 }
 
 .jadwal-shell {
-  width: 100%;
+  /* SENGAJA tanpa lebar eksplisit (biarkan auto). Bar agent memakai kelas ini
+     sebagai elemen `fixed` dengan left/right 16px; lebar 100% di sana = lebar
+     viewport, lalu left+lebar+right over-constrained, `right` diabaikan dan bar
+     meluap 16px ke kanan di HP (viewport < 544px). `main` dan header adalah
+     blok biasa yang sudah memenuhi induknya dengan lebar auto. */
   max-width: var(--jadwal-col-w);
   margin-left: auto;
   margin-right: auto;
