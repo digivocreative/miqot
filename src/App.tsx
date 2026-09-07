@@ -1139,20 +1139,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* RAIL DESKTOP (>=1024px) — lihat .jadwal-rail di src/index.css */}
       {/* ============================================ */}
       {selectedPkg && (
-        <RailShell
-          side="left"
-          title={selectedPkg.nama}
-          onClose={() => setExpandedCardId(null)}
-        >
+        <RailShell side="left">
           <ItineraryRail pkg={selectedPkg} />
         </RailShell>
       )}
       {selectedPkg && (
-        <RailShell
-          side="right"
-          title={selectedPkg.nama}
-          onClose={() => setExpandedCardId(null)}
-        >
+        <RailShell side="right">
           <DetailRail pkg={selectedPkg} />
         </RailShell>
       )}
