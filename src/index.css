@@ -108,11 +108,28 @@
 .jadwal-rail {
   display: none;
   position: fixed;
-  top: var(--filter-header-h);
+  /* Membentang penuh dari atas viewport; jaraknya lewat padding, BUKAN `top`.
+     --filter-header-h sengaja dipaku ke tinggi header saat mengembang karena
+     <main> memakainya sebagai offset RUANG-DOKUMEN. Rail `fixed` hidup di
+     RUANG-VIEWPORT: begitu header menyusut saat digulir, rail ber-`top` tetap
+     meninggalkan celah kosong yang tak pernah tertutup.
+     Dengan cara ini isi rail lewat DI BAWAH header tembus-pandang, persis
+     seperti kolom tengah — itulah yang membuatnya menyatu. */
+  top: 0;
   bottom: 24px;
+  padding-top: var(--filter-header-visible-h, var(--filter-header-h));
+  /* Sepadan dengan animasi buka/tutup header (300ms). Tanpa ini isi rail
+     meloncat sekaligus sementara headernya meluncur halus. */
+  transition: padding-top 300ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow-y: auto;
   overscroll-behavior: contain;
   z-index: 30;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jadwal-rail {
+    transition: none;
+  }
 }
 
 @media (min-width: 1024px) {

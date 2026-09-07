@@ -102,6 +102,42 @@ test('rail tersembunyi di bawah 1024px dan tidak ikut menggulir daftar', () => {
   assert.match(body, /overscroll-behavior:\s*contain/);
 });
 
-test('rail dijangkar ke tinggi header yang diukur, bukan angka mati', () => {
-  assert.match(rule('.jadwal-rail'), /top:\s*var\(--filter-header-h\)/);
+/**
+ * Rail membentang penuh dari atas viewport dan memberi jarak lewat PADDING,
+ * bukan lewat `top` yang dipaku.
+ *
+ * Sebabnya: --filter-header-h SENGAJA dipaku ke tinggi header saat mengembang
+ * (181px) karena <main> memakainya sebagai offset RUANG-DOKUMEN, dan menulis
+ * nilai antara ke situ menggeser seluruh daftar — sumber "ngejedug" di iOS yang
+ * sudah diperbaiki. Tapi rail `fixed` hidup di RUANG-VIEWPORT: begitu header
+ * menyusut ke 55px saat digulir, rail yang ber-`top: 181px` meninggalkan celah
+ * kosong 126px yang tidak pernah tertutup.
+ *
+ * Dengan top:0 + padding, isi rail lewat DI BAWAH header tembus-pandang persis
+ * seperti kolom tengah — dan itulah yang membuatnya menyatu.
+ */
+test('rail membentang dari atas viewport, jarak lewat padding', () => {
+  const body = rule('.jadwal-rail');
+  assert.match(body, /top:\s*0/);
+  assert.doesNotMatch(body, /top:\s*var\(--filter-header-h\)/, 'top yang dipaku meninggalkan celah saat header menyusut');
+});
+
+/**
+ * Fallback-nya load-bearing: pada cat pertama FilterHeader belum sempat
+ * menerbitkan tinggi hidupnya, dan tanpa fallback padding rail jadi 0 —
+ * baris pertamanya tersembunyi di balik header.
+ */
+test('padding rail mengikuti tinggi header hidup, dengan fallback', () => {
+  assert.match(
+    rule('.jadwal-rail'),
+    /padding-top:\s*var\(--filter-header-visible-h,\s*var\(--filter-header-h\)\)/,
+  );
+});
+
+/**
+ * Header beranimasi 300ms saat menyusut/mengembang. Tanpa transisi yang sepadan,
+ * isi rail meloncat 126px sekaligus sementara headernya meluncur halus.
+ */
+test('rail ikut beranimasi bersama header, bukan meloncat', () => {
+  assert.match(rule('.jadwal-rail'), /transition:[^;]*padding-top/);
 });

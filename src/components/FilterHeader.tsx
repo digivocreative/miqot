@@ -172,6 +172,30 @@ export function FilterHeader({
     const el = headerRef.current;
     if (!el) return;
     let lastPublished = '';
+    let lastVisibleH = '';
+    /**
+     * Tinggi header SAAT INI — termasuk saat menyusut.
+     *
+     * Terpisah dari --filter-header-h yang sengaja dipaku ke tinggi mengembang:
+     * <main> memakainya sebagai offset RUANG-DOKUMEN, dan menulis nilai yang
+     * berubah-ubah ke situ menggeser seluruh daftar (sumber "ngejedug" iOS).
+     *
+     * Rail desktop `fixed` hidup di RUANG-VIEWPORT dan justru butuh angka yang
+     * ikut menyusut, kalau tidak ia meninggalkan celah kosong di bawah header.
+     * Menulisnya aman: yang dipengaruhi hanya padding rail itu sendiri, bukan
+     * tata letak dokumen.
+     *
+     * Sama-sama hanya ditulis di keadaan SETTLED (transitionend / mount /
+     * resize yang sudah reda) supaya tak ada nilai antara.
+     */
+    const publishVisible = () => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h <= 0) return;
+      const value = `${h}px`;
+      if (value === lastVisibleH) return;
+      lastVisibleH = value;
+      document.documentElement.style.setProperty('--filter-header-visible-h', value);
+    };
     const publish = () => {
       if (!isVisibleRef.current) return;
       const h = Math.round(el.getBoundingClientRect().height);
@@ -187,7 +211,7 @@ export function FilterHeader({
       const settled =
         (e.target === collapseRef.current && e.propertyName === 'grid-template-rows') ||
         (e.target === padBoxRef.current && e.propertyName.startsWith('padding'));
-      if (settled) publish();
+      if (settled) { publish(); publishVisible(); }
     };
     // iOS Safari menembakkan `resize` saat toolbar browser muncul kembali — pada
     // gestur scroll-up yang SAMA yang memulai animasi buka header 300ms. Dulu
@@ -207,7 +231,7 @@ export function FilterHeader({
       );
     let resizeSettleTimer = 0;
     const onResize = () => {
-      if (!isToggleAnimating()) publish();
+      if (!isToggleAnimating()) { publish(); publishVisible(); }
       // Resize lintas-breakpoint (rotasi 390->744 melewati sm): isi header ikut
       // bertransisi (transition-all pada input Cari, ukuran tombol), jadi
       // pengukuran di momen resize menangkap nilai tengah (terukur 175px dari
@@ -216,10 +240,11 @@ export function FilterHeader({
       // sedang beranimasi, transitionend settled yang mengambil alih.
       window.clearTimeout(resizeSettleTimer);
       resizeSettleTimer = window.setTimeout(() => {
-        if (!isToggleAnimating()) publish();
+        if (!isToggleAnimating()) { publish(); publishVisible(); }
       }, 400);
     };
     publish(); // mount: expanded, nothing animating yet
+    publishVisible();
     window.addEventListener('resize', onResize);
     el.addEventListener('transitionend', onTransitionEnd);
     return () => {
