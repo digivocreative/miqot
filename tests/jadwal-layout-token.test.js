@@ -46,10 +46,10 @@ test('lebar kolom & rail dasar = 512px / 0', () => {
   assert.match(b, /--jadwal-top-gap:\s*11px/);
 });
 
-test('1024px: kolom menyempit ke 420, rail 250', () => {
+test('1024px: kolom menyempit ke 380, rail 280', () => {
   const b = rootBlockAtWidth(1024);
-  assert.match(b, /--jadwal-col-w:\s*420px/);
-  assert.match(b, /--jadwal-rail-w:\s*250px/);
+  assert.match(b, /--jadwal-col-w:\s*380px/);
+  assert.match(b, /--jadwal-rail-w:\s*280px/);
 });
 
 test('1280px: kolom kembali 512, rail 340', () => {
@@ -81,7 +81,7 @@ test('kiri dan kanan selebar sama di tiap breakpoint', () => {
  * tidak rail-nya tertindih kolom. Dihitung, bukan dikira-kira.
  */
 test('rail muat di selokan pada tiap breakpoint', () => {
-  for (const [vw, col, rail] of [[1024, 420, 250], [1280, 512, 340], [1440, 512, 400]]) {
+  for (const [vw, col, rail] of [[1024, 380, 280], [1280, 512, 340], [1440, 512, 400]]) {
     const gutter = (vw - col) / 2;
     assert.ok(rail + 24 < gutter, `rail ${rail}px + 24 tidak muat di selokan ${gutter}px pada ${vw}`);
   }

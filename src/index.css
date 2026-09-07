@@ -47,11 +47,16 @@
 }
 
 /* iPad landscape: kolom sengaja MENYEMPIT justru saat layar melebar, supaya dua
-   rail muat di selokannya. Ini keputusan desain, bukan kekeliruan. */
+   rail muat di selokannya. Ini keputusan desain, bukan kekeliruan.
+
+   380px adalah kolom TERSEMPIT yang beredar — dipilih supaya rail bisa 280px.
+   Anggarannya: selokan (1024 − 380) / 2 = 322px, dikurangi jarak 24px menyisakan
+   18px ke tepi layar. Menaikkan rail lagi berarti kolomnya harus menyempit lagi,
+   dan nama hotel di kartu sudah terpotong di lebar ini. */
 @media (min-width: 1024px) {
   :root {
-    --jadwal-col-w: 420px;
-    --jadwal-rail-w: 250px;
+    --jadwal-col-w: 380px;
+    --jadwal-rail-w: 280px;
   }
 }
 
