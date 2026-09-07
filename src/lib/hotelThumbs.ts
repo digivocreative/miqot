@@ -9,6 +9,8 @@ export interface PublicHotel {
   walk_label?: string | null;
   area?: string | null;
   cover?: string | null;
+  /** Seluruh foto hotel (maks 12), untuk galeri ketuk. cover = photos[0]. */
+  photos?: string[];
 }
 
 /**

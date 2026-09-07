@@ -1144,7 +1144,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         )}
         {selectedPkg && (
           <RailShell key="rail-kanan" side="right" contentKey={selectedPkg.jadwalId}>
-            <DetailRail pkg={selectedPkg} />
+            <DetailRail pkg={selectedPkg} agentSlug={railAgentSlug} />
           </RailShell>
         )}
       </AnimatePresence>

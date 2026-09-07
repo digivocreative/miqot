@@ -7723,6 +7723,11 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
 // tertangkap sebagai slug hotel. Pola yang sama dipakai '/api/hotels/banners'.
 let publicHotelCache = { at: 0, data: null };
 const PUBLIC_HOTEL_CACHE_MS = 5 * 60 * 1000;
+// Batas foto per hotel yang ikut ke halaman publik. Direktori mengizinkan 30
+// per hotel; mengirim semuanya untuk 40+ hotel membengkakkan respons yang
+// diambil setiap pengunjung, padahal galeri ketuk jarang dibuka lebih dari
+// selusin. Sisanya tetap ada di Direktori Hotel untuk agent.
+const PUBLIC_HOTEL_MAX_PHOTOS = 12;
 
 app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
   try {
@@ -7741,7 +7746,12 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
     }
     const slim = (data || []).map((row) => {
       const media = Array.isArray(row.media) ? row.media : [];
-      const cover = media.find((m) => m?.type === 'image')?.url || null;
+      // Foto saja, bukan video: rail memakainya untuk thumbnail + galeri ketuk,
+      // dan video menyeret PlyrVideo ke halaman publik tanpa ada yang meminta.
+      const photos = media
+        .filter((m) => m?.type === 'image' && m?.url)
+        .slice(0, PUBLIC_HOTEL_MAX_PHOTOS)
+        .map((m) => m.url);
       return {
         name: row.name,
         city: row.city,
@@ -7749,7 +7759,8 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
         distance_label: row.distance_label ?? null,
         walk_label: row.walk_label ?? null,
         area: row.area ?? null,
-        cover,
+        cover: photos[0] || null,
+        photos,
       };
     });
     publicHotelCache = { at: Date.now(), data: slim };
