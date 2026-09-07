@@ -46,16 +46,22 @@ test('lebar kolom & rail dasar = 512px / 0', () => {
   assert.match(b, /--jadwal-top-gap:\s*11px/);
 });
 
-test('1024px: kolom menyempit ke 380, rail 280', () => {
+test('1024px: kolom menyempit ke 380, rail 320', () => {
   const b = rootBlockAtWidth(1024);
   assert.match(b, /--jadwal-col-w:\s*380px/);
-  assert.match(b, /--jadwal-rail-w:\s*280px/);
+  assert.match(b, /--jadwal-rail-w:\s*320px/);
 });
 
-test('1280px: kolom kembali 512, rail 340', () => {
+test('1160px: rail naik ke 370 — di sinilah selokannya baru cukup', () => {
+  assert.match(rootBlockAtWidth(1160), /--jadwal-rail-w:\s*370px/);
+});
+
+test('1280px: kolom kembali 512, rail TIDAK ikut disetel ulang', () => {
   const b = rootBlockAtWidth(1280);
   assert.match(b, /--jadwal-col-w:\s*512px/);
-  assert.match(b, /--jadwal-rail-w:\s*340px/);
+  // Sengaja dibiarkan mewarisi 370px dari 1160. Menyetelnya kembali ke angka
+  // yang lebih kecil membuat rail MENYUSUT justru saat layar melebar.
+  assert.doesNotMatch(b, /--jadwal-rail-w/);
 });
 
 test('1440px: rail 400', () => {
@@ -81,7 +87,7 @@ test('kiri dan kanan selebar sama di tiap breakpoint', () => {
  * tidak rail-nya tertindih kolom. Dihitung, bukan dikira-kira.
  */
 test('rail muat di selokan pada tiap breakpoint', () => {
-  for (const [vw, col, rail] of [[1024, 380, 280], [1280, 512, 340], [1440, 512, 400]]) {
+  for (const [vw, col, rail] of [[1024, 380, 320], [1160, 380, 370], [1280, 512, 370], [1440, 512, 400]]) {
     const gutter = (vw - col) / 2;
     assert.ok(rail < gutter, `rail ${rail}px tidak muat di selokan ${gutter}px pada ${vw}`);
   }
@@ -182,4 +188,23 @@ test('kartu dan rail memakai jarak-atas dari token yang sama', () => {
  */
 test('selokan scrollbar disisakan di kedua tepi, bukan sebelah saja', () => {
   assert.match(rule('.jadwal-rail'), /scrollbar-gutter:\s*stable both-edges/);
+});
+
+/**
+ * Rail tidak boleh pernah MENYUSUT saat layar melebar — itu terbaca sebagai
+ * bug, bukan sebagai keputusan. Dulu nyaris terjadi di 1280: 370px di 1279
+ * lalu 340px di 1280, karena kolom tengah melebar di titik yang sama.
+ */
+test('lebar rail tidak pernah mengecil seiring viewport membesar', () => {
+  const urut = [...css.matchAll(/@media\s*\(min-width:\s*(\d+)px\)\s*\{\s*:root\s*\{([^}]*)\}/g)]
+    .map(([, w, body]) => [Number(w), body.match(/--jadwal-rail-w:\s*(\d+)px/)?.[1]])
+    .filter(([, v]) => v)
+    .sort((a, b) => a[0] - b[0])
+    .map(([w, v]) => [w, Number(v)]);
+  for (let i = 1; i < urut.length; i += 1) {
+    assert.ok(
+      urut[i][1] >= urut[i - 1][1],
+      `rail menyusut ${urut[i - 1][1]}px -> ${urut[i][1]}px saat viewport naik ke ${urut[i][0]}px`,
+    );
+  }
 });

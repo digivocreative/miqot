@@ -62,14 +62,24 @@
 @media (min-width: 1024px) {
   :root {
     --jadwal-col-w: 380px;
-    --jadwal-rail-w: 280px;
+    --jadwal-rail-w: 320px;
   }
 }
 
+/* 370px baru muat di sini, bukan di 1024: selokan tiap sisi (1160 − 380) / 2 =
+   390px, menyisakan 20px ke tepi layar. Di 1024 selokannya cuma 322px. */
+@media (min-width: 1160px) {
+  :root {
+    --jadwal-rail-w: 370px;
+  }
+}
+
+/* Kolom melebar di sini, TAPI --jadwal-rail-w sengaja tidak disetel ulang.
+   Menurunkannya ke 340px membuat rail MENYUSUT justru saat layar melebar —
+   370px masih muat: 370 + 512 + 370 = 1252 dari 1280. */
 @media (min-width: 1280px) {
   :root {
     --jadwal-col-w: 512px;
-    --jadwal-rail-w: 340px;
   }
 }
 
