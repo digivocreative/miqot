@@ -22,12 +22,93 @@
      angka di sini hanya untuk paint pertama sebelum JS sempat mengukur, jadi
      tidak ada lompatan. Jangan dipakai sebagai sumber kebenaran tinggi header. */
   --filter-header-h: 167px;
+
+  /* Lebar kolom jadwal + lebar rail desktop — SATU sumber untuk empat pembungkus
+     (main, modal Tampilan Ringkas, header inner, bar agent). Sebelumnya keempatnya
+     menulis `max-w-lg` sendiri-sendiri; begitu kolom menyempit di 1024px, header
+     langsung meleset dari kartu. Ambang 1024 di bawah HARUS sama dengan
+     WIDE_MEDIA_QUERY di src/lib/wideLayout.ts — kalau berbeda, rail tampil tanpa
+     pernah diisi. */
+  --jadwal-col-w: 512px;
+  --jadwal-rail-w: 0px;
+  --jadwal-rail-gap: 24px;
 }
 
 @media (min-width: 640px) {
   :root {
     --filter-header-h: 181px;
   }
+}
+
+/* iPad landscape: kolom sengaja MENYEMPIT justru saat layar melebar, supaya dua
+   rail muat di selokannya. Ini keputusan desain, bukan kekeliruan. */
+@media (min-width: 1024px) {
+  :root {
+    --jadwal-col-w: 420px;
+    --jadwal-rail-w: 270px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --jadwal-col-w: 512px;
+    --jadwal-rail-w: 320px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --jadwal-rail-w: 368px;
+  }
+}
+
+.jadwal-shell {
+  width: 100%;
+  max-width: var(--jadwal-col-w);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Rail = `fixed`, BUKAN sticky: harus diam saat daftar kartu digulir.
+   overscroll-behavior menahan gulir rail supaya tidak menular ke daftar begitu
+   rail mentok — di laptop 720px isi rail memang lebih tinggi dari ruangnya. */
+.jadwal-rail {
+  display: none;
+  position: fixed;
+  top: var(--filter-header-h);
+  bottom: 24px;
+  width: var(--jadwal-rail-w);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 30;
+}
+
+@media (min-width: 1024px) {
+  .jadwal-rail {
+    display: block;
+  }
+}
+
+.jadwal-rail--left {
+  right: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
+}
+
+.jadwal-rail--right {
+  left: calc(50% + var(--jadwal-col-w) / 2 + var(--jadwal-rail-gap));
+}
+
+/* scrollbar-color mematikan ::-webkit-*; jangan dipasang berbarengan. */
+.jadwal-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.jadwal-rail::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.13);
+  border-radius: 3px;
+}
+
+.dark .jadwal-rail::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 body {

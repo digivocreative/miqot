@@ -100,7 +100,7 @@ export default function FloatingAgentBar({ agent, slug, message: messageProp, ev
     <div
       className={`
         fixed bottom-6 left-4 right-4 z-50
-        max-w-lg mx-auto
+        jadwal-shell
         ${shellTone}
         backdrop-blur-md
         shadow-2xl

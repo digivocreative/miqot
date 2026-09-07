@@ -14,7 +14,8 @@
 
 - **Breakpoint & lebar (persis):** `<1024` kolom 512 / rail 0 · `1024–1279` kolom 420 / rail 270 · `1280–1439` kolom 512 / rail 320 · `≥1440` kolom 512 / rail 368. Jarak kolom↔rail 24px.
 - **Perilaku di bawah 1024px tidak boleh berubah sama sekali.** Semua ranjau scroll iOS ada di sana.
-- **Empat pembungkus wajib satu token:** `src/App.tsx:878` (`<main>`), `src/App.tsx:1127` (modal Tampilan Ringkas), `src/components/FilterHeader.tsx:413`, `src/components/FloatingAgentBar.tsx:103`.
+- **Tiga pembungkus halaman DAFTAR wajib satu token:** `src/App.tsx:968` (`<main>` daftar), `src/components/FilterHeader.tsx:413`, `src/components/FloatingAgentBar.tsx:103`.
+  **Koreksi saat eksekusi:** `App.tsx:860` dan `:878` ternyata milik halaman **Detail Paket** (cabang render terpisah yang `return` lebih awal di `:848`), dan `:1127` milik modal Tampilan Ringkas. Ketiganya tidak punya rail, jadi mempersempit kolomnya di 1024px hanya regresi — **sengaja dibiarkan `max-w-lg`.**
 - **Mode gelap wajib** di setiap permukaan baru (`dark:` varian).
 - **Analytics halaman publik wajib `trackPublicEvent`**, dan setiap event baru wajib didaftarkan di `server.js` pada `FEATURE_LABELS`, `ACTION_LABELS`, dan `VALID_PUBLIC_EVENTS` — public event yang tidak ter-whitelist di-drop 400 senyap. Butuh restart `server.js`.
 - **Mode "Tampilan Ringkas" tidak disentuh** — tetap memakai modal layar penuh.
@@ -188,10 +189,12 @@ Sisipkan setelah blok `@media (min-width: 640px)` yang sudah ada (sekitar baris 
 
 - [ ] **Step 4: Ganti empat `max-w-lg` jadi `.jadwal-shell`**
 
-`src/App.tsx:878` — `className="max-w-lg mx-auto px-4 pb-8"` → `className="jadwal-shell px-4 pb-8"`
-`src/App.tsx:1127` — `className="max-w-lg mx-auto pt-4 pb-24"` → `className="jadwal-shell pt-4 pb-24"`
-`src/components/FilterHeader.tsx:413` — `className="max-w-lg mx-auto px-4 transition-[padding] ..."` → `className="jadwal-shell px-4 transition-[padding] ..."` (sisa kelasnya dipertahankan persis)
-`src/components/FloatingAgentBar.tsx:103` — hapus `max-w-lg mx-auto`, ganti `jadwal-shell`
+`src/App.tsx:968` — `className="max-w-lg mx-auto px-4 pb-8"` → `className="jadwal-shell px-4 pb-8"`
+`src/components/FilterHeader.tsx:413` — `max-w-lg mx-auto` → `jadwal-shell` (sisa kelasnya dipertahankan persis)
+`src/components/FloatingAgentBar.tsx:103` — `max-w-lg mx-auto` → `jadwal-shell`
+
+**JANGAN disentuh:** `App.tsx:860`/`:878` (halaman Detail Paket) dan `App.tsx:1127` (modal
+Tampilan Ringkas). Ketiganya tidak punya rail; menyempitkannya di 1024px hanya regresi.
 
 - [ ] **Step 5: Jalankan tes, pastikan hijau**
 

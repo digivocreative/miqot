@@ -410,7 +410,7 @@ export function FilterHeader({
       {/* Vertical padding slims symmetrically (16px -> 8px) while the rows are hidden */}
       <div
         ref={padBoxRef}
-        className="max-w-lg mx-auto px-4 transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        className="jadwal-shell px-4 transition-[padding] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
         style={{
           paddingTop: isVisible ? '16px' : '8px',
           paddingBottom: isVisible ? '16px' : '8px',

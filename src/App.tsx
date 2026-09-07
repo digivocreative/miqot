@@ -965,7 +965,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           dikecilkan di mobile — karena itu angkanya sekarang datang dari
           --filter-header-h yang diukur FilterHeader sendiri. */}
       <main
-        className="max-w-lg mx-auto px-4 pb-8"
+        className="jadwal-shell px-4 pb-8"
         style={{ paddingTop: 'calc(var(--filter-header-h) + 11px)' }}
       >
         {/* Loading State */}
