@@ -809,6 +809,17 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setExpandedCardId(prevId => prevId === id ? null : id);
   };
 
+  // Rail terbuka = momen agent mulai menjelaskan satu paket. Event PUBLIK
+  // (keyed by slug agent) karena yang melihat layar adalah jamaah, bukan agent
+  // yang login — trackEvent butuh sesi agent dan akan gagal di sini.
+  const railOpenedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isWide || !expandedCardId || !currentAgentSlug) return;
+    if (railOpenedFor.current === expandedCardId) return;
+    railOpenedFor.current = expandedCardId;
+    trackPublicEvent(currentAgentSlug, 'jadwal_rail_open', { paket: expandedCardId });
+  }, [isWide, expandedCardId, currentAgentSlug]);
+
   // Escape membatalkan pilihan di layar lebar. Di bawah 1024px tombol ini tidak
   // dipasang sama sekali — menutup kartu di sana punya kompensasi gulirnya sendiri.
   useEffect(() => {
@@ -1142,7 +1153,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           title={selectedPkg.nama}
           onClose={() => setExpandedCardId(null)}
         >
-          <DetailRail pkg={selectedPkg} />
+          <DetailRail pkg={selectedPkg} agentSlug={currentAgentSlug} />
         </RailShell>
       )}
 

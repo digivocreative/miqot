@@ -11,9 +11,12 @@ import {
 } from '@/lib/packageDetail';
 import { cheapestTierOf } from '@/lib/packagePricing';
 import type { RoomPricing, UmrohPackage } from '@/types';
+import { trackPublicEvent } from '@/utils/analytics';
 
 interface Props {
   pkg: UmrohPackage;
+  /** Slug agent untuk event publik. Null = jadwal umum tanpa agent. */
+  agentSlug?: string | null;
 }
 
 type TabId = 'hotel' | 'biaya' | 'brosur';
@@ -81,7 +84,7 @@ function HotelBlock({ city, name, stars, distance }: { city: string; name: strin
  *
  * Tab "Rute" sengaja TIDAK ada — rutenya sudah jadi rail kiri.
  */
-export default function DetailRail({ pkg }: Props) {
+export default function DetailRail({ pkg, agentSlug }: Props) {
   const [tab, setTab] = useState<TabId>('hotel');
 
   const tiers = tiersOf(pkg.harga);
@@ -114,7 +117,12 @@ export default function DetailRail({ pkg }: Props) {
             <button
               key={t.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setTab(t.id);
+                // Tab mana yang dipakai agent = pertanyaan apa yang paling
+                // sering datang dari jamaah. Publik, bukan trackEvent.
+                if (agentSlug) trackPublicEvent(agentSlug, 'jadwal_rail_tab', { tab: t.id });
+              }}
               aria-pressed={active}
               className={`h-[31px] flex-1 rounded-lg text-[12px] transition-colors ${
                 active
