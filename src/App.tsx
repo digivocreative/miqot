@@ -26,6 +26,8 @@ import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmat
 import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
 import { useWideLayout } from '@/hooks/useWideLayout';
+import RailShell from '@/components/jadwal-rails/RailShell';
+import ItineraryRail from '@/components/jadwal-rails/ItineraryRail';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
@@ -951,8 +953,18 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // ============================================
   // Normal Mode (full app)
   // ============================================
+
+  // Paket yang sedang dibahas di rail. Dicari dari filteredPackages, bukan
+  // packages: kalau kartunya tersaring keluar, railnya harus ikut menutup.
+  const selectedPkg = isWide && expandedCardId
+    ? filteredPackages.find(p => p.jadwalId === expandedCardId) ?? null
+    : null;
+  const railAgentSlug = currentAgent
+    ? Object.entries(AGENTS_DATA).find(([, v]) => v === currentAgent)?.[0] || null
+    : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
+    <div className="jadwal-page min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
       {/* ============================================ */}
       {/* FILTER HEADER */}
       {/* ============================================ */}
@@ -1119,6 +1131,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           </div>
         )}
       </main>
+
+      {/* ============================================ */}
+      {/* RAIL DESKTOP (>=1024px) — lihat .jadwal-rail di src/index.css */}
+      {/* ============================================ */}
+      {selectedPkg && (
+        <RailShell
+          side="left"
+          title={selectedPkg.nama}
+          onClose={() => setExpandedCardId(null)}
+        >
+          <ItineraryRail pkg={selectedPkg} agentSlug={railAgentSlug} />
+        </RailShell>
+      )}
 
       {/* ============================================ */}
       {/* FILTER MODAL */}

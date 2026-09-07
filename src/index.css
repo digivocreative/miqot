@@ -69,6 +69,32 @@
   margin-right: auto;
 }
 
+/* Latar berbranding — hanya ≥1024px, tempat selokan kiri/kanan mulai terlihat.
+   Di bawah itu latar halaman tidak berubah sedikit pun.
+
+   Ditimpa lewat background-image, BUKAN lapisan `fixed` ber-z-index -1:
+   pembungkus halaman sudah punya gradien Tailwind yang opak, jadi lapisan di
+   belakangnya tidak akan pernah terlihat. Aturan ini menang atas kelas Tailwind
+   karena spesifisitasnya sama dan urutannya belakangan.
+
+   Murni CSS, tanpa aset: nol permintaan jaringan dan tidak ada gambar yang bisa
+   gagal muat, tapi rona merah Alhijaz tetap terbaca di selokan. */
+@media (min-width: 1024px) {
+  .jadwal-page {
+    background-image:
+      radial-gradient(1100px 620px at 84% -10%, rgba(192, 57, 43, 0.09), transparent 62%),
+      radial-gradient(900px 520px at 8% 8%, rgba(201, 162, 39, 0.07), transparent 60%),
+      linear-gradient(168deg, #F9F6F3 0%, #EFE7E0 100%);
+  }
+
+  .dark .jadwal-page {
+    background-image:
+      radial-gradient(1100px 620px at 84% -10%, rgba(192, 38, 28, 0.16), transparent 62%),
+      radial-gradient(900px 520px at 8% 8%, rgba(201, 162, 39, 0.07), transparent 60%),
+      linear-gradient(168deg, #0B1120 0%, #05080F 100%);
+  }
+}
+
 /* Rail = `fixed`, BUKAN sticky: harus diam saat daftar kartu digulir.
    overscroll-behavior menahan gulir rail supaya tidak menular ke daftar begitu
    rail mentok — di laptop 720px isi rail memang lebih tinggi dari ruangnya. */
