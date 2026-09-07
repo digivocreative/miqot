@@ -141,3 +141,16 @@ test('padding rail mengikuti tinggi header hidup, dengan fallback', () => {
 test('rail ikut beranimasi bersama header, bukan meloncat', () => {
   assert.match(rule('.jadwal-rail'), /transition:[^;]*padding-top/);
 });
+
+/**
+ * Batas bawah rail dilarutkan, bukan dipotong. Tanpa ini isi rail terpenggal
+ * mendadak di tepi viewport dan railnya terbaca sebagai panel yang ditempel —
+ * keluhan "belum nge-blend". Dipasang dua-duanya karena Safari masih butuh
+ * awalan -webkit-.
+ */
+test('tepi bawah rail memudar, tidak terpotong keras', () => {
+  const body = rule('.jadwal-rail');
+  assert.match(body, /-webkit-mask-image:\s*linear-gradient\(to bottom/);
+  assert.match(body, /[^-]mask-image:\s*linear-gradient\(to bottom/);
+  assert.match(body, /transparent 100%\)/);
+});

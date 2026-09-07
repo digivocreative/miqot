@@ -116,8 +116,15 @@
      Dengan cara ini isi rail lewat DI BAWAH header tembus-pandang, persis
      seperti kolom tengah — itulah yang membuatnya menyatu. */
   top: 0;
-  bottom: 24px;
+  bottom: 0;
   padding-top: var(--filter-header-visible-h, var(--filter-header-h));
+  padding-bottom: 28px;
+  /* Batas bawah dilarutkan, bukan dipotong. Tanpa ini isi rail terpenggal
+     mendadak di tepi viewport dan railnya terbaca seperti panel yang ditempel;
+     dengan mask, isinya memudar ke halaman seperti kolom tengah yang memang
+     berlanjut ke bawah layar. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
   /* Sepadan dengan animasi buka/tutup header (300ms). Tanpa ini isi rail
      meloncat sekaligus sementara headernya meluncur halus. */
   transition: padding-top 300ms cubic-bezier(0.32, 0.72, 0, 1);
