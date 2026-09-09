@@ -14,9 +14,9 @@ import {
  * ikut terkunci di dalam panel yang tak pernah terbuka, dan agent kehilangan
  * justru ujung percakapannya.
  *
- * Yang disembunyikan HANYA dua blok yang benar-benar pindah: perjalanan (rail
- * kiri memuat itinerary lengkap) dan hotel plus (rail kanan memuat semua hotel
- * berikut fotonya). Rincian biaya, brosur, dan suhu tetap tinggal di kartu.
+ * Yang disembunyikan HANYA blok yang benar-benar pindah: hotel plus (rail kanan
+ * memuat semua hotel berikut fotonya). Rincian biaya, brosur, suhu, dan
+ * perjalanan tetap tinggal di kartu.
  */
 
 test('railMode menandai kartu supaya blok yang pindah ke rail tersembunyi', async () => {
@@ -43,9 +43,15 @@ test('railMode TIDAK menghalangi kartu memuai — tombol harus tetap terjangkau'
  * antara blok-blok itu, jadi menyembunyikan satu wilayah utuh ikut menelan
  * tombolnya — persis masalah yang sedang dihindari.
  */
-test('blok perjalanan bertanda — rail kiri sudah memuat itinerary lengkap', async () => {
+test('blok perjalanan TIDAK bertanda — tanggal manasik hanya hidup di kartu', async () => {
   const { html } = await renderPackageCard({ package: samplePackage(), isExpanded: true });
-  assert.match(html, /data-rail-hidden="perjalanan"/);
+  assert.doesNotMatch(
+    html,
+    /data-rail-hidden="perjalanan"/,
+    'rail kiri tak pernah memuat manasik maupun lencana kota mendarat — menandai blok ini ' +
+      'membuat keduanya lenyap dari layar >=1024px tanpa pengganti',
+  );
+  assert.match(html, /Manasik/, 'chip manasik wajib ikut terender di kartu');
 });
 
 /**
@@ -62,12 +68,12 @@ test('suhu TIDAK bertanda — sengaja tetap di kartu', async () => {
   );
 });
 
-test('yang bertanda tidak lebih dari dua blok', async () => {
+test('yang bertanda tidak lebih dari satu blok', async () => {
   const { html } = await renderPackageCard({ package: samplePackage(), isExpanded: true });
   const marked = html.match(/data-rail-hidden=/g) ?? [];
   assert.ok(
-    marked.length <= 2,
-    `${marked.length} blok bertanda — hanya perjalanan dan hotel plus yang pindah ke rail`,
+    marked.length <= 1,
+    `${marked.length} blok bertanda — hanya hotel plus yang pindah ke rail`,
   );
 });
 

@@ -269,3 +269,27 @@ Akibatnya `data-rail-hidden` menyempit dari lima blok ke dua: perjalanan dan hot
 
 Fase 2 di bagian "Foto hotel — dua fase" di atas **sudah tidak berlaku**: endpoint publiknya
 dikerjakan sekarang karena foto jadi inti rail kanan, bukan pemanis.
+
+---
+
+## Revisi 2026-09-09 — blok perjalanan kembali ke kartu
+
+Laporan user: di layar lebar, section **Perjalanan** yang memuat tanggal **manasik** tidak
+muncul sama sekali. Bukan soal data — blok itu memang disembunyikan
+`.jadwal-rail-mode [data-rail-hidden]`, dengan anggapan rail kiri menggantikannya.
+
+Anggapan itu keliru:
+
+- "Ringkasan Perjalanan" (`JourneyStrip`) di rail kiri hanya menghitung **malam per kota**.
+  Ia tidak pernah menyebut manasik, dan tidak punya lencana kota mendarat.
+- `manasikTanggal` cuma dirender di satu tempat di seluruh UI web — blok Perjalanan di
+  `PackageCard`. Sisanya cuma teks share WhatsApp dan PDF `CompareDocument`.
+- Untuk paket yang itinerary-nya belum terparse, seluruh rail kiri berubah jadi
+  "Tampilan web belum tersedia", jadi penggantinya pun tidak ada.
+
+Karena itu `data-rail-hidden="perjalanan"` **dicabut**: blok Perjalanan tampil di kartu pada
+semua lebar, dan penanda tinggal satu — `hotel-plus`. Tumpang tindih dengan rail kiri kecil dan
+disengaja (rantai kota + lencana mendarat + manasik di kartu; malam per kota di rail).
+
+Tes `tests/package-card-rail-mode.test.js` dibalik arahnya: sekarang ia menegaskan blok
+perjalanan TIDAK bertanda dan chip Manasik ikut terender.

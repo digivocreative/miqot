@@ -55,12 +55,16 @@ interface PackageCardProps {
   isComparing?: boolean;
   /**
    * Layar lebar (>=1024px): kartu tetap memuai supaya SELURUH tombol aksi dan
-   * modalnya tetap terjangkau, tapi dua blok yang sudah pindah ke rail
-   * disembunyikan — perjalanan (rail kiri memuat itinerary lengkap) dan hotel
-   * plus (rail kanan memuat semua hotel berikut fotonya).
+   * modalnya tetap terjangkau, tapi blok yang sudah pindah ke rail
+   * disembunyikan — hotel plus (rail kanan memuat semua hotel berikut fotonya).
    *
-   * Rincian biaya, brosur, dan suhu SENGAJA tetap di kartu: keduanya sudah
-   * bekerja di sana, memindahkannya hanya memecah satu hal jadi dua tempat.
+   * Rincian biaya, brosur, suhu, dan PERJALANAN sengaja tetap di kartu.
+   * Perjalanan sempat ikut disembunyikan (7 Sep 2026) dengan anggapan rail kiri
+   * menggantikannya — keliru: "Ringkasan Perjalanan" di rail cuma menghitung
+   * malam per kota, tidak memuat tanggal MANASIK maupun lencana kota mendarat,
+   * dan seluruh rail kiri berubah jadi "Tampilan web belum tersedia" untuk paket
+   * yang itinerary-nya belum terparse. Akibatnya manasik lenyap dari layar lebar
+   * tanpa pengganti di mana pun.
    */
   railMode?: boolean;
 }
@@ -622,8 +626,8 @@ _________________________
       const original = cardRef.current;
       const clone = original.cloneNode(true) as HTMLElement;
       // Klon mewarisi kelas root kartu. Tanpa baris ini, gambar ekspor ikut
-      // kehilangan perjalanan, brosur, rincian biaya, dan suhu — semua yang
-      // disembunyikan railMode di layar — walau isinya ada di DOM.
+      // kehilangan blok yang disembunyikan railMode di layar (hotel plus) —
+      // walau isinya ada di DOM.
       clone.classList.remove('jadwal-rail-mode');
 
       // Setup Ghost Element (Invisible but Rendered)
@@ -1820,8 +1824,12 @@ _________________________
                Satu kartu, bukan dua: "Landing di <kota>" dulu mengulang simpul
                pertama rantai setiap kali rute berakhir di MED. Kartu ini SELALU
                dirender walau rantainya kosong — kalau tidak, landing dan manasik
-               ikut hilang untuk paket yang urutannya tak bisa disimpulkan. */}
-          <div data-rail-hidden="perjalanan" className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+               ikut hilang untuk paket yang urutannya tak bisa disimpulkan.
+
+               TANPA data-rail-hidden, juga di layar >=1024px: tanggal manasik
+               hanya hidup di sini, dan rail kiri tidak memuatnya (lihat komentar
+               prop railMode). Menandainya = manasik hilang dari desktop. */}
+          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="mb-5 flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/90 text-emerald-600 shadow-sm ring-1 ring-gray-100 dark:bg-slate-900 dark:text-emerald-400 dark:ring-slate-700">

@@ -208,11 +208,11 @@
 
 /* Di layar lebar kartu TETAP memuai — supaya seluruh tombol aksi dan modalnya
    tetap terjangkau tanpa memindahkan satu pun handler keluar dari PackageCard —
-   tapi blok yang sudah tampil di rail disembunyikan. Panel muai jadi tinggal
-   baris tombol.
+   tapi blok yang sudah tampil di rail disembunyikan (kini hanya hotel plus;
+   perjalanan dikembalikan ke kartu karena tanggal manasik cuma ada di situ).
 
    handleScreenshot membuang kelas ini dari klon; kalau tidak, gambar ekspor ikut
-   kehilangan perjalanan, brosur, rincian biaya, dan suhu. */
+   kehilangan blok yang tersembunyi itu. */
 .jadwal-rail-mode [data-rail-hidden] {
   display: none !important;
 }
