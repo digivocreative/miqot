@@ -57,6 +57,14 @@ test('Kloter 45 landing trip copy matches the JBU1569 manifest', () => {
   assert.match(component, /KLOTER45_TRIP\.travelDateRange/);
   assert.match(component, /by \{KLOTER45_TRIP\.airline\}/);
   assert.match(component, /\{KLOTER45_TRIP\.kloterLabel\}/);
+
+  // Info trip dan kontak TL digabung dalam satu kartu (hemat tinggi di HP):
+  // baris kontak harus dirender DI DALAM kartu trip, bukan kartu terpisah.
+  const tripCard = component.match(/<section\s+data-trip-card[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(tripCard, /\{packageTitle\}/);
+  assert.match(tripCard, /KLOTER45_CONTACTS\.map\(\(contact\) => \(\s*<ContactPersonRow/);
+  assert.doesNotMatch(component, /ContactPersonCard/);
+  assert.doesNotMatch(component, /<section className="space-y-2">\s*\{KLOTER45_CONTACTS/);
 });
 
 test('Kloter 45 landing groups jamaah by ID Umrah and sorts each family oldest first', () => {

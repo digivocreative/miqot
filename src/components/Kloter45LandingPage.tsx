@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Moon, Search, SlidersHorizontal, Sun, UsersRound } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Moon, Search, SlidersHorizontal, Sun } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
@@ -115,10 +115,10 @@ function Kloter45ThemeToggle() {
   );
 }
 
-function ContactPersonCard({ contact }: { contact: Kloter45Contact }) {
+function ContactPersonRow({ contact }: { contact: Kloter45Contact }) {
   return (
-    <article className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="relative h-12 w-12 flex-none">
+    <article className="flex items-center gap-3 px-4 py-3">
+      <div className="relative h-10 w-10 flex-none">
         <span className={`absolute inset-0 rounded-full bg-gradient-to-br ${contact.photoClassName} opacity-70 blur-[1px] motion-safe:animate-pulse`} />
         <div className={`relative h-full w-full overflow-hidden rounded-full bg-gradient-to-br p-[2px] shadow-sm ring-2 ring-white dark:ring-slate-800 transition-transform duration-300 hover:scale-105 ${contact.photoClassName}`}>
           <img
@@ -599,32 +599,29 @@ export default function Kloter45LandingPage() {
       </header>
 
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-8 pt-4">
-        <section className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
-                {KLOTER45_TRIP.kloterLabel}
-              </span>
-              <p className="mt-1.5 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
-                {packageTitle}
-              </p>
-              <p className="mt-1 text-[10px] font-semibold tracking-wide text-amber-600">
-                <span>{KLOTER45_TRIP.travelDateRange}</span>
-                <span className="text-gray-300"> · </span>
-                <span className="text-gray-500 dark:text-slate-400">by {KLOTER45_TRIP.airline}</span>
-              </p>
-            </div>
-            <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300">
-              <UsersRound size={18} strokeWidth={2.4} />
-            </div>
+        {/* Info trip + kontak dalam satu kartu supaya hemat tinggi di HP. */}
+        <section
+          data-trip-card
+          className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="px-4 pb-3 pt-4">
+            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+              {KLOTER45_TRIP.kloterLabel}
+            </span>
+            <p className="mt-1.5 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
+              {packageTitle}
+            </p>
+            <p className="mt-1 text-[10px] font-semibold tracking-wide text-amber-600">
+              <span>{KLOTER45_TRIP.travelDateRange}</span>
+              <span className="text-gray-300"> · </span>
+              <span className="text-gray-500 dark:text-slate-400">by {KLOTER45_TRIP.airline}</span>
+            </p>
           </div>
-
-        </section>
-
-        <section className="space-y-2">
-          {KLOTER45_CONTACTS.map((contact) => (
-            <ContactPersonCard key={contact.role} contact={contact} />
-          ))}
+          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-slate-800 dark:border-slate-800">
+            {KLOTER45_CONTACTS.map((contact) => (
+              <ContactPersonRow key={contact.role} contact={contact} />
+            ))}
+          </div>
         </section>
 
         {/* Command Bar (Search + Filters) */}
