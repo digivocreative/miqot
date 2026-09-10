@@ -637,7 +637,12 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(component, /<AnimatePresence mode="wait" initial=\{false\} custom=\{direction\}>/);
   assert.match(component, /key=\{subPage \?\? 'home'\}/);
   assert.match(component, /variants=\{shouldReduceMotion \? REDUCED_MOTION_VARIANTS : PAGE_TRANSITION_VARIANTS\}/);
-  assert.match(component, /enter: \(direction: number\) => \(\{ x: direction > 0 \? 28 : -28, opacity: 0 \}\)/);
+  assert.match(component, /enter: \(direction: number\) => \(\{ x: direction > 0 \? 20 : -20, opacity: 0 \}\)/);
+  // Durasi dipaku supaya tidak merayap jadi lambat: masuk ≤ 0.2s, keluar ≤ 0.1s.
+  const enterMs = Number(component.match(/center: \{ x: 0, opacity: 1, transition: \{[^}]*duration: ([\d.]+)/)?.[1]) * 1000;
+  const exitMs = Number(component.match(/exit: \(direction: number\) => \(\{[\s\S]*?duration: ([\d.]+)/)?.[1]) * 1000;
+  assert.ok(enterMs > 0 && enterMs <= 200, `durasi masuk ${enterMs}ms`);
+  assert.ok(exitMs > 0 && exitMs <= 100, `durasi keluar ${exitMs}ms`);
   assert.match(component, /setDirection\(next \? 1 : -1\);/);
   assert.match(component, /if \(subPageRef\.current === null && next !== null\) homeScrollRef\.current = window\.scrollY;/);
   assert.match(component, /window\.scrollTo\(\{ top: subPageRef\.current \? 0 : homeScrollRef\.current, behavior: 'auto' \}\)/);

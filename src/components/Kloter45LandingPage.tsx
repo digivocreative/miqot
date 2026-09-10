@@ -147,13 +147,15 @@ function useKloter45SubPage(initial: Kloter45SubPage | null) {
   return { subPage, direction, navigate, restoreScroll };
 }
 
+// Cepat: keluar 90ms + masuk 180ms ≈ 270ms total (mode="wait" menjalankannya
+// berurutan). Lebih lama dari ini terasa lambat di HP.
 const PAGE_TRANSITION_VARIANTS = {
-  enter: (direction: number) => ({ x: direction > 0 ? 28 : -28, opacity: 0 }),
-  center: { x: 0, opacity: 1, transition: { type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.26 } },
+  enter: (direction: number) => ({ x: direction > 0 ? 20 : -20, opacity: 0 }),
+  center: { x: 0, opacity: 1, transition: { type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.18 } },
   exit: (direction: number) => ({
-    x: direction > 0 ? -20 : 20,
+    x: direction > 0 ? -14 : 14,
     opacity: 0,
-    transition: { type: 'tween', ease: [0.4, 0, 1, 1], duration: 0.14 },
+    transition: { type: 'tween', ease: [0.4, 0, 1, 1], duration: 0.09 },
   }),
 } as const;
 const REDUCED_MOTION_VARIANTS = {
