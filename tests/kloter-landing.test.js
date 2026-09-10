@@ -386,6 +386,28 @@ test('Kloter 45 landing persists prep changes to Supabase with a local fallback'
   assert.match(server, /const kloter = getKloterIndex\(req\.params\.tripSlug\);\s*if \(!kloter\) \{\s*return res\.status\(404\)/);
   assert.match(server, /\.in\('id_umroh', kloter\.idUmrah\)/);
   assert.match(server, /\[kloter\.trip\.slug\]: \{/);
+
+  // Jalur utama = tabel kloter_persiapan (satu baris per jamaah, tanpa agent);
+  // booking_persiapan hanya fallback selama migrasi belum dijalankan.
+  assert.match(server, /const KLOTER_PREP_TABLE = 'kloter_persiapan';/);
+  assert.match(server, /function isMissingKloterPrepTable\(error\)/);
+  assert.match(server, /\.from\(KLOTER_PREP_TABLE\)\s*\.select\('jamaah_no,phone,wa_confirmed,nusuk_installed'\)\s*\.eq\('trip_slug', kloter\.trip\.slug\)/);
+  assert.match(server, /if \(error && !isMissingKloterPrepTable\(error\)\) throw error;/);
+  // Hasil tabel baru harus benar-benar dipakai (dikembalikan) SEBELUM jalur lama disentuh.
+  const getHandler = server.match(/app\.get\('\/api\/tour-leader-prep\/:tripSlug'[\s\S]*?\n\}\);/)?.[0] ?? '';
+  assert.match(getHandler, /if \(!error\) \{[\s\S]*?\.filter\(\(row\) => kloter\.memberByNo\.has\(Number\(row\.jamaah_no\)\)\)[\s\S]*?return res\.json\(\{ success: true, data: rows \}\);\s*\}/);
+  assert.ok(getHandler.indexOf('KLOTER_PREP_TABLE') < getHandler.indexOf('TOUR_LEADER_PREP_TABLE'), 'tabel baru harus dicoba lebih dulu');
+  assert.match(server, /supabase\.from\(KLOTER_PREP_TABLE\)\.upsert\(\{\s*trip_slug: kloter\.trip\.slug,\s*jamaah_no: member\.no,[\s\S]*?\}, \{ onConflict: 'trip_slug,jamaah_no' \}\)/);
+  assert.match(server, /if \(!upsertError\) return res\.json\(\{ success: true \}\);\s*if \(!isMissingKloterPrepTable\(upsertError\)\) throw upsertError;/);
+  // Booking tanpa agent di jalur lama tidak boleh lagi diam-diam 404 "belum ditemukan".
+  assert.match(server, /return res\.status\(503\)\.json\(\{\s*success: false,\s*error: 'Migrasi kloter_persiapan belum dijalankan/);
+  assert.doesNotMatch(server, /Data booking jamaah belum ditemukan/);
+
+  const migration = read('migrations/20260910000000_kloter_persiapan.sql');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS kloter_persiapan \(/);
+  assert.match(migration, /PRIMARY KEY \(trip_slug, jamaah_no\)/);
+  assert.doesNotMatch(migration, /^\s*agent_id\s+\w/m, 'tabel baru tidak boleh punya kolom agent_id');
+  assert.ok(existsSync(join(rootPath, 'scripts/backfill-kloter-persiapan.mjs')));
 });
 
 test('Kloter 45 landing refuses to write before the server state is known', () => {

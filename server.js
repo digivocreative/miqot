@@ -311,6 +311,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 // Slug halaman kloter (/26SEP2026, /12SEP2026, ...) ikut dipesan dari registri.
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', ...KLOTER_TRIPS.map((trip) => trip.slug)]);
 const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
+// Tabel checklist kloter sendiri (migrations/20260910000000_kloter_persiapan.sql):
+// satu baris per jamaah per kloter, tanpa agent_id. booking_persiapan milik
+// Portal Jamaah mewajibkan agent_id, jadi booking kantor/langsung tidak bisa
+// disimpan di sana. Selama tabel baru belum ada, endpoint jatuh ke jalur lama.
+const KLOTER_PREP_TABLE = 'kloter_persiapan';
+function isMissingKloterPrepTable(error) {
+  const message = String(error?.message || '');
+  return /schema cache|Could not find the table/i.test(message) && /kloter_persiapan/i.test(message);
+}
 // Indeks per kloter untuk endpoint persiapan: nomor jamaah → anggota, dan
 // daftar ID Umrah untuk menyaring baris booking_persiapan.
 const KLOTER_INDEX = new Map(KLOTER_TRIPS.map((trip) => [trip.slug, {
@@ -1070,11 +1079,31 @@ app.get('/api/tour-leader-prep/:tripSlug', async (req, res) => {
 
   try {
     const { data, error } = await supabase
+      .from(KLOTER_PREP_TABLE)
+      .select('jamaah_no,phone,wa_confirmed,nusuk_installed')
+      .eq('trip_slug', kloter.trip.slug);
+    if (error && !isMissingKloterPrepTable(error)) throw error;
+    if (!error) {
+      const rows = (data || [])
+        .filter((row) => kloter.memberByNo.has(Number(row.jamaah_no)))
+        .map((row) => ({
+          jamaah_no: Number(row.jamaah_no),
+          phone: typeof row.phone === 'string' ? row.phone : null,
+          wa_confirmed: row.wa_confirmed === true,
+          nusuk_installed: row.nusuk_installed === true,
+        }))
+        .sort((left, right) => left.jamaah_no - right.jamaah_no);
+      return res.json({ success: true, data: rows });
+    }
+
+    // Jalur lama (tabel kloter_persiapan belum dimigrasi): baca dari
+    // booking_persiapan.tahapan[slug].
+    const { data: legacy, error: legacyError } = await supabase
       .from(TOUR_LEADER_PREP_TABLE)
       .select('id_umroh,tahapan')
       .in('id_umroh', kloter.idUmrah);
-    if (error) throw error;
-    const rows = (data || [])
+    if (legacyError) throw legacyError;
+    const rows = (legacy || [])
       .flatMap((row) => tourLeaderPrepRowToItems(row, kloter))
       .sort((left, right) => left.jamaah_no - right.jamaah_no);
     return res.json({ success: true, data: rows });
@@ -1093,6 +1122,24 @@ app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
 
   try {
     const { kloter, member, entry } = validation;
+
+    // Jalur utama: satu baris per jamaah, tanpa agent — menyimpan jamaah A
+    // tidak menyentuh baris jamaah B.
+    const { error: upsertError } = await supabase.from(KLOTER_PREP_TABLE).upsert({
+      trip_slug: kloter.trip.slug,
+      jamaah_no: member.no,
+      id_umroh: member.idUmrah,
+      jamaah_name: member.name,
+      phone: entry.phone,
+      wa_confirmed: entry.wa_confirmed,
+      nusuk_installed: entry.nusuk_installed,
+      updated_at: entry.updated_at,
+    }, { onConflict: 'trip_slug,jamaah_no' });
+    if (!upsertError) return res.json({ success: true });
+    if (!isMissingKloterPrepTable(upsertError)) throw upsertError;
+
+    // Jalur lama (tabel belum dimigrasi): booking_persiapan mewajibkan agent_id,
+    // jadi booking tanpa agent memang tidak bisa disimpan di sini.
     const { data: existing, error: readError } = await supabase
       .from(TOUR_LEADER_PREP_TABLE)
       .select('agent_id,tahapan,spiritual')
@@ -1114,7 +1161,11 @@ app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
     }
 
     if (!agentId) {
-      return res.status(404).json({ success: false, error: 'Data booking jamaah belum ditemukan' });
+      console.warn(`[tour-leader-prep] ${kloter.trip.slug}#${member.no} tidak tersimpan: booking ${member.idUmrah} tanpa agent dan tabel kloter_persiapan belum ada`);
+      return res.status(503).json({
+        success: false,
+        error: 'Migrasi kloter_persiapan belum dijalankan; booking tanpa agent belum bisa disimpan.',
+      });
     }
 
     const tahapan = plainObjectOrEmpty(existing?.tahapan);
@@ -1132,14 +1183,14 @@ app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
       },
     };
 
-    const { error: upsertError } = await supabase.from('booking_persiapan').upsert({
+    const { error: legacyUpsertError } = await supabase.from(TOUR_LEADER_PREP_TABLE).upsert({
       id_umroh: member.idUmrah,
       agent_id: agentId,
       tahapan: nextTahapan,
       spiritual: plainObjectOrEmpty(existing?.spiritual),
       updated_at: now,
     }, { onConflict: 'id_umroh' });
-    if (upsertError) throw upsertError;
+    if (legacyUpsertError) throw legacyUpsertError;
     return res.json({ success: true });
   } catch (err) {
     console.error('PUT /api/tour-leader-prep error:', err?.message || err);
