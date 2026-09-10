@@ -388,27 +388,11 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function sanitizeTourLeaderPrepText(value, maxLength) {
-  if (typeof value !== 'string') return null;
-  const text = value.trim().slice(0, maxLength);
-  return text || null;
-}
-
 function tourLeaderPrepEntryFromPayload(payload = {}) {
-  const zamzamMethod = payload.zamzam_method === 'pickup' || payload.zamzam_method === 'delivery'
-    ? payload.zamzam_method
-    : null;
-  const isDelivery = zamzamMethod === 'delivery';
-
   return {
     phone: typeof payload.phone === 'string' ? payload.phone.trim().slice(0, 32) : null,
     wa_confirmed: payload.wa_confirmed === true,
     nusuk_installed: payload.nusuk_installed === true,
-    raudhah_reserved: payload.raudhah_reserved === true,
-    zamzam_method: zamzamMethod,
-    zamzam_recipient_name: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_recipient_name, 120) : null,
-    zamzam_recipient_phone: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_recipient_phone, 32) : null,
-    zamzam_address: isDelivery ? sanitizeTourLeaderPrepText(payload.zamzam_address, 500) : null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -428,13 +412,6 @@ function tourLeaderPrepRowToItems(row) {
         phone: typeof saved.phone === 'string' ? saved.phone : null,
         wa_confirmed: saved.wa_confirmed === true,
         nusuk_installed: saved.nusuk_installed === true,
-        raudhah_reserved: saved.raudhah_reserved === true,
-        zamzam_method: saved.zamzam_method === 'pickup' || saved.zamzam_method === 'delivery'
-          ? saved.zamzam_method
-          : null,
-        zamzam_recipient_name: typeof saved.zamzam_recipient_name === 'string' ? saved.zamzam_recipient_name : null,
-        zamzam_recipient_phone: typeof saved.zamzam_recipient_phone === 'string' ? saved.zamzam_recipient_phone : null,
-        zamzam_address: typeof saved.zamzam_address === 'string' ? saved.zamzam_address : null,
       };
     })
     .filter(Boolean);
@@ -449,16 +426,7 @@ function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
     return { error: 'Nomor jamaah tidak valid' };
   }
 
-  const entry = tourLeaderPrepEntryFromPayload(payload);
-  if (payload.zamzam_method != null && !entry.zamzam_method) {
-    return { error: 'Pilihan pengambilan Air Zam-zam tidak valid' };
-  }
-  if (entry.zamzam_method === 'delivery'
-    && (!entry.zamzam_recipient_name || !entry.zamzam_recipient_phone || !entry.zamzam_address)) {
-    return { error: 'Data penerima dan alamat pengantaran wajib dilengkapi' };
-  }
-
-  return { member, entry };
+  return { member, entry: tourLeaderPrepEntryFromPayload(payload) };
 }
 
 // ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──

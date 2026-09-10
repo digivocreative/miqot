@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Loader2, Moon, Package, Pencil, Save, Search, SlidersHorizontal, Sun, Truck, UsersRound } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Moon, Pencil, Search, SlidersHorizontal, Sun, UsersRound } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
@@ -16,39 +16,25 @@ import {
   type Kloter45Jamaah,
 } from '@/lib/kloter45Landing.js';
 
-type JamaahPrepItem = Partial<Record<Kloter45ChecklistId, boolean>>
-  & Partial<Record<
-    'phone' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress',
-    string
-  >>
-  & { zamzamMethod?: ZamzamMethod };
+type JamaahPrepItem = Partial<Record<Kloter45ChecklistId, boolean>> & { phone?: string };
 type JamaahPrepState = Record<number, JamaahPrepItem>;
-type FilterMode = 'all' | 'nusuk' | 'raudhah';
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'offline';
+type FilterMode = 'all' | 'nusuk';
+type SaveStatus = 'idle' | 'saving' | 'saved';
 type PrepLoadState = 'loading' | 'ready' | 'failed';
-type ZamzamMethod = 'pickup' | 'delivery';
-type ZamzamSaveFeedback = 'idle' | 'saved' | 'offline';
-type ZamzamPrepPatch = Pick<
-  JamaahPrepItem,
-  'zamzamMethod' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress'
->;
 
 const PREP_STORAGE_KEY = `${KLOTER45_SLUG}:prep`;
 const KLOTER45_THEME_KEY = `${KLOTER45_SLUG}:theme`;
 const CHECKLIST_QUESTIONS: Record<Kloter45ChecklistId, string> = {
   wa: 'Nomor WhatsApp sudah sesuai apa belum?',
   nusuk: 'Nusuk sudah install apa belum?',
-  raudhah: 'Raudhah sudah reserved jadwal apa belum?',
 };
 const CHECKLIST_CHIP_LABELS: Record<Kloter45ChecklistId, string> = {
   wa: 'WA Sesuai',
   nusuk: 'Nusuk',
-  raudhah: 'Raudhah',
 };
 const FILTER_OPTIONS: { id: FilterMode; label: string }[] = [
   { id: 'all', label: 'Semua' },
   { id: 'nusuk', label: 'Belum Nusuk' },
-  { id: 'raudhah', label: 'Belum Raudhah' },
 ];
 
 function getInitials(name: string) {
@@ -101,18 +87,6 @@ function getMemberChecklistChips(prep: JamaahPrepState, member: Kloter45Jamaah) 
     label: CHECKLIST_CHIP_LABELS[item.id],
     done: isChecked(prep, member.no, item.id),
   }));
-}
-
-function getMemberZamzamChip(prep: JamaahPrepState, member: Kloter45Jamaah) {
-  const zamzamMethod = prep[member.no]?.zamzamMethod;
-  return {
-    label: zamzamMethod === 'delivery'
-      ? 'Diantar ke Rumah'
-      : zamzamMethod === 'pickup'
-        ? 'Ambil Sendiri'
-        : 'Belum Pilih',
-    method: zamzamMethod || 'unselected',
-  };
 }
 
 function readInitialTheme() {
@@ -187,220 +161,6 @@ function ContactPersonCard({ contact }: { contact: Kloter45Contact }) {
   );
 }
 
-function ZamzamPickupEditor({
-  member,
-  prep,
-  onSave,
-}: {
-  member: Kloter45Jamaah;
-  prep: JamaahPrepState;
-  onSave: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
-}) {
-  const savedMethod = prep[member.no]?.zamzamMethod || '';
-  const savedRecipientName = prep[member.no]?.zamzamRecipientName || '';
-  const savedRecipientPhone = prep[member.no]?.zamzamRecipientPhone || '';
-  const savedAddress = prep[member.no]?.zamzamAddress || '';
-  const [zamzamMethod, setZamzamMethod] = useState<ZamzamMethod | ''>(savedMethod);
-  const [recipientName, setRecipientName] = useState(savedRecipientName);
-  const [recipientPhone, setRecipientPhone] = useState(savedRecipientPhone);
-  const [address, setAddress] = useState(savedAddress);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<ZamzamSaveFeedback>('idle');
-
-  useEffect(() => {
-    setZamzamMethod(savedMethod);
-    setRecipientName(savedRecipientName);
-    setRecipientPhone(savedRecipientPhone);
-    setAddress(savedAddress);
-  }, [savedAddress, savedMethod, savedRecipientName, savedRecipientPhone]);
-
-  const deliveryDetailsComplete = recipientName.trim().length > 0
-    && recipientPhone.trim().length > 0
-    && address.trim().length > 0;
-  const canSave = zamzamMethod === 'pickup'
-    || (zamzamMethod === 'delivery' && deliveryDetailsComplete);
-
-  return (
-    <form
-      data-zamzam-form={member.no}
-      aria-busy={isSaving}
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (!canSave || !zamzamMethod || isSaving) return;
-        setIsSaving(true);
-        setSaveFeedback('idle');
-        try {
-          const savedOnline = await onSave(member.no, {
-            zamzamMethod,
-            zamzamRecipientName: zamzamMethod === 'delivery' ? recipientName.trim() : '',
-            zamzamRecipientPhone: zamzamMethod === 'delivery' ? recipientPhone.trim() : '',
-            zamzamAddress: zamzamMethod === 'delivery' ? address.trim() : '',
-          });
-          setSaveFeedback(savedOnline ? 'saved' : 'offline');
-        } finally {
-          setIsSaving(false);
-        }
-      }}
-      className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 dark:border-emerald-800/40 dark:bg-emerald-900/10"
-    >
-      <div className="mb-3 flex items-start gap-2.5">
-        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm dark:bg-slate-900 dark:text-emerald-400">
-          <Package size={16} strokeWidth={2.4} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-slate-200">Pengambilan Air Zam-zam</p>
-          <p className="mt-0.5 text-[10px] font-medium leading-4 text-gray-500 dark:text-slate-400">Pilih ambil di kantor atau diantar ke rumah.</p>
-        </div>
-      </div>
-
-      <fieldset>
-        <legend className="sr-only">Cara pengambilan Air Zam-zam untuk {member.name}</legend>
-        <div className="grid grid-cols-2 gap-2">
-          <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2.5 text-xs font-semibold transition-all dark:bg-slate-900 ${
-            zamzamMethod === 'pickup'
-              ? 'border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 dark:border-emerald-500 dark:text-emerald-400'
-              : 'border-gray-200 text-gray-600 dark:border-slate-700 dark:text-slate-300'
-          }`}>
-            <input
-              type="radio"
-              name={`zamzam-method-${member.no}`}
-              value="pickup"
-              data-zamzam-method="pickup"
-              checked={zamzamMethod === 'pickup'}
-              onChange={() => {
-                setZamzamMethod('pickup');
-                setSaveFeedback('idle');
-              }}
-              className="h-4 w-4 flex-none accent-emerald-500"
-            />
-            <span>Ambil Sendiri</span>
-          </label>
-          <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border bg-white px-3 py-2.5 text-xs font-semibold transition-all dark:bg-slate-900 ${
-            zamzamMethod === 'delivery'
-              ? 'border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 dark:border-emerald-500 dark:text-emerald-400'
-              : 'border-gray-200 text-gray-600 dark:border-slate-700 dark:text-slate-300'
-          }`}>
-            <input
-              type="radio"
-              name={`zamzam-method-${member.no}`}
-              value="delivery"
-              data-zamzam-method="delivery"
-              checked={zamzamMethod === 'delivery'}
-              onChange={() => {
-                setZamzamMethod('delivery');
-                setSaveFeedback('idle');
-              }}
-              className="h-4 w-4 flex-none accent-emerald-500"
-            />
-            <Truck size={13} className="flex-none" />
-            <span>Diantar ke Rumah</span>
-          </label>
-        </div>
-      </fieldset>
-
-      {zamzamMethod === 'delivery' && (
-        <div data-zamzam-delivery-fields={member.no} className="mt-3 space-y-3">
-          <label className="block">
-            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              Nama penerima <span className="text-red-500">*</span>
-            </span>
-            <input
-              type="text"
-              value={recipientName}
-              onChange={(event) => {
-                setRecipientName(event.target.value);
-                setSaveFeedback('idle');
-              }}
-              data-zamzam-field="recipient-name"
-              placeholder="Nama lengkap penerima"
-              autoComplete="name"
-              maxLength={120}
-              required
-              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              Nomor HP penerima <span className="text-red-500">*</span>
-            </span>
-            <input
-              type="tel"
-              value={recipientPhone}
-              onChange={(event) => {
-                setRecipientPhone(event.target.value);
-                setSaveFeedback('idle');
-              }}
-              data-zamzam-field="recipient-phone"
-              placeholder="Contoh: 0812 3456 7890"
-              autoComplete="tel"
-              inputMode="tel"
-              maxLength={32}
-              required
-              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
-              Alamat lengkap <span className="text-red-500">*</span>
-            </span>
-            <textarea
-              value={address}
-              onChange={(event) => {
-                setAddress(event.target.value);
-                setSaveFeedback('idle');
-              }}
-              data-zamzam-field="address"
-              placeholder="Nama jalan, nomor rumah, RT/RW, kelurahan, kecamatan, kota, dan kode pos"
-              autoComplete="street-address"
-              rows={3}
-              maxLength={500}
-              required
-              className="w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm leading-5 text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white disabled:opacity-50"
-            />
-          </label>
-        </div>
-      )}
-
-      <button
-        type="submit"
-        data-zamzam-save={member.no}
-        disabled={!canSave || isSaving}
-        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-3 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 hover:bg-emerald-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100"
-      >
-        {isSaving ? (
-          <>
-            <Loader2 size={16} strokeWidth={2.5} className="animate-spin" />
-            Menyimpan Pilihan...
-          </>
-        ) : saveFeedback === 'saved' ? (
-          <>
-            <Check size={16} strokeWidth={2.5} />
-            Pilihan Tersimpan
-          </>
-        ) : (
-          <>
-            <Save size={16} strokeWidth={2.5} />
-            Simpan Pilihan
-          </>
-        )}
-      </button>
-
-      <div aria-live="polite" className="min-h-4">
-        {saveFeedback === 'offline' && (
-          <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-            Tersimpan di perangkat. Coba simpan kembali saat koneksi tersedia.
-          </p>
-        )}
-        {saveFeedback === 'saved' && (
-          <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-            Pilihan Air Zam-zam berhasil disimpan.
-          </p>
-        )}
-      </div>
-    </form>
-  );
-}
-
 function JamaahGroupMemberRow({
   member,
   prep,
@@ -411,7 +171,6 @@ function JamaahGroupMemberRow({
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
-  onSaveZamzam,
 }: {
   member: Kloter45Jamaah;
   prep: JamaahPrepState;
@@ -422,7 +181,6 @@ function JamaahGroupMemberRow({
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
-  onSaveZamzam: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
   const avatarClass = member.gender === 'P'
     ? 'bg-pink-50 ring-pink-300 text-pink-700'
@@ -431,7 +189,6 @@ function JamaahGroupMemberRow({
   const isEditingPhone = editingPhoneNo === member.no;
   const isExpanded = expandedJamaahNos.has(member.no);
   const checklistChips = getMemberChecklistChips(prep, member);
-  const zamzamChip = getMemberZamzamChip(prep, member);
   const memberReady = isMemberReady(prep, member);
   const memberWhatsAppUrl = getJamaahWhatsAppUrl(phone);
   const toggleLabel = isExpanded ? `Tutup detail ${member.name}` : `Buka detail ${member.name}`;
@@ -502,19 +259,6 @@ function JamaahGroupMemberRow({
             <span>{item.label}</span>
           </span>
         ))}
-        <span
-          data-zamzam-status={zamzamChip.method}
-          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold transition-colors ${
-            zamzamChip.method === 'unselected'
-              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
-          }`}
-        >
-          {zamzamChip.method === 'delivery'
-            ? <Truck size={10} strokeWidth={2.5} />
-            : <Package size={10} strokeWidth={2.5} />}
-          <span>{zamzamChip.label}</span>
-        </span>
       </div>
 
       <div
@@ -607,12 +351,6 @@ function JamaahGroupMemberRow({
                 })}
               </div>
             </div>
-
-            <ZamzamPickupEditor
-              member={member}
-              prep={prep}
-              onSave={onSaveZamzam}
-            />
           </div>
         </div>
       </div>
@@ -630,7 +368,6 @@ function JamaahGroupCard({
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
-  onSaveZamzam,
 }: {
   group: Kloter45Group;
   prep: JamaahPrepState;
@@ -641,7 +378,6 @@ function JamaahGroupCard({
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
-  onSaveZamzam: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
   const completedMembers = group.members.filter((member) => isMemberReady(prep, member)).length;
 
@@ -671,7 +407,6 @@ function JamaahGroupCard({
             onPhoneChange={onPhoneChange}
             onStopEditPhone={onStopEditPhone}
             onToggleExpanded={onToggleExpanded}
-            onSaveZamzam={onSaveZamzam}
           />
         ))}
       </div>
@@ -724,13 +459,7 @@ export default function Kloter45LandingPage() {
   };
 
   useEffect(() => {
-    let cancelled = false;
-    loadPrepFromDb().then((state) => {
-      if (!cancelled && state === 'failed') setSaveStatus('offline');
-    });
-    return () => {
-      cancelled = true;
-    };
+    loadPrepFromDb();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -780,7 +509,6 @@ export default function Kloter45LandingPage() {
             || getMemberPhone(prep, member).toLowerCase().includes(normalizedQuery);
           if (!matchesQuery) return false;
           if (filter === 'nusuk') return !isChecked(prep, member.no, 'nusuk');
-          if (filter === 'raudhah') return !isChecked(prep, member.no, 'raudhah');
           return true;
         });
         return { ...group, members };
@@ -813,7 +541,7 @@ export default function Kloter45LandingPage() {
       // jaringan sesaat tidak mengunci penyimpanan sepanjang sesi.
       const state = await loadPrepFromDb();
       if (state !== 'ready') {
-        setSaveStatus('offline');
+        setSaveStatus('idle');
         return false;
       }
       // State server baru saja ditumpangkan; pasang ulang perubahan di atasnya.
@@ -825,7 +553,7 @@ export default function Kloter45LandingPage() {
       return true;
     } catch (error) {
       console.warn('[Kloter45LandingPage] Failed to save prep DB state:', error);
-      setSaveStatus('offline');
+      setSaveStatus('idle');
       return false;
     }
   };
@@ -860,10 +588,6 @@ export default function Kloter45LandingPage() {
       else next.add(jamaahNo);
       return next;
     });
-  };
-
-  const handleSaveZamzam = (jamaahNo: number, patch: ZamzamPrepPatch) => {
-    return handlePrepChange(jamaahNo, patch);
   };
 
   const waText = encodeURIComponent(
@@ -993,12 +717,8 @@ export default function Kloter45LandingPage() {
             <h2 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">DAFTAR JAMAAH</h2>
             <div className="flex items-center gap-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
               {saveStatus !== 'idle' && (
-                <span className={`rounded-md px-1.5 py-0.5 font-bold ${
-                  saveStatus === 'offline'
-                    ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300'
-                    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
-                }`}>
-                  {saveStatus === 'saving' ? 'Menyimpan' : saveStatus === 'saved' ? 'Tersimpan' : 'Offline'}
+                <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 font-bold text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
+                  {saveStatus === 'saving' ? 'Menyimpan' : 'Tersimpan'}
                 </span>
               )}
               <p>{completedCount}/{KLOTER45_TRIP.totalJamaah} siap</p>
@@ -1019,7 +739,6 @@ export default function Kloter45LandingPage() {
                   onPhoneChange={handlePhoneChange}
                   onStopEditPhone={handleStopEditPhone}
                   onToggleExpanded={handleToggleExpanded}
-                  onSaveZamzam={handleSaveZamzam}
                 />
               ))}
             </div>

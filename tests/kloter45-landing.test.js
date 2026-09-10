@@ -96,14 +96,14 @@ test('Kloter 45 landing exposes full phone numbers plus a consistent masked form
   }
 });
 
-test('Kloter 45 landing checklist covers WA, Nusuk, and Raudhah without room fields', () => {
+test('Kloter 45 landing checklist covers WA and Nusuk only', () => {
   assert.deepEqual(
     KLOTER45_CHECKLIST_ITEMS.map((item) => item.id),
-    ['wa', 'nusuk', 'raudhah']
+    ['wa', 'nusuk']
   );
   assert.deepEqual(
     KLOTER45_CHECKLIST_ITEMS.map((item) => item.label),
-    ['Nomor WhatsApp', 'Nusuk', 'Raudhah']
+    ['Nomor WhatsApp', 'Nusuk']
   );
   assert.equal(kloter45Data.KLOTER45_ROOM_FIELDS, undefined);
 });
@@ -160,7 +160,6 @@ test('Kloter 45 landing renders the preparation checklist for every jamaah', () 
   // Ketiga pertanyaan checklist harus ikut tampil, bukan cuma labelnya.
   assert.match(component, /wa: 'Nomor WhatsApp sudah sesuai apa belum\?'/);
   assert.match(component, /nusuk: 'Nusuk sudah install apa belum\?'/);
-  assert.match(component, /raudhah: 'Raudhah sudah reserved jadwal apa belum\?'/);
   assert.match(component, /\{CHECKLIST_QUESTIONS\[item\.id\]\}/);
 
   // Toggle harus benar-benar membalik nilai tersimpan, bukan selalu true.
@@ -185,6 +184,39 @@ test('Kloter 45 landing gives every jamaah a direct WhatsApp action', () => {
   assert.match(component, /data-member-whatsapp=\{member\.no\}/);
   assert.match(component, /<span>WhatsApp<\/span>/);
   assert.match(component, /aria-label=\{`Chat WhatsApp \$\{member\.name\}`\}/);
+});
+
+test('Kloter 45 landing drops the Zam-zam form, the Raudhah check, and the Offline status', () => {
+  const component = read(COMPONENT_PATH);
+  const dbHelper = read(DB_HELPER_PATH);
+  const server = read('server.js');
+
+  for (const source of [component, dbHelper]) {
+    assert.doesNotMatch(source, /zam-?zam/i);
+  }
+  for (const source of [component, dbHelper, server]) {
+    assert.doesNotMatch(source, /raudhah/i);
+  }
+  // server.js masih menyebut hotel "PULLMAN ZAMZAM" di prompt AI, jadi yang
+  // dijaga di sini kolom prep-nya, bukan katanya.
+  for (const field of [
+    'zamzam_method',
+    'zamzam_recipient_name',
+    'zamzam_recipient_phone',
+    'zamzam_address',
+  ]) {
+    assert.doesNotMatch(server, new RegExp(field));
+  }
+  assert.doesNotMatch(server, /Air Zam-zam/i);
+  assert.doesNotMatch(server, /sanitizeTourLeaderPrepText/);
+
+  // Status simpan tinggal Menyimpan/Tersimpan; kegagalan balik ke idle diam-diam.
+  assert.match(component, /type SaveStatus = 'idle' \| 'saving' \| 'saved';/);
+  assert.doesNotMatch(component, /offline/i);
+  assert.match(component, /\{saveStatus === 'saving' \? 'Menyimpan' : 'Tersimpan'\}/);
+
+  // Filter Raudhah ikut hilang, sisa Semua + Belum Nusuk.
+  assert.match(component, /type FilterMode = 'all' \| 'nusuk';/);
 });
 
 test('Kloter 45 landing drops the room-number controls end to end', () => {
@@ -223,7 +255,7 @@ test('Kloter 45 landing persists prep changes to Supabase with a local fallback'
   assert.match(dbHelper, /KLOTER45_PREP_API = `\/api\/tour-leader-prep\/\$\{KLOTER45_SLUG\}`/);
   assert.match(dbHelper, /fetch\(KLOTER45_PREP_API/);
   assert.match(dbHelper, /method: 'PUT'/);
-  for (const column of ['wa_confirmed', 'nusuk_installed', 'raudhah_reserved']) {
+  for (const column of ['wa_confirmed', 'nusuk_installed']) {
     assert.match(dbHelper, new RegExp(column));
     assert.match(server, new RegExp(column));
   }
@@ -247,7 +279,7 @@ test('Kloter 45 landing refuses to write before the server state is known', () =
   assert.match(component, /prepLoadStateRef\.current = 'failed'/);
   assert.match(
     component,
-    /if \(prepLoadStateRef\.current !== 'ready'\) \{[\s\S]{0,400}?const state = await loadPrepFromDb\(\);\s*if \(state !== 'ready'\) \{\s*setSaveStatus\('offline'\);\s*return false;\s*\}/
+    /if \(prepLoadStateRef\.current !== 'ready'\) \{[\s\S]{0,400}?const state = await loadPrepFromDb\(\);\s*if \(state !== 'ready'\) \{\s*setSaveStatus\('idle'\);\s*return false;\s*\}/
   );
 
   // Setelah coba-ulang berhasil, state server ditumpangkan lebih dulu, jadi
@@ -260,47 +292,16 @@ test('Kloter 45 landing refuses to write before the server state is known', () =
   assert.match(component, /loadPrepPromiseRef\.current = pending;/);
 });
 
-test('Kloter 45 landing keeps the Zam-zam pickup and delivery choice', () => {
-  const component = read(COMPONENT_PATH);
-  const dbHelper = read(DB_HELPER_PATH);
-  const server = read('server.js');
-
-  assert.match(component, /function ZamzamPickupEditor/);
-  assert.match(component, /data-zamzam-method="pickup"/);
-  assert.match(component, /data-zamzam-method="delivery"/);
-  assert.match(component, />Ambil Sendiri</);
-  assert.match(component, />Diantar ke Rumah</);
-  assert.match(component, /data-zamzam-field="recipient-name"/);
-  assert.match(component, /data-zamzam-field="recipient-phone"/);
-  assert.match(component, /data-zamzam-field="address"/);
-  assert.match(component, /data-zamzam-save=\{member\.no\}/);
-  assert.match(component, /disabled=\{!canSave \|\| isSaving\}/);
-  assert.match(component, /handleSaveZamzam/);
-
-  for (const field of [
-    'zamzam_method',
-    'zamzam_recipient_name',
-    'zamzam_recipient_phone',
-    'zamzam_address',
-  ]) {
-    assert.match(dbHelper, new RegExp(field));
-    assert.match(server, new RegExp(field));
-  }
-  assert.match(server, /Data penerima dan alamat pengantaran wajib dilengkapi/);
-});
-
-test('Kloter 45 landing member rows summarise checklist and Zam-zam status as chips', () => {
+test('Kloter 45 landing member rows summarise the checklist as chips', () => {
   const component = read(COMPONENT_PATH);
 
   assert.match(component, /function getMemberChecklistChips/);
-  assert.match(component, /function getMemberZamzamChip/);
   assert.match(component, /wa: 'WA Sesuai'/);
   assert.match(component, /nusuk: 'Nusuk'/);
-  assert.match(component, /raudhah: 'Raudhah'/);
   assert.match(component, /data-checklist-chip=\{item\.id\}/);
-  assert.match(component, /data-zamzam-status=\{zamzamChip\.method\}/);
-  assert.match(component, /method: zamzamMethod \|\| 'unselected'/);
-  assert.match(component, /zamzamChip\.method === 'unselected'/);
+  // Chip diturunkan dari daftar checklist, jadi ikut berubah kalau itemnya berubah.
+  assert.match(component, /return KLOTER45_CHECKLIST_ITEMS\.map\(\(item\) => \(\{/);
+  assert.match(component, /\{checklistChips\.map\(\(item\) => \(/);
 });
 
 test('Kloter 45 landing keeps the collapsible rows, search, filters, and theme toggle', () => {
@@ -319,9 +320,7 @@ test('Kloter 45 landing keeps the collapsible rows, search, filters, and theme t
   assert.match(component, /role="listbox"/);
   assert.match(component, /aria-haspopup="listbox"/);
   assert.match(component, /\{ id: 'nusuk', label: 'Belum Nusuk' \}/);
-  assert.match(component, /\{ id: 'raudhah', label: 'Belum Raudhah' \}/);
   assert.match(component, /if \(filter === 'nusuk'\) return !isChecked\(prep, member\.no, 'nusuk'\)/);
-  assert.match(component, /if \(filter === 'raudhah'\) return !isChecked\(prep, member\.no, 'raudhah'\)/);
 
   assert.match(component, /function Kloter45ThemeToggle/);
   assert.match(component, /KLOTER45_THEME_KEY/);

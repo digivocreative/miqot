@@ -1,4 +1,4 @@
-export type Kloter45ChecklistId = 'wa' | 'nusuk' | 'raudhah';
+export type Kloter45ChecklistId = 'wa' | 'nusuk';
 
 export interface Kloter45Trip {
   kloterLabel: string;

@@ -21,7 +21,6 @@ export const KLOTER45_TRIP = {
 export const KLOTER45_CHECKLIST_ITEMS = [
   { id: 'wa', label: 'Nomor WhatsApp' },
   { id: 'nusuk', label: 'Nusuk' },
-  { id: 'raudhah', label: 'Raudhah' },
 ];
 
 export const KLOTER45_CONTACTS = [
