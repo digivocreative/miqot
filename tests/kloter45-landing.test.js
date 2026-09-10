@@ -634,6 +634,14 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(bacaan, /entry\.latin/);
   assert.match(bacaan, /entry\.terjemahan/);
   assert.match(bacaan, /entry\.sumber &&/);
+  // Accordion: satu yang terbuka (membuka B menutup A), panel selalu terpasang
+  // supaya buka DAN tutup beranimasi (grid-rows 0fr ↔ 1fr).
+  assert.match(bacaan, /useState<string \| null>\(null\)/);
+  assert.doesNotMatch(bacaan, /new Set\(/, 'kembali ke Set = beberapa bacaan bisa terbuka sekaligus');
+  assert.match(bacaan, /setOpenId\(openId === id \? null : id\)/);
+  assert.doesNotMatch(bacaan, /\{open && \(/, 'panel yang dilepas saat tutup = tanpa animasi tutup');
+  assert.match(bacaan, /open \? 'grid-rows-\[1fr\] opacity-100' : 'grid-rows-\[0fr\] opacity-0'/);
+  assert.match(bacaan, /motion-reduce:transition-none/);
 });
 
 test('Kloter 45 room lists cover every jamaah exactly once, per country', () => {
@@ -679,6 +687,16 @@ test('Kloter 45 Room List page renders the lists natively with the PDF still one
   assert.match(page, /data-room-list-hotel=\{hotel\.city\}/);
   assert.match(page, /data-room=\{room\.no\}/);
   assert.match(page, /\{guest\.note && \(/);
+  // Avatar penghuni berwarna gender seperti Daftar Jamaah; Muthowif netral.
+  assert.match(page, /const GENDER_BY_NAME = new Map\(KLOTER45_JAMAAH\.map\(\(member\) => \[member\.name, member\.gender\]\)\);/);
+  assert.match(page, /P: 'bg-pink-50 ring-pink-300 text-pink-700'/);
+  assert.match(page, /L: 'bg-blue-50 ring-blue-300 text-blue-700'/);
+  assert.match(page, /data-guest-gender=\{GENDER_BY_NAME\.get\(guest\.name\) \?\? 'neutral'\}/);
+  assert.match(page, /\$\{getAvatarClass\(guest\.name\)\}/);
+  // Kelas yang sama persis dengan baris jamaah di halaman utama.
+  const landing = read(COMPONENT_PATH);
+  assert.match(landing, /'bg-pink-50 ring-pink-300 text-pink-700'/);
+  assert.match(landing, /'bg-blue-50 ring-blue-300 text-blue-700'/);
   assert.match(page, /href=\{roomList\.pdfUrl\}/);
   assert.match(page, /data-room-list-open/);
   assert.match(page, /Tanya Tour Leader/);
