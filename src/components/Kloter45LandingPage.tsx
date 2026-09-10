@@ -2,31 +2,30 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronDown, ChevronUp, Loader2, Moon, Package, Pencil, Save, Search, SlidersHorizontal, Sun, Truck, UsersRound } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
-import { fetchRahmahJuliPrepFromDb, saveRahmahJuliPrepToDb } from '@/lib/rahmahJuliPrepDb';
+import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
 import {
-  RAHMAH_JULI_CHECKLIST_ITEMS,
-  RAHMAH_JULI_CONTACTS,
-  RAHMAH_JULI_JAMAAH,
-  RAHMAH_JULI_ROOM_FIELDS,
-  RAHMAH_JULI_SLUG,
-  RAHMAH_JULI_TRIP,
-  getRahmahJuliGroups,
-  type RahmahJuliChecklistId,
-  type RahmahJuliContact,
-  type RahmahJuliGroup,
-  type RahmahJuliJamaah,
-  type RahmahJuliRoomFieldId,
-} from '@/lib/rahmahJuliLanding.js';
+  KLOTER45_CHECKLIST_ITEMS,
+  KLOTER45_CONTACTS,
+  KLOTER45_JAMAAH,
+  KLOTER45_SLUG,
+  KLOTER45_TRIP,
+  getKloter45Groups,
+  type Kloter45ChecklistId,
+  type Kloter45Contact,
+  type Kloter45Group,
+  type Kloter45Jamaah,
+} from '@/lib/kloter45Landing.js';
 
-type JamaahPrepItem = Partial<Record<RahmahJuliChecklistId, boolean>>
+type JamaahPrepItem = Partial<Record<Kloter45ChecklistId, boolean>>
   & Partial<Record<
-    RahmahJuliRoomFieldId | 'phone' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress',
+    'phone' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress',
     string
   >>
   & { zamzamMethod?: ZamzamMethod };
 type JamaahPrepState = Record<number, JamaahPrepItem>;
 type FilterMode = 'all' | 'nusuk' | 'raudhah';
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'offline';
+type PrepLoadState = 'loading' | 'ready' | 'failed';
 type ZamzamMethod = 'pickup' | 'delivery';
 type ZamzamSaveFeedback = 'idle' | 'saved' | 'offline';
 type ZamzamPrepPatch = Pick<
@@ -34,9 +33,18 @@ type ZamzamPrepPatch = Pick<
   'zamzamMethod' | 'zamzamRecipientName' | 'zamzamRecipientPhone' | 'zamzamAddress'
 >;
 
-const CHECKLIST_STORAGE_KEY = `${RAHMAH_JULI_SLUG}:checklist`;
-const PREP_STORAGE_KEY = `${RAHMAH_JULI_SLUG}:prep`;
-const RAHMAH_THEME_KEY = `${RAHMAH_JULI_SLUG}:theme`;
+const PREP_STORAGE_KEY = `${KLOTER45_SLUG}:prep`;
+const KLOTER45_THEME_KEY = `${KLOTER45_SLUG}:theme`;
+const CHECKLIST_QUESTIONS: Record<Kloter45ChecklistId, string> = {
+  wa: 'Nomor WhatsApp sudah sesuai apa belum?',
+  nusuk: 'Nusuk sudah install apa belum?',
+  raudhah: 'Raudhah sudah reserved jadwal apa belum?',
+};
+const CHECKLIST_CHIP_LABELS: Record<Kloter45ChecklistId, string> = {
+  wa: 'WA Sesuai',
+  nusuk: 'Nusuk',
+  raudhah: 'Raudhah',
+};
 const FILTER_OPTIONS: { id: FilterMode; label: string }[] = [
   { id: 'all', label: 'Semua' },
   { id: 'nusuk', label: 'Belum Nusuk' },
@@ -57,61 +65,71 @@ function loadPrepState(): JamaahPrepState {
   try {
     const raw = window.localStorage.getItem(PREP_STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-
-    const legacyRaw = window.localStorage.getItem(CHECKLIST_STORAGE_KEY);
-    if (!legacyRaw) return {};
-    return JSON.parse(legacyRaw);
   } catch {
-    return {};
+    // Local prep state is a convenience only; a fresh page still works.
   }
+  return {};
 }
 
-function isChecked(prep: JamaahPrepState, jamaahNo: number, itemId: RahmahJuliChecklistId) {
+function isChecked(prep: JamaahPrepState, jamaahNo: number, itemId: Kloter45ChecklistId) {
   return !!prep[jamaahNo]?.[itemId];
 }
 
-function getMemberPhone(prep: JamaahPrepState, member: RahmahJuliJamaah) {
+function getMemberPhone(prep: JamaahPrepState, member: Kloter45Jamaah) {
   const savedPhone = prep[member.no]?.phone;
   return typeof savedPhone === 'string' ? savedPhone : member.phone;
 }
 
-function getRoomValue(prep: JamaahPrepState, jamaahNo: number, fieldId: RahmahJuliRoomFieldId) {
-  return prep[jamaahNo]?.[fieldId]?.trim() || '';
+function normalizeJamaahWhatsAppNumber(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
 }
 
-function isMemberReady(prep: JamaahPrepState, member: RahmahJuliJamaah) {
-  return RAHMAH_JULI_CHECKLIST_ITEMS.every((item) => isChecked(prep, member.no, item.id))
-    && RAHMAH_JULI_ROOM_FIELDS.every((field) => getRoomValue(prep, member.no, field.id).length > 0);
+function getJamaahWhatsAppUrl(phone: string) {
+  const normalized = normalizeJamaahWhatsAppNumber(phone);
+  return normalized ? `https://wa.me/${normalized}` : '#';
 }
 
-function getMemberSummaryItems(prep: JamaahPrepState, member: RahmahJuliJamaah) {
+function isMemberReady(prep: JamaahPrepState, member: Kloter45Jamaah) {
+  return KLOTER45_CHECKLIST_ITEMS.every((item) => isChecked(prep, member.no, item.id));
+}
+
+function getMemberChecklistChips(prep: JamaahPrepState, member: Kloter45Jamaah) {
+  return KLOTER45_CHECKLIST_ITEMS.map((item) => ({
+    id: item.id,
+    label: CHECKLIST_CHIP_LABELS[item.id],
+    done: isChecked(prep, member.no, item.id),
+  }));
+}
+
+function getMemberZamzamChip(prep: JamaahPrepState, member: Kloter45Jamaah) {
   const zamzamMethod = prep[member.no]?.zamzamMethod;
-  return [{
-    id: 'zamzam',
+  return {
     label: zamzamMethod === 'delivery'
       ? 'Diantar ke Rumah'
       : zamzamMethod === 'pickup'
         ? 'Ambil Sendiri'
         : 'Belum Pilih',
     method: zamzamMethod || 'unselected',
-  }];
+  };
 }
 
 function readInitialTheme() {
   if (typeof window === 'undefined') return false;
-  const stored = window.localStorage.getItem(RAHMAH_THEME_KEY);
+  const stored = window.localStorage.getItem(KLOTER45_THEME_KEY);
   if (stored === 'dark') return true;
   if (stored === 'light') return false;
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
 }
 
-function RahmahThemeToggle() {
+function Kloter45ThemeToggle() {
   const [isDark, setIsDark] = useState(readInitialTheme);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     try {
-      window.localStorage.setItem(RAHMAH_THEME_KEY, isDark ? 'dark' : 'light');
+      window.localStorage.setItem(KLOTER45_THEME_KEY, isDark ? 'dark' : 'light');
     } catch {
       // Theme persistence is optional; the visible toggle remains functional.
     }
@@ -129,7 +147,7 @@ function RahmahThemeToggle() {
   );
 }
 
-function ContactPersonCard({ contact }: { contact: RahmahJuliContact }) {
+function ContactPersonCard({ contact }: { contact: Kloter45Contact }) {
   return (
     <article className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="relative h-12 w-12 flex-none">
@@ -174,7 +192,7 @@ function ZamzamPickupEditor({
   prep,
   onSave,
 }: {
-  member: RahmahJuliJamaah;
+  member: Kloter45Jamaah;
   prep: JamaahPrepState;
   onSave: (jamaahNo: number, patch: ZamzamPrepPatch) => Promise<boolean>;
 }) {
@@ -388,17 +406,19 @@ function JamaahGroupMemberRow({
   prep,
   editingPhoneNo,
   expandedJamaahNos,
+  onToggleChecklist,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
   onSaveZamzam,
 }: {
-  member: RahmahJuliJamaah;
+  member: Kloter45Jamaah;
   prep: JamaahPrepState;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  onStartEditPhone: (member: RahmahJuliJamaah) => void;
+  onToggleChecklist: (jamaahNo: number, itemId: Kloter45ChecklistId) => void;
+  onStartEditPhone: (member: Kloter45Jamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
@@ -410,7 +430,10 @@ function JamaahGroupMemberRow({
   const phone = getMemberPhone(prep, member);
   const isEditingPhone = editingPhoneNo === member.no;
   const isExpanded = expandedJamaahNos.has(member.no);
-  const summaryItems = getMemberSummaryItems(prep, member);
+  const checklistChips = getMemberChecklistChips(prep, member);
+  const zamzamChip = getMemberZamzamChip(prep, member);
+  const memberReady = isMemberReady(prep, member);
+  const memberWhatsAppUrl = getJamaahWhatsAppUrl(phone);
   const toggleLabel = isExpanded ? `Tutup detail ${member.name}` : `Buka detail ${member.name}`;
   const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -465,22 +488,33 @@ function JamaahGroupMemberRow({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {summaryItems.map((item) => (
+        {checklistChips.map((item) => (
           <span
             key={item.id}
-            data-zamzam-status={item.method}
+            data-checklist-chip={item.id}
             className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold transition-colors ${
-              item.method === 'unselected'
-                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
+              item.done
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
+                : 'border-gray-200 bg-white text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500'
             }`}
           >
-            {item.method === 'delivery'
-              ? <Truck size={10} strokeWidth={2.5} />
-              : <Package size={10} strokeWidth={2.5} />}
+            <Check size={10} strokeWidth={3} className={item.done ? 'text-emerald-500' : 'text-gray-300 dark:text-slate-600'} />
             <span>{item.label}</span>
           </span>
         ))}
+        <span
+          data-zamzam-status={zamzamChip.method}
+          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold transition-colors ${
+            zamzamChip.method === 'unselected'
+              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
+          }`}
+        >
+          {zamzamChip.method === 'delivery'
+            ? <Truck size={10} strokeWidth={2.5} />
+            : <Package size={10} strokeWidth={2.5} />}
+          <span>{zamzamChip.label}</span>
+        </span>
       </div>
 
       <div
@@ -494,6 +528,20 @@ function JamaahGroupMemberRow({
           <div className={`space-y-3 transition-transform duration-300 ease-out motion-reduce:transition-none ${
             isExpanded ? 'translate-y-0 scale-100' : '-translate-y-1 scale-[0.98]'
           }`}>
+            {isExpanded && (
+              <a
+                href={memberWhatsAppUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-member-whatsapp={member.no}
+                aria-label={`Chat WhatsApp ${member.name}`}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] hover:bg-emerald-600"
+              >
+                <WhatsAppIcon size={14} />
+                <span>WhatsApp</span>
+              </a>
+            )}
+
             {isEditingPhone && (
               <div className="flex gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 p-2 dark:border-emerald-900/40 dark:bg-emerald-900/10">
                 <input
@@ -516,6 +564,50 @@ function JamaahGroupMemberRow({
               </div>
             )}
 
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 dark:border-slate-700 dark:bg-slate-800/60">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Checklist Persiapan</p>
+                <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${
+                  memberReady
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+                    : 'bg-white text-gray-400 dark:bg-slate-900 dark:text-slate-500'
+                }`}>
+                  {memberReady ? 'Siap' : 'Belum lengkap'}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                {KLOTER45_CHECKLIST_ITEMS.map((item) => {
+                  const checked = isChecked(prep, member.no, item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-jamaah-no={member.no}
+                      data-checklist-id={item.id}
+                      onClick={() => onToggleChecklist(member.no, item.id)}
+                      aria-pressed={checked}
+                      className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border bg-white px-2.5 py-2 text-left transition active:scale-[0.99] dark:bg-slate-900 ${
+                        checked
+                          ? 'border-emerald-200 text-emerald-700 dark:border-emerald-800/40 dark:text-emerald-300'
+                          : 'border-gray-200 text-gray-500 dark:border-slate-700 dark:text-slate-400'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-extrabold text-gray-800 dark:text-slate-100">{item.label}</span>
+                        <span className="mt-0.5 block truncate text-[9px] font-semibold opacity-70">{CHECKLIST_QUESTIONS[item.id]}</span>
+                      </span>
+                      <span className={`flex h-5 w-5 flex-none items-center justify-center rounded-md border ${
+                        checked ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300 bg-white dark:border-slate-600 dark:bg-slate-900'
+                      }`}>
+                        {checked && <Check size={13} strokeWidth={3} className="text-white" />}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <ZamzamPickupEditor
               member={member}
               prep={prep}
@@ -533,17 +625,19 @@ function JamaahGroupCard({
   prep,
   editingPhoneNo,
   expandedJamaahNos,
+  onToggleChecklist,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
   onToggleExpanded,
   onSaveZamzam,
 }: {
-  group: RahmahJuliGroup;
+  group: Kloter45Group;
   prep: JamaahPrepState;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  onStartEditPhone: (member: RahmahJuliJamaah) => void;
+  onToggleChecklist: (jamaahNo: number, itemId: Kloter45ChecklistId) => void;
+  onStartEditPhone: (member: Kloter45Jamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
@@ -572,6 +666,7 @@ function JamaahGroupCard({
             prep={prep}
             editingPhoneNo={editingPhoneNo}
             expandedJamaahNos={expandedJamaahNos}
+            onToggleChecklist={onToggleChecklist}
             onStartEditPhone={onStartEditPhone}
             onPhoneChange={onPhoneChange}
             onStopEditPhone={onStopEditPhone}
@@ -584,7 +679,7 @@ function JamaahGroupCard({
   );
 }
 
-export default function RahmahJuliLandingPage() {
+export default function Kloter45LandingPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -593,33 +688,50 @@ export default function RahmahJuliLandingPage() {
   const [expandedJamaahNos, setExpandedJamaahNos] = useState<Set<number>>(() => new Set());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const prepRef = useRef<JamaahPrepState>(prep);
+  const prepLoadStateRef = useRef<PrepLoadState>('loading');
+  const loadPrepPromiseRef = useRef<Promise<PrepLoadState> | null>(null);
   const filterWrapRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.title = 'Kloter 9 | Rahmah 1-9 Juli 2026 | Alhijaz Indowisata';
+    document.title = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
   }, []);
+
+  // Menyimpan berarti menulis ulang seluruh entry jamaah, jadi tulis baru boleh
+  // jalan setelah state server terbaca — kalau tidak, centang yang sudah ada di
+  // database bisa terhapus oleh perangkat yang belum sinkron.
+  const loadPrepFromDb = () => {
+    if (loadPrepPromiseRef.current) return loadPrepPromiseRef.current;
+    const pending = fetchKloter45PrepFromDb()
+      .then((dbPrep) => {
+        prepLoadStateRef.current = 'ready';
+        if (Object.keys(dbPrep).length > 0) {
+          prepRef.current = { ...prepRef.current, ...dbPrep };
+          setPrep((prev) => ({ ...prev, ...dbPrep }));
+        }
+        return prepLoadStateRef.current;
+      })
+      .catch((error) => {
+        prepLoadStateRef.current = 'failed';
+        console.warn('[Kloter45LandingPage] Failed to load prep DB state:', error);
+        return prepLoadStateRef.current;
+      })
+      .finally(() => {
+        loadPrepPromiseRef.current = null;
+      });
+    loadPrepPromiseRef.current = pending;
+    return pending;
+  };
 
   useEffect(() => {
     let cancelled = false;
-    fetchRahmahJuliPrepFromDb()
-      .then((dbPrep) => {
-        if (cancelled || Object.keys(dbPrep).length === 0) return;
-        prepRef.current = {
-          ...prepRef.current,
-          ...dbPrep,
-        };
-        setPrep((prev) => ({
-          ...prev,
-          ...dbPrep,
-        }));
-      })
-      .catch((error) => {
-        console.warn('[RahmahJuliLandingPage] Failed to load prep DB state:', error);
-      });
+    loadPrepFromDb().then((state) => {
+      if (!cancelled && state === 'failed') setSaveStatus('offline');
+    });
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -655,7 +767,7 @@ export default function RahmahJuliLandingPage() {
     }
   }, [prep]);
 
-  const groups = useMemo(() => getRahmahJuliGroups(), []);
+  const groups = useMemo(() => getKloter45Groups(), []);
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -677,23 +789,10 @@ export default function RahmahJuliLandingPage() {
   }, [filter, groups, prep, query]);
 
   const completedCount = useMemo(() => {
-    return RAHMAH_JULI_JAMAAH.filter((member) => isMemberReady(prep, member)).length;
+    return KLOTER45_JAMAAH.filter((member) => isMemberReady(prep, member)).length;
   }, [prep]);
 
-  const persistPrepPatch = async (jamaahNo: number, nextItem: JamaahPrepItem) => {
-    setSaveStatus('saving');
-    try {
-      await saveRahmahJuliPrepToDb(jamaahNo, nextItem);
-      setSaveStatus('saved');
-      return true;
-    } catch (error) {
-      console.warn('[RahmahJuliLandingPage] Failed to save prep DB state:', error);
-      setSaveStatus('offline');
-      return false;
-    }
-  };
-
-  const handlePrepChange = (jamaahNo: number, patch: JamaahPrepItem) => {
+  const applyPrepPatchLocally = (jamaahNo: number, patch: JamaahPrepItem) => {
     const nextItem = {
       ...prepRef.current[jamaahNo],
       ...patch,
@@ -704,10 +803,44 @@ export default function RahmahJuliLandingPage() {
     };
     prepRef.current = nextPrep;
     setPrep(nextPrep);
-    return persistPrepPatch(jamaahNo, nextItem);
+    return nextItem;
   };
 
-  const handleStartEditPhone = (member: RahmahJuliJamaah) => {
+  const persistPrepPatch = async (jamaahNo: number, patch: JamaahPrepItem) => {
+    setSaveStatus('saving');
+    if (prepLoadStateRef.current !== 'ready') {
+      // Muat awal gagal — coba sekali lagi sebelum menulis, supaya gangguan
+      // jaringan sesaat tidak mengunci penyimpanan sepanjang sesi.
+      const state = await loadPrepFromDb();
+      if (state !== 'ready') {
+        setSaveStatus('offline');
+        return false;
+      }
+      // State server baru saja ditumpangkan; pasang ulang perubahan di atasnya.
+      applyPrepPatchLocally(jamaahNo, patch);
+    }
+    try {
+      await saveKloter45PrepToDb(jamaahNo, prepRef.current[jamaahNo]);
+      setSaveStatus('saved');
+      return true;
+    } catch (error) {
+      console.warn('[Kloter45LandingPage] Failed to save prep DB state:', error);
+      setSaveStatus('offline');
+      return false;
+    }
+  };
+
+  const handlePrepChange = (jamaahNo: number, patch: JamaahPrepItem) => {
+    // Perubahan tampil dulu (optimistis), penyimpanan menyusul.
+    applyPrepPatchLocally(jamaahNo, patch);
+    return persistPrepPatch(jamaahNo, patch);
+  };
+
+  const handleToggleChecklist = (jamaahNo: number, itemId: Kloter45ChecklistId) => {
+    handlePrepChange(jamaahNo, { [itemId]: !prepRef.current[jamaahNo]?.[itemId] });
+  };
+
+  const handleStartEditPhone = (member: Kloter45Jamaah) => {
     setEditingPhoneNo((current) => (current === member.no ? null : member.no));
     setExpandedJamaahNos((current) => new Set(current).add(member.no));
   };
@@ -734,12 +867,12 @@ export default function RahmahJuliLandingPage() {
   };
 
   const waText = encodeURIComponent(
-    `Assalamualaikum, saya ingin koreksi data jamaah Paket Rahmah 1 Juli 2026.`
+    `Assalamualaikum, saya ingin koreksi data jamaah ${KLOTER45_TRIP.kloterLabel} ${KLOTER45_TRIP.departureDate}.`
   );
   const activeFilterLabel = FILTER_OPTIONS.find((option) => option.id === filter)?.label || 'Filter';
-  const tourLeaderContact = RAHMAH_JULI_CONTACTS[0];
-  const packageNameWithoutPrefix = RAHMAH_JULI_TRIP.packageName.replace(/^Paket\s+/i, '');
-  const packageTitle = `${packageNameWithoutPrefix} (${RAHMAH_JULI_TRIP.packageVariant})`.toUpperCase();
+  const tourLeaderContact = KLOTER45_CONTACTS[0];
+  const packageNameWithoutPrefix = KLOTER45_TRIP.packageName.replace(/^Paket\s+/i, '');
+  const packageTitle = `${packageNameWithoutPrefix} (${KLOTER45_TRIP.packageVariant})`.toUpperCase();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
@@ -754,9 +887,9 @@ export default function RahmahJuliLandingPage() {
           </a>
           <div className="flex items-center gap-2">
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-600 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300">
-              {RAHMAH_JULI_TRIP.totalJamaah} JAMAAH
+              {KLOTER45_TRIP.totalJamaah} JAMAAH
             </div>
-            <RahmahThemeToggle />
+            <Kloter45ThemeToggle />
           </div>
         </div>
       </header>
@@ -764,14 +897,17 @@ export default function RahmahJuliLandingPage() {
       <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-8 pt-4">
         <section className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
+            <div className="min-w-0">
+              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+                {KLOTER45_TRIP.kloterLabel}
+              </span>
+              <p className="mt-1.5 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
                 {packageTitle}
               </p>
               <p className="mt-1 text-[10px] font-semibold tracking-wide text-amber-600">
-                <span>{RAHMAH_JULI_TRIP.travelDateRange}</span>
+                <span>{KLOTER45_TRIP.travelDateRange}</span>
                 <span className="text-gray-300"> · </span>
-                <span className="text-gray-500 dark:text-slate-400">by {RAHMAH_JULI_TRIP.airline}</span>
+                <span className="text-gray-500 dark:text-slate-400">by {KLOTER45_TRIP.airline}</span>
               </p>
             </div>
             <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-300">
@@ -782,7 +918,7 @@ export default function RahmahJuliLandingPage() {
         </section>
 
         <section className="space-y-2">
-          {RAHMAH_JULI_CONTACTS.map((contact) => (
+          {KLOTER45_CONTACTS.map((contact) => (
             <ContactPersonCard key={contact.role} contact={contact} />
           ))}
         </section>
@@ -865,7 +1001,7 @@ export default function RahmahJuliLandingPage() {
                   {saveStatus === 'saving' ? 'Menyimpan' : saveStatus === 'saved' ? 'Tersimpan' : 'Offline'}
                 </span>
               )}
-              <p>{completedCount}/{RAHMAH_JULI_TRIP.totalJamaah} siap</p>
+              <p>{completedCount}/{KLOTER45_TRIP.totalJamaah} siap</p>
             </div>
           </div>
 
@@ -878,6 +1014,7 @@ export default function RahmahJuliLandingPage() {
                   prep={prep}
                   editingPhoneNo={editingPhoneNo}
                   expandedJamaahNos={expandedJamaahNos}
+                  onToggleChecklist={handleToggleChecklist}
                   onStartEditPhone={handleStartEditPhone}
                   onPhoneChange={handlePhoneChange}
                   onStopEditPhone={handleStopEditPhone}
