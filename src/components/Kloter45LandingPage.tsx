@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BedDouble, BookHeart, Check, ChevronDown, ChevronRight, ChevronUp, HandHeart, Route, Search, SlidersHorizontal } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
-import logoAlhijaz from '@/logo-alhijaz.webp';
 import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
+import Kloter45ShineLogo from '@/components/kloter45/ShineLogo';
 import Kloter45BacaanPage from '@/components/kloter45/BacaanPage';
 import Kloter45RoomListPage from '@/components/kloter45/RoomListPage';
 import Kloter45ItineraryPage from '@/components/kloter45/ItineraryPage';
@@ -648,19 +648,8 @@ export default function Kloter45LandingPage({
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
-          <a href="/" className="block flex-none" aria-label="Alhijaz Indowisata">
-            <img
-              src={logoAlhijaz}
-              alt="Alhijaz Indowisata"
-              className="h-8 w-auto object-contain"
-            />
-          </a>
-          <div className="flex items-center gap-2">
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-600 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300">
-              {KLOTER45_TRIP.totalJamaah} JAMAAH
-            </div>
-            <Kloter45ThemeToggle />
-          </div>
+          <Kloter45ShineLogo />
+          <Kloter45ThemeToggle />
         </div>
       </header>
 

@@ -371,6 +371,18 @@ test('Kloter 45 landing keeps the collapsible rows, search, filters, and theme t
   assert.match(themeToggle, /document\.documentElement\.classList\.toggle\('dark', isDark\)/);
   assert.match(component, /<Kloter45ThemeToggle \/>/);
   assert.match(read(SUB_SHELL_PATH), /<Kloter45ThemeToggle \/>/);
+
+  // Header: logo terbaru + kilau yang sama dengan halaman jadwal; pil jumlah jamaah dibuang.
+  const shineLogo = read('src/components/kloter45/ShineLogo.tsx');
+  assert.match(shineLogo, /new-logo\/new-logo-alhijaz-colored\.png/);
+  assert.match(shineLogo, /new-logo\/new-logo-alhijaz-white\.png/);
+  assert.match(shineLogo, /className="animate-logo-shine pointer-events-none absolute inset-0 h-7 w-auto object-contain"/);
+  assert.match(shineLogo, /dark:hidden/);
+  assert.match(shineLogo, /hidden h-7 w-auto object-contain dark:block/);
+  assert.match(read('src/index.css'), /\.animate-logo-shine \{/);
+  assert.match(component, /<Kloter45ShineLogo \/>/);
+  assert.doesNotMatch(component, /logo-alhijaz\.webp/);
+  assert.doesNotMatch(component, /\{KLOTER45_TRIP\.totalJamaah\} JAMAAH/);
 });
 
 test('Kloter 45 landing hides raw ID Umrah behind family labels', () => {
