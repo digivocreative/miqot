@@ -478,7 +478,8 @@ test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', (
   for (const entry of DZIKIR_CATEGORIES.flatMap((category) => category.entries)) {
     assert.ok(entry.sumber, `${entry.id}: dzikir baru wajib mencantumkan sumber`);
     // Jumlah bacaan hidup di `ulang`, judul dibiarkan bersih dan berbahasa awam.
-    assert.match(entry.ulang ?? '', /\d+×/, `${entry.id}: jumlah bacaan wajib di field ulang`);
+    // Lencana cukup angkanya: "3 kali", bukan "istighfar 3×" atau "33× masing-masing".
+    assert.match(entry.ulang ?? '', /^\d+ kali$/, `${entry.id}: ulang harus berbentuk "N kali"`);
     assert.doesNotMatch(entry.title, /×|\(\d+/, `${entry.id}: judul tidak boleh memuat jumlah bacaan`);
     assert.doesNotMatch(entry.title, /ā|ī|ū|‘|’/, `${entry.id}: judul memakai transliterasi, bukan bahasa awam`);
   }
@@ -548,7 +549,7 @@ test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know'
     'Ikrar Ridha kepada Allah, Islam, dan Rasul',
     'Cukuplah Allah Bagiku',
     'Doa Perlindungan dari Segala Bahaya',
-    'Doa Perlindungan dari Kejahatan Makhluk',
+    'Doa Perlindungan dari Kejahatan Makhluk (Petang)',
     'Tasbih Seratus Kali',
   ]);
   assert.deepEqual(setelahShalat.entries.map((entry) => entry.title), [

@@ -11,7 +11,7 @@ export interface DoaEntry {
   latin: string;
   terjemahan: string;
   sumber?: string;
-  /** Jumlah bacaan yang dianjurkan, mis. '3×' atau '33× masing-masing'. */
+  /** Jumlah bacaan yang dianjurkan, selalu berbentuk 'N kali' (mis. '3 kali'). */
   ulang?: string;
 }
 

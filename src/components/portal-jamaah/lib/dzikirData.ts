@@ -30,7 +30,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'ayat-kursi-pagi-petang',
         title: 'Ayat Kursi',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: AYAT_KURSI,
         latin: AYAT_KURSI_LATIN,
         terjemahan: AYAT_KURSI_TERJEMAHAN,
@@ -39,7 +39,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'al-ikhlas',
         title: 'Surah Al-Ikhlas',
-        ulang: '3×',
+        ulang: '3 kali',
         arab: 'قُلْ هُوَ اللّٰهُ اَحَدٌۚ اَللّٰهُ الصَّمَدُۚ لَمْ يَلِدْ وَلَمْ يُوْلَدْۙ وَلَمْ يَكُنْ لَّهٗ كُفُوًا اَحَدٌ',
         latin: 'Qul huwallāhu ahad. Allāhush-shamad. Lam yalid wa lam yūlad. Wa lam yakul lahū kufuwan ahad.',
         terjemahan:
@@ -49,7 +49,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'al-falaq',
         title: 'Surah Al-Falaq',
-        ulang: '3×',
+        ulang: '3 kali',
         arab: 'قُلْ اَعُوْذُ بِرَبِّ الْفَلَقِۙ مِنْ شَرِّ مَا خَلَقَۙ وَمِنْ شَرِّ غَاسِقٍ اِذَا وَقَبَۙ وَمِنْ شَرِّ النَّفّٰثٰتِ فِى الْعُقَدِۙ وَمِنْ شَرِّ حَاسِدٍ اِذَا حَسَدَ',
         latin:
           'Qul a‘ūdzu birabbil-falaq. Min syarri mā khalaq. Wa min syarri ghāsiqin idzā waqab. Wa min syarrin-naffātsāti fil-‘uqad. Wa min syarri hāsidin idzā hasad.',
@@ -60,7 +60,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'an-nas',
         title: 'Surah An-Nas',
-        ulang: '3×',
+        ulang: '3 kali',
         arab: 'قُلْ اَعُوْذُ بِرَبِّ النَّاسِۙ مَلِكِ النَّاسِۙ اِلٰهِ النَّاسِۙ مِنْ شَرِّ الْوَسْوَاسِ ەۙ الْخَنَّاسِۖ الَّذِيْ يُوَسْوِسُ فِيْ صُدُوْرِ النَّاسِۙ مِنَ الْجِنَّةِ وَالنَّاسِ',
         latin:
           'Qul a‘ūdzu birabbin-nās. Malikin-nās. Ilāhin-nās. Min syarril-waswāsil-khannās. Alladzī yuwaswisu fī shudūrin-nās. Minal-jinnati wan-nās.',
@@ -71,7 +71,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'sayyidul-istighfar',
         title: 'Doa Memohon Ampun Terbaik (Sayyidul Istighfar)',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: 'اَللّٰهُمَّ اَنْتَ رَبِّيْ لَا اِلٰهَ اِلَّا اَنْتَ، خَلَقْتَنِيْ وَاَنَا عَبْدُكَ، وَاَنَا عَلٰى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، اَعُوْذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، اَبُوْءُ لَكَ بِنِعْمَتِكَ عَلَيَّ وَاَبُوْءُ بِذَنْبِيْ فَاغْفِرْ لِيْ فَاِنَّهٗ لَا يَغْفِرُ الذُّنُوْبَ اِلَّا اَنْتَ',
         latin:
           'Allāhumma anta rabbī lā ilāha illā anta, khalaqtanī wa ana ‘abduka, wa ana ‘alā ‘ahdika wa wa‘dika mastatha‘tu, a‘ūdzu bika min syarri mā shana‘tu, abū’u laka bini‘matika ‘alayya wa abū’u bidzanbī faghfir lī fa innahū lā yaghfirudz-dzunūba illā anta.',
@@ -82,7 +82,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'ashbahna',
         title: 'Dzikir Pembuka Pagi & Petang',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: 'اَصْبَحْنَا وَاَصْبَحَ الْمُلْكُ لِلّٰهِ، وَالْحَمْدُ لِلّٰهِ، لَا اِلٰهَ اِلَّا اللّٰهُ وَحْدَهٗ لَا شَرِيْكَ لَهٗ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلٰى كُلِّ شَيْءٍ قَدِيْرٌ',
         latin:
           'Ashbahnā wa ashbahal-mulku lillāh, wal-hamdu lillāh, lā ilāha illallāhu wahdahū lā syarīka lah, lahul-mulku wa lahul-hamdu wa huwa ‘alā kulli syai’in qadīr. (Petang: Amsainā wa amsal-mulku lillāh …)',
@@ -93,7 +93,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'allahumma-bika-ashbahna',
         title: 'Doa Pagi Hari',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: 'اَللّٰهُمَّ بِكَ اَصْبَحْنَا وَبِكَ اَمْسَيْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوْتُ وَاِلَيْكَ النُّشُوْرُ',
         latin: 'Allāhumma bika ashbahnā wa bika amsainā wa bika nahyā wa bika namūtu wa ilaikan-nusyūr.',
         terjemahan:
@@ -103,7 +103,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'allahumma-bika-amsaina',
         title: 'Doa Petang Hari',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: 'اَللّٰهُمَّ بِكَ اَمْسَيْنَا وَبِكَ اَصْبَحْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوْتُ وَاِلَيْكَ الْمَصِيْرُ',
         latin: 'Allāhumma bika amsainā wa bika ashbahnā wa bika nahyā wa bika namūtu wa ilaikal-mashīr.',
         terjemahan:
@@ -113,7 +113,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'radhitu-billah',
         title: 'Ikrar Ridha kepada Allah, Islam, dan Rasul',
-        ulang: '3×',
+        ulang: '3 kali',
         arab: 'رَضِيْتُ بِاللّٰهِ رَبًّا، وَبِالْاِسْلَامِ دِيْنًا، وَبِمُحَمَّدٍ صَلَّى اللّٰهُ عَلَيْهِ وَسَلَّمَ نَبِيًّا',
         latin: 'Radhītu billāhi rabbā, wa bil-islāmi dīnā, wa bimuhammadin shallallāhu ‘alaihi wa sallama nabiyyā.',
         terjemahan: 'Aku ridha Allah sebagai Tuhanku, Islam sebagai agamaku, dan Muhammad ﷺ sebagai nabiku.',
@@ -122,7 +122,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'hasbiyallah',
         title: 'Cukuplah Allah Bagiku',
-        ulang: '7×',
+        ulang: '7 kali',
         arab: 'حَسْبِيَ اللّٰهُ لَآ اِلٰهَ اِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيْمِ',
         latin: 'Hasbiyallāhu lā ilāha illā huwa ‘alaihi tawakkaltu wa huwa rabbul-‘arsyil-‘azhīm.',
         terjemahan:
@@ -132,7 +132,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'bismillahilladzi',
         title: 'Doa Perlindungan dari Segala Bahaya',
-        ulang: '3×',
+        ulang: '3 kali',
         arab: 'بِسْمِ اللّٰهِ الَّذِيْ لَا يَضُرُّ مَعَ اسْمِهٖ شَيْءٌ فِى الْاَرْضِ وَلَا فِى السَّمَاۤءِ وَهُوَ السَّمِيْعُ الْعَلِيْمُ',
         latin: 'Bismillāhilladzī lā yadhurru ma‘asmihī syai’un fil-ardhi wa lā fis-samā’i wa huwas-samī‘ul-‘alīm.',
         terjemahan:
@@ -141,8 +141,8 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       },
       {
         id: 'audzu-bikalimatillah',
-        title: 'Doa Perlindungan dari Kejahatan Makhluk',
-        ulang: '3× (petang)',
+        title: 'Doa Perlindungan dari Kejahatan Makhluk (Petang)',
+        ulang: '3 kali',
         arab: 'اَعُوْذُ بِكَلِمَاتِ اللّٰهِ التَّاۤمَّاتِ مِنْ شَرِّ مَا خَلَقَ',
         latin: 'A‘ūdzu bikalimātillāhit-tāmmāti min syarri mā khalaq.',
         terjemahan: 'Aku berlindung dengan kalimat-kalimat Allah yang sempurna dari keburukan apa yang Dia ciptakan.',
@@ -151,7 +151,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'subhanallah-wa-bihamdih-100',
         title: 'Tasbih Seratus Kali',
-        ulang: '100×',
+        ulang: '100 kali',
         arab: 'سُبْحَانَ اللّٰهِ وَبِحَمْدِهٖ',
         latin: 'Subhānallāhi wa bihamdih.',
         terjemahan: 'Mahasuci Allah dan segala puji bagi-Nya.',
@@ -166,7 +166,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'istighfar-antas-salam',
         title: 'Istighfar & Doa Keselamatan',
-        ulang: 'istighfar 3×',
+        ulang: '3 kali',
         arab: 'اَسْتَغْفِرُ اللّٰهَ (٣×)، اَللّٰهُمَّ اَنْتَ السَّلَامُ وَمِنْكَ السَّلَامُ تَبَارَكْتَ يَا ذَا الْجَلَالِ وَالْاِكْرَامِ',
         latin: 'Astaghfirullāh (3×). Allāhumma antas-salām wa minkas-salām, tabārakta yā dzal-jalāli wal-ikrām.',
         terjemahan:
@@ -176,7 +176,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'la-ilaha-illallah-la-mania',
         title: 'Tahlil Setelah Shalat',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: `${TAHLIL_PENUTUP}، اَللّٰهُمَّ لَا مَانِعَ لِمَا اَعْطَيْتَ وَلَا مُعْطِيَ لِمَا مَنَعْتَ وَلَا يَنْفَعُ ذَا الْجَدِّ مِنْكَ الْجَدُّ`,
         latin: `${TAHLIL_PENUTUP_LATIN} Allāhumma lā māni‘a limā a‘thaita wa lā mu‘thiya limā mana‘ta wa lā yanfa‘u dzal-jaddi minkal-jadd.`,
         terjemahan: `${TAHLIL_PENUTUP_TERJEMAHAN} Ya Allah, tidak ada yang dapat menghalangi apa yang Engkau beri dan tidak ada yang dapat memberi apa yang Engkau halangi, dan tidak berguna kekayaan seseorang di hadapan-Mu.`,
@@ -185,7 +185,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'tasbih-tahmid-takbir-33',
         title: 'Tasbih, Tahmid, Takbir',
-        ulang: '33× masing-masing',
+        ulang: '33 kali',
         arab: `سُبْحَانَ اللّٰهِ (٣٣×)، اَلْحَمْدُ لِلّٰهِ (٣٣×)، اَللّٰهُ اَكْبَرُ (٣٣×)، ${TAHLIL_PENUTUP}`,
         latin: `Subhānallāh (33×), alhamdulillāh (33×), Allāhu akbar (33×), ${TAHLIL_PENUTUP_LATIN}`,
         terjemahan: `Mahasuci Allah (33×), segala puji bagi Allah (33×), Allah Mahabesar (33×). ${TAHLIL_PENUTUP_TERJEMAHAN}`,
@@ -194,7 +194,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'ayat-kursi-setelah-shalat',
         title: 'Ayat Kursi',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: AYAT_KURSI,
         latin: AYAT_KURSI_LATIN,
         terjemahan: AYAT_KURSI_TERJEMAHAN,
@@ -203,7 +203,7 @@ export const DZIKIR_CATEGORIES: DoaCategory[] = [
       {
         id: 'allahumma-ainni',
         title: 'Doa Mohon Kekuatan Beribadah',
-        ulang: '1×',
+        ulang: '1 kali',
         arab: 'اَللّٰهُمَّ اَعِنِّيْ عَلٰى ذِكْرِكَ وَشُكْرِكَ وَحُسْنِ عِبَادَتِكَ',
         latin: 'Allāhumma a‘innī ‘alā dzikrika wa syukrika wa husni ‘ibādatik.',
         terjemahan: 'Ya Allah, tolonglah aku untuk selalu mengingat-Mu, bersyukur kepada-Mu, dan beribadah kepada-Mu dengan baik.',
