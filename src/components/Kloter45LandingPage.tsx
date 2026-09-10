@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Moon, Pencil, Search, SlidersHorizontal, Sun, UsersRound } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Moon, Search, SlidersHorizontal, Sun, UsersRound } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
@@ -9,7 +9,10 @@ import {
   KLOTER45_JAMAAH,
   KLOTER45_SLUG,
   KLOTER45_TRIP,
+  filterKloter45Groups,
   getKloter45Groups,
+  getKloter45MemberPhone as getMemberPhone,
+  isKloter45Checked as isChecked,
   type Kloter45ChecklistId,
   type Kloter45Contact,
   type Kloter45Group,
@@ -55,15 +58,6 @@ function loadPrepState(): JamaahPrepState {
     // Local prep state is a convenience only; a fresh page still works.
   }
   return {};
-}
-
-function isChecked(prep: JamaahPrepState, jamaahNo: number, itemId: Kloter45ChecklistId) {
-  return !!prep[jamaahNo]?.[itemId];
-}
-
-function getMemberPhone(prep: JamaahPrepState, member: Kloter45Jamaah) {
-  const savedPhone = prep[member.no]?.phone;
-  return typeof savedPhone === 'string' ? savedPhone : member.phone;
 }
 
 function normalizeJamaahWhatsAppNumber(phone: string) {
@@ -225,14 +219,14 @@ function JamaahGroupMemberRow({
             <button
               type="button"
               data-phone-edit={member.no}
-              aria-label={`Edit nomor WhatsApp ${member.name}`}
+              aria-label={`Ubah nomor WhatsApp ${member.name}`}
               onClick={(event) => {
                 event.stopPropagation();
                 onStartEditPhone(member);
               }}
-              className="inline-flex h-5 w-5 flex-none items-center justify-center rounded-md text-gray-400 transition-colors active:scale-95 hover:bg-gray-100 hover:text-gray-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              className="-my-0.5 inline-flex flex-none items-center rounded-md border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-600 transition-colors active:scale-95 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-800/40 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300"
             >
-              <Pencil size={10} strokeWidth={2.6} />
+              Ubah
             </button>
           </div>
         </div>
@@ -497,24 +491,10 @@ export default function Kloter45LandingPage() {
   }, [prep]);
 
   const groups = useMemo(() => getKloter45Groups(), []);
-  const filteredGroups = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
-    return groups
-      .map((group) => {
-        const members = group.members.filter((member) => {
-          const matchesQuery = !normalizedQuery
-            || group.displayName.toLowerCase().includes(normalizedQuery)
-            || member.name.toLowerCase().includes(normalizedQuery)
-            || getMemberPhone(prep, member).toLowerCase().includes(normalizedQuery);
-          if (!matchesQuery) return false;
-          if (filter === 'nusuk') return !isChecked(prep, member.no, 'nusuk');
-          return true;
-        });
-        return { ...group, members };
-      })
-      .filter((group) => group.members.length > 0);
-  }, [filter, groups, prep, query]);
+  const filteredGroups = useMemo(
+    () => filterKloter45Groups(groups, { query, prep, filter }),
+    [filter, groups, prep, query]
+  );
 
   const completedCount = useMemo(() => {
     return KLOTER45_JAMAAH.filter((member) => isMemberReady(prep, member)).length;

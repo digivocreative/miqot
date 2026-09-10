@@ -11,6 +11,7 @@ const {
   KLOTER45_PUBLIC_PATH,
   KLOTER45_SLUG,
   KLOTER45_TRIP,
+  filterKloter45Groups,
   getKloter45Groups,
 } = kloter45Data;
 
@@ -315,12 +316,21 @@ test('Kloter 45 landing keeps the collapsible rows, search, filters, and theme t
   assert.match(component, /grid-rows-\[0fr\] opacity-0 pointer-events-none/);
   assert.match(component, /event\.stopPropagation\(\);[\s\S]*onStartEditPhone\(member\)/);
 
+  // Ikon pensil diganti tombol berteks "Ubah".
+  assert.match(component, /data-phone-edit=\{member\.no\}/);
+  assert.match(component, /aria-label=\{`Ubah nomor WhatsApp \$\{member\.name\}`\}/);
+  assert.match(component, />\s*Ubah\s*<\/button>/);
+  assert.doesNotMatch(component, /Pencil/);
+
   assert.match(component, /Command Bar \(Search \+ Filters\)/);
   assert.match(component, /placeholder="Cari nama jamaah"/);
   assert.match(component, /role="listbox"/);
   assert.match(component, /aria-haspopup="listbox"/);
   assert.match(component, /\{ id: 'nusuk', label: 'Belum Nusuk' \}/);
-  assert.match(component, /if \(filter === 'nusuk'\) return !isChecked\(prep, member\.no, 'nusuk'\)/);
+  // Satu-satunya aturan pencarian ada di modul data; komponen tidak boleh
+  // punya salinannya sendiri yang bisa melenceng.
+  assert.match(component, /filterKloter45Groups\(groups, \{ query, prep, filter \}\)/);
+  assert.doesNotMatch(component, /normalizedQuery/);
 
   assert.match(component, /function Kloter45ThemeToggle/);
   assert.match(component, /KLOTER45_THEME_KEY/);
@@ -334,6 +344,66 @@ test('Kloter 45 landing hides raw ID Umrah behind family labels', () => {
   assert.match(component, /\{group\.displayName\}/);
   assert.doesNotMatch(component, /\{group\.idUmrah\}<\/span>/);
   assert.doesNotMatch(component, /AIW\d{7}/);
+});
+
+test('Kloter 45 search keeps the whole family visible, not just the matching person', () => {
+  const groups = getKloter45Groups();
+  const family = groups.find((group) => group.idUmrah === 'AIW0029767');
+  assert.equal(family.members.length, 5, 'fixture berubah — pilih keluarga lain');
+
+  // Satu nama ketemu → lima-limanya tampil.
+  const byName = filterKloter45Groups(groups, { query: 'KIANI' });
+  assert.equal(byName.length, 1);
+  assert.equal(byName[0].idUmrah, 'AIW0029767');
+  assert.deepEqual(
+    byName[0].members.map((member) => member.no),
+    family.members.map((member) => member.no)
+  );
+
+  // Nomor telepon dan ID Umrah juga menarik satu keluarga utuh.
+  assert.deepEqual(
+    filterKloter45Groups(groups, { query: '081310655821' })[0].members.length,
+    family.members.length
+  );
+  assert.deepEqual(
+    filterKloter45Groups(groups, { query: 'aiw0029767' })[0].members.length,
+    family.members.length
+  );
+
+  // Pencarian ikut nomor yang sudah dikoreksi di halaman, bukan cuma nomor asli.
+  const editedPrep = { [family.members[0].no]: { phone: '081999000111' } };
+  const byEditedPhone = filterKloter45Groups(groups, { query: '081999000111', prep: editedPrep });
+  assert.equal(byEditedPhone.length, 1);
+  assert.equal(byEditedPhone[0].members.length, family.members.length);
+
+  // Tanpa kata kunci semua tampil; kata kunci asing tidak menyisakan apa pun.
+  const all = filterKloter45Groups(groups, { query: '' });
+  assert.equal(all.length, groups.length);
+  assert.equal(all.flatMap((group) => group.members).length, KLOTER45_JAMAAH.length);
+  assert.deepEqual(filterKloter45Groups(groups, { query: 'tidakadaorangini' }), []);
+});
+
+test('Kloter 45 Belum Nusuk filter still narrows down to individuals', () => {
+  const groups = getKloter45Groups();
+  const family = groups.find((group) => group.idUmrah === 'AIW0029767');
+  const [first, second] = family.members;
+  const prep = {
+    [first.no]: { nusuk: true },
+    [second.no]: { nusuk: false },
+  };
+
+  // Filter checklist memotong per orang, walau pencarian menarik satu keluarga.
+  const filtered = filterKloter45Groups(groups, { query: 'KIANI', prep, filter: 'nusuk' });
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].members.length, family.members.length - 1);
+  assert.ok(!filtered[0].members.some((member) => member.no === first.no));
+
+  // Kalau seluruh keluarga sudah Nusuk, kartunya hilang sama sekali.
+  const allChecked = Object.fromEntries(family.members.map((member) => [member.no, { nusuk: true }]));
+  assert.deepEqual(
+    filterKloter45Groups(groups, { query: 'KIANI', prep: allChecked, filter: 'nusuk' }),
+    []
+  );
 });
 
 test('main.tsx routes /26SEP2026 case-insensitively before the package fallback', () => {

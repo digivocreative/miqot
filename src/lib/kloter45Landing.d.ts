@@ -51,3 +51,20 @@ export const KLOTER45_CHECKLIST_ITEMS: Kloter45ChecklistItem[];
 export const KLOTER45_CONTACTS: Kloter45Contact[];
 export const KLOTER45_JAMAAH: Kloter45Jamaah[];
 export function getKloter45Groups(jamaah?: Kloter45Jamaah[]): Kloter45Group[];
+export function isKloter45Checked(
+  prep: Record<number, Partial<Record<Kloter45ChecklistId, boolean>>>,
+  jamaahNo: number,
+  itemId: Kloter45ChecklistId
+): boolean;
+export function getKloter45MemberPhone(
+  prep: Record<number, { phone?: string }>,
+  member: Kloter45Jamaah
+): string;
+export function filterKloter45Groups(
+  groups: Kloter45Group[],
+  options?: {
+    query?: string;
+    prep?: Record<number, Partial<Record<Kloter45ChecklistId, boolean>> & { phone?: string }>;
+    filter?: 'all' | 'nusuk';
+  }
+): Kloter45Group[];

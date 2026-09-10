@@ -83,6 +83,43 @@ export const KLOTER45_JAMAAH = [
   { no: 45, idUmrah: 'AIW0030573', name: 'SARIBUNAN SIMBOLON', gender: 'P', age: 36, phone: '087782169835', phoneMasked: '0877****9835' },
 ];
 
+export function isKloter45Checked(prep, jamaahNo, itemId) {
+  return !!prep?.[jamaahNo]?.[itemId];
+}
+
+export function getKloter45MemberPhone(prep, member) {
+  const savedPhone = prep?.[member.no]?.phone;
+  return typeof savedPhone === 'string' ? savedPhone : member.phone;
+}
+
+/**
+ * Pencarian bekerja per KELUARGA, bukan per orang: satu nama ketemu berarti
+ * seluruh anggota ID Umrah yang sama ikut tampil, supaya hubungan keluarganya
+ * kelihatan utuh. Filter checklist tetap per orang — gunanya justru menyaring
+ * individu di dalam keluarga.
+ */
+export function filterKloter45Groups(groups, { query = '', prep = {}, filter = 'all' } = {}) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  return groups
+    .map((group) => {
+      const groupMatchesQuery = !normalizedQuery
+        || group.displayName.toLowerCase().includes(normalizedQuery)
+        || group.idUmrah.toLowerCase().includes(normalizedQuery)
+        || group.members.some((member) => (
+          member.name.toLowerCase().includes(normalizedQuery)
+          || getKloter45MemberPhone(prep, member).toLowerCase().includes(normalizedQuery)
+        ));
+      if (!groupMatchesQuery) return { ...group, members: [] };
+
+      const members = filter === 'nusuk'
+        ? group.members.filter((member) => !isKloter45Checked(prep, member.no, 'nusuk'))
+        : group.members;
+      return { ...group, members };
+    })
+    .filter((group) => group.members.length > 0);
+}
+
 export function getKloter45Groups(jamaah = KLOTER45_JAMAAH) {
   const byId = new Map();
 
