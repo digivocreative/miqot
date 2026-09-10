@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
-import { BedDouble, Check, ChevronDown, ChevronUp, HandHeart, Search, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { BedDouble, BookHeart, Check, ChevronDown, ChevronRight, ChevronUp, HandHeart, Route, Search, SlidersHorizontal } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
 import Kloter45BacaanPage from '@/components/kloter45/BacaanPage';
 import Kloter45RoomListPage from '@/components/kloter45/RoomListPage';
+import Kloter45ItineraryPage from '@/components/kloter45/ItineraryPage';
 import { KLOTER45_DOA_TABS, KLOTER45_DZIKIR_TABS } from '@/lib/kloter45Bacaan';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
 import {
@@ -36,10 +37,12 @@ type PrepLoadState = 'loading' | 'ready' | 'failed';
 const PREP_STORAGE_KEY = `${KLOTER45_SLUG}:prep`;
 const PAGE_TITLE = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
-const MENU_ICONS: Record<Kloter45SubPage, IconComponent> = {
-  doa: HandHeart,
-  dzikir: Sparkles,
-  'room-list': BedDouble,
+// Tiap menu punya ikon dan warna sendiri supaya mudah dibedakan sekilas.
+const MENU_STYLES: Record<Kloter45SubPage, { icon: IconComponent; iconClass: string }> = {
+  doa: { icon: HandHeart, iconClass: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/25 dark:text-emerald-300' },
+  dzikir: { icon: BookHeart, iconClass: 'bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-300' },
+  itinerary: { icon: Route, iconClass: 'bg-violet-50 text-violet-600 dark:bg-violet-900/25 dark:text-violet-300' },
+  'room-list': { icon: BedDouble, iconClass: 'bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-300' },
 };
 const CHECKLIST_QUESTIONS: Record<Kloter45ChecklistId, string> = {
   wa: 'Nomor WhatsApp sudah sesuai apa belum?',
@@ -602,7 +605,10 @@ export default function Kloter45LandingPage({
     return <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER45_DOA_TABS} onBack={goHome} />;
   }
   if (subPage === 'dzikir') {
-    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={Sparkles} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
+    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={BookHeart} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
+  }
+  if (subPage === 'itinerary') {
+    return <Kloter45ItineraryPage onBack={goHome} />;
   }
   if (subPage === 'room-list') {
     return <Kloter45RoomListPage onBack={goHome} />;
@@ -651,9 +657,9 @@ export default function Kloter45LandingPage({
           </div>
         </section>
 
-        <nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-3 gap-2">
+        <nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-2 gap-2">
           {KLOTER45_MENU.map((item) => {
-            const Icon = MENU_ICONS[item.id];
+            const { icon: Icon, iconClass } = MENU_STYLES[item.id];
             return (
               <a
                 key={item.id}
@@ -663,12 +669,13 @@ export default function Kloter45LandingPage({
                   event.preventDefault();
                   navigateSubPage(item.id);
                 }}
-                className="flex flex-col items-center gap-1.5 rounded-2xl border border-gray-100 bg-white px-2 py-3 text-center shadow-sm transition active:scale-95 hover:border-emerald-200 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-800/40"
+                className="flex items-center gap-2.5 rounded-2xl border border-gray-100 bg-white py-2.5 pl-2.5 pr-3 shadow-sm transition active:scale-95 hover:border-gray-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
-                  <Icon size={18} strokeWidth={2.4} />
+                <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${iconClass}`}>
+                  <Icon size={20} strokeWidth={2.4} />
                 </span>
-                <span className="text-[11px] font-bold text-gray-800 dark:text-slate-100">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate text-xs font-bold text-gray-800 dark:text-slate-100">{item.label}</span>
+                <ChevronRight size={14} strokeWidth={2.4} className="flex-none text-gray-300 dark:text-slate-600" />
               </a>
             );
           })}

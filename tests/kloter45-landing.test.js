@@ -37,6 +37,7 @@ const THEME_TOGGLE_PATH = 'src/components/kloter45/ThemeToggle.tsx';
 const SUB_SHELL_PATH = 'src/components/kloter45/SubPageShell.tsx';
 const BACAAN_PAGE_PATH = 'src/components/kloter45/BacaanPage.tsx';
 const ROOM_LIST_PAGE_PATH = 'src/components/kloter45/RoomListPage.tsx';
+const ITINERARY_PAGE_PATH = 'src/components/kloter45/ItineraryPage.tsx';
 
 function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
@@ -440,14 +441,15 @@ test('Kloter 45 Belum Nusuk filter still narrows down to individuals', () => {
 });
 
 test('Kloter 45 sub-page helpers accept the three menus case-insensitively', () => {
-  assert.deepEqual(KLOTER45_SUB_PAGES, ['doa', 'dzikir', 'room-list']);
+  assert.deepEqual(KLOTER45_SUB_PAGES, ['doa', 'dzikir', 'itinerary', 'room-list']);
   assert.deepEqual(KLOTER45_MENU.map((item) => item.id), KLOTER45_SUB_PAGES);
-  assert.deepEqual(KLOTER45_MENU.map((item) => item.label), ['Doa', 'Dzikir', 'Room List']);
+  assert.deepEqual(KLOTER45_MENU.map((item) => item.label), ['Doa', 'Dzikir', 'Itinerary', 'Room List']);
+  assert.equal(resolveKloter45SubPage('Itinerary'), 'itinerary');
 
   assert.equal(resolveKloter45SubPage('doa'), 'doa');
   assert.equal(resolveKloter45SubPage('DZIKIR'), 'dzikir');
   assert.equal(resolveKloter45SubPage(' Room-List '), 'room-list');
-  assert.equal(resolveKloter45SubPage('itinerary'), null);
+  assert.equal(resolveKloter45SubPage('faq'), null);
   assert.equal(resolveKloter45SubPage(undefined), null);
 
   assert.equal(getKloter45SubPagePath('doa'), '/26SEP2026/doa');
@@ -573,12 +575,24 @@ test('Kloter 45 landing shows the three menus above the search bar', () => {
   const menuIndex = component.indexOf('data-kloter45-menu');
   const searchIndex = component.indexOf('Command Bar (Search + Filters)');
   assert.ok(menuIndex > 0 && menuIndex < searchIndex, 'menu harus dirender sebelum kolom cari');
-  assert.match(component, /<nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-3 gap-2">/);
+  // Empat menu dalam kisi 2×2, tiap tile bergaya tombol: ikon berwarna + label + chevron.
+  assert.match(component, /<nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-2 gap-2">/);
+  assert.match(component, /const \{ icon: Icon, iconClass \} = MENU_STYLES\[item\.id\];/);
+  assert.match(component, /<ChevronRight size=\{14\}/);
   assert.match(component, /\{KLOTER45_MENU\.map\(\(item\) => \{/);
   assert.match(component, /href=\{getKloter45SubPagePath\(item\.id\)\}/);
   assert.match(component, /data-kloter45-menu-item=\{item\.id\}/);
   assert.match(component, /event\.preventDefault\(\);\s*navigateSubPage\(item\.id\);/);
-  assert.match(component, /const MENU_ICONS: Record<Kloter45SubPage, IconComponent> = \{\s*doa: HandHeart,\s*dzikir: Sparkles,\s*'room-list': BedDouble,\s*\}/);
+  // Ikon dan warna berbeda per menu — empat warna berbeda, empat ikon berbeda.
+  const styles = component.match(/const MENU_STYLES[\s\S]*?\n\};/)?.[0] ?? '';
+  assert.match(styles, /doa: \{ icon: HandHeart, iconClass: 'bg-emerald-50 text-emerald-600/);
+  assert.match(styles, /dzikir: \{ icon: BookHeart, iconClass: 'bg-amber-50 text-amber-600/);
+  assert.match(styles, /itinerary: \{ icon: Route, iconClass: 'bg-violet-50 text-violet-600/);
+  assert.match(styles, /'room-list': \{ icon: BedDouble, iconClass: 'bg-sky-50 text-sky-600/);
+  const icons = [...styles.matchAll(/icon: (\w+),/g)].map((m) => m[1]);
+  const hues = [...styles.matchAll(/text-(\w+)-600/g)].map((m) => m[1]);
+  assert.equal(new Set(icons).size, 4, 'ikon menu harus berbeda semua');
+  assert.equal(new Set(hues).size, 4, 'warna ikon menu harus berbeda semua');
 });
 
 test('Kloter 45 landing renders sub-pages with client-side navigation and Back support', () => {
@@ -590,8 +604,16 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(component, /\n\s+window\.addEventListener\('popstate', onPopState\);/);
   assert.match(component, /initialSubPage\?: Kloter45SubPage \| null;/);
   assert.match(component, /if \(subPage === 'doa'\) \{\s*return <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER45_DOA_TABS\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /if \(subPage === 'dzikir'\) \{\s*return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{Sparkles\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /if \(subPage === 'dzikir'\) \{\s*return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{BookHeart\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
   assert.match(component, /if \(subPage === 'room-list'\) \{\s*return <Kloter45RoomListPage onBack=\{goHome\} \/>;/);
+  assert.match(component, /if \(subPage === 'itinerary'\) \{\s*return <Kloter45ItineraryPage onBack=\{goHome\} \/>;/);
+
+  // Itinerary = itinerary paket JBU1569 yang sudah ada, bukan salinan data baru.
+  const itinerary = read(ITINERARY_PAGE_PATH);
+  assert.match(itinerary, /fetch\(`\/api\/itinerary\/\$\{encodeURIComponent\(packageId\)\}`\)/);
+  assert.match(itinerary, /const packageId = KLOTER45_TRIP\.tripCode;/);
+  assert.match(itinerary, /<WebItineraryView[\s\S]*?hideDocActions/);
+  assert.match(itinerary, /data-itinerary-empty/);
   assert.match(component, /const goHome = \(\) => navigateSubPage\(null\);/);
 
   const shell = read(SUB_SHELL_PATH);

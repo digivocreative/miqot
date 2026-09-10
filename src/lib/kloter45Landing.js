@@ -7,11 +7,12 @@ export const KLOTER45_PUBLIC_PATH = '/26SEP2026';
 
 // Sub-halaman di bawah /26SEP2026 (menu di atas kolom cari). Segmen URL-nya
 // huruf kecil; pencocokan tidak peduli besar-kecil huruf, sama seperti slug.
-export const KLOTER45_SUB_PAGES = ['doa', 'dzikir', 'room-list'];
+export const KLOTER45_SUB_PAGES = ['doa', 'dzikir', 'itinerary', 'room-list'];
 
 export const KLOTER45_MENU = [
   { id: 'doa', label: 'Doa', description: 'Doa perjalanan & ibadah' },
   { id: 'dzikir', label: 'Dzikir', description: 'Pagi, petang, setelah shalat' },
+  { id: 'itinerary', label: 'Itinerary', description: 'Rencana perjalanan hari per hari' },
   { id: 'room-list', label: 'Room List', description: 'Daftar kamar hotel' },
 ];
 

@@ -46,7 +46,7 @@ export interface Kloter45Group {
 
 export const KLOTER45_SLUG: string;
 export const KLOTER45_PUBLIC_PATH: string;
-export type Kloter45SubPage = 'doa' | 'dzikir' | 'room-list';
+export type Kloter45SubPage = 'doa' | 'dzikir' | 'itinerary' | 'room-list';
 export interface Kloter45MenuItem {
   id: Kloter45SubPage;
   label: string;
