@@ -181,6 +181,7 @@ test('every kloter in the registry carries its own share metadata and slug rules
   assert.equal(K45.meta.title, 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA');
   assert.equal(K45.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter45-26sep2026.jpg');
   assert.equal(K39.meta.title, 'KLOTER 39 | 12 - 20 SEP 2026 | ALHIJAZ INDOWISATA');
+  assert.equal(K39.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter39-12sep2026.jpg');
   assert.equal(K39.meta.description, 'Daftar jamaah dan checklist persiapan Kloter 39 Umroh Uhud Reguler (Kereta Cepat), 12 - 20 September 2026 bersama Saudia dan Tour Leader Dyah Ratna.');
 });
 
@@ -780,6 +781,8 @@ test('Kloter 45 Room List page renders the lists natively with the PDF still one
 
   assert.match(page, /trip\.roomLists\.map\(\(list\) => \{/);
   assert.match(page, /data-room-list-tab=\{list\.id\}/);
+  // Pemilih tab hanya tampil kalau daftarnya lebih dari satu (Kloter 39 cuma Saudi).
+  assert.match(page, /\{trip\.roomLists\.length > 1 && \(\s*<div\s+role="tablist"/);
   assert.match(page, /findKloterRoomsByName\(roomList, query\)/);
   assert.match(page, /placeholder="Cari nama atau nomor kamar"/);
   assert.match(page, /data-room-list-hotel=\{hotel\.city\}/);

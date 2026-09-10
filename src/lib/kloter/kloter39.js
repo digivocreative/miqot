@@ -22,7 +22,7 @@ const kloter39 = {
   meta: {
     title: 'KLOTER 39 | 12 - 20 SEP 2026 | ALHIJAZ INDOWISATA',
     description: 'Daftar jamaah dan checklist persiapan Kloter 39 Umroh Uhud Reguler (Kereta Cepat), 12 - 20 September 2026 bersama Saudia dan Tour Leader Dyah Ratna.',
-    ogImageUrl: 'https://alhijaz.b-cdn.net/og-image.png'
+    ogImageUrl: 'https://alhijaz.b-cdn.net/og-kloter39-12sep2026.jpg'
   },
   contacts: [
     {

@@ -43,6 +43,9 @@ export default function KloterRoomListPage({ trip, onBack }: { trip: KloterTrip;
   return (
     <KloterSubPageShell title="Room List" icon={BedDouble} onBack={onBack} homePath={trip.publicPath}>
       <div data-room-list-page={roomList.id} className="space-y-3">
+        {/* Tab hanya kalau ada lebih dari satu daftar (mis. Dubai + Saudi);
+            satu daftar saja tidak perlu pemilih. */}
+        {trip.roomLists.length > 1 && (
         <div
           role="tablist"
           aria-label="Pilih room list"
@@ -71,6 +74,7 @@ export default function KloterRoomListPage({ trip, onBack }: { trip: KloterTrip;
             );
           })}
         </div>
+        )}
 
         <section className="divide-y divide-gray-100 rounded-2xl border border-gray-100 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
           {roomList.hotels.map((hotel) => (
