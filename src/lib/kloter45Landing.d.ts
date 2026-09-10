@@ -52,14 +52,35 @@ export interface Kloter45MenuItem {
   label: string;
   description: string;
 }
-export interface Kloter45RoomListFile {
-  url: string | null;
+export interface Kloter45RoomGuest {
+  name: string;
+  note?: string;
+}
+export interface Kloter45Room {
+  no: number;
+  type: 'Double' | 'Twin' | 'Triple' | 'Quad';
+  guests: Kloter45RoomGuest[];
+}
+export interface Kloter45RoomHotel {
+  city: string;
+  name: string;
+  nights: number;
+  checkIn: string;
+  checkOut: string;
+}
+export interface Kloter45RoomList {
+  id: 'dubai' | 'saudi';
   label: string;
-  updatedAt: string | null;
+  title: string;
+  updatedAt: string;
+  pdfUrl: string;
+  hotels: Kloter45RoomHotel[];
+  rooms: Kloter45Room[];
 }
 export const KLOTER45_SUB_PAGES: Kloter45SubPage[];
 export const KLOTER45_MENU: Kloter45MenuItem[];
-export const KLOTER45_ROOM_LIST: Kloter45RoomListFile;
+export const KLOTER45_ROOM_LISTS: Kloter45RoomList[];
+export function findKloter45RoomsByName(roomList: Kloter45RoomList, query: string): Kloter45Room[];
 export function resolveKloter45SubPage(segment: string | null | undefined): Kloter45SubPage | null;
 export function getKloter45SubPagePath(subPage: Kloter45SubPage | null): string;
 export const KLOTER45_TRIP: Kloter45Trip;

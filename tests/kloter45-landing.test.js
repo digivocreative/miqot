@@ -20,11 +20,12 @@ const {
   KLOTER45_JAMAAH,
   KLOTER45_MENU,
   KLOTER45_PUBLIC_PATH,
-  KLOTER45_ROOM_LIST,
+  KLOTER45_ROOM_LISTS,
   KLOTER45_SUB_PAGES,
   KLOTER45_SLUG,
   KLOTER45_TRIP,
   filterKloter45Groups,
+  findKloter45RoomsByName,
   getKloter45Groups,
   getKloter45SubPagePath,
   resolveKloter45SubPage,
@@ -635,17 +636,53 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(bacaan, /entry\.sumber &&/);
 });
 
-test('Kloter 45 Room List page shows a placeholder until the file is shared', () => {
+test('Kloter 45 room lists cover every jamaah exactly once, per country', () => {
+  assert.deepEqual(KLOTER45_ROOM_LISTS.map((list) => list.id), ['dubai', 'saudi']);
+  assert.deepEqual(KLOTER45_ROOM_LISTS.map((list) => list.label), ['Dubai', 'Mekkah – Madinah']);
+  assert.deepEqual(KLOTER45_ROOM_LISTS.map((list) => list.rooms.length), [21, 14]);
+  assert.deepEqual(
+    KLOTER45_ROOM_LISTS[1].hotels.map((hotel) => `${hotel.city}:${hotel.nights}`),
+    ['Madinah:3', 'Mekkah:4']
+  );
+
+  const jamaahNames = KLOTER45_JAMAAH.map((member) => member.name);
+  for (const list of KLOTER45_ROOM_LISTS) {
+    assert.match(list.pdfUrl, /^https:\/\/alhijaz\.b-cdn\.net\/roomlist-kloter45-[a-z-]+\.pdf$/);
+    assert.deepEqual(list.rooms.map((room) => room.no), list.rooms.map((_, index) => index + 1), `${list.id}: nomor kamar loncat`);
+    const guests = list.rooms.flatMap((room) => room.guests.map((guest) => guest.name));
+    const jamaahGuests = guests.filter((name) => name !== 'Muthowif');
+    // Setiap jamaah tepat satu kamar; tidak ada nama asing selain Muthowif.
+    assert.deepEqual([...jamaahGuests].sort(), [...jamaahNames].sort(), `${list.id}: daftar tamu ≠ manifest`);
+    for (const room of list.rooms) {
+      assert.ok(['Double', 'Twin', 'Triple', 'Quad'].includes(room.type), `${list.id} kamar ${room.no}: tipe ${room.type}`);
+      assert.ok(room.guests.length >= 2 && room.guests.length <= 5, `${list.id} kamar ${room.no}: ${room.guests.length} tamu`);
+    }
+  }
+
+  // Cari nama menampilkan kamar yang memuat nama itu; nomor kamar juga bisa dicari.
+  const saudi = KLOTER45_ROOM_LISTS[1];
+  const bagasRooms = findKloter45RoomsByName(saudi, 'bagas');
+  assert.equal(bagasRooms.length, 1);
+  assert.ok(bagasRooms[0].guests.some((guest) => guest.name === 'BAGAS PRAMUDITA' && guest.note === 'Tour Leader'));
+  assert.deepEqual(findKloter45RoomsByName(saudi, '12').map((room) => room.no), [12]);
+  assert.equal(findKloter45RoomsByName(saudi, '').length, saudi.rooms.length);
+  assert.deepEqual(findKloter45RoomsByName(saudi, 'tidak ada'), []);
+});
+
+test('Kloter 45 Room List page renders the lists natively with the PDF still one tap away', () => {
   const page = read(ROOM_LIST_PAGE_PATH);
 
-  assert.equal(KLOTER45_ROOM_LIST.url, null);
-  assert.match(page, /file\.url \? \(/);
+  assert.match(page, /KLOTER45_ROOM_LISTS\.map\(\(list\) => \{/);
+  assert.match(page, /data-room-list-tab=\{list\.id\}/);
+  assert.match(page, /findKloter45RoomsByName\(roomList, query\)/);
+  assert.match(page, /placeholder="Cari nama atau nomor kamar"/);
+  assert.match(page, /data-room-list-hotel=\{hotel\.city\}/);
+  assert.match(page, /data-room=\{room\.no\}/);
+  assert.match(page, /\{guest\.note && \(/);
+  assert.match(page, /href=\{roomList\.pdfUrl\}/);
   assert.match(page, /data-room-list-open/);
-  assert.match(page, /data-room-list-empty/);
-  assert.match(page, /Room list belum dibagikan/);
   assert.match(page, /Tanya Tour Leader/);
-  assert.match(page, /target="_blank"/);
-  assert.match(page, /function isImageUrl\(url: string\)/);
+  assert.doesNotMatch(page, /Room list belum dibagikan/);
 });
 
 test('server.js serves the Kloter 45 OG card on sub-pages too', () => {

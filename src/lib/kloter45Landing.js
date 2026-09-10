@@ -16,13 +16,81 @@ export const KLOTER45_MENU = [
   { id: 'room-list', label: 'Room List', description: 'Daftar kamar hotel' },
 ];
 
-// Berkas room list dari Tour Leader (PDF/gambar di Bunny). `url` null =
-// belum dibagikan; halaman menampilkan keterangan, bukan tautan mati.
-export const KLOTER45_ROOM_LIST = {
-  url: null,
-  label: 'Room List Kloter 45',
-  updatedAt: null,
-};
+// Room list dari Tour Leader — dua daftar karena kloter ini menginap di dua
+// negara. Isi kamar disalin dari PDF resmi (tautan `pdfUrl`) supaya jamaah
+// bisa mencari nama sendiri tanpa mengunduh; PDF-nya tetap bisa dibuka.
+// Nama di `guests` harus persis sama dengan KLOTER45_JAMAAH (dijaga tes).
+export const KLOTER45_ROOM_LISTS = [
+  {
+    id: 'dubai',
+    label: 'Dubai',
+    title: 'Room List Dubai',
+    updatedAt: '4 September 2026',
+    pdfUrl: 'https://alhijaz.b-cdn.net/roomlist-kloter45-dubai.pdf',
+    hotels: [
+      { city: 'Dubai', name: 'Time Onyx / setaraf', nights: 1, checkIn: '26 September 2026', checkOut: '27 September 2026' },
+    ],
+    rooms: [
+      { no: 1, type: 'Double', guests: [{ name: 'SUPARYANTO RAHARDJO' }, { name: 'DWI ASIH' }] },
+      { no: 2, type: 'Double', guests: [{ name: 'SUHARTONO GUNAWAN TASCHAN' }, { name: 'CICIH MURNIASIH' }] },
+      { no: 3, type: 'Double', guests: [{ name: 'NORA RIRINTAMI' }, { name: 'HENDRAYUDA SABAR' }] },
+      { no: 4, type: 'Double', guests: [{ name: 'SYECHAN HANAFI' }, { name: 'DEWI MAULIDINA AZIZAH' }] },
+      { no: 5, type: 'Double', guests: [{ name: 'YULI HAPSARI' }, { name: 'PRAYOGI SUMONO' }] },
+      { no: 6, type: 'Double', guests: [{ name: 'HENDRI KOTO' }, { name: 'NERA LIADIANI' }] },
+      { no: 7, type: 'Double', guests: [{ name: 'DICKY SEPTRIADI' }, { name: 'RICA MUSTIKA SETIA' }] },
+      { no: 8, type: 'Double', guests: [{ name: 'SISMAN JASUDIRMAN' }, { name: 'ISKARWIYAH BARDAI' }] },
+      { no: 9, type: 'Double', guests: [{ name: 'LILIK MASKANAH' }, { name: 'PALAL MOELJO' }] },
+      { no: 10, type: 'Double', guests: [{ name: 'PUTRI KURNIA RIZKI' }, { name: 'MAULIDA FAKIHATUL FAISA' }, { name: 'EBRAHIM UTA KAUTSARRAZKY', note: 'Tanpa tempat tidur' }] },
+      { no: 11, type: 'Twin', guests: [{ name: 'USUP SETIAWAN' }, { name: 'AZIZUL HAKIM' }] },
+      { no: 12, type: 'Twin', guests: [{ name: 'SYAMSU DAIRATIL IRVAN' }, { name: 'KHAERUL ACHMAD PAKKI' }] },
+      { no: 13, type: 'Twin', guests: [{ name: 'SITI MARWAH HAMID' }, { name: 'YULI HERAWATI' }] },
+      { no: 14, type: 'Twin', guests: [{ name: 'IED BUDI HARTONO' }, { name: 'BAGAS PRAMUDITA', note: 'Tour Leader' }] },
+      { no: 15, type: 'Twin', guests: [{ name: 'NURUL FITRIAH ZALALUDIN' }, { name: 'KHAIRA TALITA AMEERAH' }] },
+      { no: 16, type: 'Twin', guests: [{ name: 'KIANI AMALIA PUTRI' }, { name: 'ALMEER FAWWAZ FATHURRAHMAN' }] },
+      { no: 17, type: 'Twin', guests: [{ name: 'SUPRI SUBAGIO' }, { name: 'MASRUL M MOCHTAR' }] },
+      { no: 18, type: 'Twin', guests: [{ name: 'DEDE SUDRAJAT' }, { name: 'FIRMAN IRWANSYAH' }] },
+      { no: 19, type: 'Twin', guests: [{ name: 'ARMIA FARANA' }, { name: 'EUIS NURZANAH' }] },
+      { no: 20, type: 'Triple', guests: [{ name: 'SITI JUBAEDAH' }, { name: 'LILIS OMO SUKARMA' }, { name: 'SARIBUNAN SIMBOLON' }] },
+      { no: 21, type: 'Triple', guests: [{ name: 'EVY URMILA SARI' }, { name: 'ADINDA MUTIA CAHYANI' }, { name: 'NURJANNAH BAHTIAR' }] },
+    ],
+  },
+  {
+    id: 'saudi',
+    label: 'Mekkah – Madinah',
+    title: 'Room List Mekkah – Madinah',
+    updatedAt: '7 September 2026',
+    pdfUrl: 'https://alhijaz.b-cdn.net/roomlist-kloter45-mekkah-madinah.pdf',
+    hotels: [
+      { city: 'Madinah', name: 'ODST Al Madinah', nights: 3, checkIn: '27 September 2026', checkOut: '30 September 2026' },
+      { city: 'Mekkah', name: 'Al Massa Grand', nights: 4, checkIn: '30 September 2026', checkOut: '4 Oktober 2026' },
+    ],
+    rooms: [
+      { no: 1, type: 'Double', guests: [{ name: 'SUPARYANTO RAHARDJO' }, { name: 'DWI ASIH' }] },
+      { no: 2, type: 'Double', guests: [{ name: 'DICKY SEPTRIADI' }, { name: 'RICA MUSTIKA SETIA' }] },
+      { no: 3, type: 'Double', guests: [{ name: 'PRAYOGI SUMONO' }, { name: 'YULI HAPSARI' }] },
+      { no: 4, type: 'Double', guests: [{ name: 'CICIH MURNIASIH' }, { name: 'SUHARTONO GUNAWAN TASCHAN' }] },
+      { no: 5, type: 'Double', guests: [{ name: 'ARMIA FARANA' }, { name: 'EUIS NURZANAH' }] },
+      { no: 6, type: 'Triple', guests: [{ name: 'EVY URMILA SARI' }, { name: 'ADINDA MUTIA CAHYANI' }, { name: 'NURJANNAH BAHTIAR' }] },
+      { no: 7, type: 'Quad', guests: [{ name: 'IED BUDI HARTONO' }, { name: 'SYECHAN HANAFI' }, { name: 'BAGAS PRAMUDITA', note: 'Tour Leader' }, { name: 'Muthowif', note: 'Pembimbing' }] },
+      { no: 8, type: 'Quad', guests: [{ name: 'DEWI MAULIDINA AZIZAH' }, { name: 'SITI JUBAEDAH' }, { name: 'LILIS OMO SUKARMA' }, { name: 'SARIBUNAN SIMBOLON' }] },
+      { no: 9, type: 'Quad', guests: [{ name: 'NURUL FITRIAH ZALALUDIN' }, { name: 'KIANI AMALIA PUTRI' }, { name: 'ALMEER FAWWAZ FATHURRAHMAN' }, { name: 'KHAIRA TALITA AMEERAH' }] },
+      { no: 10, type: 'Quad', guests: [{ name: 'NORA RIRINTAMI' }, { name: 'SITI MARWAH HAMID' }, { name: 'YULI HERAWATI' }, { name: 'NERA LIADIANI' }] },
+      { no: 11, type: 'Quad', guests: [{ name: 'HENDRAYUDA SABAR' }, { name: 'KHAERUL ACHMAD PAKKI' }, { name: 'SYAMSU DAIRATIL IRVAN' }, { name: 'HENDRI KOTO' }] },
+      { no: 12, type: 'Quad', guests: [{ name: 'PUTRI KURNIA RIZKI' }, { name: 'ISKARWIYAH BARDAI' }, { name: 'MAULIDA FAKIHATUL FAISA' }, { name: 'LILIK MASKANAH' }, { name: 'EBRAHIM UTA KAUTSARRAZKY', note: 'Tanpa tempat tidur' }] },
+      { no: 13, type: 'Quad', guests: [{ name: 'USUP SETIAWAN' }, { name: 'PALAL MOELJO' }, { name: 'SISMAN JASUDIRMAN' }, { name: 'AZIZUL HAKIM' }] },
+      { no: 14, type: 'Quad', guests: [{ name: 'SUPRI SUBAGIO' }, { name: 'MASRUL M MOCHTAR' }, { name: 'DEDE SUDRAJAT' }, { name: 'FIRMAN IRWANSYAH' }] },
+    ],
+  },
+];
+
+export function findKloter45RoomsByName(roomList, query) {
+  const normalized = String(query || '').trim().toLowerCase();
+  if (!normalized) return roomList.rooms;
+  return roomList.rooms.filter((room) => (
+    String(room.no) === normalized
+    || room.guests.some((guest) => guest.name.toLowerCase().includes(normalized))
+  ));
+}
 
 export function resolveKloter45SubPage(segment) {
   const normalized = String(segment || '').trim().toLowerCase();
