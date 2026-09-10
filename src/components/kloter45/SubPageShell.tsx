@@ -11,11 +11,15 @@ export default function Kloter45SubPageShell({
   title,
   icon: Icon,
   onBack,
+  flush = false,
   children,
 }: {
   title: string;
   icon: IconComponent;
   onBack: () => void;
+  /** Isi menempel tepi layar di HP (tanpa px-4/pt-4) — untuk konten yang sudah
+   *  membawa inset sendiri, mis. WebItineraryView (mx-3 per kartu hari). */
+  flush?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -44,7 +48,11 @@ export default function Kloter45SubPageShell({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-lg space-y-3 px-4 pb-10 pt-4">
+      <main
+        className={`mx-auto w-full max-w-lg space-y-3 ${
+          flush ? 'sm:px-4 sm:pb-10 sm:pt-4' : 'px-4 pb-10 pt-4'
+        }`}
+      >
         {children}
       </main>
     </div>

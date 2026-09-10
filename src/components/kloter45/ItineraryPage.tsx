@@ -40,12 +40,12 @@ export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }
   }, []);
 
   return (
-    <Kloter45SubPageShell title="Itinerary" icon={Route} onBack={onBack}>
+    <Kloter45SubPageShell title="Itinerary" icon={Route} onBack={onBack} flush>
       <div data-itinerary-page={KLOTER45_TRIP.tripCode}>
         {state === 'notfound' ? (
           <section
             data-itinerary-empty
-            className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900"
+            className="mx-4 mt-4 rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900"
           >
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-900/20 dark:text-violet-300">
               <Route size={22} strokeWidth={2.2} />
@@ -57,14 +57,17 @@ export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }
           </section>
         ) : (
           // WebItineraryView memakai palet terang sendiri (itin-*), jadi dibungkus
-          // permukaan putih apa pun tema halamannya.
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-800">
+          // permukaan putih apa pun tema halamannya. Di HP menempel tepi layar
+          // (seperti halaman share) — bingkai kartu + px-4 halaman di atas mx-3
+          // kartu hari membuat teks mulai 56px dari tepi. Bingkai hanya di sm+.
+          <div className="overflow-hidden bg-white sm:rounded-2xl sm:border sm:border-gray-100 sm:shadow-sm sm:dark:border-slate-800">
             <WebItineraryView
               content={content}
               loading={state === 'loading'}
               error={null}
               paket={paket}
               hideDocActions
+              hideHotelCard
             />
           </div>
         )}
