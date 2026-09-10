@@ -15,11 +15,11 @@ export interface BacaanTab {
 // Kategori doaData.ts yang sebenarnya dzikir — dipindah ke menu Dzikir.
 export const DZIKIR_IDS_FROM_DOA: readonly string[] = ['dzikir-harian'];
 
-export const KLOTER45_DOA_CATEGORIES: DoaCategory[] = DOA_CATEGORIES.filter(
+export const KLOTER_DOA_CATEGORIES: DoaCategory[] = DOA_CATEGORIES.filter(
   (category) => !DZIKIR_IDS_FROM_DOA.includes(category.id)
 );
 
-export const KLOTER45_DZIKIR_CATEGORIES: DoaCategory[] = [
+export const KLOTER_DZIKIR_CATEGORIES: DoaCategory[] = [
   ...DZIKIR_CATEGORIES,
   ...DOA_CATEGORIES.filter((category) => DZIKIR_IDS_FROM_DOA.includes(category.id)),
 ];
@@ -91,7 +91,7 @@ function resolveEntries(order: readonly string[], overrides: Record<string, stri
   });
 }
 
-export const KLOTER45_DOA_TABS: BacaanTab[] = [
+export const KLOTER_DOA_TABS: BacaanTab[] = [
   { id: 'umroh', label: 'Doa Umroh', entries: resolveEntries(DOA_UMROH_ORDER, DOA_TAB_TITLE_OVERRIDES) },
   { id: 'harian', label: 'Doa Harian', entries: resolveEntries(DOA_HARIAN_ORDER, DOA_HARIAN_TITLE_OVERRIDES) },
 ];
@@ -102,7 +102,7 @@ const DZIKIR_TAB_LABELS: Record<string, string> = {
   'dzikir-harian': 'Harian',
 };
 
-export const KLOTER45_DZIKIR_TABS: BacaanTab[] = KLOTER45_DZIKIR_CATEGORIES.map((category) => ({
+export const KLOTER_DZIKIR_TABS: BacaanTab[] = KLOTER_DZIKIR_CATEGORIES.map((category) => ({
   id: category.id,
   label: DZIKIR_TAB_LABELS[category.id] ?? category.title,
   entries: category.entries,

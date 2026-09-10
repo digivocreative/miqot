@@ -165,7 +165,7 @@ import {
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
-import { KLOTER45_JAMAAH, KLOTER45_SUB_PAGES } from './src/lib/kloter45Landing.js';
+import { KLOTER_TRIPS, KLOTER_SUB_PAGES, findKloterTripBySlug } from './src/lib/kloterLanding.js';
 import {
   prepareLegacyPaymentRowForUpsert,
 } from './lib/jamaah-payment-provenance.js';
@@ -308,17 +308,20 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', '26sep2026', 'teras']);
+// Slug halaman kloter (/26SEP2026, /12SEP2026, ...) ikut dipesan dari registri.
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', ...KLOTER_TRIPS.map((trip) => trip.slug)]);
 const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
-const KLOTER45_PUBLIC_SLUG = '26sep2026';
-// Tautan yang dibagikan ke jamaah memakai huruf besar; rute dan perbandingan
-// slug tetap huruf kecil (RESERVED_SPA_SLUGS selalu dibandingkan lowercase).
-const KLOTER45_PUBLIC_PATH = '/26SEP2026';
-const KLOTER45_META_TITLE = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
-const KLOTER45_META_DESCRIPTION = 'Daftar jamaah dan checklist persiapan Kloter 45 Umroh Plus Dubai, 26 September - 5 Oktober 2026 bersama Emirates dan Tour Leader Bagas Pramudita.';
-const KLOTER45_OG_IMAGE_URL = 'https://alhijaz.b-cdn.net/og-kloter45-26sep2026.jpg';
-const KLOTER45_MEMBER_BY_NO = new Map(KLOTER45_JAMAAH.map((member) => [member.no, member]));
-const KLOTER45_ID_UMRAH = [...new Set(KLOTER45_JAMAAH.map((member) => member.idUmrah))];
+// Indeks per kloter untuk endpoint persiapan: nomor jamaah → anggota, dan
+// daftar ID Umrah untuk menyaring baris booking_persiapan.
+const KLOTER_INDEX = new Map(KLOTER_TRIPS.map((trip) => [trip.slug, {
+  trip,
+  memberByNo: new Map(trip.jamaah.map((member) => [member.no, member])),
+  idUmrah: [...new Set(trip.jamaah.map((member) => member.idUmrah))],
+}]));
+function getKloterIndex(tripSlug) {
+  const trip = findKloterTripBySlug(tripSlug);
+  return trip ? KLOTER_INDEX.get(trip.slug) : null;
+}
 const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
 const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
 
@@ -397,14 +400,14 @@ function tourLeaderPrepEntryFromPayload(payload = {}) {
   };
 }
 
-function tourLeaderPrepRowToItems(row) {
+function tourLeaderPrepRowToItems(row, kloter) {
   const tahapan = plainObjectOrEmpty(row?.tahapan);
-  const tripPrep = plainObjectOrEmpty(tahapan[KLOTER45_PUBLIC_SLUG]);
+  const tripPrep = plainObjectOrEmpty(tahapan[kloter.trip.slug]);
   const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
 
   return Object.entries(jamaahPrep)
     .map(([jamaahNo, entry]) => {
-      const member = KLOTER45_MEMBER_BY_NO.get(Number(jamaahNo));
+      const member = kloter.memberByNo.get(Number(jamaahNo));
       const saved = plainObjectOrEmpty(entry);
       if (!member || member.idUmrah !== row.id_umroh) return null;
       return {
@@ -418,15 +421,16 @@ function tourLeaderPrepRowToItems(row) {
 }
 
 function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
-  if (String(tripSlug || '').toLowerCase() !== KLOTER45_PUBLIC_SLUG) {
+  const kloter = getKloterIndex(tripSlug);
+  if (!kloter) {
     return { error: 'Paket tidak ditemukan' };
   }
-  const member = KLOTER45_MEMBER_BY_NO.get(jamaahNo);
+  const member = kloter.memberByNo.get(jamaahNo);
   if (!Number.isInteger(jamaahNo) || !member) {
     return { error: 'Nomor jamaah tidak valid' };
   }
 
-  return { member, entry: tourLeaderPrepEntryFromPayload(payload) };
+  return { kloter, member, entry: tourLeaderPrepEntryFromPayload(payload) };
 }
 
 // ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
@@ -1059,8 +1063,8 @@ app.get('/api/kurs', async (req, res) => {
 });
 
 app.get('/api/tour-leader-prep/:tripSlug', async (req, res) => {
-  const { tripSlug } = req.params;
-  if (String(tripSlug || '').toLowerCase() !== KLOTER45_PUBLIC_SLUG) {
+  const kloter = getKloterIndex(req.params.tripSlug);
+  if (!kloter) {
     return res.status(404).json({ success: false, error: 'Paket tidak ditemukan' });
   }
 
@@ -1068,10 +1072,10 @@ app.get('/api/tour-leader-prep/:tripSlug', async (req, res) => {
     const { data, error } = await supabase
       .from(TOUR_LEADER_PREP_TABLE)
       .select('id_umroh,tahapan')
-      .in('id_umroh', KLOTER45_ID_UMRAH);
+      .in('id_umroh', kloter.idUmrah);
     if (error) throw error;
     const rows = (data || [])
-      .flatMap((row) => tourLeaderPrepRowToItems(row))
+      .flatMap((row) => tourLeaderPrepRowToItems(row, kloter))
       .sort((left, right) => left.jamaah_no - right.jamaah_no);
     return res.json({ success: true, data: rows });
   } catch (err) {
@@ -1088,7 +1092,7 @@ app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
   }
 
   try {
-    const { member, entry } = validation;
+    const { kloter, member, entry } = validation;
     const { data: existing, error: readError } = await supabase
       .from(TOUR_LEADER_PREP_TABLE)
       .select('agent_id,tahapan,spiritual')
@@ -1114,12 +1118,12 @@ app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
     }
 
     const tahapan = plainObjectOrEmpty(existing?.tahapan);
-    const tripPrep = plainObjectOrEmpty(tahapan[KLOTER45_PUBLIC_SLUG]);
+    const tripPrep = plainObjectOrEmpty(tahapan[kloter.trip.slug]);
     const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
     const now = new Date().toISOString();
     const nextTahapan = {
       ...tahapan,
-      [KLOTER45_PUBLIC_SLUG]: {
+      [kloter.trip.slug]: {
         ...tripPrep,
         jamaah: {
           ...jamaahPrep,
@@ -23800,11 +23804,11 @@ app.get('/top-partner', (req, res) => {
   res.send(html);
 });
 
-function injectKloter45Meta(html, origin, subPath = '') {
-  const title = escapeHtmlAttr(KLOTER45_META_TITLE);
-  const description = escapeHtmlAttr(KLOTER45_META_DESCRIPTION);
-  const pageUrl = escapeHtmlAttr(`${origin}${KLOTER45_PUBLIC_PATH}${subPath}`);
-  const ogImageUrl = escapeHtmlAttr(KLOTER45_OG_IMAGE_URL);
+function injectKloterMeta(html, origin, trip, subPath = '') {
+  const title = escapeHtmlAttr(trip.meta.title);
+  const description = escapeHtmlAttr(trip.meta.description);
+  const pageUrl = escapeHtmlAttr(`${origin}${trip.publicPath}${subPath}`);
+  const ogImageUrl = escapeHtmlAttr(trip.meta.ogImageUrl);
 
   html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
   html = html.replace(
@@ -23835,27 +23839,28 @@ function injectKloter45Meta(html, origin, subPath = '') {
   return html.replace('</head>', `${metaTags}\n</head>`);
 }
 
-// Express mencocokkan rute tanpa peduli besar-kecil huruf, tapi kedua ejaan
-// didaftarkan eksplisit supaya niatnya terbaca dari kode.
-app.get(['/26SEP2026', '/26SEP2026/', '/26sep2026', '/26sep2026/'], (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const html = injectKloter45Meta(getIndexHtml(), origin);
-  res.set('Content-Type', 'text/html');
-  res.set('Cache-Control', 'no-cache');
-  res.send(html);
-});
-
-// Sub-halaman (Doa / Dzikir / Room List) ikut kartu OG yang sama; segmen di
-// luar daftar diteruskan ke rute berikutnya.
-app.get(['/26SEP2026/:sub', '/26sep2026/:sub'], (req, res, next) => {
-  const sub = String(req.params.sub || '').toLowerCase();
-  if (!KLOTER45_SUB_PAGES.includes(sub)) return next();
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const html = injectKloter45Meta(getIndexHtml(), origin, `/${sub}`);
-  res.set('Content-Type', 'text/html');
-  res.set('Cache-Control', 'no-cache');
-  res.send(html);
-});
+// Satu pasang rute per kloter di registri. Express mencocokkan rute tanpa
+// peduli besar-kecil huruf, jadi /26SEP2026 dan /26sep2026 sama-sama kena.
+// Sub-halaman (Doa / Dzikir / Itinerary / Room List) ikut kartu OG yang sama;
+// segmen di luar daftar diteruskan ke rute berikutnya.
+for (const trip of KLOTER_TRIPS) {
+  app.get([`/${trip.slug}`, `/${trip.slug}/`], (req, res) => {
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const html = injectKloterMeta(getIndexHtml(), origin, trip);
+    res.set('Content-Type', 'text/html');
+    res.set('Cache-Control', 'no-cache');
+    res.send(html);
+  });
+  app.get(`/${trip.slug}/:sub`, (req, res, next) => {
+    const sub = String(req.params.sub || '').toLowerCase();
+    if (!KLOTER_SUB_PAGES.includes(sub)) return next();
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const html = injectKloterMeta(getIndexHtml(), origin, trip, `/${sub}`);
+    res.set('Content-Type', 'text/html');
+    res.set('Cache-Control', 'no-cache');
+    res.send(html);
+  });
+}
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {

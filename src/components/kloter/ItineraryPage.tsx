@@ -3,22 +3,22 @@ import { Route } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
 import { getPackageById } from '@/services/data-service';
 import WebItineraryView, { type ItineraryContent } from '@/components/WebItineraryView';
-import Kloter45SubPageShell from '@/components/kloter45/SubPageShell';
-import { KLOTER45_TRIP } from '@/lib/kloter45Landing.js';
+import KloterSubPageShell from '@/components/kloter/SubPageShell';
+import type { KloterTrip } from '@/lib/kloterLanding.js';
 
 type LoadState = 'loading' | 'ready' | 'notfound';
 
 // Itinerary kloter = itinerary paket JBU1569 yang sudah ada di app (tampilan
 // yang sama dengan halaman share /:agent/:jadwalId/itinerary), dibungkus
 // kerangka sub-halaman supaya tombol kembali dan judulnya konsisten.
-export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }) {
+export default function KloterItineraryPage({ trip, onBack }: { trip: KloterTrip; onBack: () => void }) {
   const [content, setContent] = useState<ItineraryContent | null>(null);
   const [paket, setPaket] = useState<UmrohPackage | null>(null);
   const [state, setState] = useState<LoadState>('loading');
 
   useEffect(() => {
     let cancelled = false;
-    const packageId = KLOTER45_TRIP.tripCode;
+    const packageId = trip.code;
     Promise.allSettled([
       fetch(`/api/itinerary/${encodeURIComponent(packageId)}`).then((response) => response.json()),
       getPackageById(packageId),
@@ -37,11 +37,11 @@ export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [trip.code]);
 
   return (
-    <Kloter45SubPageShell title="Itinerary" icon={Route} onBack={onBack} flush>
-      <div data-itinerary-page={KLOTER45_TRIP.tripCode}>
+    <KloterSubPageShell title="Itinerary" icon={Route} onBack={onBack} homePath={trip.publicPath} flush>
+      <div data-itinerary-page={trip.code}>
         {state === 'notfound' ? (
           <section
             data-itinerary-empty
@@ -52,7 +52,7 @@ export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }
             </span>
             <p className="mt-3 text-sm font-bold text-gray-900 dark:text-slate-100">Itinerary belum tersedia</p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-slate-400">
-              Rencana perjalanan {KLOTER45_TRIP.tripCode} belum tersusun di sistem. Coba lagi nanti.
+              Rencana perjalanan {trip.code} belum tersusun di sistem. Coba lagi nanti.
             </p>
           </section>
         ) : (
@@ -72,6 +72,6 @@ export default function Kloter45ItineraryPage({ onBack }: { onBack: () => void }
           </div>
         )}
       </div>
-    </Kloter45SubPageShell>
+    </KloterSubPageShell>
   );
 }

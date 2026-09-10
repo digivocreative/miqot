@@ -1,22 +1,24 @@
 import type { ComponentType, ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
-import { KLOTER45_PUBLIC_PATH } from '@/lib/kloter45Landing.js';
+import KloterThemeToggle from '@/components/kloter/ThemeToggle';
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 // Kerangka sub-halaman: bar atas (kembali + judul + tema) dan isi selebar
 // kolom yang sama dengan halaman utama, supaya perpindahannya terasa satu app.
-export default function Kloter45SubPageShell({
+export default function KloterSubPageShell({
   title,
   icon: Icon,
   onBack,
+  homePath,
   flush = false,
   children,
 }: {
   title: string;
   icon: IconComponent;
   onBack: () => void;
+  /** Tautan kembali (path publik kloter), dipakai kalau JS belum jalan. */
+  homePath: string;
   /** Isi menempel tepi layar di HP (tanpa px-4/pt-4) — untuk konten yang sudah
    *  membawa inset sendiri, mis. WebItineraryView (mx-3 per kartu hari). */
   flush?: boolean;
@@ -27,8 +29,8 @@ export default function Kloter45SubPageShell({
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center gap-2 px-4 py-3">
           <a
-            href={KLOTER45_PUBLIC_PATH}
-            data-kloter45-back
+            href={homePath}
+            data-kloter-back
             onClick={(event) => {
               event.preventDefault();
               onBack();
@@ -44,7 +46,7 @@ export default function Kloter45SubPageShell({
             </span>
             <h1 className="truncate text-sm font-bold text-gray-900 dark:text-slate-100">{title}</h1>
           </div>
-          <Kloter45ThemeToggle />
+          <KloterThemeToggle />
         </div>
       </header>
 

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { ChevronDown, Search, Star } from 'lucide-react';
-import Kloter45SubPageShell from '@/components/kloter45/SubPageShell';
+import KloterSubPageShell from '@/components/kloter/SubPageShell';
 import type { DoaEntry } from '@/components/portal-jamaah/lib/doaData';
-import type { BacaanTab } from '@/lib/kloter45Bacaan';
+import type { BacaanTab } from '@/lib/kloterBacaan';
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -44,18 +44,20 @@ function holdRowDuringSwitch(closingPanel: Element, openingRow: Element) {
 // Halaman Doa dan Dzikir memakai kerangka yang sama: baris tab di atas, lalu
 // satu daftar rata — tiap bacaan satu baris yang bisa dibuka. Yang beda cuma
 // judul, ikon, dan tab-nya.
-export default function Kloter45BacaanPage({
+export default function KloterBacaanPage({
   pageId,
   title,
   icon,
   tabs,
   onBack,
+  homePath,
 }: {
   pageId: 'doa' | 'dzikir';
   title: string;
   icon: IconComponent;
   tabs: BacaanTab[];
   onBack: () => void;
+  homePath: string;
 }) {
   const [activeTabId, setActiveTabId] = useState(tabs[0]?.id ?? '');
   const [query, setQuery] = useState('');
@@ -85,7 +87,7 @@ export default function Kloter45BacaanPage({
   };
 
   return (
-    <Kloter45SubPageShell title={title} icon={icon} onBack={onBack}>
+    <KloterSubPageShell title={title} icon={icon} onBack={onBack} homePath={homePath}>
       <div data-bacaan-page={pageId} className="space-y-3">
         <div
           role="tablist"
@@ -206,6 +208,6 @@ export default function Kloter45BacaanPage({
           </section>
         )}
       </div>
-    </Kloter45SubPageShell>
+    </KloterSubPageShell>
   );
 }

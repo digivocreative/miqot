@@ -2,43 +2,51 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import * as kloter45Data from '../src/lib/kloter45Landing.js';
+import * as kloter from '../src/lib/kloterLanding.js';
 import { DOA_CATEGORIES } from '../src/components/portal-jamaah/lib/doaData.ts';
 import { DZIKIR_CATEGORIES } from '../src/components/portal-jamaah/lib/dzikirData.ts';
 import {
   DOA_HARIAN_ORDER,
   DOA_UMROH_ORDER,
-  KLOTER45_DOA_CATEGORIES,
-  KLOTER45_DOA_TABS,
-  KLOTER45_DZIKIR_CATEGORIES,
-  KLOTER45_DZIKIR_TABS,
-} from '../src/lib/kloter45Bacaan.ts';
+  KLOTER_DOA_CATEGORIES,
+  KLOTER_DOA_TABS,
+  KLOTER_DZIKIR_CATEGORIES,
+  KLOTER_DZIKIR_TABS,
+} from '../src/lib/kloterBacaan.ts';
 
 const {
-  KLOTER45_CHECKLIST_ITEMS,
-  KLOTER45_CONTACTS,
-  KLOTER45_JAMAAH,
-  KLOTER45_MENU,
-  KLOTER45_PUBLIC_PATH,
-  KLOTER45_ROOM_LISTS,
-  KLOTER45_SUB_PAGES,
-  KLOTER45_SLUG,
-  KLOTER45_TRIP,
-  filterKloter45Groups,
-  findKloter45RoomsByName,
-  getKloter45Groups,
-  getKloter45SubPagePath,
-  resolveKloter45SubPage,
-} = kloter45Data;
+  KLOTER_TRIPS,
+  KLOTER_SLUGS,
+  KLOTER_CHECKLIST_ITEMS,
+  KLOTER_MENU,
+  KLOTER_SUB_PAGES,
+  filterKloterGroups,
+  findKloterRoomsByName,
+  findKloterTripBySlug,
+  getKloterGroups,
+  getKloterSubPagePath,
+  resolveKloterSubPage,
+} = kloter;
+
+// Kloter 45 dipakai sebagai fixture asersi spesifik; invarian umum diuji untuk semua kloter.
+const K45 = findKloterTripBySlug('26sep2026');
+const K39 = findKloterTripBySlug('12sep2026');
+const KLOTER45_JAMAAH = K45.jamaah;
+const KLOTER45_CONTACTS = K45.contacts;
+const KLOTER45_TRIP = K45.trip;
+const KLOTER45_ROOM_LISTS = K45.roomLists;
+const KLOTER45_SLUG = K45.slug;
+const KLOTER45_PUBLIC_PATH = K45.publicPath;
+const KLOTER45_SUB_PAGES = KLOTER_SUB_PAGES;
 
 const rootPath = new URL('..', import.meta.url).pathname;
-const COMPONENT_PATH = 'src/components/Kloter45LandingPage.tsx';
-const DB_HELPER_PATH = 'src/lib/kloter45PrepDb.ts';
-const THEME_TOGGLE_PATH = 'src/components/kloter45/ThemeToggle.tsx';
-const SUB_SHELL_PATH = 'src/components/kloter45/SubPageShell.tsx';
-const BACAAN_PAGE_PATH = 'src/components/kloter45/BacaanPage.tsx';
-const ROOM_LIST_PAGE_PATH = 'src/components/kloter45/RoomListPage.tsx';
-const ITINERARY_PAGE_PATH = 'src/components/kloter45/ItineraryPage.tsx';
+const COMPONENT_PATH = 'src/components/KloterLandingPage.tsx';
+const DB_HELPER_PATH = 'src/lib/kloterPrepDb.ts';
+const THEME_TOGGLE_PATH = 'src/components/kloter/ThemeToggle.tsx';
+const SUB_SHELL_PATH = 'src/components/kloter/SubPageShell.tsx';
+const BACAAN_PAGE_PATH = 'src/components/kloter/BacaanPage.tsx';
+const ROOM_LIST_PAGE_PATH = 'src/components/kloter/RoomListPage.tsx';
+const ITINERARY_PAGE_PATH = 'src/components/kloter/ItineraryPage.tsx';
 
 function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
@@ -74,9 +82,9 @@ test('Kloter 45 landing trip copy matches the JBU1569 manifest', () => {
   assert.equal(KLOTER45_TRIP.tourLeader, 'Bagas Pramudita');
 
   const component = read(COMPONENT_PATH);
-  assert.match(component, /const packageTitle = `\$\{packageNameWithoutPrefix\} \(\$\{KLOTER45_TRIP\.packageVariant\}\)`\.toUpperCase\(\);/);
-  assert.match(component, /KLOTER45_TRIP\.travelDateRange/);
-  assert.match(component, /by \{KLOTER45_TRIP\.airline\}/);
+  assert.match(component, /const packageTitle = `\$\{packageNameWithoutPrefix\} \(\$\{trip\.trip\.packageVariant\}\)`\.toUpperCase\(\);/);
+  assert.match(component, /trip\.trip\.travelDateRange/);
+  assert.match(component, /by \{trip\.trip\.airline\}/);
   // Pil "KLOTER 45" dibuang dari kartu trip (hemat tempat); label kloter
   // cukup di judul halaman dan pesan koreksi WA.
   const tripCardMarkup = component.match(/<section\s+data-trip-card[\s\S]*?<\/section>/)?.[0] ?? '';
@@ -86,13 +94,13 @@ test('Kloter 45 landing trip copy matches the JBU1569 manifest', () => {
   // baris kontak harus dirender DI DALAM kartu trip, bukan kartu terpisah.
   const tripCard = component.match(/<section\s+data-trip-card[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.match(tripCard, /\{packageTitle\}/);
-  assert.match(tripCard, /KLOTER45_CONTACTS\.map\(\(contact\) => \(\s*<ContactPersonRow/);
+  assert.match(tripCard, /trip\.contacts\.map\(\(contact\) => \(\s*<ContactPersonRow/);
   assert.doesNotMatch(component, /ContactPersonCard/);
-  assert.doesNotMatch(component, /<section className="space-y-2">\s*\{KLOTER45_CONTACTS/);
+  assert.doesNotMatch(component, /<section className="space-y-2">\s*\{trip\.contacts/);
 });
 
 test('Kloter 45 landing groups jamaah by ID Umrah and sorts each family oldest first', () => {
-  const groups = getKloter45Groups();
+  const groups = getKloterGroups(K45);
 
   assert.equal(groups.length, 20);
   assert.equal(groups[0].idUmrah, 'AIW0029251');
@@ -131,14 +139,14 @@ test('Kloter 45 landing exposes full phone numbers plus a consistent masked form
 
 test('Kloter 45 landing checklist covers WA and Nusuk only', () => {
   assert.deepEqual(
-    KLOTER45_CHECKLIST_ITEMS.map((item) => item.id),
+    KLOTER_CHECKLIST_ITEMS.map((item) => item.id),
     ['wa', 'nusuk']
   );
   assert.deepEqual(
-    KLOTER45_CHECKLIST_ITEMS.map((item) => item.label),
+    KLOTER_CHECKLIST_ITEMS.map((item) => item.label),
     ['Nomor WhatsApp', 'Nusuk']
   );
-  assert.equal(kloter45Data.KLOTER45_ROOM_FIELDS, undefined);
+  assert.equal(kloter.KLOTER45_ROOM_FIELDS, undefined);
 });
 
 test('Kloter 45 landing ships a tour leader contact only', () => {
@@ -154,36 +162,65 @@ test('Kloter 45 landing ships a tour leader contact only', () => {
   }
 });
 
-test('Kloter 45 landing has route-specific share metadata', () => {
-  const server = read('server.js');
+test('every kloter in the registry carries its own share metadata and slug rules', () => {
+  assert.deepEqual(KLOTER_SLUGS, ['26sep2026', '12sep2026']);
+  for (const trip of KLOTER_TRIPS) {
+    // Slug internal huruf kecil (RESERVED_SPA_SLUGS dibandingkan lowercase); tautan publik huruf besar.
+    assert.equal(trip.slug, trip.slug.toLowerCase());
+    assert.equal(trip.publicPath.toLowerCase(), `/${trip.slug}`);
+    assert.match(trip.meta.title, /^KLOTER \d+ \| .+ \| ALHIJAZ INDOWISATA$/);
+    assert.ok(trip.meta.description.includes(trip.trip.tourLeader), `${trip.slug}: deskripsi tanpa nama TL`);
+    assert.match(trip.meta.ogImageUrl, /^https:\/\/alhijaz\.b-cdn\.net\/.+\.(jpg|png)$/);
+    assert.equal(trip.trip.tripCode, trip.code);
+    assert.equal(trip.trip.totalJamaah, trip.jamaah.length);
+  }
+  assert.equal(findKloterTripBySlug('26SEP2026'), K45);
+  assert.equal(findKloterTripBySlug(' 12sep2026 '), K39);
+  assert.equal(findKloterTripBySlug('nikita'), null);
 
-  assert.match(server, /const KLOTER45_META_TITLE = 'KLOTER 45 \| 26 SEP - 5 OKT 2026 \| ALHIJAZ INDOWISATA';/);
-  assert.match(server, /const KLOTER45_META_DESCRIPTION = 'Daftar jamaah dan checklist persiapan Kloter 45 Umroh Plus Dubai, 26 September - 5 Oktober 2026 bersama Emirates dan Tour Leader Bagas Pramudita\.';/);
-  assert.match(server, /const KLOTER45_OG_IMAGE_URL = 'https:\/\/alhijaz\.b-cdn\.net\/og-kloter45-26sep2026\.jpg';/);
-  assert.match(server, /const KLOTER45_PUBLIC_SLUG = '26sep2026';/);
-  assert.match(server, /const KLOTER45_PUBLIC_PATH = '\/26SEP2026';/);
-  assert.match(server, /RESERVED_SPA_SLUGS = new Set\(\[[^\]]*'26sep2026'/);
-  assert.match(server, /function injectKloter45Meta\(html, origin, subPath = ''\)/);
-  assert.match(server, /const pageUrl = escapeHtmlAttr\(`\$\{origin\}\$\{KLOTER45_PUBLIC_PATH\}\$\{subPath\}`\);/);
-  assert.match(server, /<meta property="og:image" content="\$\{ogImageUrl\}" \/>/);
-  assert.match(server, /<meta property="og:image:height" content="675" \/>/);
-  assert.match(server, /<meta property="og:image:type" content="image\/jpeg" \/>/);
-  assert.match(server, /<meta name="twitter:image" content="\$\{ogImageUrl\}" \/>/);
-  assert.match(server, /app\.get\(\['\/26SEP2026', '\/26SEP2026\/', '\/26sep2026', '\/26sep2026\/'\]/);
+  assert.equal(K45.meta.title, 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA');
+  assert.equal(K45.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter45-26sep2026.jpg');
+  assert.equal(K39.meta.title, 'KLOTER 39 | 12 - 20 SEP 2026 | ALHIJAZ INDOWISATA');
+  assert.equal(K39.meta.description, 'Daftar jamaah dan checklist persiapan Kloter 39 Umroh Uhud Reguler (Kereta Cepat), 12 - 20 September 2026 bersama Saudia dan Tour Leader Dyah Ratna.');
+});
 
-  // Tidak boleh ada sisa halaman kloter sebelumnya.
-  assert.doesNotMatch(server, /RAHMAH_JULI/);
-  assert.doesNotMatch(server, /rahmah-1-juli-2026/);
+test('Kloter 39 data matches the JBU1506 manifest and room list', () => {
+  assert.equal(K39.slug, '12sep2026');
+  assert.equal(K39.publicPath, '/12SEP2026');
+  assert.equal(K39.code, 'JBU1506');
+  assert.equal(K39.kloterLabel, 'Kloter 39');
+  assert.equal(K39.trip.packageName, 'Paket Uhud Reguler');
+  assert.equal(K39.trip.packageVariant, 'Kereta Cepat');
+  assert.equal(K39.trip.airline, 'Saudia');
+  assert.equal(K39.trip.departureDate, '12 September 2026');
+  assert.equal(K39.trip.returnDate, '20 September 2026');
+  assert.equal(K39.trip.tourLeader, 'Dyah Ratna');
+
+  assert.equal(K39.jamaah.length, 46);
+  assert.equal(getKloterGroups(K39).length, 15);
+  assert.equal(K39.jamaah[0].name, 'NUZWAR YUSUF');
+  assert.equal(K39.jamaah[44].name, 'BONNY VIDRI ANGGORO', 'nama huruf campur di PDF dinormalisasi ke kapital');
+  assert.equal(K39.jamaah[45].name, 'DYAH RATNA BUNTARWITRI');
+
+  assert.deepEqual(K39.contacts.map((contact) => [contact.role, contact.name, contact.whatsappUrl, contact.photoUrl]), [
+    ['Tour Leader', 'Dyah Ratna', 'https://wa.me/6281385975678', 'https://alhijaz.b-cdn.net/dyah-ratna.jpg'],
+  ]);
+
+  assert.deepEqual(K39.roomLists.map((list) => [list.id, list.label, list.rooms.length]), [['saudi', 'Mekkah – Madinah', 14]]);
+  assert.deepEqual(K39.roomLists[0].hotels.map((hotel) => `${hotel.city}:${hotel.name}:${hotel.nights}`), ['Mekkah:Jumeirah Jabal Omar:4', 'Madinah:Al Ritz Al Madinah:3']);
+  const tlRoom = findKloterRoomsByName(K39.roomLists[0], 'dyah');
+  assert.equal(tlRoom.length, 1);
+  assert.ok(tlRoom[0].guests.some((guest) => guest.note === 'Tour Leader'));
+  assert.ok(K39.roomLists[0].rooms[2].guests.some((guest) => guest.note === 'Bayi'), 'bayi (INFANT) diberi catatan');
 });
 
 test('Kloter 45 landing renders the preparation checklist for every jamaah', () => {
   assert.equal(existsSync(join(rootPath, COMPONENT_PATH)), true);
   const component = read(COMPONENT_PATH);
 
-  assert.match(component, /const PAGE_TITLE = 'KLOTER 45 \| 26 SEP - 5 OKT 2026 \| ALHIJAZ INDOWISATA';/);
-  assert.match(component, /document\.title = menuLabel \? `\$\{menuLabel\} \| \$\{PAGE_TITLE\}` : PAGE_TITLE;/);
-  assert.match(component, /getKloter45Groups/);
-  assert.match(component, /KLOTER45_CHECKLIST_ITEMS\.map\(\(item\) => \{/);
+  assert.match(component, /document\.title = menuLabel \? `\$\{menuLabel\} \| \$\{trip\.meta\.title\}` : trip\.meta\.title;/);
+  assert.match(component, /getKloterGroups/);
+  assert.match(component, /KLOTER_CHECKLIST_ITEMS\.map\(\(item\) => \{/);
   assert.match(component, /Checklist Persiapan/);
   assert.match(component, /data-checklist-id=\{item\.id\}/);
   assert.match(component, /data-jamaah-no=\{member\.no\}/);
@@ -204,7 +241,7 @@ test('Kloter 45 landing renders the preparation checklist for every jamaah', () 
   // "Siap" ditentukan checklist saja setelah nomor kamar dibuang.
   assert.match(
     component,
-    /KLOTER45_CHECKLIST_ITEMS\.every\(\(item\) => isChecked\(prep, member\.no, item\.id\)\);/
+    /KLOTER_CHECKLIST_ITEMS\.every\(\(item\) => isChecked\(prep, member\.no, item\.id\)\);/
   );
 });
 
@@ -281,13 +318,14 @@ test('Kloter 45 landing persists prep changes to Supabase with a local fallback'
   const server = read('server.js');
   const viteConfig = read('vite.config.ts');
 
-  assert.match(component, /fetchKloter45PrepFromDb/);
-  assert.match(component, /saveKloter45PrepToDb/);
+  assert.match(component, /fetchKloterPrepFromDb/);
+  assert.match(component, /saveKloterPrepToDb/);
   assert.match(component, /return persistPrepPatch\(jamaahNo, patch\)/);
   assert.match(component, /localStorage/);
-  assert.match(dbHelper, /KLOTER45_PREP_TABLE = 'booking_persiapan'/);
-  assert.match(dbHelper, /KLOTER45_PREP_API = `\/api\/tour-leader-prep\/\$\{KLOTER45_SLUG\}`/);
-  assert.match(dbHelper, /fetch\(KLOTER45_PREP_API/);
+  assert.match(dbHelper, /KLOTER_PREP_TABLE = 'booking_persiapan'/);
+  assert.match(dbHelper, /getKloterPrepApi = \(trip: KloterTrip\) => `\$\{KLOTER_PREP_API_BASE\}\/\$\{trip\.slug\}`/);
+  assert.match(dbHelper, /fetch\(getKloterPrepApi\(trip\)/);
+  assert.match(dbHelper, /trip_slug: trip\.slug,/);
   assert.match(dbHelper, /method: 'PUT'/);
   for (const column of ['wa_confirmed', 'nusuk_installed']) {
     assert.match(dbHelper, new RegExp(column));
@@ -301,7 +339,10 @@ test('Kloter 45 landing persists prep changes to Supabase with a local fallback'
 
   // Slug rute API dibandingkan tanpa peduli besar-kecil huruf, sama seperti
   // rute halamannya.
-  assert.match(server, /String\(tripSlug \|\| ''\)\.toLowerCase\(\) !== KLOTER45_PUBLIC_SLUG/);
+  // Endpoint memakai registri: slug asing → 404, bukan hardcode satu kloter.
+  assert.match(server, /const kloter = getKloterIndex\(req\.params\.tripSlug\);\s*if \(!kloter\) \{\s*return res\.status\(404\)/);
+  assert.match(server, /\.in\('id_umroh', kloter\.idUmrah\)/);
+  assert.match(server, /\[kloter\.trip\.slug\]: \{/);
 });
 
 test('Kloter 45 landing refuses to write before the server state is known', () => {
@@ -319,7 +360,7 @@ test('Kloter 45 landing refuses to write before the server state is known', () =
   // Setelah coba-ulang berhasil, state server ditumpangkan lebih dulu, jadi
   // perubahan harus dipasang ulang dan yang ditulis adalah hasil gabungannya.
   assert.match(component, /applyPrepPatchLocally\(jamaahNo, patch\);\s*\}\s*try \{/);
-  assert.match(component, /await saveKloter45PrepToDb\(jamaahNo, prepRef\.current\[jamaahNo\]\)/);
+  assert.match(component, /await saveKloterPrepToDb\(trip, jamaahNo, prepRef\.current\[jamaahNo\]\)/);
 
   // Satu percobaan muat ulang dipakai bersama, bukan satu per centang.
   assert.match(component, /if \(loadPrepPromiseRef\.current\) return loadPrepPromiseRef\.current;/);
@@ -334,7 +375,7 @@ test('Kloter 45 landing member rows summarise the checklist as chips', () => {
   assert.match(component, /nusuk: 'Nusuk'/);
   assert.match(component, /data-checklist-chip=\{item\.id\}/);
   // Chip diturunkan dari daftar checklist, jadi ikut berubah kalau itemnya berubah.
-  assert.match(component, /return KLOTER45_CHECKLIST_ITEMS\.map\(\(item\) => \(\{/);
+  assert.match(component, /return KLOTER_CHECKLIST_ITEMS\.map\(\(item\) => \(\{/);
   assert.match(component, /\{checklistChips\.map\(\(item\) => \(/);
 });
 
@@ -362,25 +403,25 @@ test('Kloter 45 landing keeps the collapsible rows, search, filters, and theme t
   assert.match(component, /\{ id: 'nusuk', label: 'Belum Nusuk' \}/);
   // Satu-satunya aturan pencarian ada di modul data; komponen tidak boleh
   // punya salinannya sendiri yang bisa melenceng.
-  assert.match(component, /filterKloter45Groups\(groups, \{ query, prep, filter \}\)/);
+  assert.match(component, /filterKloterGroups\(groups, \{ query, prep, filter \}\)/);
   assert.doesNotMatch(component, /normalizedQuery/);
 
   const themeToggle = read(THEME_TOGGLE_PATH);
-  assert.match(themeToggle, /export default function Kloter45ThemeToggle/);
-  assert.match(themeToggle, /KLOTER45_THEME_KEY = `\$\{KLOTER45_SLUG\}:theme`/);
+  assert.match(themeToggle, /export default function KloterThemeToggle/);
+  assert.match(themeToggle, /KLOTER_THEME_KEY = 'kloter:theme'/);
   assert.match(themeToggle, /document\.documentElement\.classList\.toggle\('dark', isDark\)/);
-  assert.match(component, /<Kloter45ThemeToggle \/>/);
-  assert.match(read(SUB_SHELL_PATH), /<Kloter45ThemeToggle \/>/);
+  assert.match(component, /<KloterThemeToggle \/>/);
+  assert.match(read(SUB_SHELL_PATH), /<KloterThemeToggle \/>/);
 
   // Header: logo terbaru + kilau yang sama dengan halaman jadwal; pil jumlah jamaah dibuang.
-  const shineLogo = read('src/components/kloter45/ShineLogo.tsx');
+  const shineLogo = read('src/components/kloter/ShineLogo.tsx');
   assert.match(shineLogo, /new-logo\/new-logo-alhijaz-colored\.png/);
   assert.match(shineLogo, /new-logo\/new-logo-alhijaz-white\.png/);
   assert.match(shineLogo, /className="animate-logo-shine pointer-events-none absolute inset-0 h-7 w-auto object-contain"/);
   assert.match(shineLogo, /dark:hidden/);
   assert.match(shineLogo, /hidden h-7 w-auto object-contain dark:block/);
   assert.match(read('src/index.css'), /\.animate-logo-shine \{/);
-  assert.match(component, /<Kloter45ShineLogo \/>/);
+  assert.match(component, /<KloterShineLogo \/>/);
   assert.doesNotMatch(component, /logo-alhijaz\.webp/);
   assert.doesNotMatch(component, /\{KLOTER45_TRIP\.totalJamaah\} JAMAAH/);
 });
@@ -394,12 +435,12 @@ test('Kloter 45 landing hides raw ID Umrah behind family labels', () => {
 });
 
 test('Kloter 45 search keeps the whole family visible, not just the matching person', () => {
-  const groups = getKloter45Groups();
+  const groups = getKloterGroups(K45);
   const family = groups.find((group) => group.idUmrah === 'AIW0029767');
   assert.equal(family.members.length, 5, 'fixture berubah — pilih keluarga lain');
 
   // Satu nama ketemu → lima-limanya tampil.
-  const byName = filterKloter45Groups(groups, { query: 'KIANI' });
+  const byName = filterKloterGroups(groups, { query: 'KIANI' });
   assert.equal(byName.length, 1);
   assert.equal(byName[0].idUmrah, 'AIW0029767');
   assert.deepEqual(
@@ -409,29 +450,29 @@ test('Kloter 45 search keeps the whole family visible, not just the matching per
 
   // Nomor telepon dan ID Umrah juga menarik satu keluarga utuh.
   assert.deepEqual(
-    filterKloter45Groups(groups, { query: '081310655821' })[0].members.length,
+    filterKloterGroups(groups, { query: '081310655821' })[0].members.length,
     family.members.length
   );
   assert.deepEqual(
-    filterKloter45Groups(groups, { query: 'aiw0029767' })[0].members.length,
+    filterKloterGroups(groups, { query: 'aiw0029767' })[0].members.length,
     family.members.length
   );
 
   // Pencarian ikut nomor yang sudah dikoreksi di halaman, bukan cuma nomor asli.
   const editedPrep = { [family.members[0].no]: { phone: '081999000111' } };
-  const byEditedPhone = filterKloter45Groups(groups, { query: '081999000111', prep: editedPrep });
+  const byEditedPhone = filterKloterGroups(groups, { query: '081999000111', prep: editedPrep });
   assert.equal(byEditedPhone.length, 1);
   assert.equal(byEditedPhone[0].members.length, family.members.length);
 
   // Tanpa kata kunci semua tampil; kata kunci asing tidak menyisakan apa pun.
-  const all = filterKloter45Groups(groups, { query: '' });
+  const all = filterKloterGroups(groups, { query: '' });
   assert.equal(all.length, groups.length);
   assert.equal(all.flatMap((group) => group.members).length, KLOTER45_JAMAAH.length);
-  assert.deepEqual(filterKloter45Groups(groups, { query: 'tidakadaorangini' }), []);
+  assert.deepEqual(filterKloterGroups(groups, { query: 'tidakadaorangini' }), []);
 });
 
 test('Kloter 45 Belum Nusuk filter still narrows down to individuals', () => {
-  const groups = getKloter45Groups();
+  const groups = getKloterGroups(K45);
   const family = groups.find((group) => group.idUmrah === 'AIW0029767');
   const [first, second] = family.members;
   const prep = {
@@ -440,7 +481,7 @@ test('Kloter 45 Belum Nusuk filter still narrows down to individuals', () => {
   };
 
   // Filter checklist memotong per orang, walau pencarian menarik satu keluarga.
-  const filtered = filterKloter45Groups(groups, { query: 'KIANI', prep, filter: 'nusuk' });
+  const filtered = filterKloterGroups(groups, { query: 'KIANI', prep, filter: 'nusuk' });
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].members.length, family.members.length - 1);
   assert.ok(!filtered[0].members.some((member) => member.no === first.no));
@@ -448,32 +489,32 @@ test('Kloter 45 Belum Nusuk filter still narrows down to individuals', () => {
   // Kalau seluruh keluarga sudah Nusuk, kartunya hilang sama sekali.
   const allChecked = Object.fromEntries(family.members.map((member) => [member.no, { nusuk: true }]));
   assert.deepEqual(
-    filterKloter45Groups(groups, { query: 'KIANI', prep: allChecked, filter: 'nusuk' }),
+    filterKloterGroups(groups, { query: 'KIANI', prep: allChecked, filter: 'nusuk' }),
     []
   );
 });
 
 test('Kloter 45 sub-page helpers accept the three menus case-insensitively', () => {
   assert.deepEqual(KLOTER45_SUB_PAGES, ['doa', 'dzikir', 'itinerary', 'room-list']);
-  assert.deepEqual(KLOTER45_MENU.map((item) => item.id), KLOTER45_SUB_PAGES);
-  assert.deepEqual(KLOTER45_MENU.map((item) => item.label), ['Doa', 'Dzikir', 'Itinerary', 'Room List']);
-  assert.equal(resolveKloter45SubPage('Itinerary'), 'itinerary');
+  assert.deepEqual(KLOTER_MENU.map((item) => item.id), KLOTER45_SUB_PAGES);
+  assert.deepEqual(KLOTER_MENU.map((item) => item.label), ['Doa', 'Dzikir', 'Itinerary', 'Room List']);
+  assert.equal(resolveKloterSubPage('Itinerary'), 'itinerary');
 
-  assert.equal(resolveKloter45SubPage('doa'), 'doa');
-  assert.equal(resolveKloter45SubPage('DZIKIR'), 'dzikir');
-  assert.equal(resolveKloter45SubPage(' Room-List '), 'room-list');
-  assert.equal(resolveKloter45SubPage('faq'), null);
-  assert.equal(resolveKloter45SubPage(undefined), null);
+  assert.equal(resolveKloterSubPage('doa'), 'doa');
+  assert.equal(resolveKloterSubPage('DZIKIR'), 'dzikir');
+  assert.equal(resolveKloterSubPage(' Room-List '), 'room-list');
+  assert.equal(resolveKloterSubPage('faq'), null);
+  assert.equal(resolveKloterSubPage(undefined), null);
 
-  assert.equal(getKloter45SubPagePath('doa'), '/26SEP2026/doa');
-  assert.equal(getKloter45SubPagePath('room-list'), '/26SEP2026/room-list');
-  assert.equal(getKloter45SubPagePath(null), KLOTER45_PUBLIC_PATH);
+  assert.equal(getKloterSubPagePath(K45, 'doa'), '/26SEP2026/doa');
+  assert.equal(getKloterSubPagePath(K45, 'room-list'), '/26SEP2026/room-list');
+  assert.equal(getKloterSubPagePath(K45, null), KLOTER45_PUBLIC_PATH);
 });
 
 test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', () => {
   // Doa = kategori Portal Jamaah minus dzikir; Dzikir = konten baru + dzikir harian.
-  const doaIds = KLOTER45_DOA_CATEGORIES.map((category) => category.id);
-  const dzikirIds = KLOTER45_DZIKIR_CATEGORIES.map((category) => category.id);
+  const doaIds = KLOTER_DOA_CATEGORIES.map((category) => category.id);
+  const dzikirIds = KLOTER_DZIKIR_CATEGORIES.map((category) => category.id);
   assert.ok(doaIds.length >= 8, 'kategori doa terlalu sedikit');
   assert.ok(!doaIds.includes('dzikir-harian'));
   assert.deepEqual(dzikirIds, ['dzikir-pagi-petang', 'dzikir-setelah-shalat', 'dzikir-harian']);
@@ -481,7 +522,7 @@ test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', (
   assert.deepEqual(doaIds.filter((id) => dzikirIds.includes(id)), []);
 
   // Setiap bacaan lengkap: Arab (aksara Arab sungguhan), latin, terjemahan, id unik.
-  const entries = [...KLOTER45_DOA_CATEGORIES, ...KLOTER45_DZIKIR_CATEGORIES]
+  const entries = [...KLOTER_DOA_CATEGORIES, ...KLOTER_DZIKIR_CATEGORIES]
     .flatMap((category) => category.entries.map((entry) => ({ ...entry, category: category.id })));
   const ids = entries.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length, `id bacaan ganda: ${ids.filter((id, i) => ids.indexOf(id) !== i)}`);
@@ -501,8 +542,8 @@ test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', (
 });
 
 test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know', () => {
-  assert.deepEqual(KLOTER45_DOA_TABS.map((tab) => tab.label), ['Doa Umroh', 'Doa Harian']);
-  const [umroh, harian] = KLOTER45_DOA_TABS;
+  assert.deepEqual(KLOTER_DOA_TABS.map((tab) => tab.label), ['Doa Umroh', 'Doa Harian']);
+  const [umroh, harian] = KLOTER_DOA_TABS;
 
   // Urutan Doa Umroh = alur manasik dari rumah sampai tahalul.
   assert.deepEqual(umroh.entries.map((entry) => entry.title), [
@@ -540,7 +581,7 @@ test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know'
   assert.equal(harian.entries.length, DOA_HARIAN_ORDER.length);
 
   // Setiap id di urutan wajib menunjuk entri sungguhan, tanpa duplikat dalam satu tab.
-  for (const tab of [...KLOTER45_DOA_TABS, ...KLOTER45_DZIKIR_TABS]) {
+  for (const tab of [...KLOTER_DOA_TABS, ...KLOTER_DZIKIR_TABS]) {
     const ids = tab.entries.map((entry) => entry.id);
     assert.equal(new Set(ids).size, ids.length, `${tab.id}: entri ganda`);
     for (const entry of tab.entries) {
@@ -548,10 +589,10 @@ test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know'
       assert.ok(entry.latin && entry.terjemahan, `${entry.id}: latin/terjemahan kosong`);
     }
   }
-  assert.deepEqual(KLOTER45_DZIKIR_TABS.map((tab) => tab.label), ['Pagi & Petang', 'Setelah Shalat', 'Harian']);
+  assert.deepEqual(KLOTER_DZIKIR_TABS.map((tab) => tab.label), ['Pagi & Petang', 'Setelah Shalat', 'Harian']);
 
   // Judul dzikir berbahasa awam — dipaku supaya tidak kembali jadi transliterasi.
-  const [pagiPetang, setelahShalat, dzikirHarian] = KLOTER45_DZIKIR_TABS;
+  const [pagiPetang, setelahShalat, dzikirHarian] = KLOTER_DZIKIR_TABS;
   assert.deepEqual(pagiPetang.entries.map((entry) => entry.title), [
     'Ayat Kursi',
     'Surah Al-Ikhlas',
@@ -585,16 +626,16 @@ test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know'
 test('Kloter 45 landing shows the three menus above the search bar', () => {
   const component = read(COMPONENT_PATH);
 
-  const menuIndex = component.indexOf('data-kloter45-menu');
+  const menuIndex = component.indexOf('data-kloter-menu');
   const searchIndex = component.indexOf('Command Bar (Search + Filters)');
   assert.ok(menuIndex > 0 && menuIndex < searchIndex, 'menu harus dirender sebelum kolom cari');
   // Empat menu dalam kisi 2×2, tiap tile bergaya tombol: ikon berwarna + label + chevron.
-  assert.match(component, /<nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-2 gap-2">/);
+  assert.match(component, /<nav aria-label="Menu jamaah" data-kloter-menu className="grid grid-cols-2 gap-2">/);
   assert.match(component, /const \{ icon: Icon, iconClass \} = MENU_STYLES\[item\.id\];/);
   assert.match(component, /<ChevronRight size=\{14\}/);
-  assert.match(component, /\{KLOTER45_MENU\.map\(\(item\) => \{/);
-  assert.match(component, /href=\{getKloter45SubPagePath\(item\.id\)\}/);
-  assert.match(component, /data-kloter45-menu-item=\{item\.id\}/);
+  assert.match(component, /\{KLOTER_MENU\.map\(\(item\) => \{/);
+  assert.match(component, /href=\{getKloterSubPagePath\(trip, item\.id\)\}/);
+  assert.match(component, /data-kloter-menu-item=\{item\.id\}/);
   assert.match(component, /event\.preventDefault\(\);\s*navigateSubPage\(item\.id\);/);
   // Ikon dan warna berbeda per menu — empat warna berbeda, empat ikon berbeda.
   const styles = component.match(/const MENU_STYLES[\s\S]*?\n\};/)?.[0] ?? '';
@@ -611,21 +652,21 @@ test('Kloter 45 landing shows the three menus above the search bar', () => {
 test('Kloter 45 landing renders sub-pages with client-side navigation and Back support', () => {
   const component = read(COMPONENT_PATH);
 
-  assert.match(component, /function useKloter45SubPage\(initial: Kloter45SubPage \| null\)/);
+  assert.match(component, /function useKloterSubPage\(trip: KloterTrip, initial: KloterSubPage \| null\)/);
   assert.match(component, /window\.history\.pushState\(null, '', nextPath\)/);
   // Jangkar ke awal baris supaya versi yang dikomentari (// window...) ketahuan.
   assert.match(component, /\n\s+window\.addEventListener\('popstate', onPopState\);/);
-  assert.match(component, /initialSubPage\?: Kloter45SubPage \| null;/);
-  assert.match(component, /if \(subPage === 'doa'\) \{\s*subView = <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER45_DOA_TABS\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /else if \(subPage === 'dzikir'\) \{\s*subView = <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{BookHeart\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /else if \(subPage === 'room-list'\) \{\s*subView = <Kloter45RoomListPage onBack=\{goHome\} \/>;/);
-  assert.match(component, /else if \(subPage === 'itinerary'\) \{\s*subView = <Kloter45ItineraryPage onBack=\{goHome\} \/>;/);
+  assert.match(component, /initialSubPage\?: KloterSubPage \| null;/);
+  assert.match(component, /if \(subPage === 'doa'\) \{\s*subView = <KloterBacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER_DOA_TABS\} onBack=\{goHome\} homePath=\{trip\.publicPath\} \/>;/);
+  assert.match(component, /else if \(subPage === 'dzikir'\) \{\s*subView = <KloterBacaanPage pageId="dzikir" title="Dzikir" icon=\{BookHeart\} tabs=\{KLOTER_DZIKIR_TABS\} onBack=\{goHome\} homePath=\{trip\.publicPath\} \/>;/);
+  assert.match(component, /else if \(subPage === 'room-list'\) \{\s*subView = <KloterRoomListPage trip=\{trip\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /else if \(subPage === 'itinerary'\) \{\s*subView = <KloterItineraryPage trip=\{trip\} onBack=\{goHome\} \/>;/);
   assert.match(component, /\{subView \?\? homeView\}/);
 
   // Itinerary = itinerary paket JBU1569 yang sudah ada, bukan salinan data baru.
   const itinerary = read(ITINERARY_PAGE_PATH);
   assert.match(itinerary, /fetch\(`\/api\/itinerary\/\$\{encodeURIComponent\(packageId\)\}`\)/);
-  assert.match(itinerary, /const packageId = KLOTER45_TRIP\.tripCode;/);
+  assert.match(itinerary, /const packageId = trip\.code;/);
   assert.match(itinerary, /<WebItineraryView[\s\S]*?hideDocActions/);
   assert.match(itinerary, /data-itinerary-empty/);
   assert.match(component, /const goHome = \(\) => navigateSubPage\(null\);/);
@@ -651,8 +692,8 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.doesNotMatch(component, /if \(subPage === 'doa'\) \{\s*return </);
 
   const shell = read(SUB_SHELL_PATH);
-  assert.match(shell, /href=\{KLOTER45_PUBLIC_PATH\}/);
-  assert.match(shell, /data-kloter45-back/);
+  assert.match(shell, /href=\{homePath\}/);
+  assert.match(shell, /data-kloter-back/);
   assert.match(shell, /aria-label="Kembali ke daftar jamaah"/);
 
   const bacaan = read(BACAAN_PAGE_PATH);
@@ -675,6 +716,30 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.doesNotMatch(bacaan, /\{open && \(/, 'panel yang dilepas saat tutup = tanpa animasi tutup');
   assert.match(bacaan, /open \? 'grid-rows-\[1fr\] opacity-100' : 'grid-rows-\[0fr\] opacity-0'/);
   assert.match(bacaan, /motion-reduce:transition-none/);
+});
+
+test('every kloter room list covers every jamaah exactly once', () => {
+  for (const trip of KLOTER_TRIPS) {
+    assert.ok(trip.roomLists.length >= 1, `${trip.slug}: tanpa room list`);
+    const jamaahNames = trip.jamaah.map((member) => member.name);
+    assert.equal(new Set(jamaahNames).size, jamaahNames.length, `${trip.slug}: nama jamaah ganda di manifest`);
+    for (const list of trip.roomLists) {
+      assert.match(list.pdfUrl, /^https:\/\/alhijaz\.b-cdn\.net\/roomlist-kloter\d+-[a-z-]+\.pdf$/);
+      assert.deepEqual(list.rooms.map((room) => room.no), list.rooms.map((_, index) => index + 1), `${trip.slug}/${list.id}: nomor kamar loncat`);
+      const guests = list.rooms.flatMap((room) => room.guests.map((guest) => guest.name)).filter((name) => name !== 'Muthowif');
+      assert.deepEqual([...guests].sort(), [...jamaahNames].sort(), `${trip.slug}/${list.id}: daftar tamu ≠ manifest`);
+      for (const room of list.rooms) {
+        assert.ok(['Double', 'Twin', 'Triple', 'Quad'].includes(room.type), `${trip.slug}/${list.id} kamar ${room.no}: tipe ${room.type}`);
+      }
+    }
+    // Setiap jamaah: nomor & masking konsisten, TL ada di kontak dan manifest.
+    for (const jamaah of trip.jamaah) {
+      assert.match(jamaah.phone, /^\d{9,15}$/, `${trip.slug}: ${jamaah.name} nomor tak wajar`);
+      assert.equal(jamaah.phoneMasked, `${jamaah.phone.slice(0, 4)}****${jamaah.phone.slice(-4)}`);
+      assert.equal(jamaah.name, jamaah.name.toUpperCase(), `${trip.slug}: ${jamaah.name} bukan kapital`);
+    }
+    assert.equal(trip.contacts[0].role, 'Tour Leader');
+  }
 });
 
 test('Kloter 45 room lists cover every jamaah exactly once, per country', () => {
@@ -702,30 +767,30 @@ test('Kloter 45 room lists cover every jamaah exactly once, per country', () => 
 
   // Cari nama menampilkan kamar yang memuat nama itu; nomor kamar juga bisa dicari.
   const saudi = KLOTER45_ROOM_LISTS[1];
-  const bagasRooms = findKloter45RoomsByName(saudi, 'bagas');
+  const bagasRooms = findKloterRoomsByName(saudi, 'bagas');
   assert.equal(bagasRooms.length, 1);
   assert.ok(bagasRooms[0].guests.some((guest) => guest.name === 'BAGAS PRAMUDITA' && guest.note === 'Tour Leader'));
-  assert.deepEqual(findKloter45RoomsByName(saudi, '12').map((room) => room.no), [12]);
-  assert.equal(findKloter45RoomsByName(saudi, '').length, saudi.rooms.length);
-  assert.deepEqual(findKloter45RoomsByName(saudi, 'tidak ada'), []);
+  assert.deepEqual(findKloterRoomsByName(saudi, '12').map((room) => room.no), [12]);
+  assert.equal(findKloterRoomsByName(saudi, '').length, saudi.rooms.length);
+  assert.deepEqual(findKloterRoomsByName(saudi, 'tidak ada'), []);
 });
 
 test('Kloter 45 Room List page renders the lists natively with the PDF still one tap away', () => {
   const page = read(ROOM_LIST_PAGE_PATH);
 
-  assert.match(page, /KLOTER45_ROOM_LISTS\.map\(\(list\) => \{/);
+  assert.match(page, /trip\.roomLists\.map\(\(list\) => \{/);
   assert.match(page, /data-room-list-tab=\{list\.id\}/);
-  assert.match(page, /findKloter45RoomsByName\(roomList, query\)/);
+  assert.match(page, /findKloterRoomsByName\(roomList, query\)/);
   assert.match(page, /placeholder="Cari nama atau nomor kamar"/);
   assert.match(page, /data-room-list-hotel=\{hotel\.city\}/);
   assert.match(page, /data-room=\{room\.no\}/);
   assert.match(page, /\{guest\.note && \(/);
   // Avatar penghuni berwarna gender seperti Daftar Jamaah; Muthowif netral.
-  assert.match(page, /const GENDER_BY_NAME = new Map\(KLOTER45_JAMAAH\.map\(\(member\) => \[member\.name, member\.gender\]\)\);/);
+  assert.match(page, /const genderByName = useMemo\(\(\) => new Map\(trip\.jamaah\.map\(\(member\) => \[member\.name, member\.gender\]\)\), \[trip\]\);/);
   assert.match(page, /P: 'bg-pink-50 ring-pink-300 text-pink-700'/);
   assert.match(page, /L: 'bg-blue-50 ring-blue-300 text-blue-700'/);
-  assert.match(page, /data-guest-gender=\{GENDER_BY_NAME\.get\(guest\.name\) \?\? 'neutral'\}/);
-  assert.match(page, /\$\{getAvatarClass\(guest\.name\)\}/);
+  assert.match(page, /data-guest-gender=\{genderByName\.get\(guest\.name\) \?\? 'neutral'\}/);
+  assert.match(page, /\$\{getAvatarClass\(genderByName\.get\(guest\.name\)\)\}/);
   // Kelas yang sama persis dengan baris jamaah di halaman utama.
   const landing = read(COMPONENT_PATH);
   assert.match(landing, /'bg-pink-50 ring-pink-300 text-pink-700'/);
@@ -736,23 +801,28 @@ test('Kloter 45 Room List page renders the lists natively with the PDF still one
   assert.doesNotMatch(page, /Room list belum dibagikan/);
 });
 
-test('server.js serves the Kloter 45 OG card on sub-pages too', () => {
+test('server.js serves every kloter (and its sub-pages) from the registry', () => {
   const server = read('server.js');
 
-  assert.match(server, /import \{ KLOTER45_JAMAAH, KLOTER45_SUB_PAGES \} from '\.\/src\/lib\/kloter45Landing\.js';/);
-  assert.match(server, /function injectKloter45Meta\(html, origin, subPath = ''\)/);
-  assert.match(server, /const pageUrl = escapeHtmlAttr\(`\$\{origin\}\$\{KLOTER45_PUBLIC_PATH\}\$\{subPath\}`\);/);
-  assert.match(server, /app\.get\(\['\/26SEP2026\/:sub', '\/26sep2026\/:sub'\], \(req, res, next\) => \{\s*const sub = String\(req\.params\.sub \|\| ''\)\.toLowerCase\(\);\s*if \(!KLOTER45_SUB_PAGES\.includes\(sub\)\) return next\(\);/);
+  assert.match(server, /import \{ KLOTER_TRIPS, KLOTER_SUB_PAGES, findKloterTripBySlug \} from '\.\/src\/lib\/kloterLanding\.js';/);
+  assert.match(server, /RESERVED_SPA_SLUGS = new Set\(\[[^\]]*\.\.\.KLOTER_TRIPS\.map\(\(trip\) => trip\.slug\)\]\)/);
+  assert.match(server, /function injectKloterMeta\(html, origin, trip, subPath = ''\)/);
+  assert.match(server, /const pageUrl = escapeHtmlAttr\(`\$\{origin\}\$\{trip\.publicPath\}\$\{subPath\}`\);/);
+  assert.match(server, /escapeHtmlAttr\(trip\.meta\.ogImageUrl\)/);
+  assert.match(server, /<meta property="og:image" content="\$\{ogImageUrl\}" \/>/);
+  assert.match(server, /for \(const trip of KLOTER_TRIPS\) \{\s*app\.get\(\[`\/\$\{trip\.slug\}`, `\/\$\{trip\.slug\}\/`\]/);
+  assert.match(server, /app\.get\(`\/\$\{trip\.slug\}\/:sub`, \(req, res, next\) => \{\s*const sub = String\(req\.params\.sub \|\| ''\)\.toLowerCase\(\);\s*if \(!KLOTER_SUB_PAGES\.includes\(sub\)\) return next\(\);/);
+  // Tidak boleh ada sisa hardcode satu kloter.
+  assert.doesNotMatch(server, /KLOTER45|rahmah-1-juli-2026|'26sep2026'/);
 });
 
-test('main.tsx routes /26SEP2026 and its sub-pages case-insensitively before the package fallback', () => {
+test('main.tsx routes every registry slug and its sub-pages before the package fallback', () => {
   const main = read('src/main.tsx');
 
-  assert.match(main, /Kloter45LandingPage/);
-  assert.match(main, /import \{ resolveKloter45SubPage \} from '@\/lib\/kloter45Landing\.js'/);
-  assert.match(main, /const isKloter45Landing = segments\[0\]\?\.toLowerCase\(\) === '26sep2026'\s*&& \(segments\.length === 1 \|\| \(segments\.length === 2 && resolveKloter45SubPage\(segments\[1\]\) !== null\)\)/);
-  assert.match(main, /const knownFirstSegments = \[[^\]]*'26sep2026'\]/);
-  assert.match(main, /if \(isKloter45Landing\) return <Kloter45LandingPage initialSubPage=\{resolveKloter45SubPage\(segments\[1\]\)\} \/>/);
-  assert.doesNotMatch(main, /RahmahJuli/);
-  assert.doesNotMatch(main, /rahmah-1-juli-2026/);
+  assert.match(main, /import \{ KLOTER_SLUGS, findKloterTripBySlug, resolveKloterSubPage \} from '@\/lib\/kloterLanding\.js'/);
+  assert.match(main, /const kloterTrip = findKloterTripBySlug\(segments\[0\]\)/);
+  assert.match(main, /const isKloterLanding = !!kloterTrip\s*&& \(segments\.length === 1 \|\| \(segments\.length === 2 && resolveKloterSubPage\(segments\[1\]\) !== null\)\)/);
+  assert.match(main, /const knownFirstSegments = \[[^\]]*\.\.\.KLOTER_SLUGS\]/);
+  assert.match(main, /if \(isKloterLanding && kloterTrip\) return <KloterLandingPage trip=\{kloterTrip\} initialSubPage=\{resolveKloterSubPage\(segments\[1\]\)\} \/>/);
+  assert.doesNotMatch(main, /Kloter45|'26sep2026'/);
 });

@@ -5,12 +5,12 @@ import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 // (FilterHeader): dua lapis gambar, lapisan atas di-mask jadi kilau berjalan
 // lewat .animate-logo-shine di index.css. Versi putih dipakai di mode gelap
 // lewat kelas dark: (halaman ini tidak memegang state tema di sini).
-export default function Kloter45ShineLogo({ href = '/' }: { href?: string }) {
+export default function KloterShineLogo({ href = '/' }: { href?: string }) {
   return (
     <a
       href={href}
       aria-label="Alhijaz Indowisata"
-      data-kloter45-logo
+      data-kloter-logo
       className="group relative block flex-none cursor-pointer transition-opacity hover:opacity-80"
     >
       <img src={logoAlhijazColored} alt="Alhijaz Indowisata" className="h-7 w-auto object-contain dark:hidden" />

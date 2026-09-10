@@ -1,24 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
-import { KLOTER45_SLUG } from '@/lib/kloter45Landing.js';
 
-export const KLOTER45_THEME_KEY = `${KLOTER45_SLUG}:theme`;
+// Satu preferensi tema untuk semua halaman kloter.
+export const KLOTER_THEME_KEY = 'kloter:theme';
 
 function readInitialTheme() {
   if (typeof window === 'undefined') return false;
-  const stored = window.localStorage.getItem(KLOTER45_THEME_KEY);
+  const stored = window.localStorage.getItem(KLOTER_THEME_KEY);
   if (stored === 'dark') return true;
   if (stored === 'light') return false;
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
 }
 
-export default function Kloter45ThemeToggle() {
+export default function KloterThemeToggle() {
   const [isDark, setIsDark] = useState(readInitialTheme);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
     try {
-      window.localStorage.setItem(KLOTER45_THEME_KEY, isDark ? 'dark' : 'light');
+      window.localStorage.setItem(KLOTER_THEME_KEY, isDark ? 'dark' : 'light');
     } catch {
       // Theme persistence is optional; the visible toggle remains functional.
     }

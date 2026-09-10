@@ -2,54 +2,49 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BedDouble, BookHeart, Check, ChevronDown, ChevronRight, ChevronUp, HandHeart, Route, Search, SlidersHorizontal } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
-import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
-import Kloter45ShineLogo from '@/components/kloter45/ShineLogo';
-import Kloter45BacaanPage from '@/components/kloter45/BacaanPage';
-import Kloter45RoomListPage from '@/components/kloter45/RoomListPage';
-import Kloter45ItineraryPage from '@/components/kloter45/ItineraryPage';
-import { KLOTER45_DOA_TABS, KLOTER45_DZIKIR_TABS } from '@/lib/kloter45Bacaan';
-import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
+import KloterThemeToggle from '@/components/kloter/ThemeToggle';
+import KloterShineLogo from '@/components/kloter/ShineLogo';
+import KloterBacaanPage from '@/components/kloter/BacaanPage';
+import KloterRoomListPage from '@/components/kloter/RoomListPage';
+import KloterItineraryPage from '@/components/kloter/ItineraryPage';
+import { KLOTER_DOA_TABS, KLOTER_DZIKIR_TABS } from '@/lib/kloterBacaan';
+import { fetchKloterPrepFromDb, saveKloterPrepToDb } from '@/lib/kloterPrepDb';
 import {
-  KLOTER45_CHECKLIST_ITEMS,
-  KLOTER45_CONTACTS,
-  KLOTER45_JAMAAH,
-  KLOTER45_MENU,
-  KLOTER45_SLUG,
-  KLOTER45_TRIP,
-  filterKloter45Groups,
-  getKloter45Groups,
-  getKloter45MemberPhone as getMemberPhone,
-  getKloter45SubPagePath,
-  isKloter45Checked as isChecked,
-  resolveKloter45SubPage,
-  type Kloter45ChecklistId,
-  type Kloter45Contact,
-  type Kloter45Group,
-  type Kloter45Jamaah,
-  type Kloter45SubPage,
-} from '@/lib/kloter45Landing.js';
+  KLOTER_CHECKLIST_ITEMS,
+  KLOTER_MENU,
+  filterKloterGroups,
+  getKloterGroups,
+  getKloterMemberPhone as getMemberPhone,
+  getKloterSubPagePath,
+  isKloterChecked as isChecked,
+  resolveKloterSubPage,
+  type KloterChecklistId,
+  type KloterContact,
+  type KloterGroup,
+  type KloterJamaah,
+  type KloterSubPage,
+  type KloterTrip,
+} from '@/lib/kloterLanding.js';
 
-type JamaahPrepItem = Partial<Record<Kloter45ChecklistId, boolean>> & { phone?: string };
+type JamaahPrepItem = Partial<Record<KloterChecklistId, boolean>> & { phone?: string };
 type JamaahPrepState = Record<number, JamaahPrepItem>;
 type FilterMode = 'all' | 'nusuk';
 type SaveStatus = 'idle' | 'saving' | 'saved';
 type PrepLoadState = 'loading' | 'ready' | 'failed';
 
-const PREP_STORAGE_KEY = `${KLOTER45_SLUG}:prep`;
-const PAGE_TITLE = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 // Tiap menu punya ikon dan warna sendiri supaya mudah dibedakan sekilas.
-const MENU_STYLES: Record<Kloter45SubPage, { icon: IconComponent; iconClass: string }> = {
+const MENU_STYLES: Record<KloterSubPage, { icon: IconComponent; iconClass: string }> = {
   doa: { icon: HandHeart, iconClass: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/25 dark:text-emerald-300' },
   dzikir: { icon: BookHeart, iconClass: 'bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-300' },
   itinerary: { icon: Route, iconClass: 'bg-violet-50 text-violet-600 dark:bg-violet-900/25 dark:text-violet-300' },
   'room-list': { icon: BedDouble, iconClass: 'bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-300' },
 };
-const CHECKLIST_QUESTIONS: Record<Kloter45ChecklistId, string> = {
+const CHECKLIST_QUESTIONS: Record<KloterChecklistId, string> = {
   wa: 'Nomor WhatsApp sudah sesuai apa belum?',
   nusuk: 'Nusuk sudah install apa belum?',
 };
-const CHECKLIST_CHIP_LABELS: Record<Kloter45ChecklistId, string> = {
+const CHECKLIST_CHIP_LABELS: Record<KloterChecklistId, string> = {
   wa: 'WA Sesuai',
   nusuk: 'Nusuk',
 };
@@ -67,10 +62,10 @@ function getInitials(name: string) {
     .join('');
 }
 
-function loadPrepState(): JamaahPrepState {
+function loadPrepState(storageKey: string): JamaahPrepState {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(PREP_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (raw) return JSON.parse(raw);
   } catch {
     // Local prep state is a convenience only; a fresh page still works.
@@ -89,22 +84,22 @@ function getJamaahWhatsAppUrl(phone: string) {
   return normalized ? `https://wa.me/${normalized}` : '#';
 }
 
-function isMemberReady(prep: JamaahPrepState, member: Kloter45Jamaah) {
-  return KLOTER45_CHECKLIST_ITEMS.every((item) => isChecked(prep, member.no, item.id));
+function isMemberReady(prep: JamaahPrepState, member: KloterJamaah) {
+  return KLOTER_CHECKLIST_ITEMS.every((item) => isChecked(prep, member.no, item.id));
 }
 
-function getMemberChecklistChips(prep: JamaahPrepState, member: Kloter45Jamaah) {
-  return KLOTER45_CHECKLIST_ITEMS.map((item) => ({
+function getMemberChecklistChips(prep: JamaahPrepState, member: KloterJamaah) {
+  return KLOTER_CHECKLIST_ITEMS.map((item) => ({
     id: item.id,
     label: CHECKLIST_CHIP_LABELS[item.id],
     done: isChecked(prep, member.no, item.id),
   }));
 }
 
-function subPageFromLocation(): Kloter45SubPage | null {
+function subPageFromLocation(): KloterSubPage | null {
   if (typeof window === 'undefined') return null;
   const segments = window.location.pathname.split('/').filter(Boolean);
-  return segments.length === 2 ? resolveKloter45SubPage(segments[1]) : null;
+  return segments.length === 2 ? resolveKloterSubPage(segments[1]) : null;
 }
 
 // Sub-halaman (Doa / Dzikir / Room List) punya URL sendiri supaya bisa
@@ -113,24 +108,24 @@ function subPageFromLocation(): Kloter45SubPage | null {
 // Arah transisi: masuk sub-halaman geser dari kanan (+1), kembali geser dari
 // kiri (-1). Posisi gulir daftar jamaah disimpan saat pergi dan dipulihkan
 // saat kembali, supaya tidak melompat ke atas.
-function useKloter45SubPage(initial: Kloter45SubPage | null) {
-  const [subPage, setSubPage] = useState<Kloter45SubPage | null>(initial);
+function useKloterSubPage(trip: KloterTrip, initial: KloterSubPage | null) {
+  const [subPage, setSubPage] = useState<KloterSubPage | null>(initial);
   const [direction, setDirection] = useState<1 | -1>(1);
   const homeScrollRef = useRef(0);
   const subPageRef = useRef(subPage);
   subPageRef.current = subPage;
 
-  const go = useCallback((next: Kloter45SubPage | null) => {
+  const go = useCallback((next: KloterSubPage | null) => {
     if (subPageRef.current === null && next !== null) homeScrollRef.current = window.scrollY;
     setDirection(next ? 1 : -1);
     setSubPage(next);
   }, []);
 
-  const navigate = useCallback((next: Kloter45SubPage | null) => {
+  const navigate = useCallback((next: KloterSubPage | null) => {
     go(next);
-    const nextPath = getKloter45SubPagePath(next);
+    const nextPath = getKloterSubPagePath(trip, next);
     if (window.location.pathname !== nextPath) window.history.pushState(null, '', nextPath);
-  }, [go]);
+  }, [go, trip]);
 
   useEffect(() => {
     const onPopState = () => go(subPageFromLocation());
@@ -164,7 +159,7 @@ const REDUCED_MOTION_VARIANTS = {
   exit: { opacity: 0, transition: { duration: 0.08 } },
 } as const;
 
-function ContactPersonRow({ contact }: { contact: Kloter45Contact }) {
+function ContactPersonRow({ contact }: { contact: KloterContact }) {
   return (
     <article className="flex items-center gap-3 px-4 py-3">
       <div className="relative h-10 w-10 flex-none">
@@ -215,12 +210,12 @@ function JamaahGroupMemberRow({
   onStopEditPhone,
   onToggleExpanded,
 }: {
-  member: Kloter45Jamaah;
+  member: KloterJamaah;
   prep: JamaahPrepState;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  onToggleChecklist: (jamaahNo: number, itemId: Kloter45ChecklistId) => void;
-  onStartEditPhone: (member: Kloter45Jamaah) => void;
+  onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
+  onStartEditPhone: (member: KloterJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
@@ -364,7 +359,7 @@ function JamaahGroupMemberRow({
               </div>
 
               <div className="space-y-1.5">
-                {KLOTER45_CHECKLIST_ITEMS.map((item) => {
+                {KLOTER_CHECKLIST_ITEMS.map((item) => {
                   const checked = isChecked(prep, member.no, item.id);
                   return (
                     <button
@@ -412,12 +407,12 @@ function JamaahGroupCard({
   onStopEditPhone,
   onToggleExpanded,
 }: {
-  group: Kloter45Group;
+  group: KloterGroup;
   prep: JamaahPrepState;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
-  onToggleChecklist: (jamaahNo: number, itemId: Kloter45ChecklistId) => void;
-  onStartEditPhone: (member: Kloter45Jamaah) => void;
+  onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
+  onStartEditPhone: (member: KloterJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
   onToggleExpanded: (jamaahNo: number) => void;
@@ -457,17 +452,21 @@ function JamaahGroupCard({
   );
 }
 
-export default function Kloter45LandingPage({
+export default function KloterLandingPage({
+  trip,
   initialSubPage = null,
 }: {
-  initialSubPage?: Kloter45SubPage | null;
+  trip: KloterTrip;
+  initialSubPage?: KloterSubPage | null;
 }) {
-  const { subPage, direction, navigate: navigateSubPage, restoreScroll } = useKloter45SubPage(initialSubPage);
+  const { subPage, direction, navigate: navigateSubPage, restoreScroll } = useKloterSubPage(trip, initialSubPage);
+  // Kunci penyimpanan per kloter: ganti kloter = namespace baru, data lama aman.
+  const prepStorageKey = `${trip.slug}:prep`;
   const shouldReduceMotion = useReducedMotion();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [prep, setPrep] = useState<JamaahPrepState>(() => loadPrepState());
+  const [prep, setPrep] = useState<JamaahPrepState>(() => loadPrepState(prepStorageKey));
   const [editingPhoneNo, setEditingPhoneNo] = useState<number | null>(null);
   const [expandedJamaahNos, setExpandedJamaahNos] = useState<Set<number>>(() => new Set());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -478,16 +477,16 @@ export default function Kloter45LandingPage({
   const filterPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const menuLabel = KLOTER45_MENU.find((item) => item.id === subPage)?.label;
-    document.title = menuLabel ? `${menuLabel} | ${PAGE_TITLE}` : PAGE_TITLE;
-  }, [subPage]);
+    const menuLabel = KLOTER_MENU.find((item) => item.id === subPage)?.label;
+    document.title = menuLabel ? `${menuLabel} | ${trip.meta.title}` : trip.meta.title;
+  }, [subPage, trip.meta.title]);
 
   // Menyimpan berarti menulis ulang seluruh entry jamaah, jadi tulis baru boleh
   // jalan setelah state server terbaca — kalau tidak, centang yang sudah ada di
   // database bisa terhapus oleh perangkat yang belum sinkron.
   const loadPrepFromDb = () => {
     if (loadPrepPromiseRef.current) return loadPrepPromiseRef.current;
-    const pending = fetchKloter45PrepFromDb()
+    const pending = fetchKloterPrepFromDb(trip)
       .then((dbPrep) => {
         prepLoadStateRef.current = 'ready';
         if (Object.keys(dbPrep).length > 0) {
@@ -498,7 +497,7 @@ export default function Kloter45LandingPage({
       })
       .catch((error) => {
         prepLoadStateRef.current = 'failed';
-        console.warn('[Kloter45LandingPage] Failed to load prep DB state:', error);
+        console.warn('[KloterLandingPage] Failed to load prep DB state:', error);
         return prepLoadStateRef.current;
       })
       .finally(() => {
@@ -540,21 +539,21 @@ export default function Kloter45LandingPage({
   useEffect(() => {
     prepRef.current = prep;
     try {
-      window.localStorage.setItem(PREP_STORAGE_KEY, JSON.stringify(prep));
+      window.localStorage.setItem(prepStorageKey, JSON.stringify(prep));
     } catch {
       // Local prep persistence is optional; the page still works without it.
     }
   }, [prep]);
 
-  const groups = useMemo(() => getKloter45Groups(), []);
+  const groups = useMemo(() => getKloterGroups(trip), [trip]);
   const filteredGroups = useMemo(
-    () => filterKloter45Groups(groups, { query, prep, filter }),
+    () => filterKloterGroups(groups, { query, prep, filter }),
     [filter, groups, prep, query]
   );
 
   const completedCount = useMemo(() => {
-    return KLOTER45_JAMAAH.filter((member) => isMemberReady(prep, member)).length;
-  }, [prep]);
+    return trip.jamaah.filter((member) => isMemberReady(prep, member)).length;
+  }, [prep, trip]);
 
   const applyPrepPatchLocally = (jamaahNo: number, patch: JamaahPrepItem) => {
     const nextItem = {
@@ -584,11 +583,11 @@ export default function Kloter45LandingPage({
       applyPrepPatchLocally(jamaahNo, patch);
     }
     try {
-      await saveKloter45PrepToDb(jamaahNo, prepRef.current[jamaahNo]);
+      await saveKloterPrepToDb(trip, jamaahNo, prepRef.current[jamaahNo]);
       setSaveStatus('saved');
       return true;
     } catch (error) {
-      console.warn('[Kloter45LandingPage] Failed to save prep DB state:', error);
+      console.warn('[KloterLandingPage] Failed to save prep DB state:', error);
       setSaveStatus('idle');
       return false;
     }
@@ -600,11 +599,11 @@ export default function Kloter45LandingPage({
     return persistPrepPatch(jamaahNo, patch);
   };
 
-  const handleToggleChecklist = (jamaahNo: number, itemId: Kloter45ChecklistId) => {
+  const handleToggleChecklist = (jamaahNo: number, itemId: KloterChecklistId) => {
     handlePrepChange(jamaahNo, { [itemId]: !prepRef.current[jamaahNo]?.[itemId] });
   };
 
-  const handleStartEditPhone = (member: Kloter45Jamaah) => {
+  const handleStartEditPhone = (member: KloterJamaah) => {
     setEditingPhoneNo((current) => (current === member.no ? null : member.no));
     setExpandedJamaahNos((current) => new Set(current).add(member.no));
   };
@@ -627,31 +626,31 @@ export default function Kloter45LandingPage({
   };
 
   const waText = encodeURIComponent(
-    `Assalamualaikum, saya ingin koreksi data jamaah ${KLOTER45_TRIP.kloterLabel} ${KLOTER45_TRIP.departureDate}.`
+    `Assalamualaikum, saya ingin koreksi data jamaah ${trip.kloterLabel} ${trip.trip.departureDate}.`
   );
   const activeFilterLabel = FILTER_OPTIONS.find((option) => option.id === filter)?.label || 'Filter';
-  const tourLeaderContact = KLOTER45_CONTACTS[0];
-  const packageNameWithoutPrefix = KLOTER45_TRIP.packageName.replace(/^Paket\s+/i, '');
-  const packageTitle = `${packageNameWithoutPrefix} (${KLOTER45_TRIP.packageVariant})`.toUpperCase();
+  const tourLeaderContact = trip.contacts[0];
+  const packageNameWithoutPrefix = trip.trip.packageName.replace(/^Paket\s+/i, '');
+  const packageTitle = `${packageNameWithoutPrefix} (${trip.trip.packageVariant})`.toUpperCase();
   const goHome = () => navigateSubPage(null);
 
   let subView: ReactNode = null;
   if (subPage === 'doa') {
-    subView = <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER45_DOA_TABS} onBack={goHome} />;
+    subView = <KloterBacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER_DOA_TABS} onBack={goHome} homePath={trip.publicPath} />;
   } else if (subPage === 'dzikir') {
-    subView = <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={BookHeart} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
+    subView = <KloterBacaanPage pageId="dzikir" title="Dzikir" icon={BookHeart} tabs={KLOTER_DZIKIR_TABS} onBack={goHome} homePath={trip.publicPath} />;
   } else if (subPage === 'itinerary') {
-    subView = <Kloter45ItineraryPage onBack={goHome} />;
+    subView = <KloterItineraryPage trip={trip} onBack={goHome} />;
   } else if (subPage === 'room-list') {
-    subView = <Kloter45RoomListPage onBack={goHome} />;
+    subView = <KloterRoomListPage trip={trip} onBack={goHome} />;
   }
 
   const homeView = (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
-          <Kloter45ShineLogo />
-          <Kloter45ThemeToggle />
+          <KloterShineLogo />
+          <KloterThemeToggle />
         </div>
       </header>
 
@@ -666,26 +665,26 @@ export default function Kloter45LandingPage({
               {packageTitle}
             </p>
             <p className="mt-1 text-[10px] font-semibold tracking-wide text-amber-600">
-              <span>{KLOTER45_TRIP.travelDateRange}</span>
+              <span>{trip.trip.travelDateRange}</span>
               <span className="text-gray-300"> · </span>
-              <span className="text-gray-500 dark:text-slate-400">by {KLOTER45_TRIP.airline}</span>
+              <span className="text-gray-500 dark:text-slate-400">by {trip.trip.airline}</span>
             </p>
           </div>
           <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-slate-800 dark:border-slate-800">
-            {KLOTER45_CONTACTS.map((contact) => (
+            {trip.contacts.map((contact) => (
               <ContactPersonRow key={contact.role} contact={contact} />
             ))}
           </div>
         </section>
 
-        <nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-2 gap-2">
-          {KLOTER45_MENU.map((item) => {
+        <nav aria-label="Menu jamaah" data-kloter-menu className="grid grid-cols-2 gap-2">
+          {KLOTER_MENU.map((item) => {
             const { icon: Icon, iconClass } = MENU_STYLES[item.id];
             return (
               <a
                 key={item.id}
-                href={getKloter45SubPagePath(item.id)}
-                data-kloter45-menu-item={item.id}
+                href={getKloterSubPagePath(trip, item.id)}
+                data-kloter-menu-item={item.id}
                 onClick={(event) => {
                   event.preventDefault();
                   navigateSubPage(item.id);
@@ -776,7 +775,7 @@ export default function Kloter45LandingPage({
                   {saveStatus === 'saving' ? 'Menyimpan' : 'Tersimpan'}
                 </span>
               )}
-              <p>{completedCount}/{KLOTER45_TRIP.totalJamaah} siap</p>
+              <p>{completedCount}/{trip.trip.totalJamaah} siap</p>
             </div>
           </div>
 

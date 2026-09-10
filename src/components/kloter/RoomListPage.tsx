@@ -1,17 +1,10 @@
 import { useMemo, useState } from 'react';
 import { BedDouble, FileText, Search } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
-import Kloter45SubPageShell from '@/components/kloter45/SubPageShell';
-import {
-  KLOTER45_CONTACTS,
-  KLOTER45_JAMAAH,
-  KLOTER45_ROOM_LISTS,
-  KLOTER45_TRIP,
-  findKloter45RoomsByName,
-  type Kloter45Room,
-} from '@/lib/kloter45Landing.js';
+import KloterSubPageShell from '@/components/kloter/SubPageShell';
+import { findKloterRoomsByName, type KloterRoom, type KloterTrip } from '@/lib/kloterLanding.js';
 
-const ROOM_TYPE_LABEL: Record<Kloter45Room['type'], string> = {
+const ROOM_TYPE_LABEL: Record<KloterRoom['type'], string> = {
   Double: 'Double · 2 orang',
   Twin: 'Twin · 2 orang',
   Triple: 'Triple · 3 orang',
@@ -20,15 +13,13 @@ const ROOM_TYPE_LABEL: Record<Kloter45Room['type'], string> = {
 
 // Warna avatar mengikuti Daftar Jamaah: merah muda = wanita, biru = pria.
 // Nama di luar manifest (Muthowif) memakai warna netral.
-const GENDER_BY_NAME = new Map(KLOTER45_JAMAAH.map((member) => [member.name, member.gender]));
 const AVATAR_CLASS = {
   P: 'bg-pink-50 ring-pink-300 text-pink-700',
   L: 'bg-blue-50 ring-blue-300 text-blue-700',
   neutral: 'bg-gray-100 ring-gray-200 text-gray-600 dark:bg-slate-800 dark:ring-slate-700 dark:text-slate-300',
 } as const;
 
-function getAvatarClass(name: string) {
-  const gender = GENDER_BY_NAME.get(name);
+function getAvatarClass(gender: 'L' | 'P' | undefined) {
   return gender === 'P' || gender === 'L' ? AVATAR_CLASS[gender] : AVATAR_CLASS.neutral;
 }
 
@@ -38,26 +29,28 @@ function getInitials(name: string) {
 
 // Room list ditampilkan langsung (bukan cuma tautan PDF) supaya jamaah bisa
 // mencari namanya sendiri dari HP. PDF resmi tetap bisa dibuka di bawah.
-export default function Kloter45RoomListPage({ onBack }: { onBack: () => void }) {
-  const [activeId, setActiveId] = useState(KLOTER45_ROOM_LISTS[0]?.id ?? 'dubai');
+export default function KloterRoomListPage({ trip, onBack }: { trip: KloterTrip; onBack: () => void }) {
+  const genderByName = useMemo(() => new Map(trip.jamaah.map((member) => [member.name, member.gender])), [trip]);
+  const [activeId, setActiveId] = useState(trip.roomLists[0]?.id ?? '');
   const [query, setQuery] = useState('');
-  const roomList = KLOTER45_ROOM_LISTS.find((list) => list.id === activeId) ?? KLOTER45_ROOM_LISTS[0];
-  const rooms = useMemo(() => findKloter45RoomsByName(roomList, query), [roomList, query]);
-  const tourLeader = KLOTER45_CONTACTS[0];
+  const roomList = trip.roomLists.find((list) => list.id === activeId) ?? trip.roomLists[0];
+  const rooms = useMemo(() => findKloterRoomsByName(roomList, query), [roomList, query]);
+  const tourLeader = trip.contacts[0];
   const waText = encodeURIComponent(
-    `Assalamualaikum, saya mau tanya room list ${KLOTER45_TRIP.kloterLabel} ${KLOTER45_TRIP.departureDate}.`
+    `Assalamualaikum, saya mau tanya room list ${trip.kloterLabel} ${trip.trip.departureDate}.`
   );
 
   return (
-    <Kloter45SubPageShell title="Room List" icon={BedDouble} onBack={onBack}>
+    <KloterSubPageShell title="Room List" icon={BedDouble} onBack={onBack} homePath={trip.publicPath}>
       <div data-room-list-page={roomList.id} className="space-y-3">
         <div
           role="tablist"
           aria-label="Pilih room list"
           data-room-list-tabs
-          className="grid grid-cols-2 gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          style={{ gridTemplateColumns: `repeat(${trip.roomLists.length}, minmax(0, 1fr))` }}
+          className="grid gap-1 rounded-2xl border border-gray-100 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900"
         >
-          {KLOTER45_ROOM_LISTS.map((list) => {
+          {trip.roomLists.map((list) => {
             const active = list.id === roomList.id;
             return (
               <button
@@ -136,8 +129,8 @@ export default function Kloter45RoomListPage({ onBack }: { onBack: () => void })
                   {room.guests.map((guest) => (
                     <li key={guest.name} className="flex items-center gap-2.5 px-3 py-2">
                       <span
-                        data-guest-gender={GENDER_BY_NAME.get(guest.name) ?? 'neutral'}
-                        className={`flex h-7 w-7 flex-none items-center justify-center rounded-full ring-2 text-[10px] font-extrabold ${getAvatarClass(guest.name)}`}
+                        data-guest-gender={genderByName.get(guest.name) ?? 'neutral'}
+                        className={`flex h-7 w-7 flex-none items-center justify-center rounded-full ring-2 text-[10px] font-extrabold ${getAvatarClass(genderByName.get(guest.name))}`}
                       >
                         {getInitials(guest.name)}
                       </span>
@@ -175,6 +168,6 @@ export default function Kloter45RoomListPage({ onBack }: { onBack: () => void })
           Tanya Tour Leader
         </a>
       </div>
-    </Kloter45SubPageShell>
+    </KloterSubPageShell>
   );
 }
