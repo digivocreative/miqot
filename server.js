@@ -165,7 +165,7 @@ import {
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
-import { KLOTER45_JAMAAH } from './src/lib/kloter45Landing.js';
+import { KLOTER45_JAMAAH, KLOTER45_SUB_PAGES } from './src/lib/kloter45Landing.js';
 import {
   prepareLegacyPaymentRowForUpsert,
 } from './lib/jamaah-payment-provenance.js';
@@ -23800,10 +23800,10 @@ app.get('/top-partner', (req, res) => {
   res.send(html);
 });
 
-function injectKloter45Meta(html, origin) {
+function injectKloter45Meta(html, origin, subPath = '') {
   const title = escapeHtmlAttr(KLOTER45_META_TITLE);
   const description = escapeHtmlAttr(KLOTER45_META_DESCRIPTION);
-  const pageUrl = escapeHtmlAttr(`${origin}${KLOTER45_PUBLIC_PATH}`);
+  const pageUrl = escapeHtmlAttr(`${origin}${KLOTER45_PUBLIC_PATH}${subPath}`);
   const ogImageUrl = escapeHtmlAttr(KLOTER45_OG_IMAGE_URL);
 
   html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
@@ -23840,6 +23840,18 @@ function injectKloter45Meta(html, origin) {
 app.get(['/26SEP2026', '/26SEP2026/', '/26sep2026', '/26sep2026/'], (req, res) => {
   const origin = `${req.protocol}://${req.get('host')}`;
   const html = injectKloter45Meta(getIndexHtml(), origin);
+  res.set('Content-Type', 'text/html');
+  res.set('Cache-Control', 'no-cache');
+  res.send(html);
+});
+
+// Sub-halaman (Doa / Dzikir / Room List) ikut kartu OG yang sama; segmen di
+// luar daftar diteruskan ke rute berikutnya.
+app.get(['/26SEP2026/:sub', '/26sep2026/:sub'], (req, res, next) => {
+  const sub = String(req.params.sub || '').toLowerCase();
+  if (!KLOTER45_SUB_PAGES.includes(sub)) return next();
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const html = injectKloter45Meta(getIndexHtml(), origin, `/${sub}`);
   res.set('Content-Type', 'text/html');
   res.set('Cache-Control', 'no-cache');
   res.send(html);

@@ -222,11 +222,15 @@ const isTopPartner = segments.length === 1 && segments[0] === 'top-partner'
 const isPortalShortLink = segments.length === 2 && segments[0]?.toLowerCase() === 'j'
 // Tautan yang dibagikan ke jamaah ditulis /26SEP2026; cocokkan tanpa peduli
 // besar-kecil huruf supaya /26sep2026 mendarat di halaman yang sama.
-const isKloter45Landing = segments.length === 1 && segments[0]?.toLowerCase() === '26sep2026'
+// Sub-halaman (/26SEP2026/doa dst.) dibatasi ke daftar resolveKloter45SubPage;
+// segmen kedua yang asing jatuh ke rute paket seperti biasa.
+const isKloter45Landing = segments[0]?.toLowerCase() === '26sep2026'
+  && (segments.length === 1 || (segments.length === 2 && resolveKloter45SubPage(segments[1]) !== null))
 const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || segments[1] === 'haji')
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
+import { resolveKloter45SubPage } from '@/lib/kloter45Landing.js'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner', '26sep2026']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
 
@@ -456,7 +460,7 @@ if (isPwaHost && isSsrLandingPath) {
       if (isCompare) return <ComparePage agent={agentSlugForCompare} agentSlug={compareSlug || undefined} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
-      if (isKloter45Landing) return <Kloter45LandingPage />
+      if (isKloter45Landing) return <Kloter45LandingPage initialSubPage={resolveKloter45SubPage(segments[1])} />
       if (isPortalShortLink) return <PortalShortLinkPage token={segments[1]} />
       // Halaman share itinerary: /:slug/:jadwalId/itinerary (publik, dilihat jamaah)
       if (isSinglePackageWithAgent && segments[2]?.toLowerCase() === 'itinerary') {

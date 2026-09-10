@@ -1,22 +1,30 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Moon, Search, SlidersHorizontal, Sun } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
+import { BedDouble, Check, ChevronDown, ChevronUp, HandHeart, Search, SlidersHorizontal, Sparkles } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
+import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
+import Kloter45BacaanPage from '@/components/kloter45/BacaanPage';
+import Kloter45RoomListPage from '@/components/kloter45/RoomListPage';
+import { KLOTER45_DOA_CATEGORIES, KLOTER45_DZIKIR_CATEGORIES } from '@/lib/kloter45Bacaan';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
 import {
   KLOTER45_CHECKLIST_ITEMS,
   KLOTER45_CONTACTS,
   KLOTER45_JAMAAH,
+  KLOTER45_MENU,
   KLOTER45_SLUG,
   KLOTER45_TRIP,
   filterKloter45Groups,
   getKloter45Groups,
   getKloter45MemberPhone as getMemberPhone,
+  getKloter45SubPagePath,
   isKloter45Checked as isChecked,
+  resolveKloter45SubPage,
   type Kloter45ChecklistId,
   type Kloter45Contact,
   type Kloter45Group,
   type Kloter45Jamaah,
+  type Kloter45SubPage,
 } from '@/lib/kloter45Landing.js';
 
 type JamaahPrepItem = Partial<Record<Kloter45ChecklistId, boolean>> & { phone?: string };
@@ -26,7 +34,13 @@ type SaveStatus = 'idle' | 'saving' | 'saved';
 type PrepLoadState = 'loading' | 'ready' | 'failed';
 
 const PREP_STORAGE_KEY = `${KLOTER45_SLUG}:prep`;
-const KLOTER45_THEME_KEY = `${KLOTER45_SLUG}:theme`;
+const PAGE_TITLE = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
+type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+const MENU_ICONS: Record<Kloter45SubPage, IconComponent> = {
+  doa: HandHeart,
+  dzikir: Sparkles,
+  'room-list': BedDouble,
+};
 const CHECKLIST_QUESTIONS: Record<Kloter45ChecklistId, string> = {
   wa: 'Nomor WhatsApp sudah sesuai apa belum?',
   nusuk: 'Nusuk sudah install apa belum?',
@@ -83,36 +97,35 @@ function getMemberChecklistChips(prep: JamaahPrepState, member: Kloter45Jamaah) 
   }));
 }
 
-function readInitialTheme() {
-  if (typeof window === 'undefined') return false;
-  const stored = window.localStorage.getItem(KLOTER45_THEME_KEY);
-  if (stored === 'dark') return true;
-  if (stored === 'light') return false;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+function subPageFromLocation(): Kloter45SubPage | null {
+  if (typeof window === 'undefined') return null;
+  const segments = window.location.pathname.split('/').filter(Boolean);
+  return segments.length === 2 ? resolveKloter45SubPage(segments[1]) : null;
 }
 
-function Kloter45ThemeToggle() {
-  const [isDark, setIsDark] = useState(readInitialTheme);
+// Sub-halaman (Doa / Dzikir / Room List) punya URL sendiri supaya bisa
+// dibagikan langsung, tapi perpindahannya tetap di klien (pushState) supaya
+// tidak memuat ulang daftar jamaah. Tombol Back HP ditangani lewat popstate.
+function useKloter45SubPage(initial: Kloter45SubPage | null) {
+  const [subPage, setSubPage] = useState<Kloter45SubPage | null>(initial);
+
+  const navigate = useCallback((next: Kloter45SubPage | null) => {
+    setSubPage(next);
+    const nextPath = getKloter45SubPagePath(next);
+    if (window.location.pathname !== nextPath) window.history.pushState(null, '', nextPath);
+  }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
-    try {
-      window.localStorage.setItem(KLOTER45_THEME_KEY, isDark ? 'dark' : 'light');
-    } catch {
-      // Theme persistence is optional; the visible toggle remains functional.
-    }
-  }, [isDark]);
+    const onPopState = () => setSubPage(subPageFromLocation());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
-  return (
-    <button
-      type="button"
-      onClick={() => setIsDark((value) => !value)}
-      aria-label={isDark ? 'Mode terang' : 'Mode gelap'}
-      className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:text-slate-300 dark:hover:bg-slate-700"
-    >
-      {isDark ? <Sun className="h-4 w-4" strokeWidth={2} /> : <Moon className="h-4 w-4" strokeWidth={2} />}
-    </button>
-  );
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [subPage]);
+
+  return { subPage, navigate };
 }
 
 function ContactPersonRow({ contact }: { contact: Kloter45Contact }) {
@@ -408,7 +421,12 @@ function JamaahGroupCard({
   );
 }
 
-export default function Kloter45LandingPage() {
+export default function Kloter45LandingPage({
+  initialSubPage = null,
+}: {
+  initialSubPage?: Kloter45SubPage | null;
+}) {
+  const { subPage, navigate: navigateSubPage } = useKloter45SubPage(initialSubPage);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -423,8 +441,9 @@ export default function Kloter45LandingPage() {
   const filterPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.title = 'KLOTER 45 | 26 SEP - 5 OKT 2026 | ALHIJAZ INDOWISATA';
-  }, []);
+    const menuLabel = KLOTER45_MENU.find((item) => item.id === subPage)?.label;
+    document.title = menuLabel ? `${menuLabel} | ${PAGE_TITLE}` : PAGE_TITLE;
+  }, [subPage]);
 
   // Menyimpan berarti menulis ulang seluruh entry jamaah, jadi tulis baru boleh
   // jalan setelah state server terbaca — kalau tidak, centang yang sudah ada di
@@ -577,6 +596,17 @@ export default function Kloter45LandingPage() {
   const tourLeaderContact = KLOTER45_CONTACTS[0];
   const packageNameWithoutPrefix = KLOTER45_TRIP.packageName.replace(/^Paket\s+/i, '');
   const packageTitle = `${packageNameWithoutPrefix} (${KLOTER45_TRIP.packageVariant})`.toUpperCase();
+  const goHome = () => navigateSubPage(null);
+
+  if (subPage === 'doa') {
+    return <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} categories={KLOTER45_DOA_CATEGORIES} onBack={goHome} />;
+  }
+  if (subPage === 'dzikir') {
+    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={Sparkles} categories={KLOTER45_DZIKIR_CATEGORIES} onBack={goHome} />;
+  }
+  if (subPage === 'room-list') {
+    return <Kloter45RoomListPage onBack={goHome} />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
@@ -620,6 +650,29 @@ export default function Kloter45LandingPage() {
             ))}
           </div>
         </section>
+
+        <nav aria-label="Menu jamaah" data-kloter45-menu className="grid grid-cols-3 gap-2">
+          {KLOTER45_MENU.map((item) => {
+            const Icon = MENU_ICONS[item.id];
+            return (
+              <a
+                key={item.id}
+                href={getKloter45SubPagePath(item.id)}
+                data-kloter45-menu-item={item.id}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigateSubPage(item.id);
+                }}
+                className="flex flex-col items-center gap-1.5 rounded-2xl border border-gray-100 bg-white px-2 py-3 text-center shadow-sm transition active:scale-95 hover:border-emerald-200 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-800/40"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
+                  <Icon size={18} strokeWidth={2.4} />
+                </span>
+                <span className="text-[11px] font-bold text-gray-800 dark:text-slate-100">{item.label}</span>
+              </a>
+            );
+          })}
+        </nav>
 
         {/* Command Bar (Search + Filters) */}
         <section ref={filterWrapRef} className="relative z-20 rounded-2xl border border-gray-100 bg-white dark:bg-slate-800 p-3 shadow-sm dark:border-slate-700">

@@ -46,6 +46,22 @@ export interface Kloter45Group {
 
 export const KLOTER45_SLUG: string;
 export const KLOTER45_PUBLIC_PATH: string;
+export type Kloter45SubPage = 'doa' | 'dzikir' | 'room-list';
+export interface Kloter45MenuItem {
+  id: Kloter45SubPage;
+  label: string;
+  description: string;
+}
+export interface Kloter45RoomListFile {
+  url: string | null;
+  label: string;
+  updatedAt: string | null;
+}
+export const KLOTER45_SUB_PAGES: Kloter45SubPage[];
+export const KLOTER45_MENU: Kloter45MenuItem[];
+export const KLOTER45_ROOM_LIST: Kloter45RoomListFile;
+export function resolveKloter45SubPage(segment: string | null | undefined): Kloter45SubPage | null;
+export function getKloter45SubPagePath(subPage: Kloter45SubPage | null): string;
 export const KLOTER45_TRIP: Kloter45Trip;
 export const KLOTER45_CHECKLIST_ITEMS: Kloter45ChecklistItem[];
 export const KLOTER45_CONTACTS: Kloter45Contact[];
