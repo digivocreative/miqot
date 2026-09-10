@@ -202,6 +202,7 @@ function ContactPersonRow({ contact }: { contact: KloterContact }) {
 function JamaahGroupMemberRow({
   member,
   prep,
+  showAge,
   editingPhoneNo,
   expandedJamaahNos,
   onToggleChecklist,
@@ -212,6 +213,7 @@ function JamaahGroupMemberRow({
 }: {
   member: KloterJamaah;
   prep: JamaahPrepState;
+  showAge: boolean;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
   onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
@@ -254,8 +256,13 @@ function JamaahGroupMemberRow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-gray-800 dark:text-slate-100">{member.name}</p>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] font-medium text-gray-400 dark:text-slate-500">
-            <span>{member.age} tahun</span>
-            <span className="h-1 w-1 rounded-full bg-gray-300" />
+            {/* Umur bisa disembunyikan per kloter (trip.showAge === false). */}
+            {showAge && (
+              <>
+                <span data-member-age>{member.age} tahun</span>
+                <span className="h-1 w-1 rounded-full bg-gray-300" />
+              </>
+            )}
             <span className="inline-flex min-w-0 items-center gap-1 font-semibold text-gray-500 dark:text-slate-400">
               <WhatsAppIcon size={12} className="flex-none text-emerald-500" />
               <span className={`truncate ${phone ? '' : 'text-gray-400 dark:text-slate-500'}`}>{phone || 'Belum diisi'}</span>
@@ -399,6 +406,7 @@ function JamaahGroupMemberRow({
 function JamaahGroupCard({
   group,
   prep,
+  showAge,
   editingPhoneNo,
   expandedJamaahNos,
   onToggleChecklist,
@@ -409,6 +417,7 @@ function JamaahGroupCard({
 }: {
   group: KloterGroup;
   prep: JamaahPrepState;
+  showAge: boolean;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
   onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
@@ -438,6 +447,7 @@ function JamaahGroupCard({
             key={member.no}
             member={member}
             prep={prep}
+            showAge={showAge}
             editingPhoneNo={editingPhoneNo}
             expandedJamaahNos={expandedJamaahNos}
             onToggleChecklist={onToggleChecklist}
@@ -786,6 +796,7 @@ export default function KloterLandingPage({
                   key={group.idUmrah}
                   group={group}
                   prep={prep}
+                  showAge={trip.showAge !== false}
                   editingPhoneNo={editingPhoneNo}
                   expandedJamaahNos={expandedJamaahNos}
                   onToggleChecklist={handleToggleChecklist}

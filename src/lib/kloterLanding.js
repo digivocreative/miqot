@@ -5,8 +5,9 @@
 
 import kloter45 from './kloter/kloter45.js';
 import kloter39 from './kloter/kloter39.js';
+import kloter41 from './kloter/kloter41.js';
 
-export const KLOTER_TRIPS = [kloter45, kloter39];
+export const KLOTER_TRIPS = [kloter45, kloter39, kloter41];
 
 // Slug internal huruf kecil: RESERVED_SPA_SLUGS dan segmen URL selalu
 // dibandingkan lowercase. Tautan yang dibagikan (publicPath) huruf besar.

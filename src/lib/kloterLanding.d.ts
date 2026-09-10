@@ -88,6 +88,8 @@ export interface KloterTrip {
   publicPath: string;
   code: string;
   kloterLabel: string;
+  /** false = umur jamaah tidak ditampilkan di halaman (default tampil). */
+  showAge?: boolean;
   trip: KloterTripInfo;
   meta: KloterMeta;
   contacts: KloterContact[];

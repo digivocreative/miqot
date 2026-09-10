@@ -31,6 +31,7 @@ const {
 // Kloter 45 dipakai sebagai fixture asersi spesifik; invarian umum diuji untuk semua kloter.
 const K45 = findKloterTripBySlug('26sep2026');
 const K39 = findKloterTripBySlug('12sep2026');
+const K41 = findKloterTripBySlug('19sep2026');
 const KLOTER45_JAMAAH = K45.jamaah;
 const KLOTER45_CONTACTS = K45.contacts;
 const KLOTER45_TRIP = K45.trip;
@@ -163,7 +164,7 @@ test('Kloter 45 landing ships a tour leader contact only', () => {
 });
 
 test('every kloter in the registry carries its own share metadata and slug rules', () => {
-  assert.deepEqual(KLOTER_SLUGS, ['26sep2026', '12sep2026']);
+  assert.deepEqual(KLOTER_SLUGS, ['26sep2026', '12sep2026', '19sep2026']);
   for (const trip of KLOTER_TRIPS) {
     // Slug internal huruf kecil (RESERVED_SPA_SLUGS dibandingkan lowercase); tautan publik huruf besar.
     assert.equal(trip.slug, trip.slug.toLowerCase());
@@ -183,6 +184,47 @@ test('every kloter in the registry carries its own share metadata and slug rules
   assert.equal(K39.meta.title, 'KLOTER 39 | 12 - 20 SEP 2026 | ALHIJAZ INDOWISATA');
   assert.equal(K39.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter39-12sep2026.jpg');
   assert.equal(K39.meta.description, 'Daftar jamaah dan checklist persiapan Kloter 39 Umroh Uhud Reguler (Kereta Cepat), 12 - 20 September 2026 bersama Saudia dan Tour Leader Dyah Ratna.');
+});
+
+test('Kloter 41 data matches the JBU1505 manifest and room list, with age hidden', () => {
+  assert.equal(K41.slug, '19sep2026');
+  assert.equal(K41.publicPath, '/19SEP2026');
+  assert.equal(K41.code, 'JBU1505');
+  assert.equal(K41.kloterLabel, 'Kloter 41');
+  assert.equal(K41.showAge, false, 'umur sengaja disembunyikan di kloter ini');
+  assert.notEqual(K45.showAge, false);
+  assert.notEqual(K39.showAge, false);
+  assert.equal(K41.trip.packageName, 'Paket Rahmah Plus Red Sea');
+  assert.equal(K41.trip.airline, 'Saudia');
+  assert.equal(K41.trip.departureDate, '19 September 2026');
+  assert.equal(K41.trip.returnDate, '27 September 2026');
+  assert.equal(K41.trip.tourLeader, 'Nina Elvina');
+  assert.equal(K41.meta.title, 'KLOTER 41 | 19 - 27 SEP 2026 | ALHIJAZ INDOWISATA');
+  assert.equal(K41.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter41-19sep2026.jpg');
+
+  assert.equal(K41.jamaah.length, 48);
+  assert.equal(getKloterGroups(K41).length, 16);
+  assert.equal(K41.jamaah[0].name, 'SULIS BALDIAH');
+  assert.equal(K41.jamaah[47].name, 'NINA ELVINA');
+  assert.ok(K41.jamaah.every((member) => !/\u200b/.test(member.phone)), 'zero-width space dari XLSX harus dibuang');
+
+  assert.deepEqual(K41.contacts.map((contact) => [contact.role, contact.name, contact.whatsappUrl, contact.photoUrl]), [
+    ['Tour Leader', 'Nina Elvina', 'https://wa.me/6285943191075', 'https://alhijaz.b-cdn.net/nina-elvina.jpg'],
+  ]);
+
+  assert.deepEqual(K41.roomLists.map((list) => [list.id, list.rooms.length]), [['saudi', 15]]);
+  assert.deepEqual(K41.roomLists[0].hotels.map((hotel) => `${hotel.city}:${hotel.nights}`), ['Madinah:3', 'Mekkah:4']);
+  // Nama yang beda ejaan di room list dipetakan ke manifest, bukan dibiarkan jadi tamu asing.
+  assert.ok(K41.roomLists[0].rooms[11].guests.some((guest) => guest.name === 'JARSI JOYO SAMPAN'));
+  const tlRoom = findKloterRoomsByName(K41.roomLists[0], 'nina');
+  assert.equal(tlRoom.length, 1);
+  assert.ok(tlRoom[0].guests.some((guest) => guest.note === 'Tour Leader'));
+
+  // Komponen: umur hanya dirender saat showAge, dan nilainya diturunkan dari trip.
+  const component = read(COMPONENT_PATH);
+  assert.match(component, /\{showAge && \(\s*<>\s*<span data-member-age>\{member\.age\} tahun<\/span>/);
+  assert.match(component, /showAge=\{trip\.showAge !== false\}/);
+  assert.doesNotMatch(component, /^\s*<span>\{member\.age\} tahun<\/span>/m);
 });
 
 test('Kloter 39 data matches the JBU1506 manifest and room list', () => {
