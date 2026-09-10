@@ -5,7 +5,7 @@ import logoAlhijaz from '@/logo-alhijaz.webp';
 import Kloter45ThemeToggle from '@/components/kloter45/ThemeToggle';
 import Kloter45BacaanPage from '@/components/kloter45/BacaanPage';
 import Kloter45RoomListPage from '@/components/kloter45/RoomListPage';
-import { KLOTER45_DOA_CATEGORIES, KLOTER45_DZIKIR_CATEGORIES } from '@/lib/kloter45Bacaan';
+import { KLOTER45_DOA_TABS, KLOTER45_DZIKIR_TABS } from '@/lib/kloter45Bacaan';
 import { fetchKloter45PrepFromDb, saveKloter45PrepToDb } from '@/lib/kloter45PrepDb';
 import {
   KLOTER45_CHECKLIST_ITEMS,
@@ -599,10 +599,10 @@ export default function Kloter45LandingPage({
   const goHome = () => navigateSubPage(null);
 
   if (subPage === 'doa') {
-    return <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} categories={KLOTER45_DOA_CATEGORIES} onBack={goHome} />;
+    return <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER45_DOA_TABS} onBack={goHome} />;
   }
   if (subPage === 'dzikir') {
-    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={Sparkles} categories={KLOTER45_DZIKIR_CATEGORIES} onBack={goHome} />;
+    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={Sparkles} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
   }
   if (subPage === 'room-list') {
     return <Kloter45RoomListPage onBack={goHome} />;

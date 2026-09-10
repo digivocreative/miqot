@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import * as kloter45Data from '../src/lib/kloter45Landing.js';
 import { DOA_CATEGORIES } from '../src/components/portal-jamaah/lib/doaData.ts';
 import { DZIKIR_CATEGORIES } from '../src/components/portal-jamaah/lib/dzikirData.ts';
-import { KLOTER45_DOA_CATEGORIES, KLOTER45_DZIKIR_CATEGORIES } from '../src/lib/kloter45Bacaan.ts';
+import {
+  DOA_HARIAN_ORDER,
+  DOA_UMROH_ORDER,
+  KLOTER45_DOA_CATEGORIES,
+  KLOTER45_DOA_TABS,
+  KLOTER45_DZIKIR_CATEGORIES,
+  KLOTER45_DZIKIR_TABS,
+} from '../src/lib/kloter45Bacaan.ts';
 
 const {
   KLOTER45_CHECKLIST_ITEMS,
@@ -474,6 +481,57 @@ test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', (
   }
 });
 
+test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know', () => {
+  assert.deepEqual(KLOTER45_DOA_TABS.map((tab) => tab.label), ['Doa Umroh', 'Doa Harian']);
+  const [umroh, harian] = KLOTER45_DOA_TABS;
+
+  // Urutan Doa Umroh = alur manasik dari rumah sampai tahalul.
+  assert.deepEqual(umroh.entries.map((entry) => entry.title), [
+    'Doa Berangkat dari Rumah',
+    'Doa Naik Kendaraan',
+    'Niat Umroh',
+    'Doa Setelah Berihram',
+    'Kalimat Talbiyah',
+    'Doa Memasuki Kota Mekkah',
+    'Doa Memasuki Masjidil Haram',
+    'Doa Ketika Melihat Ka’bah',
+    'Doa Tawaf',
+    'Doa Sa’i',
+    'Doa Tahalul',
+  ]);
+  assert.deepEqual(harian.entries.slice(0, 16).map((entry) => entry.title), [
+    'Doa sebelum tidur',
+    'Doa bangun tidur',
+    'Doa masuk kamar mandi',
+    'Doa ketika bercermin',
+    'Doa keluar rumah',
+    'Doa masuk rumah',
+    'Doa memohon ilmu yang bermanfaat',
+    'Doa sebelum belajar',
+    'Doa sesudah belajar',
+    'Doa sebelum wudhu',
+    'Doa setelah wudhu',
+    'Doa sebelum membaca Al-Qur’an',
+    'Doa setelah membaca Al-Qur’an',
+    'Doa sebelum mandi',
+    'Doa hendak bepergian',
+    'Doa ketika sampai di tempat tujuan',
+  ]);
+  assert.equal(umroh.entries.length, DOA_UMROH_ORDER.length);
+  assert.equal(harian.entries.length, DOA_HARIAN_ORDER.length);
+
+  // Setiap id di urutan wajib menunjuk entri sungguhan, tanpa duplikat dalam satu tab.
+  for (const tab of [...KLOTER45_DOA_TABS, ...KLOTER45_DZIKIR_TABS]) {
+    const ids = tab.entries.map((entry) => entry.id);
+    assert.equal(new Set(ids).size, ids.length, `${tab.id}: entri ganda`);
+    for (const entry of tab.entries) {
+      assert.match(entry.arab, /[\u0600-\u06FF]/, `${entry.id}: Arab kosong`);
+      assert.ok(entry.latin && entry.terjemahan, `${entry.id}: latin/terjemahan kosong`);
+    }
+  }
+  assert.deepEqual(KLOTER45_DZIKIR_TABS.map((tab) => tab.label), ['Pagi & Petang', 'Setelah Shalat', 'Harian']);
+});
+
 test('Kloter 45 landing shows the three menus above the search bar', () => {
   const component = read(COMPONENT_PATH);
 
@@ -496,8 +554,8 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   // Jangkar ke awal baris supaya versi yang dikomentari (// window...) ketahuan.
   assert.match(component, /\n\s+window\.addEventListener\('popstate', onPopState\);/);
   assert.match(component, /initialSubPage\?: Kloter45SubPage \| null;/);
-  assert.match(component, /if \(subPage === 'doa'\) \{\s*return <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} categories=\{KLOTER45_DOA_CATEGORIES\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /if \(subPage === 'dzikir'\) \{\s*return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{Sparkles\} categories=\{KLOTER45_DZIKIR_CATEGORIES\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /if \(subPage === 'doa'\) \{\s*return <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER45_DOA_TABS\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /if \(subPage === 'dzikir'\) \{\s*return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{Sparkles\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
   assert.match(component, /if \(subPage === 'room-list'\) \{\s*return <Kloter45RoomListPage onBack=\{goHome\} \/>;/);
   assert.match(component, /const goHome = \(\) => navigateSubPage\(null\);/);
 
@@ -508,6 +566,12 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
 
   const bacaan = read(BACAAN_PAGE_PATH);
   assert.match(bacaan, /data-bacaan-page=\{pageId\}/);
+  // Pola dua tab + daftar rata (tiap bacaan satu baris berbintang yang bisa dibuka).
+  assert.match(bacaan, /role="tablist"/);
+  assert.match(bacaan, /data-bacaan-tab=\{tab\.id\}/);
+  assert.match(bacaan, /data-bacaan-list=\{activeTab\?\.id\}/);
+  assert.match(bacaan, /<Star size=\{16\}[^>]*fill-amber-400/);
+  assert.doesNotMatch(bacaan, /data-bacaan-category/);
   assert.match(bacaan, /font-arabic text-2xl leading-loose[^"]*" dir="rtl" lang="ar"/);
   assert.match(bacaan, /entry\.latin/);
   assert.match(bacaan, /entry\.terjemahan/);
