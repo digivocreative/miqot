@@ -122,6 +122,14 @@ export default function Kloter45BacaanPage({
                     >
                       <Star size={16} strokeWidth={2} className="flex-none fill-amber-400 text-amber-400" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-sm font-bold text-gray-900 dark:text-slate-100">{entry.title}</span>
+                      {entry.ulang && (
+                        <span
+                          data-bacaan-ulang
+                          className="flex-none rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+                        >
+                          {entry.ulang}
+                        </span>
+                      )}
                       <ChevronDown
                         size={16}
                         strokeWidth={2.4}

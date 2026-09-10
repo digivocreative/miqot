@@ -477,7 +477,10 @@ test('Kloter 45 Doa and Dzikir split the shared reading data without overlap', (
   }
   for (const entry of DZIKIR_CATEGORIES.flatMap((category) => category.entries)) {
     assert.ok(entry.sumber, `${entry.id}: dzikir baru wajib mencantumkan sumber`);
-    assert.match(entry.title, /\(\d+×\)|\(\d+×\)$|×\)/, `${entry.id}: judul dzikir wajib memuat jumlah bacaan`);
+    // Jumlah bacaan hidup di `ulang`, judul dibiarkan bersih dan berbahasa awam.
+    assert.match(entry.ulang ?? '', /\d+×/, `${entry.id}: jumlah bacaan wajib di field ulang`);
+    assert.doesNotMatch(entry.title, /×|\(\d+/, `${entry.id}: judul tidak boleh memuat jumlah bacaan`);
+    assert.doesNotMatch(entry.title, /ā|ī|ū|‘|’/, `${entry.id}: judul memakai transliterasi, bukan bahasa awam`);
   }
 });
 
@@ -530,6 +533,37 @@ test('Kloter 45 Doa page mirrors the Umroh/Harian tab order jamaah already know'
     }
   }
   assert.deepEqual(KLOTER45_DZIKIR_TABS.map((tab) => tab.label), ['Pagi & Petang', 'Setelah Shalat', 'Harian']);
+
+  // Judul dzikir berbahasa awam — dipaku supaya tidak kembali jadi transliterasi.
+  const [pagiPetang, setelahShalat, dzikirHarian] = KLOTER45_DZIKIR_TABS;
+  assert.deepEqual(pagiPetang.entries.map((entry) => entry.title), [
+    'Ayat Kursi',
+    'Surah Al-Ikhlas',
+    'Surah Al-Falaq',
+    'Surah An-Nas',
+    'Doa Memohon Ampun Terbaik (Sayyidul Istighfar)',
+    'Dzikir Pembuka Pagi & Petang',
+    'Doa Pagi Hari',
+    'Doa Petang Hari',
+    'Ikrar Ridha kepada Allah, Islam, dan Rasul',
+    'Cukuplah Allah Bagiku',
+    'Doa Perlindungan dari Segala Bahaya',
+    'Doa Perlindungan dari Kejahatan Makhluk',
+    'Tasbih Seratus Kali',
+  ]);
+  assert.deepEqual(setelahShalat.entries.map((entry) => entry.title), [
+    'Istighfar & Doa Keselamatan',
+    'Tahlil Setelah Shalat',
+    'Tasbih, Tahmid, Takbir',
+    'Ayat Kursi',
+    'Doa Mohon Kekuatan Beribadah',
+  ]);
+  assert.deepEqual(dzikirHarian.entries.map((entry) => entry.title), [
+    'Istighfar — Memohon Ampun',
+    'Tasbih — Menyucikan Allah',
+    'Hauqalah — Tiada Daya Selain dari Allah',
+  ]);
+  assert.match(read(BACAAN_PAGE_PATH), /\{entry\.ulang && \(/);
 });
 
 test('Kloter 45 landing shows the three menus above the search bar', () => {

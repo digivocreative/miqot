@@ -11,6 +11,8 @@ export interface DoaEntry {
   latin: string;
   terjemahan: string;
   sumber?: string;
+  /** Jumlah bacaan yang dianjurkan, mis. '3×' atau '33× masing-masing'. */
+  ulang?: string;
 }
 
 export interface DoaCategory {
@@ -376,14 +378,14 @@ export const DOA_CATEGORIES: DoaCategory[] = [
     entries: [
       {
         id: 'istighfar',
-        title: 'Istighfar',
+        title: 'Istighfar — Memohon Ampun',
         arab: 'أَسْتَغْفِرُ اللّٰهَ الْعَظِيْمَ',
         latin: 'Astaghfirullāhal-‘azhīm.',
         terjemahan: 'Aku memohon ampun kepada Allah Yang Mahaagung.',
       },
       {
         id: 'tasbih',
-        title: 'Tasbih',
+        title: 'Tasbih — Menyucikan Allah',
         arab: 'سُبْحَانَ اللّٰهِ وَبِحَمْدِهٖ، سُبْحَانَ اللّٰهِ الْعَظِيْمِ',
         latin: 'Subhānallāhi wa bihamdih, subhānallāhil-‘azhīm.',
         terjemahan: 'Mahasuci Allah dan segala puji bagi-Nya, Mahasuci Allah Yang Mahaagung.',
@@ -391,7 +393,7 @@ export const DOA_CATEGORIES: DoaCategory[] = [
       },
       {
         id: 'hauqalah',
-        title: 'Hauqalah',
+        title: 'Hauqalah — Tiada Daya Selain dari Allah',
         arab: 'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللّٰهِ',
         latin: 'Lā haula wa lā quwwata illā billāh.',
         terjemahan: 'Tiada daya dan kekuatan kecuali dengan pertolongan Allah.',
