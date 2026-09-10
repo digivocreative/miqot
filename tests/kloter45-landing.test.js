@@ -56,7 +56,10 @@ test('Kloter 45 landing trip copy matches the JBU1569 manifest', () => {
   assert.match(component, /const packageTitle = `\$\{packageNameWithoutPrefix\} \(\$\{KLOTER45_TRIP\.packageVariant\}\)`\.toUpperCase\(\);/);
   assert.match(component, /KLOTER45_TRIP\.travelDateRange/);
   assert.match(component, /by \{KLOTER45_TRIP\.airline\}/);
-  assert.match(component, /\{KLOTER45_TRIP\.kloterLabel\}/);
+  // Pil "KLOTER 45" dibuang dari kartu trip (hemat tempat); label kloter
+  // cukup di judul halaman dan pesan koreksi WA.
+  const tripCardMarkup = component.match(/<section\s+data-trip-card[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.doesNotMatch(tripCardMarkup, /kloterLabel/);
 
   // Info trip dan kontak TL digabung dalam satu kartu (hemat tinggi di HP):
   // baris kontak harus dirender DI DALAM kartu trip, bukan kartu terpisah.

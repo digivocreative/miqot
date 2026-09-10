@@ -605,10 +605,7 @@ export default function Kloter45LandingPage() {
           className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
         >
           <div className="px-4 pb-3 pt-4">
-            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
-              {KLOTER45_TRIP.kloterLabel}
-            </span>
-            <p className="mt-1.5 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">
               {packageTitle}
             </p>
             <p className="mt-1 text-[10px] font-semibold tracking-wide text-amber-600">
