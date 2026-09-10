@@ -604,10 +604,11 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   // Jangkar ke awal baris supaya versi yang dikomentari (// window...) ketahuan.
   assert.match(component, /\n\s+window\.addEventListener\('popstate', onPopState\);/);
   assert.match(component, /initialSubPage\?: Kloter45SubPage \| null;/);
-  assert.match(component, /if \(subPage === 'doa'\) \{\s*return <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER45_DOA_TABS\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /if \(subPage === 'dzikir'\) \{\s*return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{BookHeart\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
-  assert.match(component, /if \(subPage === 'room-list'\) \{\s*return <Kloter45RoomListPage onBack=\{goHome\} \/>;/);
-  assert.match(component, /if \(subPage === 'itinerary'\) \{\s*return <Kloter45ItineraryPage onBack=\{goHome\} \/>;/);
+  assert.match(component, /if \(subPage === 'doa'\) \{\s*subView = <Kloter45BacaanPage pageId="doa" title="Doa" icon=\{HandHeart\} tabs=\{KLOTER45_DOA_TABS\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /else if \(subPage === 'dzikir'\) \{\s*subView = <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon=\{BookHeart\} tabs=\{KLOTER45_DZIKIR_TABS\} onBack=\{goHome\} \/>;/);
+  assert.match(component, /else if \(subPage === 'room-list'\) \{\s*subView = <Kloter45RoomListPage onBack=\{goHome\} \/>;/);
+  assert.match(component, /else if \(subPage === 'itinerary'\) \{\s*subView = <Kloter45ItineraryPage onBack=\{goHome\} \/>;/);
+  assert.match(component, /\{subView \?\? homeView\}/);
 
   // Itinerary = itinerary paket JBU1569 yang sudah ada, bukan salinan data baru.
   const itinerary = read(ITINERARY_PAGE_PATH);
@@ -616,6 +617,21 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(itinerary, /<WebItineraryView[\s\S]*?hideDocActions/);
   assert.match(itinerary, /data-itinerary-empty/);
   assert.match(component, /const goHome = \(\) => navigateSubPage\(null\);/);
+
+  // Transisi halus masuk/kembali: geser + pudar berarah, satu halaman pada satu
+  // waktu, tanpa animasi di muat pertama, hormat prefers-reduced-motion, dan
+  // posisi gulir daftar dipulihkan saat kembali.
+  assert.match(component, /import \{ AnimatePresence, motion, useReducedMotion \} from 'framer-motion';/);
+  assert.match(component, /<AnimatePresence mode="wait" initial=\{false\} custom=\{direction\}>/);
+  assert.match(component, /key=\{subPage \?\? 'home'\}/);
+  assert.match(component, /variants=\{shouldReduceMotion \? REDUCED_MOTION_VARIANTS : PAGE_TRANSITION_VARIANTS\}/);
+  assert.match(component, /enter: \(direction: number\) => \(\{ x: direction > 0 \? 28 : -28, opacity: 0 \}\)/);
+  assert.match(component, /setDirection\(next \? 1 : -1\);/);
+  assert.match(component, /if \(subPageRef\.current === null && next !== null\) homeScrollRef\.current = window\.scrollY;/);
+  assert.match(component, /window\.scrollTo\(\{ top: subPageRef\.current \? 0 : homeScrollRef\.current, behavior: 'auto' \}\)/);
+  assert.match(component, /if \(definition === 'center'\) restoreScroll\(\);/);
+  assert.match(component, /<div className="overflow-x-clip">/);
+  assert.doesNotMatch(component, /if \(subPage === 'doa'\) \{\s*return </);
 
   const shell = read(SUB_SHELL_PATH);
   assert.match(shell, /href=\{KLOTER45_PUBLIC_PATH\}/);

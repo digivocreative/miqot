@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BedDouble, BookHeart, Check, ChevronDown, ChevronRight, ChevronUp, HandHeart, Route, Search, SlidersHorizontal } from 'lucide-react';
 import WhatsAppIcon from '@/components/common/WhatsAppIcon';
 import logoAlhijaz from '@/logo-alhijaz.webp';
@@ -109,27 +110,57 @@ function subPageFromLocation(): Kloter45SubPage | null {
 // Sub-halaman (Doa / Dzikir / Room List) punya URL sendiri supaya bisa
 // dibagikan langsung, tapi perpindahannya tetap di klien (pushState) supaya
 // tidak memuat ulang daftar jamaah. Tombol Back HP ditangani lewat popstate.
+// Arah transisi: masuk sub-halaman geser dari kanan (+1), kembali geser dari
+// kiri (-1). Posisi gulir daftar jamaah disimpan saat pergi dan dipulihkan
+// saat kembali, supaya tidak melompat ke atas.
 function useKloter45SubPage(initial: Kloter45SubPage | null) {
   const [subPage, setSubPage] = useState<Kloter45SubPage | null>(initial);
+  const [direction, setDirection] = useState<1 | -1>(1);
+  const homeScrollRef = useRef(0);
+  const subPageRef = useRef(subPage);
+  subPageRef.current = subPage;
+
+  const go = useCallback((next: Kloter45SubPage | null) => {
+    if (subPageRef.current === null && next !== null) homeScrollRef.current = window.scrollY;
+    setDirection(next ? 1 : -1);
+    setSubPage(next);
+  }, []);
 
   const navigate = useCallback((next: Kloter45SubPage | null) => {
-    setSubPage(next);
+    go(next);
     const nextPath = getKloter45SubPagePath(next);
     if (window.location.pathname !== nextPath) window.history.pushState(null, '', nextPath);
-  }, []);
+  }, [go]);
 
   useEffect(() => {
-    const onPopState = () => setSubPage(subPageFromLocation());
+    const onPopState = () => go(subPageFromLocation());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
+  }, [go]);
+
+  // Dipanggil saat halaman baru mulai masuk (bukan saat state berubah), jadi
+  // halaman lama tidak ikut melompat selagi animasi keluarnya berjalan.
+  const restoreScroll = useCallback(() => {
+    window.scrollTo({ top: subPageRef.current ? 0 : homeScrollRef.current, behavior: 'auto' });
   }, []);
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [subPage]);
-
-  return { subPage, navigate };
+  return { subPage, direction, navigate, restoreScroll };
 }
+
+const PAGE_TRANSITION_VARIANTS = {
+  enter: (direction: number) => ({ x: direction > 0 ? 28 : -28, opacity: 0 }),
+  center: { x: 0, opacity: 1, transition: { type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.26 } },
+  exit: (direction: number) => ({
+    x: direction > 0 ? -20 : 20,
+    opacity: 0,
+    transition: { type: 'tween', ease: [0.4, 0, 1, 1], duration: 0.14 },
+  }),
+} as const;
+const REDUCED_MOTION_VARIANTS = {
+  enter: { opacity: 0 },
+  center: { opacity: 1, transition: { duration: 0.12 } },
+  exit: { opacity: 0, transition: { duration: 0.08 } },
+} as const;
 
 function ContactPersonRow({ contact }: { contact: Kloter45Contact }) {
   return (
@@ -429,7 +460,8 @@ export default function Kloter45LandingPage({
 }: {
   initialSubPage?: Kloter45SubPage | null;
 }) {
-  const { subPage, navigate: navigateSubPage } = useKloter45SubPage(initialSubPage);
+  const { subPage, direction, navigate: navigateSubPage, restoreScroll } = useKloter45SubPage(initialSubPage);
+  const shouldReduceMotion = useReducedMotion();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -601,20 +633,18 @@ export default function Kloter45LandingPage({
   const packageTitle = `${packageNameWithoutPrefix} (${KLOTER45_TRIP.packageVariant})`.toUpperCase();
   const goHome = () => navigateSubPage(null);
 
+  let subView: ReactNode = null;
   if (subPage === 'doa') {
-    return <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER45_DOA_TABS} onBack={goHome} />;
-  }
-  if (subPage === 'dzikir') {
-    return <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={BookHeart} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
-  }
-  if (subPage === 'itinerary') {
-    return <Kloter45ItineraryPage onBack={goHome} />;
-  }
-  if (subPage === 'room-list') {
-    return <Kloter45RoomListPage onBack={goHome} />;
+    subView = <Kloter45BacaanPage pageId="doa" title="Doa" icon={HandHeart} tabs={KLOTER45_DOA_TABS} onBack={goHome} />;
+  } else if (subPage === 'dzikir') {
+    subView = <Kloter45BacaanPage pageId="dzikir" title="Dzikir" icon={BookHeart} tabs={KLOTER45_DZIKIR_TABS} onBack={goHome} />;
+  } else if (subPage === 'itinerary') {
+    subView = <Kloter45ItineraryPage onBack={goHome} />;
+  } else if (subPage === 'room-list') {
+    subView = <Kloter45RoomListPage onBack={goHome} />;
   }
 
-  return (
+  const homeView = (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
@@ -794,6 +824,31 @@ export default function Kloter45LandingPage({
           Laporkan data yang belum sesuai
         </a>
       </main>
+    </div>
+  );
+
+  // Satu halaman tampil pada satu waktu (mode="wait"): yang lama keluar dulu,
+  // baru yang baru masuk — tanpa animasi saat muat pertama (initial={false}).
+  // overflow-x-clip menahan geseran 28px agar tidak memunculkan scroll samping;
+  // clip (bukan hidden) supaya header sticky di dalamnya tetap bekerja.
+  return (
+    <div className="overflow-x-clip">
+      <AnimatePresence mode="wait" initial={false} custom={direction}>
+        <motion.div
+          key={subPage ?? 'home'}
+          data-page-transition={subPage ?? 'home'}
+          custom={direction}
+          variants={shouldReduceMotion ? REDUCED_MOTION_VARIANTS : PAGE_TRANSITION_VARIANTS}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          onAnimationStart={(definition) => {
+            if (definition === 'center') restoreScroll();
+          }}
+        >
+          {subView ?? homeView}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
