@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { ChevronDown, Search, Star } from 'lucide-react';
 import Kloter45SubPageShell from '@/components/kloter45/SubPageShell';
 import type { DoaEntry } from '@/components/portal-jamaah/lib/doaData';
@@ -10,6 +10,35 @@ function matchesQuery(entry: DoaEntry, query: string) {
   return entry.title.toLowerCase().includes(query)
     || entry.terjemahan.toLowerCase().includes(query)
     || entry.latin.toLowerCase().includes(query);
+}
+
+/** Durasi buka/tutup panel (duration-300) + margin sampai tinggi panel diam. */
+const ANCHOR_WINDOW_MS = 450;
+
+/**
+ * Pindah dari bacaan A ke B: panel A menutup, jadi kalau A ada di ATAS B, baris
+ * B ikut naik setinggi panel A — bisa sampai lewat dari layar. iOS Safari belum
+ * punya scroll anchoring, jadi posisinya ditahan manual: selama panel A mengecil,
+ * geser scroll sebesar pergeseran tombol B (pola anchorCardDuringToggle di App.tsx).
+ */
+function holdRowDuringSwitch(closingPanel: Element, openingRow: Element) {
+  const anchorTop = openingRow.getBoundingClientRect().top;
+  const observer = new ResizeObserver(() => {
+    // Baris lepas dari DOM (ganti tab / tersaring pencarian) → rect-nya nol,
+    // "koreksi"-nya justru melempar halaman.
+    if (!openingRow.isConnected) {
+      observer.disconnect();
+      return;
+    }
+    const delta = openingRow.getBoundingClientRect().top - anchorTop;
+    if (delta !== 0) window.scrollBy(0, delta);
+  });
+  observer.observe(closingPanel);
+  const timer = setTimeout(() => observer.disconnect(), ANCHOR_WINDOW_MS);
+  return () => {
+    clearTimeout(timer);
+    observer.disconnect();
+  };
 }
 
 // Halaman Doa dan Dzikir memakai kerangka yang sama: baris tab di atas, lalu
@@ -30,8 +59,11 @@ export default function Kloter45BacaanPage({
 }) {
   const [activeTabId, setActiveTabId] = useState(tabs[0]?.id ?? '');
   const [query, setQuery] = useState('');
-  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
-  const isSearching = query.trim().length > 0;
+  // Satu bacaan terbuka paling banyak: membuka B otomatis menutup A.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const listRef = useRef<HTMLElement>(null);
+  const releaseAnchorRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => releaseAnchorRef.current?.(), []);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const entries = useMemo(() => {
@@ -41,12 +73,15 @@ export default function Kloter45BacaanPage({
   }, [activeTab, query]);
 
   const toggle = (id: string) => {
-    setOpenIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    releaseAnchorRef.current?.();
+    releaseAnchorRef.current = null;
+    const list = listRef.current;
+    if (list && openId !== null && openId !== id) {
+      const closingPanel = list.querySelector(`[data-bacaan-entry="${openId}"] [data-bacaan-panel]`);
+      const openingRow = list.querySelector(`[data-bacaan-entry="${id}"]`);
+      if (closingPanel && openingRow) releaseAnchorRef.current = holdRowDuringSwitch(closingPanel, openingRow);
+    }
+    setOpenId(openId === id ? null : id);
   };
 
   return (
@@ -70,7 +105,7 @@ export default function Kloter45BacaanPage({
                 data-bacaan-tab={tab.id}
                 onClick={() => {
                   setActiveTabId(tab.id);
-                  setOpenIds(new Set());
+                  setOpenId(null);
                 }}
                 className={`min-h-10 rounded-xl px-2 py-2 text-xs font-bold transition-all active:scale-[0.98] ${
                   active
@@ -103,12 +138,14 @@ export default function Kloter45BacaanPage({
           </div>
         ) : (
           <section
+            ref={listRef}
             data-bacaan-list={activeTab?.id}
-            className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
+            // Posisi saat pindah bacaan ditahan holdRowDuringSwitch; anchoring
+            // bawaan Chrome dimatikan supaya tidak ikut mengoreksi dua kali.
+            className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm [overflow-anchor:none] dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
           >
             {entries.map((entry) => {
-              // Saat mencari, hasil yang cocok dibuka semua agar langsung terbaca.
-              const open = isSearching || openIds.has(entry.id);
+              const open = openId === entry.id;
               const panelId = `${pageId}-${activeTab?.id}-${entry.id}`;
               return (
                 <article key={entry.id} data-bacaan-entry={entry.id}>
@@ -133,23 +170,36 @@ export default function Kloter45BacaanPage({
                       <ChevronDown
                         size={16}
                         strokeWidth={2.4}
-                        className={`flex-none text-gray-400 transition-transform duration-200 dark:text-slate-400 ${open ? 'rotate-180' : ''}`}
+                        className={`flex-none text-gray-400 transition-transform duration-300 dark:text-slate-400 ${open ? 'rotate-180' : ''}`}
                       />
                     </button>
                   </h2>
 
-                  {open && (
-                    <div id={panelId} className="border-t border-gray-100 bg-gray-50/60 px-4 pb-4 pt-3 dark:border-slate-800 dark:bg-slate-800/40">
-                      <p className="font-arabic text-2xl leading-loose text-gray-900 dark:text-slate-100" dir="rtl" lang="ar">
-                        {entry.arab}
-                      </p>
-                      <p className="mt-3 text-sm italic leading-6 text-emerald-700 dark:text-emerald-300">{entry.latin}</p>
-                      <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{entry.terjemahan}</p>
-                      {entry.sumber && (
-                        <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{entry.sumber}</p>
-                      )}
+                  {/* Panel selalu terpasang supaya tutupnya juga beranimasi;
+                      tinggi dianimasikan lewat grid-rows 0fr ↔ 1fr. */}
+                  <div
+                    id={panelId}
+                    data-bacaan-panel
+                    aria-hidden={!open}
+                    // Tipe React 18 belum mengenal `inert`; lewat spread agar tsc diam.
+                    {...(open ? {} : { inert: '' })}
+                    className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out motion-reduce:transition-none ${
+                      open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                    }`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="border-t border-gray-100 bg-gray-50/60 px-4 pb-4 pt-3 dark:border-slate-800 dark:bg-slate-800/40">
+                        <p className="font-arabic text-2xl leading-loose text-gray-900 dark:text-slate-100" dir="rtl" lang="ar">
+                          {entry.arab}
+                        </p>
+                        <p className="mt-3 text-sm italic leading-6 text-emerald-700 dark:text-emerald-300">{entry.latin}</p>
+                        <p className="mt-1.5 text-sm leading-6 text-gray-600 dark:text-slate-300">{entry.terjemahan}</p>
+                        {entry.sumber && (
+                          <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">{entry.sumber}</p>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </article>
               );
             })}
