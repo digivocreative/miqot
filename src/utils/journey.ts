@@ -18,6 +18,16 @@ interface TourConfig {
   imageSrc: string;
   symbol: string;
   fallbackPlacement: 'pre' | 'post';
+  /**
+   * Tur sehari di dalam Saudi yang berangkat-pulang dari satu kota, jadi
+   * posisinya mengikuti kota itu — bukan mengekor seluruh blok Saudi. Taif
+   * dijalankan dari Mekkah, Badar dari Madinah. Tanpa penambat ini kartu
+   * paket Umroh-dulu menaruh Taif SESUDAH Madinah (JBU1623, 16 Sep 2026),
+   * bertentangan dengan itinerary yang menaruhnya di hari ke-4 dari Mekkah.
+   * Red Sea sengaja tidak ditambatkan: ia tur Jeddah menjelang pulang, jadi
+   * 'post' memang tempatnya.
+   */
+  saudiAnchor?: 'Madinah' | 'Umroh';
 }
 
 const SAUDI_AIRPORTS = new Set(['JED', 'MED']);
@@ -58,8 +68,8 @@ const TOUR_CONFIGS: TourConfig[] = [
   { label: 'Tur Mesir', codes: ['CAI', 'ALY'], cities: ['cairo', 'alexandria'], pattern: /\b(MESIR|EGYPT|CAIRO|ALEXANDRIA)\b/i, imageSrc: '/flags/mesir.png', symbol: '🇪🇬', fallbackPlacement: 'pre' },
   { label: 'Tur China', codes: ['HAK', 'PEK', 'SHA', 'CAN'], cities: ['haikou', 'beijing', 'shanghai', 'guangzhou'], pattern: /\b(CHINA|TIONGKOK|HAIKOU|BEIJING|SHANGHAI|GUANGZHOU)\b/i, imageSrc: '/flags/china.png', symbol: '🇨🇳', fallbackPlacement: 'pre' },
   { label: 'Tur Aqsha', codes: ['AMM', 'TLV'], cities: ['aqsha', 'amman', 'petra'], pattern: /\b(AQSHA|AL AQSA|AMMAN|PETRA|JORDAN|PALESTINE)\b/i, imageSrc: '/flags/palestine.svg', symbol: '🇵🇸', fallbackPlacement: 'pre' },
-  { label: 'Tur Taif', codes: [], cities: ['taif', 'thaif'], pattern: /\b(TAIF|THAIF)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
-  { label: 'Ziarah Badar', codes: [], cities: ['badar', 'badr'], pattern: /\b(BADAR|BADR)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
+  { label: 'Tur Taif', codes: [], cities: ['taif', 'thaif'], pattern: /\b(TAIF|THAIF)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post', saudiAnchor: 'Umroh' },
+  { label: 'Ziarah Badar', codes: [], cities: ['badar', 'badr'], pattern: /\b(BADAR|BADR)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post', saudiAnchor: 'Madinah' },
   { label: 'Tur Red Sea', codes: [], cities: ['red sea', 'redsea'], pattern: /\b(RED\s*SEA|REDSEA|LAUT\s+MERAH)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
 ];
 
@@ -216,17 +226,27 @@ export function getPackageJourneySteps(pkg: UmrohPackage, extraCityNames: string
     !preSaudiTours.includes(tour) && !postSaudiTours.includes(tour)
   );
 
-  const fallbackPreTours = fallbackTours.filter(tour => tour.fallbackPlacement === 'pre');
-  const fallbackPostTours = fallbackTours.filter(tour => tour.fallbackPlacement === 'post');
   const itinerarySaudiLabels = getSaudiLabelsFromItinerary(pkg);
   const saudiLabels = itinerarySaudiLabels || getSaudiLabelsFromRoute(pkg);
   if (!saudiLabels) return [];
+
+  // Tur berpenambat menempel pada kotanya. Penambat yang kotanya tak muncul
+  // di rantai tetap ditampilkan di ekor agar tidak ada tur yang hilang.
+  const anchoredTours = fallbackTours.filter(
+    tour => tour.saudiAnchor && saudiLabels.includes(tour.saudiAnchor)
+  );
+  const unanchoredTours = fallbackTours.filter(tour => !anchoredTours.includes(tour));
+  const fallbackPreTours = unanchoredTours.filter(tour => tour.fallbackPlacement === 'pre');
+  const fallbackPostTours = unanchoredTours.filter(tour => tour.fallbackPlacement === 'post');
   const tourStep = (tour: TourConfig): JourneyStep => makeJourneyStep(tour.label);
 
   return [
     ...preSaudiTours.map(tourStep),
     ...fallbackPreTours.map(tourStep),
-    ...saudiLabels.map(label => makeStep(label)),
+    ...saudiLabels.flatMap(label => [
+      makeStep(label),
+      ...anchoredTours.filter(tour => tour.saudiAnchor === label).map(tourStep),
+    ]),
     ...postSaudiTours.map(tourStep),
     ...fallbackPostTours.map(tourStep),
   ];
