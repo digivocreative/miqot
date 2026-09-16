@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getTodaysBirthdays } from './lib/birthdays.js';
 import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { buildNotifierPackagesUrl } from './lib/notifier-package-source.js';
+import { getLowestPrice } from './lib/notifier-lowest-price.js';
 import { classifyJamaahSyncHealth, isSyncStuck } from './lib/jamaah-sync-health.js';
 import { dedupeJamaahSyncEvents, hasJamaahSyncEvents, toMoney } from './lib/jamaah-sync-events.js';
 
@@ -101,28 +102,6 @@ function seatInt(pkg) {
 
 function seatTotal(pkg) {
   return parseInt(pkg.seat_total, 10) || 0;
-}
-
-function getLowestPrice(paketHarga) {
-  if (!paketHarga || typeof paketHarga !== 'object') return { lowest: null, roomType: '', paketType: '' };
-  let lowest = Infinity;
-  let roomType = '';
-  let paketType = '';
-  for (const [pType, rooms] of Object.entries(paketHarga)) {
-    if (!rooms || typeof rooms !== 'object') continue;
-    for (const [rType, price] of Object.entries(rooms)) {
-      if (rType === 'Infant' || rType === 'Single') continue;
-      const numPrice = parseInt(price, 10);
-      if (!isNaN(numPrice) && numPrice > 0 && numPrice < lowest) {
-        lowest = numPrice;
-        roomType = rType;
-        paketType = pType;
-      }
-    }
-  }
-  return lowest === Infinity
-    ? { lowest: null, roomType: '', paketType: '' }
-    : { lowest, roomType, paketType };
 }
 
 function daysDiff(dateStr) {
