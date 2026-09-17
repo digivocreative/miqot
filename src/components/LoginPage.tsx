@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2, Check, ArrowLeft, Mail } from 'lucide-react';
 import { useDarkMode } from '../utils/useDarkMode';
+import { isTouchPrimary } from '../utils/share';
 
 interface AuthUser {
   slug: string;
@@ -564,7 +565,9 @@ export default function LoginPage({ onLogin }: { onLogin: (session: AuthSession)
                   onChange={e => { setSlug(e.target.value); clearError(); }}
                   onFocus={clearError}
                   placeholder="prabowo@alhijaz.co"
-                  autoFocus
+                  // Fokus otomatis hanya di desktop. Di HP keyboard langsung menutup form, dan app
+                  // terpasang iOS 26 men-zoom halaman ±5x ke kolom ini saat halaman dimuat.
+                  autoFocus={!isTouchPrimary()}
                   required
                   autoCapitalize="none"
                   autoCorrect="off"
