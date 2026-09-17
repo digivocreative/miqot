@@ -35,6 +35,7 @@ import {
 import { hotelStars } from '@/utils/hotelDisplay';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { generateComparePdfBlob } from './CompareDocument';
+import { hasInAppHistory } from '../lib/appHistory';
 
 // Worker pdf.js untuk pratinjau. Halaman ini bisa dibuka tanpa pernah menyentuh
 // modal Kalkulasi, jadi worker-nya diatur di sini juga — jangan mengandalkan
@@ -61,21 +62,6 @@ function setLocalStorageItem(key: string, value: string): void {
   }
 }
 
-/**
- * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari daftar jadwal di tab
- * yang sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
- * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
- */
-function hasInAppHistory(): boolean {
-  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
-  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
-  if (window.history.length <= 1 || !document.referrer) return false;
-  try {
-    return new URL(document.referrer).origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
 
 // ============================================
 // Types

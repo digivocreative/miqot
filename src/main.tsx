@@ -306,6 +306,12 @@ if (shouldAutoRedirect && !isPwaHost) {
 const overlay = document.createElement('div')
 overlay.className = 'page-transition-overlay'
 document.body.appendChild(overlay)
+// Dipulihkan dari back-forward cache (back Android/iOS, tombol Kembali yang memakai
+// history.back()): DOM kembali persis seperti saat ditinggal, termasuk body.navigating dari
+// tirai transisi — lapisan buram yang menutup halaman dan tak bisa diketuk.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) document.body.classList.remove('navigating')
+})
 
 // Check if we arrived via an animated navigation
 const searchParams = new URLSearchParams(window.location.search)

@@ -12,6 +12,7 @@ import FlightRouteLine from './FlightRouteLine';
 import { getFlightStatusPresentation, normalizeFlightStatus } from '../lib/flightStatusPresentation';
 import { isReturnFlight } from '../lib/flightDirection';
 import { describeLoadError } from '../lib/loadError';
+import { hasInAppHistory } from '../lib/appHistory';
 
 // ── Types ──
 
@@ -113,21 +114,6 @@ const AIRLINE_NAMES: Record<string, string> = {
 
 const FLIGHT_SHARE_REFRESH_MS = 30 * 60 * 1000;
 
-/**
- * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari dalam app di tab yang
- * sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
- * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
- */
-function hasInAppHistory(): boolean {
-  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
-  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
-  if (window.history.length <= 1 || !document.referrer) return false;
-  try {
-    return new URL(document.referrer).origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
 
 function generateArc(start: [number, number], end: [number, number], points = 50): [number, number][] {
   const arc: [number, number][] = [];

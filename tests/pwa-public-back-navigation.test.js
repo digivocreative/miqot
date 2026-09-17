@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { transformSync } from 'esbuild';
 
 // Halaman publik (jadwal, detail paket, kalkulasi, banding, status penerbangan) —
 // audit PWA 2026-09-17: tombol Kembali memakai `location.href` ke induk, jadi tiap
@@ -9,9 +8,9 @@ import { transformSync } from 'esbuild';
 // yang baru ditinggal. Sekarang: dibuka dari dalam app → history.back(); dibuka
 // langsung (link WhatsApp) → location.replace ke induk.
 //
-// Keputusan "dari dalam app?" ada di hasInAppHistory — disalin per berkas (halaman
-// lazy tak boleh saling impor chunk berat). Tes ini MENJALANKAN setiap salinan,
-// bukan mencocokkan teksnya, dan memastikan salinannya tidak melenceng.
+// Keputusan "dari dalam app?" ada di hasInAppHistory (src/lib/appHistory.ts, modul kecil
+// tanpa dependensi — aman diimpor halaman lazy). Tes ini MENJALANKAN fungsinya dan memastikan
+// keempat halaman memakai versi bersama itu, bukan salinan yang bisa melenceng.
 
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
@@ -22,66 +21,49 @@ const FILES_WITH_HELPER = [
   'src/components/FlightSharePage.tsx',
 ];
 
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `function ${name} tidak ditemukan`);
-  // Fungsi tingkat modul: berakhir di "\n}" pertama setelah deklarasinya.
-  const end = source.indexOf('\n}', start);
-  assert.notEqual(end, -1, `akhir function ${name} tidak ditemukan`);
-  return source.slice(start, end + 2);
-}
+const { hasInAppHistory } = await import('../src/lib/appHistory.ts');
 
-function loadHelper(rel) {
-  const fnSource = extractFunction(read(rel), 'hasInAppHistory');
-  const { code } = transformSync(fnSource, { loader: 'ts', format: 'cjs' });
-  // eslint-disable-next-line no-new-func
-  const factory = new Function('window', 'document', 'URL', `${code}\nreturn hasInAppHistory;`);
-  return { fnSource, factory };
-}
-
-function run(factory, { navigation, historyLength, referrer, origin = 'https://alhijaz.co' }) {
-  const window = {
+function run({ navigation, historyLength, referrer, origin = 'https://alhijaz.co' }) {
+  globalThis.window = {
     history: { length: historyLength },
     location: { origin },
     ...(navigation === undefined ? {} : { navigation }),
   };
-  return factory(window, { referrer }, URL)();
+  globalThis.document = { referrer };
+  try {
+    return hasInAppHistory();
+  } finally {
+    delete globalThis.window;
+    delete globalThis.document;
+  }
 }
+
+test('hasInAppHistory: Navigation API (bila ada) yang memutuskan', () => {
+  // Overlay (useBackToClose) meninggalkan entri MAJU: history.length > 1 dan
+  // referrer se-origin, padahal halaman ini entri pertama tab. Tanpa API itu
+  // history.back() tak melakukan apa-apa — tombolnya mati.
+  assert.equal(run({ navigation: { canGoBack: false }, historyLength: 3, referrer: 'https://alhijaz.co/nikita' }), false);
+  assert.equal(run({ navigation: { canGoBack: true }, historyLength: 2, referrer: '' }), true);
+});
+
+test('hasInAppHistory: tanpa Navigation API → referrer se-origin + riwayat > 1', () => {
+  const base = { historyLength: 2, referrer: 'https://alhijaz.co/nikita' };
+  assert.equal(run(base), true, 'dibuka dari daftar jadwal di tab yang sama');
+  assert.equal(run({ ...base, referrer: '' }), false, 'link WhatsApp / ketik URL');
+  assert.equal(run({ ...base, referrer: 'https://l.wl.co/l?u=x' }), false, 'referrer lintas origin');
+  assert.equal(run({ ...base, historyLength: 1 }), false, 'tab baru: tak ada yang bisa dimundurkan');
+  assert.equal(run({ ...base, referrer: 'bukan url' }), false, 'referrer rusak tidak melempar');
+  // Properti navigation yang bukan Navigation API (mis. polyfill setengah jadi).
+  assert.equal(run({ ...base, navigation: {} }), true);
+});
 
 for (const rel of FILES_WITH_HELPER) {
-  test(`${rel}: Navigation API (bila ada) yang memutuskan`, () => {
-    const { factory } = loadHelper(rel);
-    // Overlay (useBackToClose) meninggalkan entri MAJU: history.length > 1 dan
-    // referrer se-origin, padahal halaman ini entri pertama tab. Tanpa API itu
-    // history.back() tak melakukan apa-apa — tombolnya mati.
-    assert.equal(
-      run(factory, { navigation: { canGoBack: false }, historyLength: 3, referrer: 'https://alhijaz.co/nikita' }),
-      false,
-    );
-    assert.equal(
-      run(factory, { navigation: { canGoBack: true }, historyLength: 2, referrer: '' }),
-      true,
-    );
-  });
-
-  test(`${rel}: tanpa Navigation API → referrer se-origin + riwayat > 1`, () => {
-    const { factory } = loadHelper(rel);
-    const base = { historyLength: 2, referrer: 'https://alhijaz.co/nikita' };
-    assert.equal(run(factory, base), true, 'dibuka dari daftar jadwal di tab yang sama');
-    assert.equal(run(factory, { ...base, referrer: '' }), false, 'link WhatsApp / ketik URL');
-    assert.equal(run(factory, { ...base, referrer: 'https://l.wl.co/l?u=x' }), false, 'referrer lintas origin');
-    assert.equal(run(factory, { ...base, historyLength: 1 }), false, 'tab baru: tak ada yang bisa dimundurkan');
-    assert.equal(run(factory, { ...base, referrer: 'bukan url' }), false, 'referrer rusak tidak melempar');
-    // Properti navigation yang bukan Navigation API (mis. polyfill setengah jadi).
-    assert.equal(run(factory, { ...base, navigation: {} }), true);
+  test(`${rel}: memakai hasInAppHistory bersama, tanpa salinan lokal`, () => {
+    const source = read(rel);
+    assert.match(source, /import \{[^}]*\bhasInAppHistory\b[^}]*\} from '[^']*lib\/appHistory'/);
+    assert.doesNotMatch(source, /function hasInAppHistory\(/);
   });
 }
-
-test('keempat salinan hasInAppHistory identik', () => {
-  const normalize = (s) => s.replace(/\s+/g, ' ').trim();
-  const [first, ...rest] = FILES_WITH_HELPER.map((rel) => normalize(loadHelper(rel).fnSource));
-  rest.forEach((copy, i) => assert.equal(copy, first, `${FILES_WITH_HELPER[i + 1]} melenceng dari src/App.tsx`));
-});
 
 /**
  * Handler tombol Kembali: potongan dari pemanggilan hasInAppHistory() sampai

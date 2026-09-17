@@ -36,6 +36,7 @@ import { trackPublicEvent } from '@/utils/analytics';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
+import { hasInAppHistory } from './lib/appHistory';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -53,26 +54,6 @@ function setLocalStorageItem(key: string, value: string): void {
   }
 }
 
-/**
- * Apakah entri riwayat sebelumnya halaman app ini sendiri (dibuka dari dalam app, di
- * tab yang sama)? Kalau ya, tombol Kembali cukup `history.back()`: `location.href` ke
- * induk menumpuk entri baru, dan back Android berikutnya memantul ke halaman ini lagi.
- *
- * Navigation API menjawab persis (hanya entri se-origin yang bersambung) — termasuk
- * saat overlay (useBackToClose) meninggalkan entri maju yang menggelembungkan
- * history.length. Tanpa API itu: referrer se-origin + riwayat > 1.
- * Link WhatsApp / tab baru → false.
- */
-function hasInAppHistory(): boolean {
-  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
-  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
-  if (window.history.length <= 1 || !document.referrer) return false;
-  try {
-    return new URL(document.referrer).origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Refresh latar TERAKHIR yang gagal (revalidasi data tersimpan, interval 30 menit,

@@ -32,6 +32,7 @@ import { getPackages } from '@/services';
 import { describeLoadError } from '@/lib/loadError';
 import type { UmrohPackage } from '@/types';
 import {
+import { hasInAppHistory } from '../lib/appHistory';
   cheapestPackageTier,
   packageCityHotels,
   tierHotelInfo,
@@ -55,21 +56,6 @@ function setLocalStorageItem(key: string, value: string): void {
   }
 }
 
-/**
- * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari daftar jadwal di tab
- * yang sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
- * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
- */
-function hasInAppHistory(): boolean {
-  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
-  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
-  if (window.history.length <= 1 || !document.referrer) return false;
-  try {
-    return new URL(document.referrer).origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
 
 // ============================================
 // Types

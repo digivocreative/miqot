@@ -16,6 +16,9 @@ const TRAVERSAL_TIMEOUT_MS = 500;
 type StateRecord = Record<string, unknown> | null;
 
 let seq = 0;
+// Bagian unik per muat halaman: tanpa ini token `overlay-1` bisa sama dengan entri overlay sisa
+// sebelum reload, dan back pertama pada overlay baru tidak menutup apa-apa.
+const PAGE_ID = Math.random().toString(36).slice(2, 10);
 let stack: string[] = [];
 const toRelease = new Set<string>();
 let flushScheduled = false;
@@ -87,7 +90,7 @@ function flushReleases() {
 export function openOverlayEntry(onClosedByBack: () => void): () => void {
   ensureGlobalListener();
   seq += 1;
-  const token = `overlay-${seq}`;
+  const token = `overlay-${PAGE_ID}-${seq}`;
   let pushed = false;
   let finished = false;
 

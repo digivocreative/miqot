@@ -96,3 +96,27 @@ test('dibuka lalu dilepas sebelum tick (StrictMode dev) → tidak menyentuh riwa
   await tick();
   assert.deepEqual(browser.calls, []);
 });
+
+// Temuan 5A: token `overlay-${seq}` mulai lagi dari 1 setiap halaman dimuat. Setelah reload
+// di atas entri overlay lama, overlay pertama berikutnya memakai token yang sama dengan entri
+// sisa itu → back pertama "kosong". Token wajib unik lintas muat halaman.
+test('token overlay unik lintas muat halaman (modul dimuat ulang)', async () => {
+  installFakeBrowser();
+  const first = await import('../src/lib/overlayHistory.ts?load=1');
+  first.openOverlayEntry(() => {});
+  await tick();
+  const firstToken = window.history.state.__overlay;
+
+  // "Reload": halaman baru, riwayat masih memuat entri overlay lama di puncak.
+  const browser = installFakeBrowser();
+  window.history.replaceState({ __overlay: firstToken }, '', 'http://x.test/bagas');
+  const second = await import('../src/lib/overlayHistory.ts?load=2');
+  let closed = 0;
+  second.openOverlayEntry(() => { closed += 1; });
+  await tick();
+  assert.notEqual(window.history.state.__overlay, firstToken);
+  window.history.back();
+  await tick();
+  assert.equal(closed, 1, 'back pertama harus menutup overlay baru');
+  assert.equal(browser.entries().length, 1);
+});
