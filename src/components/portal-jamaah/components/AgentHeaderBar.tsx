@@ -4,7 +4,7 @@ import { Avatar, StatusChip } from '../ui';
 
 export default function AgentHeaderBar({ agent, rightSlot }: { agent: PortalAgent | null; rightSlot?: ReactNode }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-white/80 shadow-soft backdrop-blur-xl backdrop-saturate-150">
+    <header className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] shadow-soft backdrop-blur-xl backdrop-saturate-150">
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-gold opacity-30" />
       <div className="mx-auto flex w-full max-w-lg items-center justify-between px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">

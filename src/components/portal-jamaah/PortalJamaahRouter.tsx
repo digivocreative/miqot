@@ -1,7 +1,7 @@
 import LandingPage from './pages/LandingPage';
 import AuthConsumePage from './pages/AuthConsumePage';
 import PortalDashboard from './pages/PortalDashboard';
-import { getPortalSession } from './lib/portalSession';
+import { getPortalSession, type PortalSession } from './lib/portalSession';
 import type { PortalRoute } from './hooks/usePortalRoute';
 import { usePortalTheme } from './hooks/usePortalTheme';
 import { Card, PortalPageShell } from './ui';
@@ -25,6 +25,13 @@ const PORTAL_DASHBOARD_ROUTES: PortalRoute[] = [
 function isSessionForSlug(slug: string) {
   const session = getPortalSession();
   return session && session.slug === slug ? session : null;
+}
+
+// Sesi kini bertahan lintas tab & peluncuran app (localStorage). Link kode milik booking
+// lain (mis. satu HP untuk dua booking) harus di-consume, bukan diarahkan ke dashboard
+// sesi lama. Sesi tanpa kode (link panjang lama) tidak bisa dibandingkan — tetap dipakai.
+function sessionOwnsCode(session: PortalSession, code: string) {
+  return !session.access_code || session.access_code.toLowerCase() === code.toLowerCase();
 }
 
 function getDashboardPath(slug: string, accessCode?: string) {
@@ -67,7 +74,7 @@ export default function PortalJamaahRouter({ slug, subPath }: Props) {
   }
 
   if ((subPath.length === 2 || subPath.length === 3) && PORTAL_MAGIC_CODE_REGEX.test(subPath[0]) && subPath[1] === 'dashboard') {
-    if (!session) {
+    if (!session || !sessionOwnsCode(session, subPath[0])) {
       window.location.replace(`/${slug}/jamaah/${subPath[0]}`);
       return null;
     }
@@ -78,7 +85,7 @@ export default function PortalJamaahRouter({ slug, subPath }: Props) {
   }
 
   if (subPath.length === 1 && PORTAL_MAGIC_CODE_REGEX.test(subPath[0])) {
-    if (session) {
+    if (session && sessionOwnsCode(session, subPath[0])) {
       window.location.replace(`/${slug}/jamaah/${subPath[0]}/dashboard`);
       return null;
     }

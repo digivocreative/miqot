@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { ChevronLeft } from 'lucide-react';
+import PortalSyncNotice from './PortalSyncNotice';
 
 export default function PortalBackBar({
   title,
@@ -16,14 +17,14 @@ export default function PortalBackBar({
   rightSlot?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-white/70 shadow-soft backdrop-blur-xl backdrop-saturate-150">
+    <header className="sticky top-0 z-30 border-b border-black/5 bg-white/70 pt-[env(safe-area-inset-top)] shadow-soft backdrop-blur-xl backdrop-saturate-150">
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-gold opacity-30" />
       <div className="mx-auto grid w-full max-w-lg grid-cols-[36px_minmax(0,1fr)_36px] items-center gap-3 px-4 py-3">
         <button
           type="button"
           onClick={onBack}
           aria-label="Kembali"
-          className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-black/5 text-ink/60 transition-colors hover:bg-black/10 hover:text-ink active:scale-95"
+          className="touch-hit relative flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-black/5 text-ink/60 transition-colors hover:bg-black/10 hover:text-ink active:scale-95"
         >
           <ChevronLeft className="h-4 w-4" strokeWidth={2.2} />
         </button>
@@ -37,6 +38,7 @@ export default function PortalBackBar({
         </div>
         <div className="flex h-9 w-9 flex-none items-center justify-center justify-self-end">{rightSlot ?? null}</div>
       </div>
+      <PortalSyncNotice />
     </header>
   );
 }

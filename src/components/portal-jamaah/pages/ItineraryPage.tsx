@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { BookOpenCheck, Map } from 'lucide-react';
+import { AlertCircle, BookOpenCheck, Map, RefreshCw } from 'lucide-react';
 import type { UmrohPackage } from '@/types';
 import { trackPublicEvent } from '@/utils/analytics';
+import { describeLoadError } from '@/lib/loadError';
 import { getPackageById } from '@/services/data-service';
 import PortalBackBar from '../components/PortalBackBar';
 import WebItineraryView, { type ItineraryContent } from '../../WebItineraryView';
@@ -15,6 +16,9 @@ import { Card, IconTile, PortalPageShell, SectionLabel } from '../ui';
  * Perjalanan lama menampilkan isi yang sama dengan komponen portal sendiri
  * yang lebih miskin, jadi dilebur ke sini.
  */
+// Tombol "Coba lagi" yang gagal seketika (tanpa sinyal) tetap memutar kerangka muat sebentar.
+const RETRY_MIN_MS = 600;
+
 function asItineraryContent(raw: unknown): ItineraryContent | null {
   const days = (raw as { days?: unknown[] } | null)?.days;
   return Array.isArray(days) && days.length ? (raw as ItineraryContent) : null;
@@ -40,6 +44,10 @@ export default function ItineraryPage({
   const [content, setContent] = useState<ItineraryContent | null>(seeded);
   const [paket, setPaket] = useState<UmrohPackage | null>(null);
   const [loading, setLoading] = useState(!seeded);
+  // Hanya permintaan yang gagal sampai ke server (tanpa sinyal). Balasan server yang
+  // bukan 2xx tetap jatuh ke tampilan "belum tersedia" + PDF milik WebItineraryView.
+  const [networkError, setNetworkError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!jadwalId) {
@@ -58,17 +66,31 @@ export default function ItineraryPage({
 
     const url = new URL(`/api/itinerary/${encodeURIComponent(jadwalId)}`, window.location.origin);
     if (pdfUrl) url.searchParams.set('pdfUrl', pdfUrl);
-    fetch(url.toString())
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (cancelled) return;
-        setContent(asItineraryContent(json?.data));
-        setLoading(false);
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
+    const minDelay = attempt > 0 ? new Promise((resolve) => window.setTimeout(resolve, RETRY_MIN_MS)) : null;
+    Promise.allSettled([
+      fetch(url.toString()).then((res) => (res.ok ? res.json().catch(() => null) : null)),
+      minDelay,
+    ]).then(([outcome]) => {
+      if (cancelled) return;
+      if (outcome.status === 'rejected') {
+        setNetworkError(outcome.reason);
+      } else {
+        setNetworkError(null);
+        setContent(asItineraryContent(outcome.value?.data));
+      }
+      setLoading(false);
+    });
 
     return () => { cancelled = true; };
-  }, [jadwalId, yearCode, pdfUrl, seeded]);
+  }, [jadwalId, yearCode, pdfUrl, seeded, attempt]);
+
+  // Sinyal kembali: coba muat lagi sendiri.
+  useEffect(() => {
+    if (!networkError || content) return;
+    const retry = () => setAttempt((value) => value + 1);
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [networkError, content]);
 
   return (
     <PortalPageShell>
@@ -97,16 +119,39 @@ export default function ItineraryPage({
           <SectionLabel className="mb-3">Rencana Perjalanan</SectionLabel>
           {/* Card membungkus agar kanvas itinerary (#F6F1EA) tidak beradu
               langsung dengan kanvas portal; isinya persis model Jadwal. */}
-          <Card className="overflow-hidden">
-            <WebItineraryView
-              content={content}
-              loading={loading}
-              error={null}
-              paket={paket}
-              onRetryPdf={pdfUrl ? () => window.open(pdfUrl, '_blank', 'noopener,noreferrer') : undefined}
-              onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_portal', { paket: jadwalId })}
-            />
-          </Card>
+          {networkError && !content && !loading ? (
+            <div className="rounded-lega border border-red-200 bg-red-50 p-4" role="alert" data-itinerary-network-error>
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 flex-none text-red-500" strokeWidth={2} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-red-700">Itinerary belum bisa dimuat</p>
+                  <p className="mt-1 text-xs leading-5 text-red-600">{describeLoadError(networkError)}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoading(true);
+                      setAttempt((value) => value + 1);
+                    }}
+                    className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-red-600 shadow-soft transition-colors hover:bg-red-100 active:scale-95"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.2} />
+                    Coba lagi
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <Card className="overflow-hidden">
+              <WebItineraryView
+                content={content}
+                loading={loading}
+                error={null}
+                paket={paket}
+                onRetryPdf={pdfUrl ? () => window.open(pdfUrl, '_blank', 'noopener,noreferrer') : undefined}
+                onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_portal', { paket: jadwalId })}
+              />
+            </Card>
+          )}
           <p className="mt-3 text-center text-[11px] leading-5 text-ink/50">
             Jadwal dapat berubah menyesuaikan kondisi di lapangan.
           </p>

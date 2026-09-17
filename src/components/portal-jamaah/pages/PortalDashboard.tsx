@@ -1,6 +1,7 @@
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { trackPublicEvent } from '@/utils/analytics';
+import { describeLoadError } from '@/lib/loadError';
 import type { PortalSession } from '../lib/portalSession';
 import { usePortalMe } from '../hooks/usePortalMe';
 import { usePortalTheme } from '../hooks/usePortalTheme';
@@ -9,6 +10,7 @@ import { portalApi } from '../lib/portalApi';
 import { clearPortalSession } from '../lib/portalSession';
 import { clearPortalMeCache } from '../hooks/usePortalMe';
 import StickyWhatsAppCta from '../components/StickyWhatsAppCta';
+import { PortalSyncContext } from '../components/PortalSyncNotice';
 import { PortalPageShell, Card, Button } from '../ui';
 
 // Portal sub-pages are code-split — only the active route's chunk loads.
@@ -44,7 +46,9 @@ function LoadingScreen() {
   );
 }
 
-function ErrorScreen({ onRetry }: { onRetry: () => void }) {
+// Hanya untuk kegagalan saat BELUM ada data sama sekali. Data yang sudah tampil tetap
+// tampil saat pembaruan gagal (catatan kecil di header, lihat PortalSyncNotice).
+function ErrorScreen({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   return (
     <PortalPageShell className="flex items-center justify-center px-4 py-8">
       <Card className="w-full max-w-lg p-6 text-center">
@@ -52,8 +56,8 @@ function ErrorScreen({ onRetry }: { onRetry: () => void }) {
           <AlertCircle className="h-7 w-7" strokeWidth={2} />
         </div>
         <h1 className="mt-4 text-xl font-bold text-ink">Data belum bisa dimuat</h1>
-        <p className="mt-2 text-sm leading-6 text-ink/70">
-          Coba muat ulang. Jika masih gagal, hubungi agent untuk memastikan sesi Anda masih aktif.
+        <p className="mt-2 text-sm leading-6 text-ink/70" role="alert">
+          {describeLoadError(error)}
         </p>
         <Button type="button" variant="primary" onClick={onRetry} className="mt-5">
           Muat Ulang
@@ -76,7 +80,11 @@ export default function PortalDashboard({
 }) {
   usePortalTheme();
   const { route, navigate, goBack } = usePortalRoute(initialRoute, dashboardPath);
-  const { data, loading, error, refetch } = usePortalMe();
+  const { data, loading, refreshing, error, updatedAt, refetch } = usePortalMe();
+  const syncState = useMemo(
+    () => (data && error ? { updatedAt, refreshing, onRetry: refetch } : null),
+    [data, error, updatedAt, refreshing, refetch]
+  );
 
   // Fire once when the authenticated portal dashboard first mounts.
   const portalOpenTracked = useRef(false);
@@ -115,23 +123,25 @@ export default function PortalDashboard({
     if (parts.length) document.title = parts.join(' | ');
   }, [initiatorBeforeReady, paketName, maskapai]);
 
-  if (loading) return <LoadingScreen />;
-  if (error) return <ErrorScreen onRetry={refetch} />;
-  if (!data) return null;
+  if (!data) {
+    return loading ? <LoadingScreen /> : <ErrorScreen error={error} onRetry={refetch} />;
+  }
 
   const initiator = data.jamaah.find((j) => j.is_initiator) || data.jamaah[0];
 
   return (
     <div data-agent-slug={slug} data-booking-id={session.id_umroh}>
-      <Suspense fallback={<LoadingScreen />}>
-        {route === 'beranda' && <BerandaPage slug={slug} data={data} onNavigate={navigate} onLogout={handleLogout} />}
-        {route === 'itinerary' && <ItineraryPage slug={slug} data={data} onBack={goBack} />}
-        {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
-        {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
-        {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}
-        {route === 'doa-dzikir' && <DoaDzikirPage data={data} onBack={goBack} />}
-        {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
-      </Suspense>
+      <PortalSyncContext.Provider value={syncState}>
+        <Suspense fallback={<LoadingScreen />}>
+          {route === 'beranda' && <BerandaPage slug={slug} data={data} onNavigate={navigate} onLogout={handleLogout} />}
+          {route === 'itinerary' && <ItineraryPage slug={slug} data={data} onBack={goBack} />}
+          {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
+          {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
+          {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}
+          {route === 'doa-dzikir' && <DoaDzikirPage data={data} onBack={goBack} />}
+          {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
+        </Suspense>
+      </PortalSyncContext.Provider>
       <StickyWhatsAppCta slug={slug} tab={route} agent={data.agent} booking={data.booking} initiator={initiator} />
     </div>
   );

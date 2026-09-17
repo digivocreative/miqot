@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, BookOpen, ChevronRight, Minus, Plus, RefreshCw, Search, Settings2 } from 'lucide-react';
 import { trackPublicEvent } from '@/utils/analytics';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalBackBar from '../components/PortalBackBar';
 import { Card, IconTile, InvertedPanel, PortalPageShell, SectionLabel, cn } from '../ui';
 import { useQuranSurahList } from '../hooks/useQuranSurahList';
@@ -189,7 +190,7 @@ function SizeStepper({
         onClick={() => onAdjust(-1)}
         disabled={index <= 0}
         aria-label={`Perkecil ${ariaBase}`}
-        className="flex h-9 w-9 items-center justify-center rounded-xl bg-burgundy-700/8 text-burgundy-700 transition-colors hover:bg-burgundy-700/15 active:scale-95 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        className="touch-hit relative flex h-9 w-9 items-center justify-center rounded-xl bg-burgundy-700/8 text-burgundy-700 transition-colors hover:bg-burgundy-700/15 active:scale-95 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
       >
         <Minus className="h-4 w-4" strokeWidth={2.4} />
       </button>
@@ -201,7 +202,7 @@ function SizeStepper({
         onClick={() => onAdjust(1)}
         disabled={index >= SIZE_LABELS.length - 1}
         aria-label={`Perbesar ${ariaBase}`}
-        className="flex h-9 w-9 items-center justify-center rounded-xl bg-burgundy-700/8 text-burgundy-700 transition-colors hover:bg-burgundy-700/15 active:scale-95 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        className="touch-hit relative flex h-9 w-9 items-center justify-center rounded-xl bg-burgundy-700/8 text-burgundy-700 transition-colors hover:bg-burgundy-700/15 active:scale-95 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
       >
         <Plus className="h-4 w-4" strokeWidth={2.4} />
       </button>
@@ -274,7 +275,7 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
       aria-label="Pengaturan tampilan"
       aria-expanded={settingsOpen}
       className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-xl transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+        'touch-hit relative flex h-9 w-9 items-center justify-center rounded-xl transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
         settingsOpen
           ? 'bg-gradient-burgundy text-white shadow-accent'
           : 'bg-burgundy-700/8 text-burgundy-700 hover:bg-burgundy-700/15',
@@ -347,6 +348,9 @@ function SurahReader({ nomor, onBack }: { nomor: number; onBack: () => void }) {
 
 export default function AlQuranPage({ slug, onBack }: { slug: string; data?: unknown; onBack: () => void }) {
   const [selected, setSelected] = useState<number | null>(null);
+  // Pembaca surah tidak punya URL sendiri: gestur back menutupnya dulu (kembali ke daftar
+  // surah), bukan langsung meninggalkan halaman Al-Quran.
+  useBackToClose(selected != null, () => setSelected(null));
 
   function openSurah(nomor: number) {
     setSelected(nomor);

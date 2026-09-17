@@ -2,11 +2,34 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { loadTs } from './fixtures/load-ts.js';
 
 const rootPath = new URL('..', import.meta.url).pathname;
 
 function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
+}
+
+// Riwayat palsu secukupnya untuk urutan entri: push memotong entri maju, back mundur satu.
+function installFakeHistory(initialPath) {
+  const entries = [{ state: null, url: initialPath }];
+  let index = 0;
+  const calls = [];
+  globalThis.window = {
+    location: { get pathname() { return entries[index].url; } },
+    history: {
+      get state() { return entries[index].state; },
+      pushState(state, _title, url) { entries.splice(index + 1); entries.push({ state, url }); index += 1; calls.push('push'); },
+      replaceState(state, _title, url) { entries[index] = { state, url: url ?? entries[index].url }; calls.push('replace'); },
+      back() { if (index > 0) index -= 1; calls.push('back'); },
+    },
+  };
+  return {
+    calls,
+    path: () => entries[index].url,
+    // Entri yang tersisa di belakang layar saat ini — yang dibuka gestur back HP berikutnya.
+    stack: () => entries.slice(0, index + 1).map((entry) => entry.url),
+  };
 }
 
 test('portal jamaah frontend files exist', () => {
@@ -124,10 +147,120 @@ test('PortalJamaahRouter and usePortalRoute preserve menu slugs for reloads', ()
   assert.match(dashboard, /usePortalRoute\(initialRoute,\s*dashboardPath\)/);
 
   assert.match(routeHook, /dashboardPath/);
-  assert.match(routeHook, /window\.history\.pushState/);
+  // Menu membuat entri riwayat per halaman (lewat pushAppState, yang mencatat kedalaman
+  // dalam-app); pushState mentah tanpa kedalaman membuat tombol Kembali keluar dari app.
+  assert.match(routeHook, /pushPortalRoute\(dashboardPath, next\)/);
+  assert.match(routeHook, /backToPortalBeranda\(dashboardPath, /);
+  assert.doesNotMatch(routeHook, /history\.pushState/);
   assert.match(routeHook, /popstate/);
   assert.match(routeHook, /routeFromPath/);
   assert.match(routeHook, /next === 'beranda'\s*\?\s*base\s*:/);
+});
+
+test('tombol Kembali portal mundur di riwayat, bukan mendorong entri beranda baru', async () => {
+  const { pushPortalRoute, backToPortalBeranda, routeFromPath } = await loadTs('src/components/portal-jamaah/hooks/usePortalRoute.ts');
+  const base = '/nikita/jamaah/abc23/dashboard';
+
+  // Beranda → Itinerary → tombol Kembali: back HP berikutnya tidak boleh membuka Itinerary lagi.
+  let history = installFakeHistory(base);
+  pushPortalRoute(base, 'itinerary');
+  assert.equal(history.path(), `${base}/itinerary`);
+  let shownDirectly = 0;
+  backToPortalBeranda(base, () => { shownDirectly += 1; });
+  assert.equal(history.path(), base);
+  assert.equal(routeFromPath(base, history.path()), 'beranda');
+  assert.deepEqual(history.stack(), [base]);
+  assert.deepEqual(history.calls, ['push', 'back']);
+  assert.equal(shownDirectly, 0, 'jalur mundur diselesaikan listener popstate');
+
+  // Dibuka langsung di /itinerary (link WhatsApp, app terpasang diluncurkan): tidak ada
+  // entri dalam app untuk dituju, jadi layar ini diganti beranda — bukan push, bukan keluar.
+  history = installFakeHistory(`${base}/itinerary`);
+  backToPortalBeranda(base, () => { shownDirectly += 1; });
+  assert.equal(shownDirectly, 1);
+  assert.deepEqual(history.calls, ['replace']);
+  assert.deepEqual(history.stack(), [base]);
+});
+
+function fakeStorage({ throwOnSet = false, throwOnGet = false } = {}) {
+  const map = new Map();
+  return {
+    map,
+    getItem(key) {
+      if (throwOnGet) throw new Error('SecurityError');
+      return map.has(key) ? map.get(key) : null;
+    },
+    setItem(key, value) {
+      if (throwOnSet) throw new Error('QuotaExceededError');
+      map.set(key, String(value));
+    },
+    removeItem(key) {
+      map.delete(key);
+    },
+  };
+}
+
+function installBrowserStorage({ local = {}, session = {} } = {}) {
+  const env = { local: fakeStorage(local), session: fakeStorage(session), cookies: [] };
+  globalThis.window = { localStorage: env.local, sessionStorage: env.session, location: { protocol: 'https:' } };
+  globalThis.document = { set cookie(value) { env.cookies.push(value); }, get cookie() { return ''; } };
+  return env;
+}
+
+const SESSION_KEY = 'jamaah_portal_session';
+const inNinetyDays = () => new Date(Date.now() + 90 * 86_400_000).toISOString();
+
+test('sesi portal bertahan saat app/tab ditutup: disimpan di localStorage, sesi lama dimigrasikan', async () => {
+  const { savePortalSession, getPortalSession, clearPortalSession, savePortalSnapshot, readPortalSnapshot } =
+    await loadTs('src/components/portal-jamaah/lib/portalSession.ts');
+  const session = { session_token: 'tok-a', id_umroh: 'AIW0000001', slug: 'nikita', expires_at: inNinetyDays(), access_code: 'abc23' };
+
+  // Login baru: localStorage (bertahan lintas peluncuran), bukan sessionStorage; cookie tetap.
+  let env = installBrowserStorage();
+  savePortalSession(session);
+  assert.equal(JSON.parse(env.local.map.get(SESSION_KEY)).session_token, 'tok-a');
+  assert.equal(env.session.map.has(SESSION_KEY), false);
+  assert.match(env.cookies.at(-1), /^jamaah_session=tok-a; path=\/; max-age=\d+/);
+  assert.deepEqual(getPortalSession(), session);
+
+  // Sesi dari versi lama (sessionStorage saja) tetap terbaca lalu dipindahkan.
+  env = installBrowserStorage();
+  env.session.map.set(SESSION_KEY, JSON.stringify(session));
+  assert.deepEqual(getPortalSession(), session);
+  assert.equal(env.local.map.has(SESSION_KEY), true);
+  assert.equal(env.session.map.has(SESSION_KEY), false);
+
+  // Kedaluwarsa: tidak dipakai dan dibersihkan dari kedua storage + data tersimpan.
+  env = installBrowserStorage();
+  env.local.map.set(SESSION_KEY, JSON.stringify({ ...session, expires_at: '2020-01-01T00:00:00Z' }));
+  env.session.map.set(SESSION_KEY, JSON.stringify(session));
+  env.local.map.set('jamaah_portal_me', '{}');
+  assert.equal(getPortalSession(), null);
+  assert.equal(env.local.map.size + env.session.map.size, 0);
+
+  // Mode privat: localStorage menolak menulis → cadangan sessionStorage; storage yang
+  // melempar saat dibaca tidak boleh menjatuhkan halaman.
+  env = installBrowserStorage({ local: { throwOnSet: true } });
+  savePortalSession(session);
+  assert.equal(env.session.map.has(SESSION_KEY), true);
+  assert.deepEqual(getPortalSession(), session);
+  installBrowserStorage({ local: { throwOnGet: true, throwOnSet: true }, session: { throwOnGet: true, throwOnSet: true } });
+  assert.doesNotThrow(() => savePortalSession(session));
+  assert.equal(getPortalSession(), null);
+
+  // Data /me tersimpan hanya kembali untuk booking yang sama, dan ikut terhapus saat keluar
+  // atau saat booking lain login di perangkat yang sama.
+  env = installBrowserStorage();
+  savePortalSession(session);
+  savePortalSnapshot(session, { booking: { id_umroh: 'AIW0000001' } }, 1_700_000_000_000);
+  assert.deepEqual(readPortalSnapshot(session), { data: { booking: { id_umroh: 'AIW0000001' } }, savedAt: 1_700_000_000_000 });
+  assert.equal(readPortalSnapshot({ ...session, id_umroh: 'AIW0000002' }), null);
+  savePortalSession({ ...session, session_token: 'tok-b', id_umroh: 'AIW0000002' });
+  assert.equal(env.local.map.has('jamaah_portal_me'), false);
+  savePortalSnapshot(session, { booking: {} });
+  clearPortalSession();
+  assert.equal(env.local.map.size + env.session.map.size, 0);
+  assert.match(env.cookies.at(-1), /^jamaah_session=; path=\/; max-age=0/);
 });
 
 test('portal dashboard shell uses pages and manages routing', () => {

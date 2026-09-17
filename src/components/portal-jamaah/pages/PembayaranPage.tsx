@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, MessageCircle, X } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalBackBar from '../components/PortalBackBar';
 import JamaahPaymentCard from '../components/JamaahPaymentCard';
 import type { PortalMeData } from '../hooks/usePortalMe';
@@ -39,6 +40,8 @@ export default function PembayaranPage({
   onBack: () => void;
 }) {
   const [showTransfer, setShowTransfer] = useState(false);
+  // Gestur back Android menutup dialog ini, bukan halaman Pembayaran di bawahnya.
+  useBackToClose(showTransfer, () => setShowTransfer(false));
   const totals = paymentTotals(data);
   const roomType = roomTypeFromPackage(data.booking.paket);
   const initiator = data.jamaah.find((item) => item.is_initiator) || data.jamaah[0];
@@ -172,7 +175,7 @@ Mohon dicek ya. Terima kasih 🙏`,
 
       {showTransfer && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-ink/50 p-4 sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-ink/50 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:items-center"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setShowTransfer(false);
           }}

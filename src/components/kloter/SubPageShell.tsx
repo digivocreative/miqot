@@ -26,7 +26,8 @@ export default function KloterSubPageShell({
 }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
+      {/* App terpasang di iOS tampil di bawah status bar: header menampung inset atasnya. */}
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 pt-[env(safe-area-inset-top)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center gap-2 px-4 py-3">
           <a
             href={homePath}
@@ -36,7 +37,7 @@ export default function KloterSubPageShell({
               onBack();
             }}
             aria-label="Kembali ke daftar jamaah"
-            className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-gray-100/80 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
+            className="touch-hit relative flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-gray-100/80 text-gray-600 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             <ArrowLeft size={16} strokeWidth={2.4} />
           </a>
@@ -52,7 +53,7 @@ export default function KloterSubPageShell({
 
       <main
         className={`mx-auto w-full max-w-lg space-y-3 ${
-          flush ? 'sm:px-4 sm:pb-10 sm:pt-4' : 'px-4 pb-10 pt-4'
+          flush ? 'pb-[env(safe-area-inset-bottom)] sm:px-4 sm:pb-10 sm:pt-4' : 'px-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))] pt-4'
         }`}
       >
         {children}

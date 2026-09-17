@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, Moon, ShieldCheck } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
 import { trackPublicEvent } from '@/utils/analytics';
+import { describeLoadError } from '@/lib/loadError';
 import AgentHeaderBar from '../components/AgentHeaderBar';
 import KodeBookingForm from '../components/KodeBookingForm';
 import MagicLinkSuccessCard from '../components/MagicLinkSuccessCard';
@@ -61,8 +62,10 @@ export default function LandingPage({ slug }: { slug: string }) {
       await portalApi.requestMagicLinkByBooking(slug, idUmroh, wa);
       trackPublicEvent(slug, 'portal_login_request');
       setSent(true);
-    } catch {
-      setError('Kode booking tidak cocok dengan nomor WA yang terdaftar. Cek lagi atau hubungi agent.');
+    } catch (err) {
+      // Server selalu menjawab sukses generik untuk kode/nomor yang tidak cocok (anti tebak),
+      // jadi yang sampai ke sini hanya gangguan jaringan, batas permintaan, atau server.
+      setError(describeLoadError(err));
     } finally {
       setSubmitting(false);
     }

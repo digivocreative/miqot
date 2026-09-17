@@ -7,6 +7,8 @@ import KloterShineLogo from '@/components/kloter/ShineLogo';
 import KloterBacaanPage from '@/components/kloter/BacaanPage';
 import KloterRoomListPage from '@/components/kloter/RoomListPage';
 import KloterItineraryPage from '@/components/kloter/ItineraryPage';
+import { backToKloterHome, pushKloterSubPage } from '@/components/kloter/subPageHistory';
+import { describeLoadError } from '@/lib/loadError';
 import { KLOTER_DOA_TABS, KLOTER_DZIKIR_TABS } from '@/lib/kloterBacaan';
 import { fetchKloterPrepFromDb, saveKloterPrepToDb } from '@/lib/kloterPrepDb';
 import {
@@ -30,6 +32,8 @@ type JamaahPrepState = Record<number, JamaahPrepItem>;
 type FilterMode = 'all' | 'nusuk';
 type SaveStatus = 'idle' | 'saving' | 'saved';
 type PrepLoadState = 'loading' | 'ready' | 'failed';
+/** Jamaah yang perubahannya belum tersimpan di server. */
+type RowSaveState = 'failed' | 'retrying';
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 // Tiap menu punya ikon dan warna sendiri supaya mudah dibedakan sekilas.
@@ -87,6 +91,14 @@ function isMemberReady(prep: JamaahPrepState, member: KloterJamaah) {
   return KLOTER_CHECKLIST_ITEMS.every((item) => isChecked(prep, member.no, item.id));
 }
 
+// Jeda minimum tombol "Coba lagi": percobaan yang gagal seketika (tanpa sinyal) tetap
+// terlihat dijalankan, bukan tombol yang tampak tidak bereaksi.
+const RETRY_MIN_MS = 600;
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
 function getMemberChecklistChips(prep: JamaahPrepState, member: KloterJamaah) {
   return KLOTER_CHECKLIST_ITEMS.map((item) => ({
     id: item.id,
@@ -102,8 +114,9 @@ function subPageFromLocation(): KloterSubPage | null {
 }
 
 // Sub-halaman (Doa / Dzikir / Room List) punya URL sendiri supaya bisa
-// dibagikan langsung, tapi perpindahannya tetap di klien (pushState) supaya
-// tidak memuat ulang daftar jamaah. Tombol Back HP ditangani lewat popstate.
+// dibagikan langsung, tapi perpindahannya tetap di klien (pushKloterSubPage)
+// supaya tidak memuat ulang daftar jamaah. Tombol Back HP ditangani lewat
+// popstate; tombol kembali di layar mundur di riwayat yang sama (goBack).
 // Arah transisi: masuk sub-halaman geser dari kanan (+1), kembali geser dari
 // kiri (-1). Posisi gulir daftar jamaah disimpan saat pergi dan dipulihkan
 // saat kembali, supaya tidak melompat ke atas.
@@ -122,8 +135,11 @@ function useKloterSubPage(trip: KloterTrip, initial: KloterSubPage | null) {
 
   const navigate = useCallback((next: KloterSubPage | null) => {
     go(next);
-    const nextPath = getKloterSubPagePath(trip, next);
-    if (window.location.pathname !== nextPath) window.history.pushState(null, '', nextPath);
+    pushKloterSubPage(trip, next);
+  }, [go, trip]);
+
+  const goBack = useCallback(() => {
+    backToKloterHome(trip, () => go(null));
   }, [go, trip]);
 
   useEffect(() => {
@@ -138,7 +154,7 @@ function useKloterSubPage(trip: KloterTrip, initial: KloterSubPage | null) {
     window.scrollTo({ top: subPageRef.current ? 0 : homeScrollRef.current, behavior: 'auto' });
   }, []);
 
-  return { subPage, direction, navigate, restoreScroll };
+  return { subPage, direction, navigate, goBack, restoreScroll };
 }
 
 // Cepat: keluar 90ms + masuk 180ms ≈ 270ms total (mode="wait" menjalankannya
@@ -188,7 +204,7 @@ function ContactPersonRow({ contact }: { contact: KloterContact }) {
           target="_blank"
           rel="noreferrer"
           aria-label={`Chat WhatsApp ${contact.name}`}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-95 hover:bg-emerald-600"
+          className="touch-hit relative inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-95 hover:bg-emerald-600"
         >
           <WhatsAppIcon size={13} />
           <span>Chat WA</span>
@@ -202,9 +218,12 @@ function JamaahGroupMemberRow({
   member,
   prep,
   showAge,
+  statusKnown,
+  saveState,
   editingPhoneNo,
   expandedJamaahNos,
   onToggleChecklist,
+  onRetrySave,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
@@ -213,9 +232,13 @@ function JamaahGroupMemberRow({
   member: KloterJamaah;
   prep: JamaahPrepState;
   showAge: boolean;
+  /** false = status checklist di server belum terbaca; jangan tampilkan seolah belum dicentang. */
+  statusKnown: boolean;
+  saveState?: RowSaveState;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
   onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
+  onRetrySave: (jamaahNo: number) => void;
   onStartEditPhone: (member: KloterJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
@@ -274,7 +297,7 @@ function JamaahGroupMemberRow({
                 event.stopPropagation();
                 onStartEditPhone(member);
               }}
-              className="-my-0.5 inline-flex flex-none items-center rounded-md border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-600 transition-colors active:scale-95 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-800/40 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300"
+              className="touch-hit relative -my-0.5 inline-flex flex-none items-center rounded-md border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-600 transition-colors active:scale-95 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-800/40 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300"
             >
               Ubah
             </button>
@@ -293,17 +316,41 @@ function JamaahGroupMemberRow({
           <span
             key={item.id}
             data-checklist-chip={item.id}
+            data-checklist-chip-unknown={statusKnown ? undefined : ''}
             className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold transition-colors ${
-              item.done
+              !statusKnown
+                ? 'border-dashed border-gray-200 bg-white text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500'
+                : item.done
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
                 : 'border-gray-200 bg-white text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500'
             }`}
           >
-            <Check size={10} strokeWidth={3} className={item.done ? 'text-emerald-500' : 'text-gray-300 dark:text-slate-600'} />
+            {statusKnown && (
+              <Check size={10} strokeWidth={3} className={item.done ? 'text-emerald-500' : 'text-gray-300 dark:text-slate-600'} />
+            )}
             <span>{item.label}</span>
           </span>
         ))}
       </div>
+
+      {saveState && (
+        <div
+          role="alert"
+          data-prep-unsaved={member.no}
+          className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 dark:border-red-900/40 dark:bg-red-900/15"
+        >
+          <p className="min-w-0 text-[10px] font-semibold leading-4 text-red-700 dark:text-red-300">Perubahan belum tersimpan.</p>
+          <button
+            type="button"
+            data-prep-retry={member.no}
+            onClick={() => onRetrySave(member.no)}
+            disabled={saveState === 'retrying'}
+            className="touch-hit relative inline-flex flex-none items-center rounded-md bg-white px-2 py-1 text-[10px] font-bold text-red-700 shadow-sm ring-1 ring-red-200 transition active:scale-95 disabled:opacity-60 dark:bg-slate-900 dark:text-red-300 dark:ring-red-900/50"
+          >
+            {saveState === 'retrying' ? 'Menyimpan...' : 'Coba lagi'}
+          </button>
+        </div>
+      )}
 
       <div
         aria-hidden={!isExpanded}
@@ -356,11 +403,11 @@ function JamaahGroupMemberRow({
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500">Checklist Persiapan</p>
                 <span className={`rounded-md px-2 py-0.5 text-[9px] font-bold ${
-                  memberReady
+                  statusKnown && memberReady
                     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
                     : 'bg-white text-gray-400 dark:bg-slate-900 dark:text-slate-500'
                 }`}>
-                  {memberReady ? 'Siap' : 'Belum lengkap'}
+                  {statusKnown ? <>{memberReady ? 'Siap' : 'Belum lengkap'}</> : '—'}
                 </span>
               </div>
 
@@ -406,9 +453,12 @@ function JamaahGroupCard({
   group,
   prep,
   showAge,
+  statusKnown,
+  unsavedRows,
   editingPhoneNo,
   expandedJamaahNos,
   onToggleChecklist,
+  onRetrySave,
   onStartEditPhone,
   onPhoneChange,
   onStopEditPhone,
@@ -417,9 +467,12 @@ function JamaahGroupCard({
   group: KloterGroup;
   prep: JamaahPrepState;
   showAge: boolean;
+  statusKnown: boolean;
+  unsavedRows: Record<number, RowSaveState>;
   editingPhoneNo: number | null;
   expandedJamaahNos: Set<number>;
   onToggleChecklist: (jamaahNo: number, itemId: KloterChecklistId) => void;
+  onRetrySave: (jamaahNo: number) => void;
   onStartEditPhone: (member: KloterJamaah) => void;
   onPhoneChange: (jamaahNo: number, value: string) => void;
   onStopEditPhone: () => void;
@@ -436,8 +489,12 @@ function JamaahGroupCard({
           </span>
           <span className="text-[11px] font-semibold text-gray-600 dark:text-slate-300">{group.members.length} jamaah</span>
         </div>
-        <span className="shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300">
-          {completedMembers}/{group.members.length} siap
+        <span className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold ${
+          statusKnown
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
+            : 'border-gray-200 bg-white text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500'
+        }`}>
+          {statusKnown ? completedMembers : '—'}/{group.members.length} siap
         </span>
       </div>
       <div className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -447,9 +504,12 @@ function JamaahGroupCard({
             member={member}
             prep={prep}
             showAge={showAge}
+            statusKnown={statusKnown}
+            saveState={unsavedRows[member.no]}
             editingPhoneNo={editingPhoneNo}
             expandedJamaahNos={expandedJamaahNos}
             onToggleChecklist={onToggleChecklist}
+            onRetrySave={onRetrySave}
             onStartEditPhone={onStartEditPhone}
             onPhoneChange={onPhoneChange}
             onStopEditPhone={onStopEditPhone}
@@ -468,7 +528,7 @@ export default function KloterLandingPage({
   trip: KloterTrip;
   initialSubPage?: KloterSubPage | null;
 }) {
-  const { subPage, direction, navigate: navigateSubPage, restoreScroll } = useKloterSubPage(trip, initialSubPage);
+  const { subPage, direction, navigate: navigateSubPage, goBack: goBackSubPage, restoreScroll } = useKloterSubPage(trip, initialSubPage);
   // Kunci penyimpanan per kloter: ganti kloter = namespace baru, data lama aman.
   const prepStorageKey = `${trip.slug}:prep`;
   const shouldReduceMotion = useReducedMotion();
@@ -479,9 +539,20 @@ export default function KloterLandingPage({
   const [editingPhoneNo, setEditingPhoneNo] = useState<number | null>(null);
   const [expandedJamaahNos, setExpandedJamaahNos] = useState<Set<number>>(() => new Set());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  // Versi state dari prepLoadStateRef untuk tampilan: selama status server belum terbaca,
+  // ringkasan "x/45 siap" tampil "—", bukan angka nol yang terbaca seolah belum ada yang siap.
+  const [prepLoadState, setPrepLoadState] = useState<PrepLoadState>('loading');
+  // Dibungkus objek: alasan penolakan bisa saja undefined, tapi kegagalannya tetap nyata.
+  const [prepLoadFailure, setPrepLoadFailure] = useState<{ error: unknown } | null>(null);
+  const [isRetryingLoad, setIsRetryingLoad] = useState(false);
+  const [unsavedRows, setUnsavedRows] = useState<Record<number, RowSaveState>>({});
   const prepRef = useRef<JamaahPrepState>(prep);
   const prepLoadStateRef = useRef<PrepLoadState>('loading');
   const loadPrepPromiseRef = useRef<Promise<PrepLoadState> | null>(null);
+  // Perubahan per jamaah yang belum dikonfirmasi server; ditumpangkan lagi di atas state
+  // server setiap kali dimuat ulang supaya tidak hilang diam-diam.
+  const unsavedPatchesRef = useRef<JamaahPrepState>({});
+  const rowSaveSeqRef = useRef<Record<number, number>>({});
   const filterWrapRef = useRef<HTMLDivElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
 
@@ -495,18 +566,27 @@ export default function KloterLandingPage({
   // database bisa terhapus oleh perangkat yang belum sinkron.
   const loadPrepFromDb = () => {
     if (loadPrepPromiseRef.current) return loadPrepPromiseRef.current;
+    setPrepLoadState('loading');
     const pending = fetchKloterPrepFromDb(trip)
       .then((dbPrep) => {
         prepLoadStateRef.current = 'ready';
         if (Object.keys(dbPrep).length > 0) {
-          prepRef.current = { ...prepRef.current, ...dbPrep };
-          setPrep((prev) => ({ ...prev, ...dbPrep }));
+          const merged: JamaahPrepState = { ...prepRef.current, ...dbPrep };
+          for (const [jamaahNo, patch] of Object.entries(unsavedPatchesRef.current)) {
+            merged[Number(jamaahNo)] = { ...merged[Number(jamaahNo)], ...patch };
+          }
+          prepRef.current = merged;
+          setPrep(merged);
         }
+        setPrepLoadState('ready');
+        setPrepLoadFailure(null);
         return prepLoadStateRef.current;
       })
       .catch((error) => {
         prepLoadStateRef.current = 'failed';
         console.warn('[KloterLandingPage] Failed to load prep DB state:', error);
+        setPrepLoadState('failed');
+        setPrepLoadFailure({ error });
         return prepLoadStateRef.current;
       })
       .finally(() => {
@@ -520,6 +600,23 @@ export default function KloterLandingPage({
     loadPrepFromDb();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Gagal muat karena sinyal: muat ulang sendiri begitu koneksi kembali.
+  useEffect(() => {
+    if (prepLoadState !== 'failed') return;
+    const handleOnline = () => {
+      loadPrepFromDb();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepLoadState]);
+
+  const handleRetryLoadPrep = async () => {
+    setIsRetryingLoad(true);
+    await Promise.all([loadPrepFromDb(), delay(RETRY_MIN_MS)]);
+    setIsRetryingLoad(false);
+  };
 
   useEffect(() => {
     if (isFilterOpen) {
@@ -563,6 +660,8 @@ export default function KloterLandingPage({
   const completedCount = useMemo(() => {
     return trip.jamaah.filter((member) => isMemberReady(prep, member)).length;
   }, [prep, trip]);
+  const statusKnown = prepLoadState === 'ready';
+  const unsavedCount = Object.keys(unsavedRows).length;
 
   const applyPrepPatchLocally = (jamaahNo: number, patch: JamaahPrepItem) => {
     const nextItem = {
@@ -578,7 +677,8 @@ export default function KloterLandingPage({
     return nextItem;
   };
 
-  const persistPrepPatch = async (jamaahNo: number, patch: JamaahPrepItem) => {
+  // Satu percobaan tulis ke server. Gagal = status kembali idle, tidak pernah 'saved'.
+  const writePrepPatch = async (jamaahNo: number, patch: JamaahPrepItem) => {
     setSaveStatus('saving');
     if (prepLoadStateRef.current !== 'ready') {
       // Muat awal gagal — coba sekali lagi sebelum menulis, supaya gangguan
@@ -600,6 +700,32 @@ export default function KloterLandingPage({
       setSaveStatus('idle');
       return false;
     }
+  };
+
+  // Simpan + catat status baris: gagal = baris ditandai "belum tersimpan" dengan tombol
+  // Coba lagi (bukan diam-diam kembali idle). Hanya percobaan TERBARU per jamaah yang
+  // menentukan status barisnya — simpan lama yang selesai belakangan tidak menimpanya.
+  const persistPrepPatch = async (jamaahNo: number, patch: JamaahPrepItem, minDurationMs = 0) => {
+    unsavedPatchesRef.current[jamaahNo] = { ...unsavedPatchesRef.current[jamaahNo], ...patch };
+    const seq = (rowSaveSeqRef.current[jamaahNo] ?? 0) + 1;
+    rowSaveSeqRef.current[jamaahNo] = seq;
+    const writing = writePrepPatch(jamaahNo, patch);
+    const saved = minDurationMs > 0 ? (await Promise.all([writing, delay(minDurationMs)]))[0] : await writing;
+    if (rowSaveSeqRef.current[jamaahNo] !== seq) return saved;
+    if (saved) delete unsavedPatchesRef.current[jamaahNo];
+    setUnsavedRows((current) => {
+      if (!saved) return { ...current, [jamaahNo]: 'failed' };
+      if (!(jamaahNo in current)) return current;
+      const next = { ...current };
+      delete next[jamaahNo];
+      return next;
+    });
+    return saved;
+  };
+
+  const handleRetrySave = (jamaahNo: number) => {
+    setUnsavedRows((current) => ({ ...current, [jamaahNo]: 'retrying' }));
+    persistPrepPatch(jamaahNo, unsavedPatchesRef.current[jamaahNo] ?? {}, RETRY_MIN_MS);
   };
 
   const handlePrepChange = (jamaahNo: number, patch: JamaahPrepItem) => {
@@ -641,7 +767,7 @@ export default function KloterLandingPage({
   const tourLeaderContact = trip.contacts[0];
   const packageNameWithoutPrefix = trip.trip.packageName.replace(/^Paket\s+/i, '');
   const packageTitle = `${packageNameWithoutPrefix} (${trip.trip.packageVariant})`.toUpperCase();
-  const goHome = () => navigateSubPage(null);
+  const goHome = () => goBackSubPage();
 
   let subView: ReactNode = null;
   if (subPage === 'doa') {
@@ -656,14 +782,14 @@ export default function KloterLandingPage({
 
   const homeView = (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 font-sans text-gray-900 dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
+      <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/90 pt-[env(safe-area-inset-top)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
           <KloterShineLogo />
           <KloterThemeToggle />
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-8 pt-4">
+      <main className="mx-auto w-full max-w-lg space-y-4 px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-4">
         {/* Info trip + kontak dalam satu kartu supaya hemat tinggi di HP. */}
         <section
           data-trip-card
@@ -728,7 +854,7 @@ export default function KloterLandingPage({
               aria-expanded={isFilterOpen}
               aria-haspopup="listbox"
               aria-label={`Filter jamaah: ${activeFilterLabel}`}
-              className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg transition-all duration-200 active:scale-95 ${
+              className={`touch-hit relative flex h-9 w-9 flex-none items-center justify-center rounded-lg transition-all duration-200 active:scale-95 ${
                 filter === 'all'
                   ? 'bg-gray-50 text-gray-500 hover:bg-gray-100 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-700/70'
                   : 'bg-emerald-50 text-emerald-600 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300 dark:ring-emerald-800/40'
@@ -779,14 +905,41 @@ export default function KloterLandingPage({
           <div className="flex items-center justify-between px-1">
             <h2 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-slate-100">DAFTAR JAMAAH</h2>
             <div className="flex items-center gap-2 text-[10px] font-medium text-gray-400 dark:text-slate-500">
-              {saveStatus !== 'idle' && (
+              {/* "Tersimpan" tidak pernah tampil selama masih ada baris yang gagal disimpan. */}
+              {unsavedCount > 0 && saveStatus !== 'saving' ? (
+                <span data-prep-unsaved-count className="rounded-md bg-red-50 px-1.5 py-0.5 font-bold text-red-600 dark:bg-red-900/20 dark:text-red-300">
+                  {unsavedCount} belum tersimpan
+                </span>
+              ) : saveStatus !== 'idle' && (
                 <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 font-bold text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
                   {saveStatus === 'saving' ? 'Menyimpan' : 'Tersimpan'}
                 </span>
               )}
-              <p>{completedCount}/{trip.trip.totalJamaah} siap</p>
+              <p data-prep-summary>{statusKnown ? completedCount : '—'}/{trip.trip.totalJamaah} siap</p>
             </div>
           </div>
+
+          {prepLoadState !== 'ready' && prepLoadFailure && (
+            <div
+              role="alert"
+              data-prep-load-error
+              className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-900/15"
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-200">Status checklist belum bisa dimuat</p>
+                <p className="mt-0.5 text-[10px] leading-4 text-amber-700 dark:text-amber-300/80">{describeLoadError(prepLoadFailure.error)}</p>
+              </div>
+              <button
+                type="button"
+                data-prep-load-retry
+                onClick={handleRetryLoadPrep}
+                disabled={isRetryingLoad || prepLoadState === 'loading'}
+                className="touch-hit relative inline-flex flex-none items-center rounded-lg bg-white px-2.5 py-1.5 text-[10px] font-bold text-amber-800 shadow-sm ring-1 ring-amber-200 transition active:scale-95 disabled:opacity-60 dark:bg-slate-900 dark:text-amber-200 dark:ring-amber-900/50"
+              >
+                {isRetryingLoad || prepLoadState === 'loading' ? 'Memuat...' : 'Coba lagi'}
+              </button>
+            </div>
+          )}
 
           {filteredGroups.length > 0 ? (
             <div className="space-y-4">
@@ -796,9 +949,12 @@ export default function KloterLandingPage({
                   group={group}
                   prep={prep}
                   showAge={trip.showAge !== false}
+                  statusKnown={statusKnown}
+                  unsavedRows={unsavedRows}
                   editingPhoneNo={editingPhoneNo}
                   expandedJamaahNos={expandedJamaahNos}
                   onToggleChecklist={handleToggleChecklist}
+                  onRetrySave={handleRetrySave}
                   onStartEditPhone={handleStartEditPhone}
                   onPhoneChange={handlePhoneChange}
                   onStopEditPhone={handleStopEditPhone}

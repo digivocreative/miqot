@@ -41,7 +41,11 @@ function prepItemToRow(trip: KloterTrip, jamaahNo: number, item: KloterPrepItem)
 
 async function readApiJson(response: Response) {
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || 'Gagal menyimpan data jamaah');
+  // Status HTTP ikut di pesan supaya describeLoadError bisa membedakan server bermasalah
+  // (5xx), terlalu banyak permintaan (429), dan data tak ditemukan (404).
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}${result.error ? ` — ${result.error}` : ''}`);
+  }
   return result;
 }
 

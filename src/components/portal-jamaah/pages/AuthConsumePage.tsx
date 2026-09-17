@@ -1,20 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
+import { describeLoadError } from '@/lib/loadError';
 import AuthErrorPage from './AuthErrorPage';
 import { fetchAgentBySlug, type PortalAgent } from '../lib/fetchAgentBySlug';
-import { portalApi, type ConsumeMagicLinkResult } from '../lib/portalApi';
+import { isConsumeLinkError, portalApi, type ConsumeMagicLinkResult } from '../lib/portalApi';
 import { savePortalSession } from '../lib/portalSession';
 import { trackPublicEvent } from '@/utils/analytics';
 import { Button, Card, PortalPageShell } from '../ui';
 
 type ConsumeState = 'loading' | 'success' | 'error';
-type ErrorKind = 'expired' | 'consumed' | 'invalid';
 
 const consumePromises = new Map<string, Promise<ConsumeMagicLinkResult>>();
 const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
+// Coba-ulang manual yang gagal seketika (mis. tanpa sinyal) tetap memutar tombol sebentar,
+// supaya jamaah melihat percobaannya benar-benar dijalankan.
+const RETRY_MIN_MS = 600;
 
 function getPortalDashboardPath(slug: string, token: string) {
   return PORTAL_MAGIC_CODE_REGEX.test(token) ? `/${slug}/jamaah/${token}/dashboard` : `/${slug}/jamaah/dashboard`;
+}
+
+function withMinimumDuration<T>(promise: Promise<T>, ms: number): Promise<T> {
+  const delay = new Promise((resolve) => window.setTimeout(resolve, ms));
+  return Promise.allSettled([promise, delay]).then(([outcome]) => {
+    if (outcome.status === 'fulfilled') return outcome.value;
+    throw outcome.reason;
+  });
 }
 
 // Tanpa slug = dibuka dari link pendek /j/{kode}; slug agent baru diketahui
@@ -22,7 +33,9 @@ function getPortalDashboardPath(slug: string, token: string) {
 export default function AuthConsumePage({ slug, token }: { slug?: string; token: string }) {
   const [state, setState] = useState<ConsumeState>('loading');
   const [result, setResult] = useState<ConsumeMagicLinkResult | null>(null);
-  const [errorKind, setErrorKind] = useState<ErrorKind>('invalid');
+  const [failure, setFailure] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [agent, setAgent] = useState<PortalAgent | null>(null);
 
   useEffect(() => {
@@ -36,7 +49,7 @@ export default function AuthConsumePage({ slug, token }: { slug?: string; token:
     const promise = consumePromises.get(consumeKey) || portalApi.consumeMagicLink(slug, token);
     consumePromises.set(consumeKey, promise);
 
-    promise
+    (attempt > 0 ? withMinimumDuration(promise, RETRY_MIN_MS) : promise)
       .then((data) => {
         if (cancelled) return;
         const resolvedSlug = data.agent_slug || slug || '';
@@ -55,18 +68,46 @@ export default function AuthConsumePage({ slug, token }: { slug?: string; token:
         }, 900);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setErrorKind((err?.code || 'invalid') as ErrorKind);
-        setState('error');
+        // Hapus janji yang gagal supaya percobaan berikutnya benar-benar meminta ulang.
         consumePromises.delete(consumeKey);
+        if (cancelled) return;
+        setFailure(err);
+        setState('error');
+      })
+      .finally(() => {
+        if (!cancelled) setRetrying(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [slug, token]);
+  }, [slug, token, attempt]);
 
-  if (state === 'error') return <AuthErrorPage kind={errorKind} agent={agent} />;
+  const retry = useCallback(() => {
+    setRetrying(true);
+    setAttempt((value) => value + 1);
+  }, []);
+
+  // Gagal karena jaringan/server (bukan link salah): coba lagi otomatis begitu sinyal kembali.
+  const linkRejected = isConsumeLinkError(failure);
+  useEffect(() => {
+    if (state !== 'error' || linkRejected) return;
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [state, linkRejected, retry]);
+
+  if (state === 'error') {
+    if (isConsumeLinkError(failure)) return <AuthErrorPage kind={failure.code} agent={agent} />;
+    return (
+      <AuthErrorPage
+        kind="retry"
+        agent={agent}
+        message={describeLoadError(failure)}
+        retrying={retrying}
+        onRetry={retry}
+      />
+    );
+  }
 
   if (state === 'success' && result) {
     return (

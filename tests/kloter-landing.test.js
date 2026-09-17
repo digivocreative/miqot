@@ -24,6 +24,7 @@ import {
   KLOTER_DZIKIR_CATEGORIES,
   KLOTER_DZIKIR_TABS,
 } from '../src/lib/kloterBacaan.ts';
+import { loadTs } from './fixtures/load-ts.js';
 
 const {
   KLOTER_CHECKLIST_ITEMS,
@@ -57,6 +58,28 @@ const ITINERARY_PAGE_PATH = 'src/components/kloter/ItineraryPage.tsx';
 
 function read(path) {
   return readFileSync(join(rootPath, path), 'utf8');
+}
+
+// Riwayat palsu secukupnya untuk urutan entri: push memotong entri maju, back mundur satu.
+function installFakeHistory(initialPath) {
+  const entries = [{ state: null, url: initialPath }];
+  let index = 0;
+  const calls = [];
+  globalThis.window = {
+    location: { get pathname() { return entries[index].url; } },
+    history: {
+      get state() { return entries[index].state; },
+      pushState(state, _title, url) { entries.splice(index + 1); entries.push({ state, url }); index += 1; calls.push('push'); },
+      replaceState(state, _title, url) { entries[index] = { state, url: url ?? entries[index].url }; calls.push('replace'); },
+      back() { if (index > 0) index -= 1; calls.push('back'); },
+    },
+  };
+  return {
+    calls,
+    path: () => entries[index].url,
+    // Entri yang tersisa di belakang layar saat ini — yang dibuka gestur back HP berikutnya.
+    stack: () => entries.slice(0, index + 1).map((entry) => entry.url),
+  };
 }
 
 test('Kloter 45 landing data uses the agreed slug and carries all 45 jamaah', () => {
@@ -349,7 +372,9 @@ test('Kloter 45 landing drops the Zam-zam form, the Raudhah check, and the Offli
   assert.doesNotMatch(server, /Air Zam-zam/i);
   assert.doesNotMatch(server, /sanitizeTourLeaderPrepText/);
 
-  // Status simpan tinggal Menyimpan/Tersimpan; kegagalan balik ke idle diam-diam.
+  // Status simpan tinggal Menyimpan/Tersimpan (status 'Offline' tidak kembali). Gagal
+  // simpan kini ditandai per baris (lihat tes "surfaces failed saves" di bawah), dan
+  // statusnya kembali idle — tidak pernah 'saved'.
   assert.match(component, /type SaveStatus = 'idle' \| 'saving' \| 'saved';/);
   assert.doesNotMatch(component, /offline/i);
   assert.match(component, /\{saveStatus === 'saving' \? 'Menyimpan' : 'Tersimpan'\}/);
@@ -455,6 +480,39 @@ test('Kloter 45 landing refuses to write before the server state is known', () =
   // Satu percobaan muat ulang dipakai bersama, bukan satu per centang.
   assert.match(component, /if \(loadPrepPromiseRef\.current\) return loadPrepPromiseRef\.current;/);
   assert.match(component, /loadPrepPromiseRef\.current = pending;/);
+});
+
+test('Kloter 45 landing surfaces failed saves and an unknown checklist status instead of hiding them', () => {
+  const component = read(COMPONENT_PATH);
+
+  // Status server belum terbaca (masih memuat / gagal) = tidak diketahui: ringkasan dan
+  // kartu keluarga menampilkan "—", bukan hitungan nol dari state lokal yang kosong.
+  assert.match(component, /const statusKnown = prepLoadState === 'ready';/);
+  assert.match(component, /\{statusKnown \? completedCount : '—'\}\/\{trip\.trip\.totalJamaah\} siap/);
+  assert.match(component, /\{statusKnown \? completedMembers : '—'\}\/\{group\.members\.length\} siap/);
+  // State tampilan mengikuti ref yang dipakai penjaga tulis, di kedua cabang.
+  const load = component.match(/const loadPrepFromDb = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(load, '', 'loadPrepFromDb tidak ditemukan');
+  assert.match(load, /prepLoadStateRef\.current = 'ready';[\s\S]*?setPrepLoadState\('ready'\);/);
+  assert.match(load, /prepLoadStateRef\.current = 'failed';[\s\S]*?setPrepLoadState\('failed'\);/);
+  // Gagal muat: galat tampil lewat describeLoadError (bukan teks mentah) + tombol coba lagi.
+  assert.match(component, /data-prep-load-error[\s\S]{0,800}?describeLoadError\(prepLoadFailure\.error\)[\s\S]{0,400}?onClick=\{handleRetryLoadPrep\}/);
+  // Perubahan yang belum tersimpan ditumpangkan lagi di atas state server yang baru dimuat.
+  assert.match(load, /for \(const \[jamaahNo, patch\] of Object\.entries\(unsavedPatchesRef\.current\)\)/);
+
+  // Gagal simpan menandai barisnya; berhasil membersihkannya. Hanya percobaan terbaru per
+  // jamaah yang menentukan status baris.
+  const persist = component.match(/const persistPrepPatch = async \([\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(persist, '', 'persistPrepPatch tidak ditemukan');
+  assert.match(persist, /writePrepPatch\(jamaahNo, patch\)/);
+  assert.match(persist, /if \(rowSaveSeqRef\.current\[jamaahNo\] !== seq\) return saved;/);
+  assert.match(persist, /if \(!saved\) return \{ \.\.\.current, \[jamaahNo\]: 'failed' \};/);
+  assert.match(persist, /if \(saved\) delete unsavedPatchesRef\.current\[jamaahNo\];/);
+  assert.match(component, /saveState=\{unsavedRows\[member\.no\]\}/);
+  assert.match(component, /data-prep-unsaved=\{member\.no\}[\s\S]{0,800}?onClick=\{\(\) => onRetrySave\(member\.no\)\}/);
+  // "Tersimpan" tidak boleh tampil selama masih ada baris yang gagal disimpan.
+  const pill = component.match(/\{unsavedCount > 0 && saveStatus !== 'saving' \? \([\s\S]*?\{saveStatus === 'saving' \? 'Menyimpan' : 'Tersimpan'\}/)?.[0] ?? '';
+  assert.notEqual(pill, '', 'pil Tersimpan harus berada di cabang tanpa baris gagal');
 });
 
 test('Kloter 45 landing member rows summarise the checklist as chips', () => {
@@ -743,7 +801,11 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   const component = read(COMPONENT_PATH);
 
   assert.match(component, /function useKloterSubPage\(trip: KloterTrip, initial: KloterSubPage \| null\)/);
-  assert.match(component, /window\.history\.pushState\(null, '', nextPath\)/);
+  // Entri riwayat lewat helper yang mencatat kedalaman dalam-app (diuji perilakunya di
+  // tes "tombol kembali sub-halaman" di bawah); pushState mentah tanpa kedalaman membuat
+  // tombol kembali tidak bisa membedakan navigasi dalam app dari link langsung.
+  assert.match(component, /pushKloterSubPage\(trip, next\);/);
+  assert.doesNotMatch(component, /history\.pushState/);
   // Jangkar ke awal baris supaya versi yang dikomentari (// window...) ketahuan.
   assert.match(component, /\n\s+window\.addEventListener\('popstate', onPopState\);/);
   assert.match(component, /initialSubPage\?: KloterSubPage \| null;/);
@@ -759,7 +821,10 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.match(itinerary, /const packageId = trip\.code;/);
   assert.match(itinerary, /<WebItineraryView[\s\S]*?hideDocActions/);
   assert.match(itinerary, /data-itinerary-empty/);
-  assert.match(component, /const goHome = \(\) => navigateSubPage\(null\);/);
+  // Tombol kembali mundur di riwayat (backToKloterHome), bukan navigateSubPage(null) yang
+  // mendorong entri daftar jamaah baru di atas sub-halaman yang baru ditinggal.
+  assert.match(component, /backToKloterHome\(trip, \(\) => go\(null\)\);/);
+  assert.match(component, /const goHome = \(\) => goBackSubPage\(\);/);
 
   // Transisi halus masuk/kembali: geser + pudar berarah, satu halaman pada satu
   // waktu, tanpa animasi di muat pertama, hormat prefers-reduced-motion, dan
@@ -806,6 +871,29 @@ test('Kloter 45 landing renders sub-pages with client-side navigation and Back s
   assert.doesNotMatch(bacaan, /\{open && \(/, 'panel yang dilepas saat tutup = tanpa animasi tutup');
   assert.match(bacaan, /open \? 'grid-rows-\[1fr\] opacity-100' : 'grid-rows-\[0fr\] opacity-0'/);
   assert.match(bacaan, /motion-reduce:transition-none/);
+});
+
+test('tombol kembali sub-halaman kloter mundur di riwayat, bukan mendorong daftar jamaah baru', async () => {
+  const { pushKloterSubPage, backToKloterHome } = await loadTs('src/components/kloter/subPageHistory.ts');
+  const home = K45.publicPath;
+
+  // Daftar jamaah → Doa → tombol kembali: back HP berikutnya tidak boleh membuka Doa lagi.
+  let history = installFakeHistory(home);
+  pushKloterSubPage(K45, 'doa');
+  assert.equal(history.path(), `${home}/doa`);
+  let shownDirectly = 0;
+  backToKloterHome(K45, () => { shownDirectly += 1; });
+  assert.equal(history.path(), home);
+  assert.deepEqual(history.stack(), [home]);
+  assert.deepEqual(history.calls, ['push', 'back']);
+  assert.equal(shownDirectly, 0, 'jalur mundur diselesaikan listener popstate');
+
+  // Sub-halaman dibuka langsung dari link: diganti daftar jamaah — bukan push, bukan keluar.
+  history = installFakeHistory(`${home}/itinerary`);
+  backToKloterHome(K45, () => { shownDirectly += 1; });
+  assert.equal(shownDirectly, 1);
+  assert.deepEqual(history.calls, ['replace']);
+  assert.deepEqual(history.stack(), [home]);
 });
 
 test('every kloter room list covers every jamaah exactly once', () => {
