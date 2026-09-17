@@ -105,3 +105,4 @@ test('alert text names each problem agent; a clean fleet produces no alert', () 
   assert.match(text, /icha<\/b> — API Alhijaz menolak akun \(403\)/);
   assert.equal(auditSignature([vikha, hjmia, icha]), 'hjmia::46/0/0:1/0,icha:err:-:-,vikha::0/29/0:0/0');
 });
+

@@ -35,6 +35,7 @@ import {
   formatAuditAlert,
 } from './lib/jamaah-count-audit.js';
 import { getActiveHijriahYears, getFrozenHijriahYears, getHijriahYearFromGregorian } from './lib/hijriah-years.js';
+import { fetchAllRows } from './lib/fetch-all-rows.js';
 import { dedupeJamaahSyncEvents, hasJamaahSyncEvents, toMoney } from './lib/jamaah-sync-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -463,15 +464,7 @@ async function runJamaahAuditPass(agents) {
       umrohByPendaftaran: (agent, opts) => awapiFetchUmrahByPendaftaran(agent.awapi_key, codeOf(agent), opts),
       hajiAll: (agent) => awapiFetchHajiByKeberangkatan(agent.awapi_key, codeOf(agent), { tahun: '0' }),
     },
-    loadDbRows: async (table, columns, agentId) => {
-      const rows = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await supabaseAdmin.from(table).select(columns).eq('agent_id', agentId).range(from, from + 999);
-        if (error) throw new Error(`${table}: ${error.message}`);
-        rows.push(...data);
-        if (data.length < 1000) return rows;
-      }
-    },
+    loadDbRows: (table, columns, agentId) => fetchAllRows(supabaseAdmin.from(table).select(columns).eq('agent_id', agentId)),
     normalizeUmroh: (raw, agent) => normalizeAwapiRow(raw, { agentId: agent.id }),
     normalizeHaji: (raw, agent) => normalizeAwapiHajiRow(raw, { agentId: agent.id }),
     hijriahYearOf: getHijriahYearFromGregorian,

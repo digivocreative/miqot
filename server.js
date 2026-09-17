@@ -47,6 +47,7 @@ import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgP
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { PACKAGE_ID_RE, buildPackageShareMeta } from './lib/package-share-meta.js';
 import { assessUniversalListCoverage, computeSafeDeletions } from './lib/sync-cleanup.js';
+import { fetchAllRows } from './lib/fetch-all-rows.js';
 import {
   DEFAULT_JAMAAH_SYNC_GRACE_DAYS,
   HIJRIAH_YEARS,
@@ -450,22 +451,6 @@ function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
   }
 
   return { kloter, member, entry: tourLeaderPrepEntryFromPayload(payload) };
-}
-
-// ── Helper: fetch all rows from a Supabase query (bypasses 1000-row PostgREST limit) ──
-async function fetchAllRows(queryBuilder) {
-  const PAGE_SIZE = 1000;
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await queryBuilder.range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data);
-    if (data.length < PAGE_SIZE) break; // last page
-    from += PAGE_SIZE;
-  }
-  return allRows;
 }
 
 function umrohPhase1EnrichmentKey(row) {
