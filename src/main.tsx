@@ -8,6 +8,7 @@ import { isStandaloneDisplay, shouldResumeSessionOnLogin } from './lib/pwa/launc
 import { suppressUnloadGuard } from './lib/unsavedChanges'
 import PwaStatusLayer from './components/pwa/PwaStatusLayer'
 import { startThemeColorSync } from './lib/pwa/themeColor'
+import { initInstallPrompt } from './lib/pwa/installPrompt'
 import './index.css'
 import App from './App.tsx'
 
@@ -127,6 +128,8 @@ function RouteErrorFallback() {
 
 // Bar status Android / judul jendela desktop mengikuti mode terang-gelap header.
 startThemeColorSync()
+// beforeinstallprompt bisa datang sebelum React mount — tangkap sekarang (InstallAppCard).
+initInstallPrompt()
 
 // PWA scope is alhijaz.co only. On a custom domain the HTML is server-rendered
 // with `window.__AGENT_CONTEXT__` per-host, and the precached SW index.html
