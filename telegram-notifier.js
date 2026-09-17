@@ -20,6 +20,21 @@ import { getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { buildNotifierPackagesUrl } from './lib/notifier-package-source.js';
 import { getLowestPrice } from './lib/notifier-lowest-price.js';
 import { classifyJamaahSyncHealth, isSyncStuck } from './lib/jamaah-sync-health.js';
+import {
+  awapiFetchHajiByKeberangkatan,
+  awapiFetchUmrahByKeberangkatan,
+  awapiFetchUmrahByPendaftaran,
+  normalizeAwapiHajiRow,
+  normalizeAwapiRow,
+} from './awapi-client.js';
+import {
+  auditAgentJamaah,
+  auditProblemCount,
+  auditSignature,
+  confirmAuditAcrossPasses,
+  formatAuditAlert,
+} from './lib/jamaah-count-audit.js';
+import { getActiveHijriahYears, getFrozenHijriahYears, getHijriahYearFromGregorian } from './lib/hijriah-years.js';
 import { dedupeJamaahSyncEvents, hasJamaahSyncEvents, toMoney } from './lib/jamaah-sync-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -429,6 +444,102 @@ async function syncHealthAlert() {
   }
 }
 
+// Daily ops alert: every agent's jamaah count checked against the COMPLETE
+// Alhijaz lists, independently of the sync code (lib/jamaah-count-audit.js).
+// Incident 2026-09-17: truncated AWAPI lists silently deleted 101 jamaah and
+// stale/missing rows had skewed counts for weeks (vikha +29, hjmia −46) without
+// any surface error. A discrepancy is only reported when a second pass one sync
+// cycle later still shows it, and an unchanged problem set is re-nudged at most
+// every JAMAAH_AUDIT_RENUDGE_DAYS.
+const JAMAAH_AUDIT_RECHECK_MS = 30 * 60 * 1000;
+const JAMAAH_AUDIT_RENUDGE_DAYS = 3;
+const JAMAAH_AUDIT_CONCURRENCY = 2;
+
+async function runJamaahAuditPass(agents) {
+  const codeOf = (agent) => agent.awapi_code || agent.awapi_key.split('-')[0];
+  const deps = {
+    api: {
+      umrohByKeberangkatan: (agent, opts) => awapiFetchUmrahByKeberangkatan(agent.awapi_key, codeOf(agent), opts),
+      umrohByPendaftaran: (agent, opts) => awapiFetchUmrahByPendaftaran(agent.awapi_key, codeOf(agent), opts),
+      hajiAll: (agent) => awapiFetchHajiByKeberangkatan(agent.awapi_key, codeOf(agent), { tahun: '0' }),
+    },
+    loadDbRows: async (table, columns, agentId) => {
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabaseAdmin.from(table).select(columns).eq('agent_id', agentId).range(from, from + 999);
+        if (error) throw new Error(`${table}: ${error.message}`);
+        rows.push(...data);
+        if (data.length < 1000) return rows;
+      }
+    },
+    normalizeUmroh: (raw, agent) => normalizeAwapiRow(raw, { agentId: agent.id }),
+    normalizeHaji: (raw, agent) => normalizeAwapiHajiRow(raw, { agentId: agent.id }),
+    hijriahYearOf: getHijriahYearFromGregorian,
+    years: getActiveHijriahYears(),
+  };
+  const results = [];
+  let cursor = 0;
+  await Promise.all(Array.from({ length: JAMAAH_AUDIT_CONCURRENCY }, async () => {
+    while (cursor < agents.length) {
+      const agent = agents[cursor++];
+      results.push(await auditAgentJamaah(agent, { ...deps, now: Date.now() })
+        .catch(err => ({ slug: agent.slug, errors: [`audit: ${err.message}`] })));
+    }
+  }));
+  return results;
+}
+
+async function jamaahCountAudit() {
+  try {
+    if (!supabaseAdmin) { warn('jamaahCountAudit: no supabaseAdmin'); return; }
+    const { data: agents, error } = await supabaseAdmin
+      .from('agents')
+      .select('id, slug, status, awapi_key, awapi_code')
+      .not('awapi_key', 'is', null);
+    if (error) throw error;
+    const targets = (agents || []).filter(a => a.awapi_key && (!a.status || a.status === 'active'));
+
+    const firstPass = await runJamaahAuditPass(targets);
+    const suspects = firstPass.filter(r => auditProblemCount(r) > 0);
+    const state = await loadState() || freshState();
+    if (suspects.length === 0) {
+      if (state.jamaahCountAudit) { state.jamaahCountAudit = null; await saveState(state); }
+      log(`[jamaahAudit] ${targets.length} agents — all counts match Alhijaz`);
+      return;
+    }
+
+    log(`[jamaahAudit] ${suspects.length} suspect agent(s): ${suspects.map(r => r.slug).join(', ')} — rechecking in ${JAMAAH_AUDIT_RECHECK_MS / 60000} min`);
+    await sleep(JAMAAH_AUDIT_RECHECK_MS);
+    const suspectSlugs = new Set(suspects.map(r => r.slug));
+    const secondPass = await runJamaahAuditPass(targets.filter(a => suspectSlugs.has(a.slug)));
+    const confirmed = suspects.map(first => confirmAuditAcrossPasses(first, secondPass.find(r => r.slug === first.slug) || { slug: first.slug, errors: [] }));
+
+    const signature = auditSignature(confirmed);
+    const latest = await loadState() || freshState();
+    const prev = latest.jamaahCountAudit || null;
+    if (!signature) {
+      if (prev) { latest.jamaahCountAudit = null; await saveState(latest); }
+      log('[jamaahAudit] discrepancies resolved on recheck');
+      return;
+    }
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    if (prev && prev.signature === signature && prev.sentDate) {
+      const ageDays = Math.floor((Date.parse(today) - Date.parse(prev.sentDate)) / 86400000);
+      if (ageDays < JAMAAH_AUDIT_RENUDGE_DAYS) {
+        log(`[jamaahAudit] unchanged problem set, alerted ${ageDays}d ago — skipping`);
+        return;
+      }
+    }
+
+    await sendOpsAlert(formatAuditAlert(confirmed, { frozenYears: getFrozenHijriahYears() }));
+    latest.jamaahCountAudit = { signature, sentDate: today };
+    await saveState(latest);
+    log(`[jamaahAudit] alerted ops: ${signature}`);
+  } catch (err) {
+    warn('jamaahCountAudit failed:', err.message);
+  }
+}
+
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -462,6 +573,7 @@ function freshState() {
     lastHotDeal: null,
     lastKursSentDate: null,
     syncHealthAlert: null,
+    jamaahCountAudit: null,
   };
 }
 
@@ -3314,6 +3426,13 @@ export function initNotifier() {
   // jamaah sync has frozen (rejected internal-system credentials).
   cron.schedule('15 9 * * *', () => {
     syncHealthAlert();
+  }, { timezone: 'Asia/Jakarta' });
+
+  // CRON: Jamaah count audit (10:40 WIB, recheck 11:10) — DB vs complete Alhijaz
+  // lists for every agent; runs while background sync is active so the recheck
+  // pass comes after at least one more sync cycle.
+  cron.schedule('40 10 * * *', () => {
+    jamaahCountAudit();
   }, { timezone: 'Asia/Jakarta' });
 
   // CRON: Passport Reminder (09:30 WIB) — paspor belum kumpul / expired

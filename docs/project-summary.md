@@ -338,6 +338,10 @@ Important guards:
 - `agent_id` UUID is the row owner key.
 - Cleanup is allowed only after complete/successful upstream fetch.
 - Partial AWAPI fetch must not delete rows.
+- AWAPI list AND detail endpoints are paged (`/limit/{n}/offset/{m}`, limit max 100 — above that upstream silently falls back to 50; since 2026-09-17 a bare call returns only the newest 50 rows while `recordsTotal` reports the real size). `awapi-client.js` `awapiRequestList` pages with overlap and **throws** unless it collected all `recordsTotal` rows. Detail endpoints answer an unknown id with the agent's whole list — `belongsTo` rejects foreign rows.
+- **Every deletion is verified per booking** against the AWAPI detail endpoint before it runs (`executeUmrohDeletions`/`executeHajiDeletions` → `lib/sync-delete-verification.js`): a positive-control booking must answer, max 25 bookings/call, 3 "list omitted but detail still has it" bookings abort everything + ops Telegram alert. The old 30% ratio no longer aborts (it let truncated lists under 30% delete — nila lost 21 — and kept small agents inflated forever).
+- Daily 10:40 WIB `jamaahCountAudit` (telegram-notifier.js, `lib/jamaah-count-audit.js`) compares every agent's DB rows with the complete AWAPI lists (umroh bh+dh per active Hijri year, haji `bm/0`), rechecks 30 min later, and alerts ops only on confirmed discrepancies (missing/stale/wrong-year rows, 403 "Invalid or inactive User."). Manual: `node scripts/audit-jamaah-counts.mjs [--slug x]`.
+- Hijri year definitions live in `lib/hijriah-years.js` (single source for sync, audit, CLI).
 - `jamaah-payment-provenance.js` prevents stale legacy payment columns from overwriting trusted AWAPI/manual data.
 - Batch size is intentionally small through `JAMAAH_UPSERT_BATCH` to avoid Supabase Disk IO/work_mem pressure.
 - Background cycles persist `data/sync-state.json` to avoid restart storms.
@@ -359,6 +363,8 @@ Brosur resmi (`umroh_schedules.brosur*`, dipakai halaman Paket, halaman Brosur, 
 ### Haji
 
 AWAPI owns frequent sync if enabled. Legacy haji scraper is scheduled enrichment and can be disabled with legacy background gates. Currency displayed on Haji rows is USD.
+
+AWAPI haji list = `gh/{kode}/bm/0`, which returns EVERY haji jamaah of the agent (incl. waiting-list jamaah whose departure year is still 0 and registrations before 1447 — the old bm/2025..2041 + dh/1447..1449 plan never saw them and deleted them as stale). `dh/{active years}` is fetched as a cross-check (`assessUniversalListCoverage`); if any of its rows is absent from bm/0, cleanup is skipped. Cleanup scope = all haji rows of the agent.
 
 ### Calendar & Flight Integrity
 

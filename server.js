@@ -46,7 +46,16 @@ import {
 import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { PACKAGE_ID_RE, buildPackageShareMeta } from './lib/package-share-meta.js';
-import { computeSafeDeletions } from './lib/sync-cleanup.js';
+import { assessUniversalListCoverage, computeSafeDeletions } from './lib/sync-cleanup.js';
+import {
+  DEFAULT_JAMAAH_SYNC_GRACE_DAYS,
+  HIJRIAH_YEARS,
+  getActiveHijriahYears,
+  getFrozenHijriahYears,
+  getHijriahDateRange,
+  getHijriahYearFromGregorian,
+} from './lib/hijriah-years.js';
+import { verifyDeletionsUpstream } from './lib/sync-delete-verification.js';
 import { classifyAwapiSyncOutcome } from './lib/awapi-sync-outcome.js';
 import { computeJamaahSyncEvents, emptyJamaahSyncEvents, hasJamaahSyncEvents, mergeJamaahSyncEvents, jamaahRowKey, toMoney, hasJamaahPayment, datePlusDaysKey, isFutureRelevantJamaah } from './lib/jamaah-sync-events.js';
 import { classifyJamaahSyncHealth } from './lib/jamaah-sync-health.js';
@@ -174,6 +183,7 @@ import {
   awapiFetchUmrahByPendaftaran,
   awapiFetchUmrahById,
   awapiFetchJamaahById,
+  awapiFetchHajiById,
   awapiFetchHajiByKeberangkatan,
   awapiFetchHajiByPendaftaran,
   normalizeAwapiHajiRow,
@@ -11965,64 +11975,14 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   res.json({ ...result, username, kantor: k, awapi_discovered: !!updates.awapi_key });
 });
 
-// Hijriah year → Gregorian date range mapping (for FETCHING from legacy system)
-// tglAwal is shifted 4 months earlier to capture jamaah registered before the
-// Hijriah year boundary but departing within the year. The actual hijriah_year
-// assignment uses HIJRIAH_RANGES below (based on tgl_berangkat).
-// Note: tglAwal for 1447 extends back to 2024-03-08 because the laporan API
-// filters by registration date — jamaah who registered in 1446 but depart in 1447
-// would be missed if we only start from Dec 2024.
-const HIJRIAH_YEARS = {
-  '1447': { tglAwal: '2024-03-08', tglAkhir: '2026-06-15' },
-  '1448': { tglAwal: '2025-12-16', tglAkhir: '2027-06-05' },
-  '1449': { tglAwal: '2026-12-06', tglAkhir: '2028-05-25' },
-};
-
-// Gregorian date ranges for Hijriah years.
-// Based on actual Islamic calendar: 1 Muharram of each year
-const HIJRIAH_RANGES = [
-  { year: '1446', start: '2024-07-08', end: '2025-06-25' },
-  { year: '1447', start: '2025-06-26', end: '2026-06-15' },
-  { year: '1448', start: '2026-06-16', end: '2027-06-05' },
-  { year: '1449', start: '2027-06-06', end: '2028-05-25' },
-  { year: '1450', start: '2028-05-26', end: '2029-05-14' },
-];
-
-function getHijriahDateRange(year) {
-  return HIJRIAH_RANGES.find(range => range.year === String(year)) || null;
-}
-
-function getHijriahYearFromGregorian(gregorianDate) {
-  if (!gregorianDate) return null;
-  const dateKey = String(gregorianDate).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
-  for (const range of HIJRIAH_RANGES) {
-    if (dateKey >= range.start && dateKey <= range.end) {
-      return range.year;
-    }
-  }
-  // Dynamic fallback: approximate Hijri year from known reference point
-  // Reference: 1 Muharram 1448 H ≈ 2026-06-16, one Hijri year ≈ 354.37 days
-  const refDate = new Date('2026-06-16');
-  const d = new Date(dateKey);
-  if (Number.isNaN(d.getTime())) return null;
-  const daysDiff = (d - refDate) / (1000 * 60 * 60 * 24);
-  const hijriYear = 1448 + Math.floor(daysDiff / 354.37);
-  return String(hijriYear);
-}
-
 // Determine hijriah year from departure date.
 function getHijriahYear(tglBerangkat) {
   return getHijriahYearFromGregorian(tglBerangkat);
 }
 
-function getActiveHijriahYears() {
-  return Object.keys(HIJRIAH_YEARS).sort((a, b) => Number(b) - Number(a));
-}
-
 // How long a Hijri year keeps being synced after its departure window ends, to
 // catch late corrections/refunds before freezing it. Env-tunable.
-const JAMAAH_SYNC_GRACE_DAYS = Number(process.env.JAMAAH_SYNC_GRACE_DAYS) || 45;
+const JAMAAH_SYNC_GRACE_DAYS = Number(process.env.JAMAAH_SYNC_GRACE_DAYS) || DEFAULT_JAMAAH_SYNC_GRACE_DAYS;
 
 // Years the AUTOMATIC umrah jamaah sync should fetch: ongoing + upcoming, plus
 // any just-ended year still inside the grace window. Past years beyond grace are
@@ -12032,13 +11992,8 @@ const JAMAAH_SYNC_GRACE_DAYS = Number(process.env.JAMAAH_SYNC_GRACE_DAYS) || 45;
 // the very lag that left jamaah still syncing 1447 after schedules dropped it).
 // NOTE: deliberately NOT used by haji sync (syncHajiViaApiCore keeps all years).
 function getAutoSyncHijriahYears(now = new Date()) {
-  const graceMs = JAMAAH_SYNC_GRACE_DAYS * 24 * 60 * 60 * 1000;
-  const cutoff = new Date(now.getTime() - graceMs).toISOString().slice(0, 10);
-  return getActiveHijriahYears().filter((y) => {
-    const range = getHijriahDateRange(y);
-    if (!range || !range.end) return true; // unknown range → keep (defensive)
-    return range.end >= cutoff;            // keep ongoing/upcoming/in-grace years
-  });
+  const frozen = new Set(getFrozenHijriahYears(now, JAMAAH_SYNC_GRACE_DAYS)); // unknown range → never frozen (defensive)
+  return getActiveHijriahYears().filter((y) => !frozen.has(y));
 }
 
 // Year set for an agent's AUTOMATIC umrah sync. A brand-new agent that has never
@@ -12810,35 +12765,16 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   };
 }
 
-const HAJI_API_DEPARTURE_LOOKBACK_YEARS = 1;
-const HAJI_API_DEPARTURE_LOOKAHEAD_YEARS = 15;
-
-function getJakartaCalendarYear(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-  }).formatToParts(now);
-  return Number(parts.find(p => p.type === 'year')?.value || now.getFullYear());
-}
-
-function getHajiApiDepartureMasehiYears(now = new Date()) {
-  const currentYear = getJakartaCalendarYear(now);
-  const years = [];
-  for (
-    let y = currentYear - HAJI_API_DEPARTURE_LOOKBACK_YEARS;
-    y <= currentYear + HAJI_API_DEPARTURE_LOOKAHEAD_YEARS;
-    y++
-  ) {
-    years.push(String(y));
-  }
-  return years;
-}
+// `bm/0` = every haji jamaah of the agent, whatever the departure year (see
+// assessUniversalListCoverage in lib/sync-cleanup.js). Replaced 17 per-year
+// departure lists (bm/2025..2041) that never returned waiting-list jamaah whose
+// departure year is still 0 — those were missed on insert and deleted as stale.
+const HAJI_UNIVERSAL_DEPARTURE_YEAR = '0';
 
 async function syncHajiViaApiCore(agentId, slug, agent, {
   context = 'manual',
-  departureYears = getHajiApiDepartureMasehiYears(),
-  // Haji intentionally syncs ALL defined Hijri years (its own list, not the
-  // grace-windowed umrah set) — haji registration cycles run years ahead.
+  // Registration-year lists are a cross-check that bm/0 is still universal, and
+  // pick up fresh registrations even if it ever lags.
   registrationHijriahYears = getActiveHijriahYears(),
 } = {}) {
   const apiKey = agent.awapi_key;
@@ -12855,7 +12791,6 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
   let fetchErrors = 0;
   let upsertErrors = 0;
   let firstUpsertError = null;
-  const normalizedDepartureYears = [...new Set((departureYears || []).map(String).filter(Boolean))].sort();
   const normalizedRegistrationYears = [...new Set((registrationHijriahYears || []).map(String).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
 
   const recordRow = (norm) => {
@@ -12869,17 +12804,20 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
   };
 
   const fetchPlans = [
-    ...normalizedDepartureYears.map(year => ({
-      source: 'keberangkatan',
-      endpoint: `bm/${year}`,
-      fetchRows: () => awapiFetchHajiByKeberangkatan(apiKey, code, { tahun: year }),
-    })),
+    {
+      universal: true,
+      endpoint: `bm/${HAJI_UNIVERSAL_DEPARTURE_YEAR}`,
+      fetchRows: () => awapiFetchHajiByKeberangkatan(apiKey, code, { tahun: HAJI_UNIVERSAL_DEPARTURE_YEAR }),
+    },
     ...normalizedRegistrationYears.map(year => ({
-      source: 'pendaftaran',
+      universal: false,
       endpoint: `dh/${year}`,
       fetchRows: () => awapiFetchHajiByPendaftaran(apiKey, code, { tahun: year, hijriah: true }),
     })),
   ];
+  const universalKeys = new Set();
+  const crossCheckKeys = new Set();
+  let universalFetched = false;
 
   for (const plan of fetchPlans) {
     try {
@@ -12888,7 +12826,9 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
         const norm = normalizeAwapiHajiRow(raw, { agentId });
         if (!norm) continue;
         recordRow(norm);
+        (plan.universal ? universalKeys : crossCheckKeys).add(`${norm.id_haji}_${norm.id_jamaah}`.toLowerCase());
       }
+      if (plan.universal) universalFetched = true;
       console.log(`[haji-api/${context}] ${slug} ${plan.endpoint}: ${rows.length} rows`);
     } catch (err) {
       fetchErrors++;
@@ -12897,7 +12837,11 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
   }
 
   const allRows = Array.from(rowsByKey.values());
-  console.log(`[haji-api/${context}] ${slug}: ${allRows.length} unique haji rows from ${normalizedDepartureYears.length} departure years + ${normalizedRegistrationYears.length} registration years (${fetchErrors} fetch errors)`);
+  const coverage = assessUniversalListCoverage({ universalFetched, universalKeys, crossCheckKeys });
+  console.log(`[haji-api/${context}] ${slug}: ${allRows.length} unique haji rows from bm/${HAJI_UNIVERSAL_DEPARTURE_YEAR} + ${normalizedRegistrationYears.length} registration years (${fetchErrors} fetch errors)`);
+  if (universalFetched && !coverage.complete) {
+    console.warn(`[haji-api/${context}] ${slug}: bm/${HAJI_UNIVERSAL_DEPARTURE_YEAR} is no longer a complete list — ${coverage.reason} (e.g. ${coverage.missing.slice(0, 3).join(', ')}); cleanup skipped`);
+  }
 
   const BATCH = JAMAAH_UPSERT_BATCH;
   let upserted = 0;
@@ -12929,15 +12873,23 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
     throw new Error(firstUpsertError ? `${outcome.reason}: ${firstUpsertError}` : outcome.reason);
   }
 
-  // Cleanup: full success only.
-  if (outcome.shouldCleanup) {
-    const cleanupYears = new Set(normalizedDepartureYears);
-    if (!syncingAgents.get(agentId)?.cancelled && cleanupYears.size > 0) {
-      const { data: existingRows } = await supabase
-        .from('jamaah_haji')
-        .select('id_haji, id_jamaah, thn_masehi')
-        .eq('agent_id', agentId)
-        .in('thn_masehi', [...cleanupYears]);
+  // Cleanup: full success only, and only while bm/0 provably lists everything —
+  // then every haji row of the agent is in scope (no departure-year window).
+  if (outcome.shouldCleanup && coverage.complete) {
+    let existingRows = null;
+    if (!syncingAgents.get(agentId)?.cancelled) {
+      try {
+        existingRows = await fetchAllRows(
+          supabase
+            .from('jamaah_haji')
+            .select('id_haji, id_jamaah')
+            .eq('agent_id', agentId)
+        );
+      } catch (err) {
+        console.warn(`[haji-api/${context}] ${slug} cleanup skipped: existing rows lookup failed — ${err.message}`);
+      }
+    }
+    if (existingRows) {
       const plan = computeSafeDeletions({
         listComplete: true,
         fetchedBookingIds,
@@ -12983,7 +12935,7 @@ async function syncHajiViaApiCore(agentId, slug, agent, {
     count: upserted,
     uniqueHaji: fetchedBookingIds.size,
     syncedAt: now,
-    departureYears: normalizedDepartureYears,
+    universalListComplete: coverage.complete,
     registrationHijriahYears: normalizedRegistrationYears,
   };
 }
@@ -18490,10 +18442,80 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   }
 });
 
+// Every deletion is confirmed per booking against AWAPI's detail endpoint first
+// (lib/sync-delete-verification.js — incident 2026-09-17, truncated list endpoints
+// deleted 101 jamaah that still existed). Rows are only deleted when their
+// booking detail no longer lists them; anything unverifiable is kept.
+const deleteVerifyAlertState = new Map(); // `${kind}:${agentId}` -> { signature, sentAt }
+const DELETE_VERIFY_ALERT_RENUDGE_MS = 24 * 60 * 60 * 1000;
+
+async function verifyUpstreamBeforeDelete(kind, slug, agentId, rows) {
+  const planned = (rows || []).filter(row => row?.bookingId);
+  if (planned.length === 0) return { confirmed: [] };
+
+  const agent = await getAgentById(agentId);
+  if (!agent?.awapi_key) {
+    console.warn(`[delete-verify] ${slug} ${kind}: no AWAPI key — ${planned.length} deletion(s) withheld (cannot verify upstream)`);
+    return { confirmed: [] };
+  }
+  const code = agent.awapi_code || agent.awapi_key.split('-')[0];
+  const table = kind === 'haji' ? 'jamaah_haji' : 'jamaah';
+  const bookingColumn = kind === 'haji' ? 'id_haji' : 'id_umroh';
+
+  const plannedBookings = new Set(planned.map(row => row.bookingId));
+  const { data: recentRows } = await supabase
+    .from(table)
+    .select(bookingColumn)
+    .eq('agent_id', agentId)
+    .order('synced_at', { ascending: false })
+    .limit(50);
+  const controlBookingIds = [...new Set((recentRows || []).map(row => row[bookingColumn]))]
+    .filter(id => id && !plannedBookings.has(id))
+    .slice(0, 3);
+
+  const fetchBookingKeys = kind === 'haji'
+    ? async (idHaji) => (await awapiFetchHajiById(agent.awapi_key, code, idHaji)).rows.map(row => row.id_jamaah)
+    : async (idUmroh) => (await awapiFetchUmrahById(agent.awapi_key, code, idUmroh)).rows
+      .flatMap(row => [jamaahCleanupIdentityKey(row), jamaahCleanupIdentityKey({ nama: row.nama })])
+      .filter(Boolean);
+
+  const verdict = await verifyDeletionsUpstream(planned, { controlBookingIds, fetchBookingKeys });
+  const parts = [
+    `planned ${planned.length} row(s)/${plannedBookings.size} booking(s)`,
+    `confirmed ${verdict.confirmed.length}`,
+    verdict.stillPresent.length ? `still upstream ${verdict.stillPresent.length}` : null,
+    verdict.unverified.length ? `unverified ${verdict.unverified.length}` : null,
+    verdict.deferred.length ? `deferred ${verdict.deferred.length}` : null,
+  ].filter(Boolean);
+  console.log(`[delete-verify] ${slug} ${kind}: ${parts.join(', ')}${verdict.aborted ? ` — ABORTED: ${verdict.reason}` : ''}`);
+
+  if (verdict.stillPresent.length > 0 || verdict.aborted) {
+    const presentIds = verdict.presentBookingIds || [];
+    const signature = `${verdict.aborted ? verdict.reason.replace(/[0-9]+/g, '#') : 'present'}|${presentIds.join(',')}`;
+    const stateKey = `${kind}:${agentId}`;
+    const prev = deleteVerifyAlertState.get(stateKey);
+    if (!prev || prev.signature !== signature || Date.now() - prev.sentAt > DELETE_VERIFY_ALERT_RENUDGE_MS) {
+      deleteVerifyAlertState.set(stateKey, { signature, sentAt: Date.now() });
+      const label = kind === 'haji' ? 'haji' : 'umroh';
+      const bookings = presentIds.length ? `\nBooking yang masih ada di Alhijaz: ${escapeHtml(presentIds.slice(0, 10).join(', '))}` : '';
+      const why = verdict.aborted ? `\nAlasan: ${escapeHtml(verdict.reason)}` : '';
+      sendOpsAlert(
+        `⚠️ <b>Penghapusan jamaah ${label} ditahan</b>\n` +
+        `Agen: <b>${escapeHtml(slug)}</b>\n` +
+        `Sinkron hendak menghapus ${planned.length} jamaah yang tidak ada di daftar Alhijaz, tapi verifikasi per booking tidak membenarkan semuanya — data yang diragukan TIDAK dihapus.` +
+        why + bookings +
+        `\nCek apakah API daftar Alhijaz berubah lagi (insiden 17 Sep 2026: daftar dipotong 50 baris).`
+      ).catch(err => console.warn(`[delete-verify] ops alert failed: ${err.message}`));
+    }
+  }
+  return verdict;
+}
+
 // Delete haji rows grouped by id_haji for efficiency. Returns count deleted.
 async function executeHajiDeletions(slug, agentId, toDelete) {
+  const verdict = await verifyUpstreamBeforeDelete('haji', slug, agentId, toDelete || []);
   const byBooking = new Map();
-  for (const row of toDelete) {
+  for (const row of verdict.confirmed) {
     if (!byBooking.has(row.bookingId)) byBooking.set(row.bookingId, []);
     byBooking.get(row.bookingId).push(row.jamaahKey);
   }
@@ -18573,8 +18595,12 @@ async function executeUmrohDeletions(slug, agentId, toDelete) {
     if (row.jmId) rows.push({ bookingId: row.bookingId, jmId: row.jmId, nama: row.nama });
     else if (row.nama) rows.push({ bookingId: row.bookingId, jmId: null, nama: row.nama });
   }
+  const verdict = await verifyUpstreamBeforeDelete('umroh', slug, agentId, rows.map(row => ({
+    ...row,
+    jamaahKey: jamaahCleanupIdentityKey({ jm_id: row.jmId, nama: row.nama }),
+  })));
   let count = 0;
-  for (const row of rows) {
+  for (const row of verdict.confirmed) {
     let query = supabase
       .from('jamaah')
       .delete()

@@ -13,8 +13,8 @@
  * Auth: header `x-api-key: {kode}-{secret}`. Enforced upstream since 2026-09-17
  * (a request without it gets 401 "API Key is missing.").
  *
- * List endpoints (bm|bh|dm|dh) are paged via `/limit/{n}/offset/{m}` and always
- * return the complete list or throw (see awapiRequestList).
+ * List AND detail endpoints are paged via `/limit/{n}/offset/{m}` and always return
+ * the complete result or throw (see awapiRequestList).
  *
  * All `fetch*` functions throw a structured error `{ status, message, body }`
  * on non-2xx or network failure. Success returns `{ rows, raw }` where
@@ -120,7 +120,22 @@ function reportedListTotal(raw) {
   return Number.isFinite(total) ? total : null;
 }
 
-async function awapiRequestList(path, { apiKey } = {}) {
+function sameUpstreamId(a, b) {
+  return String(a ?? '').trim().toUpperCase() === String(b ?? '').trim().toUpperCase();
+}
+
+// Detail endpoints (/umrah/{id}, /haji/{id}, /jamaah/{id}) are paged the same way
+// (booking AIW0027125 has 75 pax, the bare call returns 50) — and an id upstream
+// does not recognise ("XYZ", "JM000", "AIW") is answered with the agent's WHOLE
+// list instead of an empty set. `belongsTo` rejects that: any row that is not the
+// requested record fails the request, so a caller can never mistake another
+// jamaah's data (or document URL) for the one it asked about.
+async function awapiRequestList(path, { apiKey, belongsTo = null } = {}) {
+  const assertBelongs = (rows) => {
+    if (belongsTo && rows.some(row => !belongsTo(row))) {
+      throw new AwapiError('Record tidak ditemukan di sistem Alhijaz (upstream mengembalikan data lain)', { status: 404 });
+    }
+  };
   const byKey = new Map();
   let firstRaw = null;
   let total = null;
@@ -139,12 +154,14 @@ async function awapiRequestList(path, { apiKey } = {}) {
         if (plainTotal !== null && plain.rows.length < plainTotal) {
           throw new AwapiError(`Upstream list incomplete: ${plain.rows.length}/${plainTotal} rows (pagination unavailable)`, { status: 0 });
         }
+        assertBelongs(plain.rows);
         return plain;
       }
       throw err;
     }
 
     const { rows, raw } = result;
+    assertBelongs(rows);
     firstRaw ??= raw;
     const pageTotal = reportedListTotal(raw);
     if (pageTotal === null) {
@@ -210,14 +227,14 @@ export async function awapiFetchUmrahByPendaftaran(apiKey, agentCode, { tahun, b
 export async function awapiFetchUmrahById(apiKey, agentCode, idUmrah) {
   if (!agentCode || !idUmrah) throw new AwapiError('agentCode and idUmrah required', { status: 0 });
   const path = `/awapi/gu/${encodeURIComponent(agentCode)}/umrah/${encodeURIComponent(idUmrah)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey, belongsTo: row => sameUpstreamId(row?.id_umrah, idUmrah) });
 }
 
 /** Fetch one jamaah by id_jamaah. */
 export async function awapiFetchJamaahById(apiKey, agentCode, idJamaah) {
   if (!agentCode || !idJamaah) throw new AwapiError('agentCode and idJamaah required', { status: 0 });
   const path = `/awapi/gu/${encodeURIComponent(agentCode)}/jamaah/${encodeURIComponent(idJamaah)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey, belongsTo: row => sameUpstreamId(row?.id_jamaah, idJamaah) });
 }
 
 /**
@@ -252,14 +269,14 @@ export async function awapiFetchHajiByPendaftaran(apiKey, agentCode, { tahun, bu
 export async function awapiFetchHajiById(apiKey, agentCode, idHaji) {
   if (!agentCode || !idHaji) throw new AwapiError('agentCode and idHaji required', { status: 0 });
   const path = `/awapi/gh/${encodeURIComponent(agentCode)}/haji/${encodeURIComponent(idHaji)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey, belongsTo: row => sameUpstreamId(row?.id_haji, idHaji) });
 }
 
 /** Fetch one haji jamaah by id_jamaah. */
 export async function awapiFetchHajiJamaahById(apiKey, agentCode, idJamaah) {
   if (!agentCode || !idJamaah) throw new AwapiError('agentCode and idJamaah required', { status: 0 });
   const path = `/awapi/gh/${encodeURIComponent(agentCode)}/jamaah/${encodeURIComponent(idJamaah)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey, belongsTo: row => sameUpstreamId(row?.id_jamaah, idJamaah) });
 }
 
 /** Fetch jadwal (umrah package schedules) for a Hijriah year. */

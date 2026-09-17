@@ -15,6 +15,8 @@ import {
   buildBookingPriceIndex,
   awapiFetchUmrahByKeberangkatan,
   awapiFetchHajiByPendaftaran,
+  awapiFetchUmrahById,
+  awapiFetchJamaahById,
 } from '../awapi-client.js';
 
 function jakartaYear() {
@@ -969,5 +971,39 @@ test('an unpaged payload without recordsTotal is returned as-is', async () => {
     const { rows } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 2026, bulan: 8 });
     assert.equal(rows.length, 12);
     assert.deepEqual(paths, ['/awapi/gu/SM1/bm/2026/8/limit/100/offset/0']);
+  });
+});
+
+test('booking detail is paged too (AIW0027125: 75 pax, bare call caps at 50)', async () => {
+  const pax = Array.from({ length: 75 }, (_, i) => ({ id_umrah: 'AIW0027125', id_jamaah: `JM${String(i).padStart(5, '0')}` }));
+  await withFakeUpstream(pagedHandler(() => pax), async (paths) => {
+    const { rows } = await awapiFetchUmrahById('K-1', 'SM1', 'AIW0027125');
+    assert.equal(rows.length, 75);
+    assert.equal(paths[0], '/awapi/gu/SM1/umrah/AIW0027125/limit/100/offset/0');
+  });
+});
+
+test('detail endpoints reject upstream answering an unknown id with the agent\'s whole list', async () => {
+  // Upstream quirk: /jamaah/JM000 or /umrah/XYZ returns every jamaah of the agent.
+  const wholeList = pagedRows(80);
+  await withFakeUpstream(pagedHandler(() => wholeList), async () => {
+    await assert.rejects(awapiFetchJamaahById('K-1', 'SM1', 'JM000'), (err) => err.status === 404);
+    await assert.rejects(awapiFetchUmrahById('K-1', 'SM1', 'XYZ'), (err) => err.status === 404);
+  });
+  // Same quirk on the unpaged fallback path.
+  await withFakeUpstream(() => ({ body: { status: 'true', aaData: wholeList.slice(0, 3) } }), async () => {
+    await assert.rejects(awapiFetchJamaahById('K-1', 'SM1', 'JM000'), (err) => err.status === 404);
+  });
+});
+
+test('detail id match is case/whitespace tolerant and an empty result stays empty', async () => {
+  const pax = [{ id_umrah: 'AIW0029450', id_jamaah: 'JM1' }, { id_umrah: 'AIW0029450', id_jamaah: 'JM2' }];
+  await withFakeUpstream(pagedHandler(() => pax), async () => {
+    const { rows } = await awapiFetchUmrahById('K-1', 'SM1', ' aiw0029450 ');
+    assert.equal(rows.length, 2);
+  });
+  await withFakeUpstream(pagedHandler(() => []), async () => {
+    const { rows } = await awapiFetchUmrahById('K-1', 'SM1', 'AIW0000001');
+    assert.deepEqual(rows, []);
   });
 });
