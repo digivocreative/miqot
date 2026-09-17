@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, FileText, Loader2, Plane } from 'lucide-react';
+import { BookOpen, ExternalLink, FileText, Loader2, Plane, Share2 } from 'lucide-react';
 import { computeNightSegments, daysUntilDeparture } from '../../../lib/itinerary-view.js';
-import { canShareFiles, isTouchPrimary } from '../../utils/share';
+import { canShareFiles, downloadBlob, isTouchPrimary } from '../../utils/share';
 import BrochureModal from '../BrochureModal';
 import { CITY_HEX, CITY_LABEL, type CityKey } from './cityTheme';
 
@@ -20,54 +20,113 @@ interface Props {
   onPdfDownload?: () => void;
 }
 
+/**
+ * Langkah lanjutan yang menunggu ketukan berikutnya (gestur baru):
+ * - share: berkas sudah siap tapi share sheet ditolak karena gestur ketuk habis
+ *   dipakai menunggu animasi + fetch (iOS → NotAllowedError);
+ * - open: tab baru untuk PDF diblokir pemblokir popup.
+ */
+type PendingPdf = { kind: 'share'; data: ShareData; blob: Blob | null } | { kind: 'open' };
+
+/** Gestur ketuk sudah habis, share sheet pasti ditolak (navigator.userActivation belum ada di semua peramban). */
+function tapActivationExpired(): boolean {
+  const activation = (navigator as { userActivation?: UserActivation }).userActivation;
+  return activation ? !activation.isActive : false;
+}
+
 export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama, onPdfDownload }: Props) {
-  // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol. Sesudahnya:
-  // - Perangkat sentuh → share sheet native (PDF di-fetch paralel selama
-  //   animasi; share dipanggil ±2 dtk setelah klik, masih di jendela user
-  //   activation). Batal share = bukan error, cukup reset.
-  // - Desktop → unduh langsung via location.assign (aman dari popup blocker).
+  // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol, PDF di-fetch
+  // paralel. Sesudahnya:
+  // - Perangkat sentuh → share sheet native. Batal share = bukan error. Ditolak
+  //   karena gestur ketuk kedaluwarsa → tombol jadi "Bagikan sekarang".
+  // - Desktop → unduh berkasnya (a[download]).
+  // PDF TIDAK PERNAH dibuka di jendela yang sama: di app terpasang (portal
+  // jamaah) tidak ada tombol back untuk kembali dari dokumen. Kalau berkasnya
+  // tak bisa diambil, PDF dibuka di tab baru.
   const [downloading, setDownloading] = useState(false);
+  const [pending, setPending] = useState<PendingPdf | null>(null);
   const [brosurOpen, setBrosurOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
   }, []);
+  useEffect(() => { setPending(null); }, [pdfUrl]);
   const shareMode = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const fileName = `itinerary-${((pdfUrl || '').split('/').pop() || 'alhijaz.pdf').replace(/\?.*$/, '')}`;
+
+  // Tab baru, bukan location.assign. `noopener` tidak dipakai di window.open
+  // karena membuat hasilnya selalu null — null di sini berarti diblokir, dan
+  // ketukan berikutnya lewat <a target="_blank"> biasa.
+  const openInNewTab = (url: string) => {
+    const win = window.open(url, '_blank');
+    if (!win) {
+      setPending({ kind: 'open' });
+      return;
+    }
+    try { win.opener = null; } catch { /* jendela sudah lintas-origin */ }
+  };
+
+  const deliverFallback = (url: string, blob: Blob | null) => {
+    if (blob) downloadBlob(blob, fileName);
+    else openInNewTab(url);
+  };
+
+  const shareNow = async (url: string, data: ShareData, blob: Blob | null) => {
+    try {
+      await navigator.share(data);
+    } catch (err) {
+      if ((err as DOMException)?.name !== 'AbortError') deliverFallback(url, blob);
+    }
+  };
 
   const startDownload = (e: React.MouseEvent) => {
+    // Ketukan lanjutan: tautan <a target="_blank"> dibiarkan bekerja sendiri.
+    if (pending?.kind === 'open') {
+      setPending(null);
+      return;
+    }
     e.preventDefault();
+    if (pending?.kind === 'share' && pdfUrl) {
+      setPending(null);
+      void shareNow(pdfUrl, pending.data, pending.blob);
+      return;
+    }
     if (downloading || !pdfUrl) return;
-    // Ditembakkan saat KLIK, tidak menunggu berkas selesai — jalur desktop
-    // memakai location.assign yang meninggalkan halaman, jadi event yang
-    // dikirim belakangan berisiko tak pernah terkirim. Konsekuensinya angka di
-    // sini = niat unduh, sedikit berbeda dari event modal agen yang menunggu.
+    // Ditembakkan saat KLIK (sekali per niat unduh), tidak menunggu berkas:
+    // ketukan lanjutan "Bagikan sekarang"/"Buka PDF" tidak dihitung lagi, dan
+    // share sheet yang ditutup tanpa memilih tetap terhitung. Konsekuensinya
+    // angka di sini = niat unduh, sedikit berbeda dari event modal agen yang menunggu.
     onPdfDownload?.();
     setDownloading(true);
     const animationDone = new Promise<void>(resolve => {
       timerRef.current = window.setTimeout(resolve, 2000);
     });
     const run = async () => {
-      if (shareMode) {
-        const fileName = `itinerary-${(pdfUrl.split('/').pop() || 'alhijaz.pdf').replace(/\?.*$/, '')}`;
-        const blobPromise = fetch(pdfUrl).then(r => (r.ok ? r.blob() : null)).catch(() => null);
-        const [blob] = await Promise.all([blobPromise, animationDone]);
-        setDownloading(false);
-        const file = blob ? new File([blob], fileName, { type: 'application/pdf' }) : null;
-        try {
-          if (file && canShareFiles([file])) {
-            await navigator.share({ files: [file], title: 'Itinerary Alhijaz' });
-          } else {
-            await navigator.share({ title: 'Itinerary Alhijaz', url: pdfUrl });
-          }
-        } catch (err) {
-          // Batal (AbortError) = keputusan pengguna; selain itu (activation
-          // kedaluwarsa dsb.) → fallback buka PDF langsung.
-          if ((err as DOMException)?.name !== 'AbortError') window.location.assign(pdfUrl);
+      const blobPromise = fetch(pdfUrl).then(r => (r.ok ? r.blob() : null)).catch(() => null);
+      const [blob] = await Promise.all([blobPromise, animationDone]);
+      setDownloading(false);
+      if (!shareMode) {
+        deliverFallback(pdfUrl, blob);
+        return;
+      }
+      const file = blob ? new File([blob], fileName, { type: 'application/pdf' }) : null;
+      const data: ShareData = file && canShareFiles([file])
+        ? { files: [file], title: 'Itinerary Alhijaz' }
+        : { title: 'Itinerary Alhijaz', url: pdfUrl };
+      if (tapActivationExpired()) {
+        setPending({ kind: 'share', data, blob });
+        return;
+      }
+      try {
+        await navigator.share(data);
+      } catch (err) {
+        const name = (err as DOMException)?.name;
+        if (name === 'AbortError') return;
+        if (name === 'NotAllowedError') {
+          setPending({ kind: 'share', data, blob });
+          return;
         }
-      } else {
-        await animationDone;
-        setDownloading(false);
-        window.location.assign(pdfUrl);
+        deliverFallback(pdfUrl, blob);
       }
     };
     void run();
@@ -134,6 +193,10 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
           {pdfUrl && (
             <a
               href={pdfUrl}
+              // Klik biasa dicegat startDownload; target _blank dipakai saat
+              // "Buka PDF" (popup diblokir) — dokumen tak pernah menimpa app.
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={startDownload}
               aria-busy={downloading}
               className={`relative flex flex-1 items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-burgundy py-2.5 text-[13px] font-bold text-white ${
@@ -160,6 +223,14 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
                 {downloading ? (
                   <>
                     <Loader2 size={15} className="animate-spin" /> Sebentar...
+                  </>
+                ) : pending?.kind === 'share' ? (
+                  <>
+                    <Share2 size={15} /> Bagikan sekarang
+                  </>
+                ) : pending?.kind === 'open' ? (
+                  <>
+                    <ExternalLink size={15} /> Buka PDF
                   </>
                 ) : (
                   <>

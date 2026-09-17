@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X, Check, Image as ImageIcon } from 'lucide-react';
 import { HOTEL_MEDIA_CATEGORY_PRESETS } from '../../lib/hotel-directory.js';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 const SECTION_LABEL = 'text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500';
 const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
@@ -37,6 +38,13 @@ export default function HotelMediaCategorySheet({
   current, used, isCover, canMakeCover, onPick, onMakeCover, onClose,
 }: Props) {
   const [draft, setDraft] = useState('');
+  const sheetRef = useRef<HTMLDivElement>(null);
+  // Keyboard iOS tidak mengecilkan layout viewport (interactive-widget di meta
+  // viewport hanya berlaku di Chrome Android), jadi sheet `fixed bottom-0`
+  // tertutup keyboard beserta kolom "Kategori baru". Sheet diangkat setinggi
+  // bagian layar yang tertutup dan tingginya dibatasi ke area yang terlihat.
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const [visibleHeight, setVisibleHeight] = useState<number | null>(null);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -49,6 +57,31 @@ export default function HotelMediaCategorySheet({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Sheet hanya ter-mount selama terbuka → back Android menutup sheet.
+  useBackToClose(true, onClose);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // Android (resizes-content): innerHeight ikut mengecil → selisihnya 0.
+      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      setKeyboardInset(inset);
+      setVisibleHeight(inset > 0 ? vv.height : null);
+      const active = document.activeElement;
+      if (inset > 0 && active instanceof HTMLElement && sheetRef.current?.contains(active)) {
+        active.scrollIntoView({ block: 'nearest' });
+      }
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
 
   // Preset dulu, lalu kategori hotel ini yang bukan preset — dedup
   // case-insensitive supaya "lobby" tidak tampil bersanding dengan "Lobby".
@@ -73,7 +106,9 @@ export default function HotelMediaCategorySheet({
       />
 
       <motion.div
-        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85vh] overflow-y-auto shadow-2xl"
+        ref={sheetRef}
+        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85dvh] overflow-y-auto shadow-2xl"
+        style={keyboardInset > 0 ? { bottom: keyboardInset, maxHeight: visibleHeight ? visibleHeight * 0.85 : undefined } : undefined}
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
@@ -92,7 +127,7 @@ export default function HotelMediaCategorySheet({
           <button
             onClick={onClose}
             aria-label="Tutup"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+            className="touch-hit relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
           >
             <X size={16} />
           </button>

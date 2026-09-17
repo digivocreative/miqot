@@ -79,8 +79,8 @@ test('JourneyStrip menembakkan lewat callback pemanggil, saat klik', () => {
   const handler = strip.match(/const startDownload = \(e: React\.MouseEvent\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
   assert.notEqual(handler, '', 'startDownload tidak ditemukan');
   // Sesudah guard (klik kedua saat proses berjalan tidak boleh dihitung dua kali)
-  // tapi SEBELUM kerja async: jalur desktop memakai location.assign yang
-  // meninggalkan halaman, event yang dikirim belakangan bisa hilang.
+  // tapi SEBELUM kerja async: niat unduh terhitung sekali saat klik, termasuk
+  // bila share sheet ditutup atau berkasnya menunggu ketukan "Bagikan sekarang".
   const guard = handler.indexOf('if (downloading || !pdfUrl) return;');
   const fire = handler.indexOf('onPdfDownload?.()');
   const async = handler.indexOf('const run = async');
@@ -89,6 +89,17 @@ test('JourneyStrip menembakkan lewat callback pemanggil, saat klik', () => {
   // Komponennya dipakai tiga permukaan dengan sesi berbeda — nama event tidak
   // boleh dipatri di sini.
   assert.ok(!strip.includes('trackPublicEvent') && !strip.includes('trackEvent'));
+});
+
+test('JourneyStrip tidak pernah membuka PDF di jendela yang sama', () => {
+  // Portal jamaah dipasang sebagai app (standalone): tanpa tombol back peramban,
+  // dokumen yang menimpa jendela app = jamaah terjebak di PDF. Jalan keluarnya
+  // share sheet, unduhan, atau tab baru — bukan navigasi jendela ini.
+  const code = strip.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /\blocation\.(?:assign|replace)\s*\(/, 'location.assign/replace menimpa jendela app');
+  assert.doesNotMatch(code, /\blocation(?:\.href)?\s*=(?!=)/, 'menulis location/location.href menimpa jendela app');
+  assert.match(code, /window\.open\([^)]*'_blank'/, 'fallback tanpa berkas harus membuka tab baru');
+  assert.match(code, /target="_blank"/, 'tautan PDF harus menuju tab baru saat klik tak dicegat');
 });
 
 test('prop unduhan diteruskan WebItineraryView ke JourneyStrip', () => {

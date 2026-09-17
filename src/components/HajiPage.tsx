@@ -10,6 +10,8 @@ import {
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import { useBackToClose } from '../hooks/useBackToClose';
+import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 
@@ -177,12 +179,16 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
   const [docError, setDocError] = useState('');
   const [sharing, setSharing] = useState(false);
 
+  // Popup ter-mount hanya selama terbuka → back Android menutup dokumen, bukan
+  // meninggalkan daftar jamaah.
+  useBackToClose(true, onClose);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch(url, { headers: { ...getAuthHeaders() } });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP status: ${res.status}`);
         const contentType = res.headers.get('content-type') || '';
         let blob: Blob;
         if (contentType.includes('text/html')) {
@@ -203,7 +209,8 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
         }
       } catch (err: any) {
         if (!cancelled) {
-          setDocError(err.message || 'Gagal memuat dokumen');
+          // Bukan err.message mentah ("HTTP status: 502", "Load failed").
+          setDocError(describeLoadError(err));
           setDocLoading(false);
         }
       }
@@ -224,13 +231,14 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
+      {/* Header — pt safe-area: app terpasang di iOS digambar di bawah status bar,
+          tombol X yang tertutup status bar tidak bisa diketuk. */}
+      <div className="flex items-center justify-between px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
         <div className="flex flex-col min-w-0">
           <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{title}</p>
           <span className="text-[10px] text-gray-400 dark:text-slate-500">Dokumen</span>
         </div>
-        <button onClick={onClose} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+        <button onClick={onClose} aria-label="Tutup" className="touch-hit relative p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
           <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1={18} y1={6} x2={6} y2={18}/><line x1={6} y1={6} x2={18} y2={18}/></svg>
         </button>
       </div>
@@ -255,7 +263,7 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
 
       {/* Footer with share */}
       {blobUrl && (
-        <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+        <div className="shrink-0 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <button
             onClick={async () => {
               if (navigator.share) {

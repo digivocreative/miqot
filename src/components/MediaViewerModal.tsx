@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Download, Share2, Loader2 } from 'lucide-react';
 import PlyrVideo from './PlyrVideo';
 import PhotoWatermark from './PhotoWatermark';
+import { useBackToClose } from '../hooks/useBackToClose';
 import { canShareFiles, downloadBlob } from '../utils/share';
 import { stampWatermarkOnImage } from '../utils/stampWatermark';
 
@@ -103,6 +104,11 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
   const [autoPlay, setAutoPlay] = useState(() => media[initialIndex]?.type === 'video');
   const [busy, setBusy] = useState<'download' | 'share' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Viewer hanya ter-mount selama terbuka (pemanggil yang me-mount/unmount),
+  // jadi selama ada ia memegang satu entri riwayat: back Android / geser iOS
+  // menutup viewer, bukan halaman hotel di bawahnya.
+  useBackToClose(true, onClose);
 
   useEffect(() => {
     if (!thumbsVisible) return;

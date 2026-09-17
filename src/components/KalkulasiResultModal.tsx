@@ -32,6 +32,7 @@ import {
   Download,
 } from 'lucide-react';
 import { QuotationDocument } from './QuotationDocument';
+import { useBackToClose } from '../hooks/useBackToClose';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import type { AgentData } from '@/data/agents';
@@ -257,6 +258,10 @@ export function KalkulasiResultModal({
     if (isOpen) setView('results');
   }, [isOpen]);
 
+  // Back Android menutup modal (juga dari pratinjau PDF), bukan halaman
+  // Kalkulasi di bawahnya.
+  useBackToClose(isOpen, onClose);
+
   // Measure container width for react-pdf pages
   useEffect(() => {
     const el = pdfContentRef.current;
@@ -346,8 +351,8 @@ export function KalkulasiResultModal({
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         >
 
-      {/* ─── HEADER ─── */}
-      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+      {/* ─── HEADER ─── (pt safe-area: di app terpasang iOS header berada di bawah status bar) */}
+      <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center shadow-sm">
         <div className="flex flex-col">
           <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100">
             {view === 'results' ? 'Hasil Kalkulasi' : 'Preview Quotation'}
@@ -359,7 +364,7 @@ export function KalkulasiResultModal({
             }
           </span>
         </div>
-        <button onClick={onClose} className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+        <button onClick={onClose} aria-label="Tutup" className="touch-hit relative p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0">
           <X className="w-6 h-6" />
         </button>
       </div>
@@ -507,7 +512,7 @@ export function KalkulasiResultModal({
       )}
 
       {/* ─── FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         {view === 'results' ? (
           <div className="flex gap-2">
             <button

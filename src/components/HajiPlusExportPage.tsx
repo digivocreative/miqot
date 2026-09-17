@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, Share2 } from 'lucide-react';
 import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import { downloadBlob } from '../utils/share';
 import FilterDropdown from './FilterDropdown';
 import { fetchHajiPlusStats, HAJI_PLUS_SERIES_KEYS, type HajiPlusData, type HajiPlusItem, type HajiPlusSeries, type HajiPlusSeriesKey } from '../lib/fetchHajiPlusStats';
 
@@ -39,6 +40,12 @@ type ChartType = 'bar' | 'area' | 'line' | 'hbar' | 'step';
 
 const fmt = (n: number) => n.toLocaleString('id-ID');
 const getInitials = (name: string) => name.split(/\s+/).map(w => w.charAt(0)).slice(0, 2).join('').toUpperCase();
+
+/** Gestur ketuk sudah kedaluwarsa, share sheet pasti ditolak (navigator.userActivation belum ada di semua peramban). */
+function tapActivationExpired(): boolean {
+  const activation = (navigator as { userActivation?: UserActivation }).userActivation;
+  return activation ? !activation.isActive : false;
+}
 
 // ── Inline SVG Icons for poster (no Lucide for export compatibility) ──
 const WaSvg = () => (
@@ -327,10 +334,21 @@ export default function HajiPlusExportPage({ agent }: {
   const [showAgent, setShowAgent] = useState(true);
   const [showTitle, setShowTitle] = useState(true);
   const [contactType, setContactType] = useState<'wa' | 'email' | 'website'>('website');
+  // Poster yang sudah jadi tapi share sheet-nya ditolak: merender poster (scale 3)
+  // memakan lebih dari sedetik, dan iOS menganggap gestur ketuknya sudah habis
+  // (NotAllowedError). Ketukan berikutnya = gestur baru → langsung dibagikan.
+  const [readyFile, setReadyFile] = useState<File | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const posterRef = useRef<HTMLDivElement>(null);
 
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_haji_plus_export'); mountTracked.current = true; } }, []);
+
+  // Pilihan poster berubah → berkas yang menunggu sudah tidak sama dengan pratinjau.
+  useEffect(() => {
+    setReadyFile(null);
+    setExportError(null);
+  }, [seriesKey, colorIdx, headerStyle, chartType, showAgent, showTitle, contactType]);
 
   const theme = COLOR_THEMES[colorIdx];
 
@@ -343,9 +361,30 @@ export default function HajiPlusExportPage({ agent }: {
       .finally(() => setLoading(false));
   }, []);
 
+  const trackExport = () => trackEvent('action', 'export_haji_infographic', { year: String(new Date().getFullYear()) });
+
+  // Ketukan "Bagikan sekarang": navigator.share() dipanggil sebelum await apa pun.
+  const shareReadyFile = async (file: File) => {
+    setReadyFile(null);
+    try {
+      await navigator.share({ files: [file] });
+      trackExport();
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      console.error('Export share failed:', err);
+      downloadBlob(file, file.name);
+      trackExport();
+    }
+  };
+
   const handleExport = async () => {
     const el = posterRef.current;
     if (!el || exporting) return;
+    if (readyFile) {
+      void shareReadyFile(readyFile);
+      return;
+    }
+    setExportError(null);
     setExporting(true);
     try {
       const { domToPng } = await import('modern-screenshot');
@@ -361,18 +400,29 @@ export default function HajiPlusExportPage({ agent }: {
 
       // Native share (files ONLY — no text/title/url to avoid double-image)
       if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file] });
+        if (tapActivationExpired()) {
+          setReadyFile(file);
+          return;
+        }
+        try {
+          await navigator.share({ files: [file] });
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return;
+          if (err?.name === 'NotAllowedError') {
+            setReadyFile(file);
+            return;
+          }
+          // Share sheet gagal karena hal lain → gambar tetap sampai lewat unduhan.
+          console.error('Export share failed:', err);
+          downloadBlob(blob, fileName);
+        }
       } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadBlob(blob, fileName);
       }
-      trackEvent('action', 'export_haji_infographic', { year: String(new Date().getFullYear()) });
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') console.error('Export failed:', err);
+      trackExport();
+    } catch (err) {
+      console.error('Export failed:', err);
+      setExportError('Gambar belum bisa dibuat. Coba lagi.');
     } finally {
       setExporting(false);
     }
@@ -571,10 +621,17 @@ export default function HajiPlusExportPage({ agent }: {
       >
         {exporting ? (
           <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
+        ) : readyFile ? (
+          <><Share2 size={16} /> Bagikan sekarang</>
         ) : (
           <><Download size={16} /> Simpan Gambar</>
         )}
       </button>
+      {exportError && (
+        <p role="alert" className="text-center text-xs font-medium text-red-600 dark:text-red-400">
+          {exportError}
+        </p>
+      )}
     </div>
   );
 }

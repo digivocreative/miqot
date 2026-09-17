@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText } from 'lucide-react';
+import { X, Download, Loader2, AlertCircle, ZoomIn, ZoomOut, Link2, ClipboardCheck, Route, FileText, Share2 } from 'lucide-react';
 import { motion, AnimatePresence, useAnimationControls, useReducedMotion } from 'framer-motion';
 import { Document, Page, pdfjs } from 'react-pdf';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -11,6 +11,8 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import type { UmrohPackage } from '@/types';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, shareLinkCopyText } from '../utils/share';
+import { useBackToClose } from '../hooks/useBackToClose';
+import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
 import { getPackageById } from '@/services/data-service';
 import { AGENTS_DATA } from '@/data/agents';
 import { canRenderItineraryPdf } from '../../lib/itinerary-pdf.js';
@@ -51,6 +53,27 @@ const TAB_OPTIONS: SegmentedOption<ItineraryTab>[] = [
   { value: 'itinerary', label: 'Itinerary', icon: Route },
   { value: 'pdf', label: 'Versi PDF', icon: FileText },
 ];
+
+/**
+ * Berkas yang sudah jadi tapi share sheet-nya ditolak peramban karena gestur
+ * ketuk sudah kedaluwarsa (iOS: merakit PDF / mengunduh berkas kantor memakan
+ * lebih dari sedetik → NotAllowedError). Disimpan per tab (`mode`) supaya
+ * ketukan "Bagikan sekarang" berikutnya — gestur baru — langsung membagikan.
+ */
+interface ReadyShare {
+  mode: 'own' | 'office';
+  data: ShareData;
+  blob: Blob;
+  fileName: string;
+  /** Event analytics milik handler asalnya, ditembakkan saat share selesai. */
+  track: () => void;
+}
+
+/** Gestur ketuk sudah habis, share sheet pasti ditolak (navigator.userActivation belum ada di semua peramban). */
+function tapActivationExpired(): boolean {
+  const activation = (navigator as { userActivation?: UserActivation }).userActivation;
+  return activation ? !activation.isActive : false;
+}
 
 function clampItineraryScale(nextScale: number) {
   return Math.min(3, Math.max(1, +nextScale.toFixed(2)));
@@ -115,6 +138,8 @@ export function ItineraryModal({
   const effectivePaket = paket ?? resolvedPaket ?? null;
   const [isSharing, setIsSharing] = useState(false);
   const [buildingOwnPdf, setBuildingOwnPdf] = useState(false);
+  const [readyShare, setReadyShare] = useState<ReadyShare | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [isPdfLoading, setIsPdfLoading] = useState(true);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'unknown'>('unknown');
   const [pdfWidth, setPdfWidth] = useState(0);
@@ -212,11 +237,18 @@ export function ItineraryModal({
       pendingScaleRef.current = 1;
       setContentSize({ width: 0, height: 0 });
       setLinkCopied(false);
+      setReadyShare(null);
+      setShareError(null);
       userTouchedTabRef.current = false;
       setActiveTab(effectiveJadwalId ? 'itinerary' : 'pdf');
       setPdfEverActive(!effectiveJadwalId);
     }
   }, [isOpen, fileUrl]);
+
+  // Back Android / geser iOS menutup modal (bukan halaman di bawahnya).
+  // Mengikuti `isOpen`, bukan mount: PackageCard membiarkan modal ini tetap
+  // ter-mount setelah dibuka pertama kali.
+  useBackToClose(isOpen, onClose);
 
   // Mount-on-first-activate pane PDF (lalu keep-mounted via `hidden`)
   useEffect(() => {
@@ -531,10 +563,54 @@ export function ItineraryModal({
   const ownPdfReady = Boolean(
     effectivePaket && webContent && canRenderItineraryPdf(webContent, effectivePaket),
   );
+  // Berkas yang menunggu hanya berlaku untuk tab asalnya — pindah tab
+  // mengembalikan tombol ke "Unduh PDF" untuk berkas tab itu.
+  const readyForTab = readyShare && readyShare.mode === (ownPdfMode ? 'own' : 'office') ? readyShare : null;
+
+  // Share sheet sesudah kerja async panjang. Kembali `false` bila ditunda:
+  // gestur ketuk sudah habis (iOS → NotAllowedError), jadi berkasnya disimpan
+  // dan tombol berubah jadi "Bagikan sekarang". Batal = keputusan pengguna;
+  // galat lain jatuh ke unduhan biasa.
+  const shareOrDefer = async (ready: ReadyShare): Promise<boolean> => {
+    if (tapActivationExpired()) {
+      setReadyShare(ready);
+      return false;
+    }
+    try {
+      await navigator.share(ready.data);
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        setReadyShare(ready);
+        return false;
+      }
+      if (err?.name !== 'AbortError') {
+        console.warn('Share error, falling back:', err);
+        downloadBlob(ready.blob, ready.fileName);
+      }
+    }
+    return true;
+  };
+
+  // Ketukan "Bagikan sekarang": gestur baru, navigator.share() dipanggil
+  // sebelum await apa pun.
+  const shareReadyFile = async () => {
+    const ready = readyShare;
+    if (!ready) return;
+    setReadyShare(null);
+    try {
+      await navigator.share(ready.data);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') downloadBlob(ready.blob, ready.fileName);
+    }
+    ready.track();
+  };
 
   const handleOwnPdf = async () => {
     if (!ownPdfReady || buildingOwnPdf || !effectivePaket || !webContent) return;
+    setShareError(null);
     setBuildingOwnPdf(true);
+    const paketId = effectivePaket.jadwalId;
+    const track = () => trackEvent('action', 'itinerary_own_pdf_download', { paket: paketId });
     try {
       const blob = await generateItineraryPdfBlob({
         content: webContent,
@@ -545,18 +621,16 @@ export function ItineraryModal({
       const fileName = itineraryPdfFileName(effectivePaket.nama, effectivePaket.jadwalId);
       const file = new File([blob], fileName, { type: 'application/pdf' });
       if (canShareFiles([file])) {
-        try {
-          await navigator.share({ title: `Rencana Perjalanan - ${title}`, files: [file] });
-        } catch (err: any) {
-          // Batal share = keputusan pengguna; selain itu jatuh ke unduhan biasa.
-          if (err?.name !== 'AbortError') downloadBlob(blob, fileName);
-        }
+        const data = { title: `Rencana Perjalanan - ${title}`, files: [file] };
+        // Ditunda → event menyala saat ketukan "Bagikan sekarang" selesai.
+        if (!await shareOrDefer({ mode: 'own', data, blob, fileName, track })) return;
       } else {
         downloadBlob(blob, fileName);
       }
-      trackEvent('action', 'itinerary_own_pdf_download', { paket: effectivePaket.jadwalId });
+      track();
     } catch (error) {
       console.error('Gagal menyusun PDF rencana perjalanan:', error);
+      setShareError('PDF belum bisa dibuat. Coba lagi.');
     } finally {
       setBuildingOwnPdf(false);
     }
@@ -570,13 +644,14 @@ export function ItineraryModal({
   // dipakai menilai versi mana yang sebetulnya dikirim agen ke jamaah.
   const handleShareItinerary = async () => {
     if (!originalUrl) return;
+    setShareError(null);
     setIsSharing(true);
 
     try {
       // Fetch file as blob (CDN URL directly, or via proxy)
       const fetchUrl = isCdnUrl ? originalUrl : proxyUrl;
       const response = await fetch(fetchUrl, { cache: 'no-cache' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP status: ${response.status}`);
       const blob = await response.blob();
 
       // Determine filename & MIME type
@@ -587,33 +662,36 @@ export function ItineraryModal({
       const fileName = `${safeTitle}_Itinerary.${ext}`;
 
       const file = new File([blob], fileName, { type: mimeType });
-
-      if (canShareFiles([file])) {
-        try {
-          await navigator.share({
-            title: `Itinerary - ${title}`,
-            text: `Berikut itinerary untuk paket: ${title}`,
-            files: [file],
-          });
-        } catch (err: any) {
-          if (err?.name !== 'AbortError') {
-            console.warn('Share error, falling back:', err);
-            downloadBlob(blob, fileName);
-          }
-        }
-      } else {
-        downloadBlob(blob, fileName);
-      }
       // Ditembakkan di titik yang SAMA dengan handleOwnPdf (sesudah share/unduh,
       // termasuk saat share dibatalkan) supaya kedua angka bisa dibandingkan
       // langsung. `format`: aset kantor kadang gambar, bukan PDF.
-      trackEvent('action', 'itinerary_office_pdf_download', {
+      const track = () => trackEvent('action', 'itinerary_office_pdf_download', {
         paket: effectivePaket?.jadwalId || title,
         format: isImage ? 'image' : 'pdf',
       });
+
+      if (canShareFiles([file])) {
+        const data = {
+          title: `Itinerary - ${title}`,
+          text: `Berikut itinerary untuk paket: ${title}`,
+          files: [file],
+        };
+        if (!await shareOrDefer({ mode: 'office', data, blob, fileName, track })) return;
+      } else {
+        downloadBlob(blob, fileName);
+      }
+      track();
     } catch (error) {
       console.error('Gagal share itinerary:', error);
-      window.open(originalUrl, '_blank');
+      // Berkas tak bisa diambil → buka dokumennya di tab baru. Tab baru bisa
+      // diblokir karena gestur ketuk sudah habis menunggu fetch: beri tahu.
+      const win = window.open(originalUrl, '_blank');
+      if (win) {
+        try { win.opener = null; } catch { /* jendela sudah lintas-origin */ }
+      } else {
+        const copy = describeLoadError(error);
+        setShareError(copy === LOAD_ERROR_MESSAGES.generic ? 'PDF belum bisa diunduh. Coba lagi.' : copy);
+      }
     } finally {
       setIsSharing(false);
     }
@@ -635,8 +713,10 @@ export function ItineraryModal({
 
       {/* ─── HEADER ───
           Dengan tab: judul+subtitle diganti tab bar langsung di header — hemat satu
-          baris supaya area konten lebih lega. Tanpa jadwalId: PDF-only spt semula. */}
-      <div className={`flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 flex justify-between items-center gap-3 shadow-sm ${hasTabs ? 'px-4 py-3' : 'px-5 py-4'}`}>
+          baris supaya area konten lebih lega. Tanpa jadwalId: PDF-only spt semula.
+          pt safe-area: app terpasang di iOS digambar di bawah status bar, dan
+          tombol X yang tertutup status bar tidak bisa diketuk. */}
+      <div className={`flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 flex justify-between items-center gap-3 shadow-sm ${hasTabs ? 'px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]' : 'px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))]'}`}>
         {hasTabs ? (
           <div className="flex-1 min-w-0">
             <SegmentedControl
@@ -645,6 +725,7 @@ export function ItineraryModal({
               onChange={(tab) => {
                 userTouchedTabRef.current = true;
                 setActiveTab(tab);
+                setShareError(null);
                 trackEvent('action', 'itinerary_tab_switch', { tab, paket: title });
               }}
             />
@@ -660,7 +741,8 @@ export function ItineraryModal({
         )}
         <button
           onClick={onClose}
-          className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+          aria-label="Tutup"
+          className="touch-hit relative p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
         >
           <X className="w-6 h-6" />
         </button>
@@ -712,13 +794,13 @@ export function ItineraryModal({
       >
         {/* Floating Zoom Controls — bottom center */}
         {proxyUrl && !isPdfLoading && (
-          <div className="fixed bottom-24 right-4 z-20 flex justify-end pointer-events-none">
+          <div className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-4 z-20 flex justify-end pointer-events-none">
             <div className="pointer-events-auto flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg">
               <button
                 type="button"
                 onClick={zoomOut}
                 disabled={scale <= 1}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                className="touch-hit relative p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                 aria-label="Zoom out"
               >
                 <ZoomOut size={18} />
@@ -726,7 +808,7 @@ export function ItineraryModal({
               <button
                 type="button"
                 onClick={resetZoom}
-                className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                className="touch-hit relative min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
                 aria-label="Reset zoom"
               >
                 {Math.round(clampedScale * 100)}%
@@ -735,7 +817,7 @@ export function ItineraryModal({
                 type="button"
                 onClick={zoomIn}
                 disabled={scale >= 3}
-                className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                className="touch-hit relative p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                 aria-label="Zoom in"
               >
                 <ZoomIn size={18} />
@@ -823,7 +905,13 @@ export function ItineraryModal({
       )}
 
       {/* ─── FOOTER ─── */}
-      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2.5">
+      <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        {shareError && (
+          <p role="alert" className="mb-2 text-center text-xs font-medium text-red-600 dark:text-red-400">
+            {shareError}
+          </p>
+        )}
+        <div className="flex gap-2.5">
         {shareUrl && (
           <div className="relative flex-1">
             {/* Konfirmasi in-place (konvensi repo: label jadi "Tersalin"), bukan tooltip */}
@@ -903,10 +991,11 @@ export function ItineraryModal({
           </div>
         )}
         {/* Wording SERAGAM mobile/desktop (pola JourneyStrip 2026-07-31): label
-            "Unduh PDF", fungsinya tetap share-sheet dulu di perangkat sentuh. */}
+            "Unduh PDF", fungsinya tetap share-sheet dulu di perangkat sentuh.
+            "Bagikan sekarang" = berkas tab ini sudah jadi, tinggal satu ketukan. */}
         <button
-          onClick={ownPdfMode ? handleOwnPdf : handleShareItinerary}
-          disabled={ownPdfMode ? !ownPdfReady || buildingOwnPdf : isSharing || !proxyUrl}
+          onClick={readyForTab ? shareReadyFile : ownPdfMode ? handleOwnPdf : handleShareItinerary}
+          disabled={readyForTab ? false : ownPdfMode ? !ownPdfReady || buildingOwnPdf : isSharing || !proxyUrl}
           className="
             flex-1 flex items-center justify-center gap-2 py-2.5 px-3
             rounded-xl text-sm font-bold text-white
@@ -920,6 +1009,11 @@ export function ItineraryModal({
               <Loader2 size={20} className="animate-spin" />
               <span>Sebentar...</span>
             </>
+          ) : readyForTab ? (
+            <>
+              <Share2 size={20} />
+              <span>Bagikan sekarang</span>
+            </>
           ) : (
             <>
               <Download size={20} />
@@ -927,6 +1021,7 @@ export function ItineraryModal({
             </>
           )}
         </button>
+        </div>
       </div>
 
         </motion.div>

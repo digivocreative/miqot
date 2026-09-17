@@ -12,6 +12,7 @@ import {
   Wifi, Gift, ShieldCheck, Camera,
 } from 'lucide-react';
 import { trackPublicEvent } from '../utils/analytics';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 // Lazy-load the fullscreen viewers only when the user opens an attachment.
 const BrochureModal = lazy(() => import('./BrochureModal').then(m => ({ default: m.BrochureModal })));
@@ -460,6 +461,15 @@ export default function AskAIModal({
   // through at the bottom (see screenshot from bug report).
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [viewportTop, setViewportTop] = useState(0);
+  // Keyboard iOS menutup bagian bawah layout viewport. Selama terbuka, bantalan
+  // safe-area bawah (home indicator) tak dipakai — kalau dipakai, ada celah
+  // kosong setinggi home indicator di antara kolom tanya dan keyboard.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // Back Android / geser iOS menutup chat, bukan halaman jadwal di bawahnya.
+  // Lampiran (brosur/itinerary) yang dibuka dari chat memegang entrinya
+  // sendiri, jadi back pertama menutup lampiran dulu.
+  useBackToClose(isOpen, onClose);
 
   // Default / extra chips derived from the current session's shuffle.
   const defaultChips = useMemo(() => chipShuffle.slice(0, 4), [chipShuffle]);
@@ -525,6 +535,9 @@ export default function AskAIModal({
       if (vv) {
         setViewportHeight(vv.height);
         setViewportTop(vv.offsetTop);
+        // Android (interactive-widget=resizes-content) ikut mengecilkan
+        // innerHeight → selisihnya ~0; iOS tidak → selisih = tinggi keyboard.
+        setKeyboardOpen(window.innerHeight - vv.height - vv.offsetTop > 80);
       } else {
         setViewportHeight(window.innerHeight);
         setViewportTop(0);
@@ -550,6 +563,7 @@ export default function AskAIModal({
       window.scrollTo(0, scrollY);
       setViewportHeight(null);
       setViewportTop(0);
+      setKeyboardOpen(false);
     };
   }, [isOpen]);
 
@@ -757,13 +771,14 @@ export default function AskAIModal({
             .askai-dot-3 { animation-delay: 0.3s; }
           `}</style>
 
-          {/* ─── HEADER ─── */}
-          <div className="flex-shrink-0 border-b border-gray-100 dark:border-slate-800">
+          {/* ─── HEADER ─── (pt safe-area: app terpasang di iOS digambar di bawah
+              status bar; tombol tutup yang tertutup status bar tidak bisa diketuk) */}
+          <div className="flex-shrink-0 border-b border-gray-100 dark:border-slate-800 pt-[env(safe-area-inset-top)]">
             <div className="px-4 py-3 flex items-center gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center active:scale-95 transition-transform"
+                className="touch-hit relative w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center active:scale-95 transition-transform"
                 aria-label="Tutup"
               >
                 <ChevronLeft size={20} className="text-gray-700 dark:text-slate-300" />
@@ -784,7 +799,7 @@ export default function AskAIModal({
 
               <button
                 type="button"
-                className="w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center active:scale-95 transition-transform"
+                className="touch-hit relative w-9 h-9 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center active:scale-95 transition-transform"
                 aria-label="Info"
               >
                 <Info size={16} className="text-gray-500 dark:text-slate-400" />
@@ -995,7 +1010,7 @@ export default function AskAIModal({
           </div>
 
           {/* ─── FOOTER INPUT ─── */}
-          <div className="flex-shrink-0 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5">
+          <div className={`flex-shrink-0 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 pt-2.5 ${keyboardOpen ? 'pb-2.5' : 'pb-[max(0.625rem,env(safe-area-inset-bottom))]'}`}>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -1019,7 +1034,7 @@ export default function AskAIModal({
                 <button
                   type="button"
                   onClick={handleStop}
-                  className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 active:scale-95 transition-all"
+                  className="touch-hit relative w-10 h-10 rounded-full flex items-center justify-center bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 active:scale-95 transition-all"
                   aria-label="Stop"
                 >
                   <Square size={13} className="text-gray-700 dark:text-slate-200 fill-gray-700 dark:fill-slate-200" />
@@ -1029,7 +1044,7 @@ export default function AskAIModal({
                   type="button"
                   onClick={handleFreeSubmit}
                   disabled={!inputText.trim()}
-                  className="w-10 h-10 rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-transform"
+                  className="touch-hit relative w-10 h-10 rounded-full flex items-center justify-center shadow-md shadow-emerald-500/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-transform"
                   style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)' }}
                   aria-label="Kirim"
                 >

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { useBackToClose } from '../hooks/useBackToClose';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 import type { BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
 
@@ -68,6 +69,11 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       setAiMenuOpen(false);
     }
   }, [isOpen, imageUrl]);
+
+  // Back Android / geser iOS menutup pratinjau, bukan halaman di bawahnya.
+  // Mengikuti `isOpen` (bukan mount): PackageCard & JourneyStrip membiarkan
+  // modal ini ter-mount dan hanya membalik isOpen.
+  useBackToClose(isOpen, onClose);
 
   // Identitas agent dibakar ke brosur. Pratinjau ditahan selama menggubah
   // supaya gambar polos tidak sempat terlihat lalu berkedip diganti — yang
@@ -256,14 +262,16 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         >
 
-          {/* ─── STICKY HEADER ─── */}
-          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 py-4 flex justify-between items-center shadow-sm">
+          {/* ─── STICKY HEADER ─── (pt safe-area: app terpasang di iOS digambar
+              di bawah status bar; tombol X yang tertutup tidak bisa diketuk) */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center shadow-sm">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white truncate pr-4">
               Preview Brosur
             </h2>
             <button
               onClick={onClose}
-              className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+              aria-label="Tutup"
+              className="touch-hit relative p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
             >
               <X className="w-6 h-6" />
             </button>
@@ -316,13 +324,13 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── ZOOM CONTROLS — bottom right ─── */}
           {isImageLoaded && (
-            <div className={`fixed bottom-24 right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${aiMenuOpen ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${aiMenuOpen ? 'opacity-0' : 'opacity-100'}`}>
               <div className={`${aiMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg`}>
                 <button
                   type="button"
                   onClick={() => setScale(s => Math.max(1, +(s - 0.25).toFixed(2)))}
                   disabled={scale <= 1}
-                  className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                  className="touch-hit relative p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                   aria-label="Zoom out"
                 >
                   <ZoomOut size={18} />
@@ -330,7 +338,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                 <button
                   type="button"
                   onClick={() => setScale(1)}
-                  className="min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
+                  className="touch-hit relative min-w-[44px] text-center text-xs font-semibold text-white px-1 py-1 rounded-full hover:bg-white/20 transition-colors"
                   aria-label="Reset zoom"
                 >
                   {Math.round(scale * 100)}%
@@ -339,7 +347,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                   type="button"
                   onClick={() => setScale(s => Math.min(3, +(s + 0.25).toFixed(2)))}
                   disabled={scale >= 3}
-                  className="p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                  className="touch-hit relative p-1.5 rounded-full text-white hover:bg-white/20 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                   aria-label="Zoom in"
                 >
                   <ZoomIn size={18} />
@@ -350,7 +358,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
+            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
               {aiToolsControl}
               <button
                 onClick={handleShareBrosur}

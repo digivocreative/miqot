@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X, Star, Footprints, MapPin, ArrowDownAZ } from 'lucide-react';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 interface HotelFilterSheetProps {
   landmark?: string;
@@ -56,6 +57,10 @@ export default function HotelFilterSheet({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Sheet hanya ter-mount selama terbuka → back Android menutup sheet, bukan
+  // meninggalkan daftar hotel.
+  useBackToClose(true, onClose);
+
   return createPortal(
     <>
       <motion.div
@@ -97,7 +102,7 @@ export default function HotelFilterSheet({
           <button
             onClick={onClose}
             aria-label="Tutup"
-            className="w-8 h-8 flex shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-200 dark:hover:bg-slate-600"
+            className="touch-hit relative w-8 h-8 flex shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-200 dark:hover:bg-slate-600"
           >
             <X size={16} />
           </button>
