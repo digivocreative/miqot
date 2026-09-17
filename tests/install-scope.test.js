@@ -60,12 +60,45 @@ test('validasi start di server menolak apa pun di luar bentuk yang dihasilkan kl
   }
 });
 
-test('index.html tidak lagi membuat manifest blob dan main.tsx menukar link manifest', () => {
+// Safari mengambil <link rel="manifest"> saat HTML diurai dan mengabaikan perubahan href
+// dari JS (terbukti di iOS 26 Simulator: dialog Add to Home Screen tetap "/"). Link per
+// konteks dibuat skrip inline di <head> SEBELUM link bawaan build; peramban memakai link
+// manifest pertama. Skrip inline itu duplikat aturan installScope.js → dijaga paritasnya.
+function runInlineManifestScript(pathname, hostname = 'alhijaz.co') {
+  const html = read('index.html');
+  const script = html.match(/<script>\s*\/\/ Manifest per konteks[\s\S]*?<\/script>/)?.[0];
+  assert.ok(script, 'skrip manifest inline tidak ditemukan di index.html');
+  const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
+  const appended = [];
+  const fakeDocument = {
+    createElement: () => ({}),
+    head: { appendChild: (el) => appended.push(el) },
+  };
+  new Function('location', 'document', body)({ hostname, pathname }, fakeDocument);
+  return appended;
+}
+
+test('skrip manifest inline di index.html sepadan dengan resolveInstallStart', () => {
+  for (const path of ['/', '/login', '/dashboard/jamaah', '/f/abc', '/bagas', '/bagas/JBU1504/itinerary', '/bagas/jamaah/abc23/dashboard', '/26SEP2026/doa', '/<script>', '/a.b']) {
+    const expected = resolveInstallStart(path);
+    const links = runInlineManifestScript(path);
+    if (expected === null) {
+      assert.equal(links.length, 0, `${path}: tidak boleh membuat link manifest`);
+    } else {
+      assert.equal(links.length, 1, path);
+      assert.equal(links[0].rel, 'manifest');
+      assert.equal(links[0].href, `/app.webmanifest?start=${encodeURIComponent(expected)}`, path);
+    }
+  }
+  // Custom domain: agent tersirat dari host, manifest generik tetap benar.
+  assert.equal(runInlineManifestScript('/umroh', 'umrohbersamabagas.com').length, 0);
+});
+
+test('index.html tanpa manifest blob; main.tsx tidak lagi menukar href (Safari mengabaikannya)', () => {
   const html = read('index.html');
   const main = read('src/main.tsx');
   assert.doesNotMatch(html, /new Blob\(\[JSON\.stringify\(manifest\)\]/);
-  assert.match(main, /resolveInstallStart\(window\.location\.pathname\)/);
-  assert.match(main, /\/app\.webmanifest\?start=\$\{encodeURIComponent\(installStart\)\}/);
+  assert.doesNotMatch(main, /setAttribute\('href', `\/app\.webmanifest/);
 });
 
 test('server menyajikan manifest per konteks dari manifest hasil build', () => {
