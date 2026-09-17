@@ -20,6 +20,8 @@ import {
   Share2,
 } from 'lucide-react';
 import { getPackages, filterAvailable, sortByDepartureDate } from '@/services';
+import { describeLoadError } from '@/lib/loadError';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import { getAuthHeaders } from './LoginPage';
 import type { UmrohPackage } from '@/types';
 import {
@@ -56,6 +58,22 @@ function setLocalStorageItem(key: string, value: string): void {
     window.localStorage.setItem(key, value);
   } catch {
     // unavailable storage should not block compare page rendering
+  }
+}
+
+/**
+ * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari daftar jadwal di tab
+ * yang sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
+ * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
+ */
+function hasInAppHistory(): boolean {
+  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
+  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
+  if (window.history.length <= 1 || !document.referrer) return false;
+  try {
+    return new URL(document.referrer).origin === window.location.origin;
+  } catch {
+    return false;
   }
 }
 
@@ -323,6 +341,8 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
 }) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
+  // Galat mentah data-service — hanya untuk describeLoadError, jangan dirender.
+  const [packagesError, setPackagesError] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
   const [paketA, setPaketA] = useState('');
   const [paketB, setPaketB] = useState('');
@@ -356,6 +376,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
   // ── Fetch Packages ──
   const fetchPackages = useCallback(async () => {
     setLoadingPackages(true);
+    setPackagesError(null);
     const result = await getPackages({ yearCode: '1448' });
     if (result.success) {
       // Halaman ini alat jualan: paket yang seat-nya habis atau sudah berangkat
@@ -367,6 +388,9 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       const tersedia = filterAvailable(result.packages)
         .filter(p => String(p.keberangkatan.tgl).slice(0, 10) >= hariIni);
       setPackages(sortByDepartureDate(tersedia));
+    } else {
+      // Tanpa ini kedua pemilih paket tampil kosong tanpa penjelasan.
+      setPackagesError(result.error || 'Gagal memuat paket');
     }
     setLoadingPackages(false);
   }, []);
@@ -526,6 +550,11 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
     releasePdf();
   }, [paketA, paketB, tierA, tierB, releasePdf]);
 
+  // Pratinjau PDF menutupi seluruh layar: back Android/iOS menutupnya, bukan
+  // meninggalkan halaman (dan pilihan paket A/B yang sudah disusun).
+  const closeModal = useCallback(() => setShowModal(false), []);
+  useBackToClose(showModal, closeModal);
+
   // Lebar halaman untuk viewer react-pdf, sama seperti modal Kalkulasi.
   useEffect(() => {
     const el = pdfContentRef.current;
@@ -577,21 +606,31 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
       {/* ── STICKY HEADER ── */}
       {!hideHeader && (
-      <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50 shadow-sm">
+      <div className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50 shadow-sm">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
             type="button"
             disabled={isGoingBack}
             onClick={() => {
+              // Dibuka dari daftar jadwal di tab yang sama → mundur, jangan menumpuk
+              // entri baru (back Android berikutnya akan kembali ke sini).
+              if (hasInAppHistory()) {
+                window.history.back();
+                return;
+              }
+              // Dibuka langsung: ganti entri ini dengan daftar paket agent —
+              // /:agent/compare → /:agent, /compare → /.
               setIsGoingBack(true);
               document.body.classList.add('navigating');
-              const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+              const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+              const parent = segments.length >= 2 ? `/${segments[0]}` : '/';
               setTimeout(() => {
-                window.location.href = seg ? `/${seg}?transition=1` : `/?transition=1`;
+                window.location.replace(`${parent}?transition=1`);
               }, 280);
             }}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+            className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
             title="Kembali"
+            aria-label="Kembali"
           >
             {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeft size={18} />}
           </button>
@@ -604,7 +643,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
           <button
             type="button"
             onClick={() => setIsDarkMode(prev => !prev)}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-300 transition-all duration-200 active:scale-95"
+            className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-300 transition-all duration-200 active:scale-95"
             aria-label="Toggle Dark Mode"
           >
             {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
@@ -617,6 +656,25 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       <div className="max-w-3xl mx-auto px-4 pb-10">
         {/* Package Selectors Card */}
         <div className="mt-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+          {packagesError && !loadingPackages && (
+            <div
+              role="alert"
+              className="mb-3 flex items-start gap-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3.5 py-3"
+            >
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-red-500" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-red-700 dark:text-red-300">Daftar paket belum bisa dimuat</p>
+                <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{describeLoadError(packagesError)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { void fetchPackages(); }}
+                className="relative touch-hit flex-shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 active:scale-95 transition-all duration-200"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          )}
           <SearchableSelect
             options={packageOptions}
             value={paketA}
@@ -688,8 +746,8 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
               exit={{ opacity: 0, y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             >
-              {/* ── Kepala Modal ── */}
-              <div className="flex-none flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50">
+              {/* ── Kepala Modal ── (safe-area: layar penuh di app terpasang iOS menyentuh status bar) */}
+              <div className="flex-none flex items-center gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50">
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
                   <FileText size={17} className="text-emerald-600 dark:text-emerald-400" />
                 </div>
@@ -702,7 +760,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-all duration-200 active:scale-95 shrink-0"
+                  className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 transition-all duration-200 active:scale-95 shrink-0"
                   aria-label="Tutup"
                 >
                   <X size={17} />
@@ -769,8 +827,8 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
                 )}
               </div>
 
-              {/* ── Modal Footer ── */}
-              <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              {/* ── Modal Footer ── (safe-area: tombol tidak duduk di atas home indicator) */}
+              <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                 <div className="flex gap-3 max-w-2xl mx-auto">
                   <button
                     onClick={handleSharePdf}

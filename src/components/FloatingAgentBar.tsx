@@ -96,10 +96,12 @@ export default function FloatingAgentBar({ agent, slug, message: messageProp, ev
     ? 'bg-gradient-burgundy hover:brightness-110 shadow-lg shadow-[#8A0F0A]/25'
     : 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20';
 
+  // bottom + safe-area: app terpasang di iOS digambar sampai ke home indicator.
+  // Di Chrome/Android inset = 0, jadi tetap 1.5rem seperti bottom-6 dulu.
   return (
     <div
       className={`
-        fixed bottom-6 left-4 right-4 z-50
+        fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-4 right-4 z-50
         jadwal-shell
         ${shellTone}
         backdrop-blur-md

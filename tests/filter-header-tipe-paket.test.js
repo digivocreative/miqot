@@ -101,8 +101,13 @@ test('filter ikut ke URL lewat SATU penulis, bukan tiap handler', () => {
   // onSecondaryValueChange('') di event yang sama persis setelah
   // onFilterModeChange, jadi pindah Tipe Paket → Landing menulis balik URL ke
   // /tipe-paket padahal modenya sudah bukan itu.
-  const writers = [...app.matchAll(/window\.history\.replaceState\(null, '', (?:next|`\$\{path\})/g)];
+  const writers = [...app.matchAll(/window\.history\.replaceState\((null|window\.history\.state), '', (?:next|`\$\{path\})/g)];
   assert.equal(writers.length, 1, 'penulis URL filter harus tepat satu');
+  // Penulisnya MEMPERTAHANKAN history.state. Sheet Filter menulis filter selagi
+  // terbuka, dan entri riwayatnya (useBackToClose) menyimpan token di state:
+  // null menghapus token → menutup sheet tak membuang entrinya → back berikutnya
+  // "kosong" dan URL mundur ke filter lama.
+  assert.equal(writers[0][1], 'window.history.state', 'penulis URL filter menghapus history.state');
   assert.match(app, /if \(!urlSyncReadyRef\.current\) return;/);
   const handler = app.match(/const handleSecondaryValueChange = [\s\S]*?\n  \};/)?.[0] ?? '';
   assert.notEqual(handler, '', 'handleSecondaryValueChange tidak ditemukan');

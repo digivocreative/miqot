@@ -421,11 +421,16 @@ export function FilterHeader({
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
   const showLandingDropdown = filterMode === 'LANDING DI';
 
+  // pt safe-area di <header> sendiri, BUKAN di padBox: app terpasang di iOS digambar
+  // di bawah status bar, dan tinggi yang diukur publish() dari elemen ini ikut
+  // membawanya ke --filter-header-h — offset <main> & rail tak perlu tahu apa-apa.
+  // Padding ini tak bertransisi, jadi saringan settled transitionend tetap utuh.
   return (
     <header
       ref={headerRef}
       className={`
         fixed top-0 left-0 right-0 z-50
+        pt-[env(safe-area-inset-top)]
         bg-white/85 dark:bg-slate-900/85
         backdrop-blur-lg
         border-b border-gray-200/50 dark:border-slate-700/50
@@ -468,10 +473,11 @@ export function FilterHeader({
            {/* Year Dropdown & Dark Mode Toggle */}
           <div className="flex items-center gap-2">
 
-             {/* Dark Mode Toggle */}
+             {/* Dark Mode Toggle — touch-hit: area ketuk 44px tanpa membesarkan tombol */}
              <button
               onClick={onToggleDarkMode}
               className="
+                relative touch-hit
                 flex items-center justify-center
                 w-[38px] h-[38px] rounded-xl
                 bg-gray-100/80 text-gray-600
@@ -491,6 +497,7 @@ export function FilterHeader({
                  window.location.href = loggedIn ? '/dashboard' : '/login';
                }}
                className="
+                 relative touch-hit
                  flex items-center justify-center
                  w-[38px] h-[38px] rounded-xl
                  bg-gray-100/80 text-gray-600
@@ -670,6 +677,7 @@ export function FilterHeader({
                 <button
                   onClick={handleClearSearch}
                   className="
+                    touch-hit
                     absolute right-2.5 sm:right-3 top-1/2 -translate-y-1/2
                     flex items-center justify-center
                     w-4 h-4 sm:w-5 sm:h-5 rounded-full
@@ -685,11 +693,14 @@ export function FilterHeader({
               )}
             </div>
 
-            {/* Filter Button */}
+            {/* Filter Button — touch-hit: 36px di HP, area ketuknya tetap 44px.
+                Tiga tombol ini berjarak gap-2 (8px): perluasan 4px per sisi pas
+                bertemu di tengah celah, tidak saling tumpuk — dan p-1 pembungkus
+                collapse di atas memberi tepat 4px sebelum overflow-hidden memotong. */}
             <button
               onClick={onToggleFilter}
               className={`
-                relative flex items-center justify-center
+                relative touch-hit flex items-center justify-center
                 w-9 h-9 sm:w-11 sm:h-11 shrink-0
                 bg-gray-100/80 dark:bg-slate-800/80
                 border border-transparent
@@ -712,7 +723,7 @@ export function FilterHeader({
             <button
               onClick={onToggleCompact}
               className={`
-                relative flex items-center justify-center
+                relative touch-hit flex items-center justify-center
                 w-9 h-9 sm:w-11 sm:h-11 shrink-0
                 rounded-xl
                 transition-all duration-200
@@ -740,7 +751,7 @@ export function FilterHeader({
                   dismissAvailabilityHint();
                 }}
                 className={`
-                  relative flex items-center justify-center
+                  relative touch-hit flex items-center justify-center
                   w-9 h-9 sm:w-11 sm:h-11 shrink-0
                   rounded-xl
                   transition-all duration-200

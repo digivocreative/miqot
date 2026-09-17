@@ -3,6 +3,7 @@
 import { X, TicketPercent, Siren } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { type QuickFilterType, type TimeRange } from '@/utils';
+import { useBackToClose } from '@/hooks/useBackToClose';
 
 // ============================================
 // Types
@@ -81,7 +82,12 @@ export function FilterModal({
   returnRanges,
   onReturnRangeChange
 }: FilterModalProps) {
-  
+  // Back Android / gestur iOS menutup sheet, bukan meninggalkan halaman jadwal.
+  // Filter yang diubah di dalam sheet ditulis App ke URL selagi entri riwayat
+  // sheet ini di puncak — App mempertahankan history.state & menulis ulang URL
+  // saat popstate, jadi keduanya tidak saling menimpa (lihat writeFilterUrl).
+  useBackToClose(isOpen, onClose);
+
   const handleSelectQuickFilter = (id: QuickFilterType) => {
     if (selectedFilter === id) {
       onSelectFilter(null); // Toggle off
@@ -140,7 +146,8 @@ export function FilterModal({
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">Filter Cepat</h3>
                 <button
                   onClick={onClose}
-                  className="p-2 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                  aria-label="Tutup"
+                  className="relative touch-hit p-2 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
                 >
                   <X size={20} />
                 </button>
@@ -159,6 +166,7 @@ export function FilterModal({
                     return (
                       <button
                         key={filter.id}
+                        data-quick-filter={filter.id}
                         onClick={() => handleSelectQuickFilter(filter.id)}
                         aria-pressed={isActive}
                         className={`
@@ -229,8 +237,9 @@ export function FilterModal({
 
             </div>
 
-            {/* Footer Actions */}
-            <div className="p-5 border-t border-gray-100 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 pb-8">
+            {/* Footer Actions — pb: 2rem seperti semula, atau 1.25rem (= p-5) di atas
+                home indicator bila itu lebih besar. Di Chrome/Android inset = 0 → tetap 2rem. */}
+            <div className="p-5 border-t border-gray-100 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 pb-[max(2rem,calc(1.25rem+env(safe-area-inset-bottom)))]">
               <div className="flex gap-3">
                 <button
                   onClick={onClose}

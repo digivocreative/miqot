@@ -29,6 +29,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { getPackages } from '@/services';
+import { describeLoadError } from '@/lib/loadError';
 import type { UmrohPackage } from '@/types';
 import {
   cheapestPackageTier,
@@ -51,6 +52,22 @@ function setLocalStorageItem(key: string, value: string): void {
     window.localStorage.setItem(key, value);
   } catch {
     // unavailable storage should not block the calculator
+  }
+}
+
+/**
+ * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari daftar jadwal di tab
+ * yang sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
+ * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
+ */
+function hasInAppHistory(): boolean {
+  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
+  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
+  if (window.history.length <= 1 || !document.referrer) return false;
+  try {
+    return new URL(document.referrer).origin === window.location.origin;
+  } catch {
+    return false;
   }
 }
 
@@ -312,6 +329,8 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
+  // Galat mentah data-service — hanya untuk describeLoadError, jangan dirender.
+  const [packagesError, setPackagesError] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
 
   // ── Dark Mode (synced with App via localStorage) ──
@@ -332,9 +351,13 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
   // Fetch packages from API (year 1448 only)
   const fetchPackages = useCallback(async () => {
     setLoadingPackages(true);
+    setPackagesError(null);
     const result = await getPackages({ yearCode: '1448' });
     if (result.success) {
       setPackages(result.packages);
+    } else {
+      // Tanpa ini dropdown "Cari dan pilih paket..." tampil kosong tanpa penjelasan.
+      setPackagesError(result.error || 'Gagal memuat paket');
     }
     setLoadingPackages(false);
   }, []);
@@ -607,22 +630,33 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
       {/* STICKY HEADER                 */}
       {/* ══════════════════════════════ */}
       {!hideHeader && (
-      <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50">
+      <div className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-700/50">
         <div className="max-w-3xl mx-auto px-5 py-3 flex items-center gap-3">
           <button
             type="button"
             disabled={isGoingBack}
             onClick={() => {
+              // Dibuka dari daftar jadwal di tab yang sama → mundur. Halaman daftar
+              // pulih apa adanya (kartu masih terbuka, posisi gulir sama); href baru
+              // justru menumpuk entri dan back Android berikutnya kembali ke sini.
+              if (hasInAppHistory()) {
+                window.history.back();
+                return;
+              }
+              // Dibuka langsung (link, tab baru): ganti entri ini dengan daftar paket
+              // agent — /:agent/kalkulasi → /:agent, /kalkulasi (domain kustom) → /.
               setIsGoingBack(true);
               document.body.classList.add('navigating');
-              const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
+              const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+              const parent = segments.length >= 2 ? `/${segments[0]}` : '/';
               const expandParam = selectedPackage ? `&expand=${encodeURIComponent(selectedPackage)}` : '';
               setTimeout(() => {
-                window.location.href = seg ? `/${seg}?transition=1${expandParam}` : `/?transition=1${expandParam}`;
+                window.location.replace(`${parent}?transition=1${expandParam}`);
               }, 280);
             }}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+            className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
             title="Kembali"
+            aria-label="Kembali"
           >
             {isGoingBack ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeft size={18} />}
           </button>
@@ -634,7 +668,7 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
           <button
             type="button"
             onClick={() => setIsDarkMode(prev => !prev)}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-300 transition-all duration-200 active:scale-95"
+            className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 dark:text-slate-300 transition-all duration-200 active:scale-95"
             aria-label="Toggle Dark Mode"
           >
             {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
@@ -660,6 +694,25 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
               placeholder="Cari dan pilih paket..."
               loading={loadingPackages}
             />
+            {packagesError && !loadingPackages && (
+              <div
+                role="alert"
+                className="mt-3 flex items-start gap-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3.5 py-3"
+              >
+                <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-red-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-red-700 dark:text-red-300">Daftar paket belum bisa dimuat</p>
+                  <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{describeLoadError(packagesError)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { void fetchPackages(); }}
+                  className="relative touch-hit flex-shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 active:scale-95 transition-all duration-200"
+                >
+                  Coba Lagi
+                </button>
+              </div>
+            )}
           </div>
 
           <AnimatePresence>

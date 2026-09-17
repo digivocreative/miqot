@@ -11,6 +11,7 @@ import logoWhite from '@/logo-alhijaz-white.png';
 import FlightRouteLine from './FlightRouteLine';
 import { getFlightStatusPresentation, normalizeFlightStatus } from '../lib/flightStatusPresentation';
 import { isReturnFlight } from '../lib/flightDirection';
+import { describeLoadError } from '../lib/loadError';
 
 // ── Types ──
 
@@ -111,6 +112,22 @@ const AIRLINE_NAMES: Record<string, string> = {
 // ── Helpers ──
 
 const FLIGHT_SHARE_REFRESH_MS = 30 * 60 * 1000;
+
+/**
+ * Entri riwayat sebelumnya halaman app ini sendiri (dibuka dari dalam app di tab yang
+ * sama)? Salinan persis hasInAppHistory di src/App.tsx — lihat alasannya di sana;
+ * tests/pwa-public-back-navigation.test.js menjalankan keduanya.
+ */
+function hasInAppHistory(): boolean {
+  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
+  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
+  if (window.history.length <= 1 || !document.referrer) return false;
+  try {
+    return new URL(document.referrer).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
 
 function generateArc(start: [number, number], end: [number, number], points = 50): [number, number][] {
   const arc: [number, number][] = [];
@@ -260,8 +277,16 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   const [data, setData] = useState<ShareData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // Muat awal gagal karena jaringan/server — BUKAN bukti link-nya tidak ada. Dulu
+  // jatuh ke "Link tidak ditemukan … kadaluarsa", padahal keluarga jamaah membuka
+  // link ini dari WhatsApp, sering dengan sinyal buruk.
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [copied, setCopied] = useState(false);
+  // Halaman ini kebanyakan dibuka dari link WhatsApp — tak ada "kembali" yang masuk
+  // akal, jadi tombolnya hanya ada kalau dibuka dari dalam app di tab yang sama.
+  const [canGoBack] = useState(hasInAppHistory);
 
   useEffect(() => {
     let disposed = false;
@@ -271,12 +296,18 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
       const isInitialRequest = !initialRequestComplete;
       try {
         const response = await fetch(`/api/flight-share/${code}`, { cache: 'no-store' });
+        // Hanya 404 yang berarti link tak ada; 5xx/429 (sering berbadan HTML dari
+        // proxy) adalah gagal muat.
+        if (!response.ok && response.status !== 404) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const result = await response.json();
         if (disposed) return;
 
         if (result.success) {
           setData(result.data);
           setNotFound(false);
+          setLoadError(null);
 
           if (isInitialRequest) {
             void loadDestinationWeather(result.data.flight.arr_iata).then(nextWeather => {
@@ -286,8 +317,8 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
         } else if (isInitialRequest) {
           setNotFound(true);
         }
-      } catch {
-        if (!disposed && isInitialRequest) setNotFound(true);
+      } catch (error) {
+        if (!disposed && isInitialRequest) setLoadError(error);
       } finally {
         if (isInitialRequest) {
           initialRequestComplete = true;
@@ -305,7 +336,13 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
       disposed = true;
       window.clearInterval(refreshTimer);
     };
-  }, [code]);
+  }, [code, reloadKey]);
+
+  const retryLoad = () => {
+    setLoadError(null);
+    setLoading(true);
+    setReloadKey(key => key + 1);
+  };
 
   // ── Map data ──
   const depCoord = data ? AIRPORT_COORDS[data.flight.dep_iata] : null;
@@ -377,7 +414,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
         {/* Header skeleton */}
         <div className="max-w-lg mx-auto w-full" style={{ background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)' }}>
-          <div className="px-5 pt-4 pb-4 flex items-center justify-between">
+          <div className="px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 flex items-center justify-between">
             <div className="h-7 w-28 rounded bg-white/15 animate-pulse" />
             <div className="h-4 w-32 rounded bg-white/10 animate-pulse" />
           </div>
@@ -480,6 +517,28 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
     );
   }
 
+  // ── Gagal muat (jaringan/server) ──
+  if (loadError && !data) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 flex items-center justify-center px-4">
+        <div role="alert" className="text-center">
+          <div className="w-16 h-16 mx-auto rounded-full bg-gray-100 flex items-center justify-center mb-4">
+            <Plane size={24} className="text-gray-400" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-800 mb-1">Status penerbangan belum bisa dimuat</h1>
+          <p className="text-sm text-gray-500 max-w-xs mx-auto">{describeLoadError(loadError)}</p>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="mt-5 px-5 py-2.5 rounded-xl bg-[#7f1d1d] hover:bg-[#991b1b] text-white text-sm font-semibold active:scale-95 transition-all"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── 404 ──
   if (notFound || !data) {
     return (
@@ -535,9 +594,23 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
         }} />
         {/* Radial glow accent */}
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, #ef4444, transparent 70%)' }} />
-        {/* Layer 1: Brand */}
-        <div className="px-5 pt-4 pb-4 flex items-center justify-between relative z-10">
-          <img src={logoWhite} alt="Alhijaz" className="h-7 w-auto" />
+        {/* Layer 1: Brand — pt safe-area: bar ini menyentuh tepi atas, dan app terpasang
+            di iOS menggambar halaman di bawah status bar */}
+        <div className="px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 flex items-center justify-between relative z-10">
+          <div className="flex items-center gap-2.5">
+            {canGoBack && (
+              <button
+                type="button"
+                onClick={() => window.history.back()}
+                className="relative touch-hit -ml-1 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform"
+                aria-label="Kembali"
+                title="Kembali"
+              >
+                <ArrowLeft size={16} strokeWidth={2.5} className="text-white/70" />
+              </button>
+            )}
+            <img src={logoWhite} alt="Alhijaz" className="h-7 w-auto" />
+          </div>
           <span className="text-white text-sm font-semibold tracking-wide inline-block mt-[-5px]">Status Penerbangan</span>
         </div>
 
@@ -552,7 +625,8 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
           </div>
           <button
             onClick={handleNativeShare}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform"
+            className="relative touch-hit w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-95 transition-transform"
+            aria-label="Bagikan"
           >
             <Share2 size={14} strokeWidth={2.5} className="text-white/70" />
           </button>
@@ -857,7 +931,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
       {/* Copied toast */}
       {copied && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50
+          className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-50
             bg-slate-800 text-white text-xs font-semibold
             px-4 py-2.5 rounded-xl shadow-lg"
           style={{ animation: 'shareToastIn 0.3s ease-out' }}

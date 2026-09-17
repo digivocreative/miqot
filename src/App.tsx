@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
-import { getPackages, refreshPackages } from '@/services';
+import { getPackages, refreshPackages, isPackagesCacheFresh, type GetPackagesResult } from '@/services';
 import {
   filterPackages,
   sortPackages,
@@ -33,6 +33,8 @@ import DetailRail from '@/components/jadwal-rails/DetailRail';
 import { Loader2 } from 'lucide-react';
 import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
+import { describeLoadError } from '@/lib/loadError';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
 
 function getLocalStorageItem(key: string): string | null {
@@ -49,6 +51,76 @@ function setLocalStorageItem(key: string, value: string): void {
   } catch {
     // unavailable storage should not block public schedule rendering
   }
+}
+
+/**
+ * Apakah entri riwayat sebelumnya halaman app ini sendiri (dibuka dari dalam app, di
+ * tab yang sama)? Kalau ya, tombol Kembali cukup `history.back()`: `location.href` ke
+ * induk menumpuk entri baru, dan back Android berikutnya memantul ke halaman ini lagi.
+ *
+ * Navigation API menjawab persis (hanya entri se-origin yang bersambung) — termasuk
+ * saat overlay (useBackToClose) meninggalkan entri maju yang menggelembungkan
+ * history.length. Tanpa API itu: referrer se-origin + riwayat > 1.
+ * Link WhatsApp / tab baru → false.
+ */
+function hasInAppHistory(): boolean {
+  const nav = (window as unknown as { navigation?: { canGoBack?: unknown } }).navigation;
+  if (typeof nav?.canGoBack === 'boolean') return nav.canGoBack;
+  if (window.history.length <= 1 || !document.referrer) return false;
+  try {
+    return new URL(document.referrer).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Refresh latar TERAKHIR yang gagal (revalidasi data tersimpan, interval 30 menit,
+ * atau "Coba lagi"). Dibuang begitu ada refresh yang berhasil.
+ */
+interface RefreshFailure {
+  /** Pesan mentah data-service — hanya untuk describeLoadError, jangan dirender. */
+  error?: string;
+  /** Kapan data yang sedang tampil terakhir diambil dari server (epoch ms). */
+  dataFetchedAt: number | null;
+  /** Data yang tampil sudah melewati TTL cache: kursi & harga bisa sudah berubah. */
+  stale: boolean;
+}
+
+function isStaleNoticeVisible(failure: RefreshFailure | null): failure is RefreshFailure & { dataFetchedAt: number } {
+  return !!failure && failure.stale && failure.dataFetchedAt !== null;
+}
+
+/** "14.05" kalau hari ini, "16 Sep, 14.05" kalau datanya dari hari lain. */
+function formatDataTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Pita kecil di bawah header: data yang tampil dari simpanan lokal dan refresh-nya gagal. */
+function StaleDataNotice({ fetchedAt, retrying, onRetry }: { fetchedAt: number; retrying: boolean; onRetry: () => void }) {
+  return (
+    <div
+      role="status"
+      data-stale-data-notice
+      className="mb-3 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200"
+    >
+      <p className="min-w-0 flex-1 leading-snug">
+        {/* nowrap: di HP sempit baris patah SEBELUM "diperbarui", bukan di tengah "16 Sep, 20.36" */}
+        Menampilkan data tersimpan · <span className="whitespace-nowrap">diperbarui {formatDataTime(fetchedAt)}</span>
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="relative touch-hit shrink-0 font-semibold text-amber-900 hover:underline disabled:opacity-60 disabled:no-underline dark:text-amber-100"
+      >
+        {retrying ? 'Memuat…' : 'Coba lagi'}
+      </button>
+    </div>
+  );
 }
 
 // ============================================
@@ -80,6 +152,11 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Refresh latar gagal (lihat RefreshFailure) + revalidasi yang sedang jalan.
+  const [refreshFailure, setRefreshFailure] = useState<RefreshFailure | null>(null);
+  const [revalidating, setRevalidating] = useState(false);
+  /** Kapan data di layar diambil dari server — sumber "diperbarui <jam>" di pita data tersimpan. */
+  const dataFetchedAtRef = useRef<number | null>(null);
 
   // ============================================
   // Filter State
@@ -336,7 +413,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
    * replaceState (bukan push): filter bukan langkah navigasi, dan tombol Back
    * harus mengembalikan pengunjung ke halaman sebelumnya, bukan menelusuri
    * setiap pilihan filter.
+   *
+   * history.state DIPERTAHANKAN, bukan null: sheet Filter menulis filter selagi
+   * terbuka, dan entri riwayatnya (useBackToClose) menyimpan token di state.
+   * Token terhapus = menutup sheet tidak membuang entrinya, jadi back berikutnya
+   * "kosong" dan URL mundur ke filter lama.
    */
+  const filterUrlRef = useRef<string | null>(null);
+  const writeFilterUrl = useCallback((next: string) => {
+    filterUrlRef.current = next;
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    window.history.replaceState(window.history.state, '', next);
+  }, []);
+
   useEffect(() => {
     if (!urlSyncReadyRef.current) return;
     // Tampilan satu paket (/{agent}/{jadwalId}) memakai path yang sama sekali
@@ -350,10 +439,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       returnRanges: returnTimeRanges,
       sortOrder,
     });
-    const next = `${path}${search}`;
-    if (next === `${window.location.pathname}${window.location.search}`) return;
-    window.history.replaceState(null, '', next);
+    writeFilterUrl(`${path}${search}`);
   }, [
+    writeFilterUrl,
     buildUrlPath,
     singlePackageId,
     filterMode,
@@ -364,6 +452,19 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     returnTimeRanges,
     sortOrder,
   ]);
+
+  // Overlay yang ditutup (back Android, atau tombol yang membuang entrinya lewat
+  // history.back()) mendaratkan riwayat di entri SEBELUM overlay dibuka — URL-nya
+  // masih filter lama kalau filter diubah dari dalam sheet. Filter bukan state
+  // riwayat, jadi URL-lah yang mengikuti state, bukan sebaliknya.
+  useEffect(() => {
+    if (singlePackageId) return;
+    const onPopState = () => {
+      if (filterUrlRef.current) writeFilterUrl(filterUrlRef.current);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [singlePackageId, writeFilterUrl]);
 
   /**
    * Telemetri filter. Sebelum ini halaman jadwal hanya melaporkan page_view dan
@@ -401,6 +502,26 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     buildDatabaseFromPackages(next);
   }, []);
 
+  /**
+   * Satu pintu status refresh latar. Pita "data tersimpan" menyisip/lepas di ATAS
+   * daftar, jadi aturannya sama dengan swap paket: kartu yang sedang dibaca di
+   * tengah daftar tidak boleh ikut terdorong. Di puncak halaman sengaja dibiarkan
+   * mendorong — di sana pitanya justru yang harus terlihat, bukan digulir keluar.
+   * Jangkar hanya dicatat kalau keterlihatan pita BENAR-BENAR berubah: jangkar yang
+   * tak pernah dikonsumsi useLayoutEffect akan meluruskan swap berikutnya ke posisi
+   * basi.
+   */
+  const staleNoticeShownRef = useRef(false);
+  const updateRefreshFailure = useCallback((next: RefreshFailure | null) => {
+    const willShow = isStaleNoticeVisible(next);
+    if (willShow !== staleNoticeShownRef.current) {
+      staleNoticeShownRef.current = willShow;
+      if (window.scrollY > 0) pendingAnchorRef.current = captureListAnchor();
+    }
+    setRefreshFailure(next);
+  }, []);
+  const staleNoticeVisible = isStaleNoticeVisible(refreshFailure);
+
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current;
     if (!anchor) return;
@@ -416,14 +537,45 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     } finally {
       window.setTimeout(endProgrammaticScroll, 150);
     }
-  }, [packages]);
+  }, [packages, staleNoticeVisible]);
+
+  /** Hasil sukses menghapus pita & galat; gagal dicatat — pita menyala kalau data di layar sudah basi. */
+  const noteRefreshResult = useCallback((yearCode: string, result: GetPackagesResult) => {
+    if (result.success) {
+      dataFetchedAtRef.current = Date.now() - (result.cacheAge ?? 0);
+      setError(null);
+      updateRefreshFailure(null);
+      return;
+    }
+    updateRefreshFailure({
+      error: result.error,
+      dataFetchedAt: dataFetchedAtRef.current,
+      stale: !isPackagesCacheFresh(yearCode),
+    });
+  }, [updateRefreshFailure]);
+
+  /** Tarik data segar di latar tanpa mengosongkan daftar (revalidasi cache, "Coba lagi"). */
+  const revalidatePackages = useCallback(async (yearCode: string) => {
+    setRevalidating(true);
+    try {
+      const fresh = await refreshPackages({ yearCode, silent: true });
+      if (fresh.success) {
+        applyPackages(fresh.packages, /* preserveScroll */ true);
+        console.log('[App] Background revalidation complete');
+      }
+      noteRefreshResult(yearCode, fresh);
+    } finally {
+      setRevalidating(false);
+    }
+  }, [applyPackages, noteRefreshResult]);
 
   const fetchPackages = useCallback(async (yearCode: string, silent = false) => {
     if (!silent) {
       setLoading(true);
       setError(null);
+      updateRefreshFailure(null);
     }
-    
+
     // If silent (background refresh), force from API.
     // Non-silent: serve any cache (fresh OR stale) instantly so the listing paints
     // without a blocking spinner; the `fromCache` branch below revalidates stale
@@ -431,32 +583,31 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     const result = silent
       ? await refreshPackages({ yearCode, silent: true })
       : await getPackages({ yearCode, nonBlockingStale: true });
-    
+
     if (result.success) {
       // Muatan non-silent mengganti daftar yang baru saja dikosongkan spinner
       // (atau daftar kosong saat mount) — tidak ada jangkar yang perlu dijaga.
       // Refresh interval 30 menit menukar daftar di bawah mata pengguna: jaga.
       applyPackages(result.packages, /* preserveScroll */ silent);
+      noteRefreshResult(yearCode, result);
 
-      // If data came from stale cache, trigger background API refresh
+      // If data came from cache, revalidate against the API in the background
       if (result.fromCache && !silent) {
-        refreshPackages({ yearCode, silent: true }).then(freshResult => {
-          if (freshResult.success) {
-            applyPackages(freshResult.packages, /* preserveScroll */ true);
-            console.log('[App] Background revalidation complete');
-          }
-        });
+        void revalidatePackages(yearCode);
       }
     } else if (!silent) {
       // Only show error on non-silent fetches
       setError(result.error || 'Gagal memuat data');
       setPackages([]);
+    } else {
+      // Interval 30 menit gagal: data di layar makin tua tanpa ada yang memberi tahu.
+      noteRefreshResult(yearCode, result);
     }
 
     if (!silent) {
       setLoading(false);
     }
-  }, [applyPackages]);
+  }, [applyPackages, noteRefreshResult, revalidatePackages, updateRefreshFailure]);
 
   // Initial fetch, cache init, and refetch on year change
   useEffect(() => {
@@ -832,6 +983,25 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [isWide, expandedCardId]);
 
+  // Detail Tampilan Ringkas menutupi seluruh layar: back Android/iOS menutupnya,
+  // bukan meninggalkan halaman jadwal di baliknya.
+  const closeCompactDetail = useCallback(() => setCompactDetailId(null), []);
+  useBackToClose(compactDetailId !== null, closeCompactDetail);
+
+  // Dipulihkan dari back-forward cache (back Android/iOS, atau tombol Kembali
+  // Kalkulasi/Bandingkan yang kini memakai history.back()): DOM kembali persis
+  // seperti saat ditinggal — termasuk body.navigating dari tirai transisi
+  // PackageCard, yang menutup halaman dengan lapisan buram tak bisa diketuk.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      document.body.classList.remove('navigating');
+      setIsGoingBack(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
   const handleResetFilters = () => {
     setFilterMode('AVAILABLE');
     setFilterSecondaryValue('');
@@ -886,19 +1056,38 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     // On custom domain, host already identifies the agent — go to host root.
     const backHref = isCustomDomain ? '/' : (agentSlug ? `/${agentSlug}` : '/');
 
+    // Paket tak ada di data tersimpan (link paket baru dari WhatsApp, cache lama):
+    // selagi revalidasi jalan, jangan buru-buru bilang "tidak ditemukan".
+    const showSingleLoader = loading || (!singlePkg && revalidating);
+    // "Tidak ditemukan" hanya sah kalau datanya BERHASIL dimuat dari server. Muat
+    // awal gagal, atau paketnya tak ada di data tersimpan dan refresh gagal, belum
+    // membuktikan apa-apa — itu gagal muat (sinyal buruk, server down).
+    const singleLoadFailed = !showSingleLoader && !singlePkg && (error !== null || refreshFailure !== null);
+    const retrySingleLoad = () => {
+      if (error !== null) fetchPackages(selectedYear);
+      else void revalidatePackages(selectedYear);
+    };
+
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-950 dark:to-black transition-colors duration-300">
-        {/* Back Header */}
-        <div className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
+        {/* Back Header — pt safe-area: app terpasang di iOS digambar di bawah status bar */}
+        <div className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
           <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
             <button
               type="button"
               disabled={isGoingBack}
               onClick={() => {
+                // Dibuka dari dalam app → mundur, jangan menumpuk entri baru.
+                if (hasInAppHistory()) {
+                  window.history.back();
+                  return;
+                }
+                // Dibuka langsung (link WhatsApp): ganti entri ini dengan daftar paket,
+                // supaya back berikutnya keluar — bukan memantul ke Detail Paket lagi.
                 setIsGoingBack(true);
-                window.location.href = backHref;
+                window.location.replace(backHref);
               }}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
+              className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 hover:bg-emerald-50 dark:hover:bg-slate-700/80 text-gray-500 dark:text-slate-400 hover:text-emerald-600 transition-all duration-300 active:scale-95"
               title="Kembali"
               aria-label="Kembali"
             >
@@ -909,7 +1098,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         </div>
 
         <main className="max-w-lg mx-auto px-4 pt-4 pb-8">
-          {loading && (
+          {showSingleLoader && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="relative">
                 <div className="w-12 h-12 rounded-full border-4 border-emerald-100"></div>
@@ -919,8 +1108,27 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
             </div>
           )}
 
-          {!loading && !singlePkg && (
-            <div className="text-center py-16">
+          {singleLoadFailed && (
+            <div role="alert" data-load-error className="text-center py-16">
+              <div className="w-20 h-20 mx-auto mb-5 bg-red-50 dark:bg-red-950/40 rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-red-400">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <p className="text-gray-700 dark:text-white font-semibold text-lg mb-1">Paket belum bisa dimuat</p>
+              <p className="text-gray-400 text-sm mb-6 max-w-xs mx-auto">{describeLoadError(error ?? refreshFailure?.error)}</p>
+              <button
+                type="button"
+                onClick={retrySingleLoad}
+                className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 active:scale-95 transition-all shadow-md shadow-emerald-500/20"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          )}
+
+          {!showSingleLoader && !singlePkg && !singleLoadFailed && (
+            <div data-not-found className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-5 bg-gray-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-gray-400">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -929,7 +1137,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
               <p className="text-gray-700 dark:text-white font-semibold text-lg mb-1">Paket tidak ditemukan</p>
               <p className="text-gray-400 text-sm mb-6">Paket yang Anda cari mungkin sudah tidak tersedia.</p>
               <button
-                onClick={() => { window.location.href = agentSlug ? `/${agentSlug}` : '/'; }}
+                // replace: halaman "tidak ditemukan" tak perlu dikunjungi lagi lewat back.
+                onClick={() => { window.location.replace(backHref); }}
                 className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 active:scale-95 transition-all shadow-md shadow-emerald-500/20"
               >
                 Lihat Semua Paket
@@ -937,7 +1146,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
             </div>
           )}
 
-          {!loading && singlePkg && (
+          {!showSingleLoader && singlePkg && staleNoticeVisible && (
+            <StaleDataNotice
+              fetchedAt={refreshFailure.dataFetchedAt}
+              retrying={revalidating}
+              onRetry={() => { void revalidatePackages(selectedYear); }}
+            />
+          )}
+
+          {!showSingleLoader && singlePkg && (
             <div className="-mx-4">
               <PackageCard
                 package={singlePkg}
@@ -1019,23 +1236,32 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           </div>
         )}
 
-        {/* Error State */}
+        {/* Error State — pesan mentah ("HTTP error! status: 503") tak pernah dirender */}
         {error && !loading && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
+          <div role="alert" data-load-error className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-2xl p-6 text-center">
+            <div className="w-12 h-12 mx-auto mb-3 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-6 h-6 text-red-500">
                 <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
               </svg>
             </div>
-            <p className="text-red-700 font-medium mb-1">Gagal Memuat Data</p>
-            <p className="text-red-600 text-sm mb-4">{error}</p>
-            <button 
+            <p className="text-red-700 dark:text-red-300 font-medium mb-1">Gagal Memuat Data</p>
+            <p className="text-red-600 dark:text-red-400 text-sm mb-4">{describeLoadError(error)}</p>
+            <button
               onClick={() => fetchPackages(selectedYear)}
               className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 active:scale-95 transition-all"
             >
               Coba Lagi
             </button>
           </div>
+        )}
+
+        {/* Data tersimpan yang gagal diperbarui — kursi & harga bisa sudah berubah */}
+        {!loading && !error && staleNoticeVisible && (
+          <StaleDataNotice
+            fetchedAt={refreshFailure.dataFetchedAt}
+            retrying={revalidating}
+            onRetry={() => { void revalidatePackages(selectedYear); }}
+          />
         )}
 
         {/* Package List */}
@@ -1180,21 +1406,22 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
           >
             {/* Full Screen Container */}
             <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950">
-              {/* Full PackageCard — tanpa px-4 agar kartu full-bleed */}
-              <div className="max-w-lg mx-auto pt-4 pb-24">
+              {/* Full PackageCard — tanpa px-4 agar kartu full-bleed.
+                  Safe-area: layar penuh di app terpasang iOS menyentuh status bar & home indicator. */}
+              <div className="max-w-lg mx-auto pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))]">
                 <PackageCard
                   package={detailPkg}
                   isExpanded={true}
-                  onToggle={() => setCompactDetailId(null)}
+                  onToggle={closeCompactDetail}
                   agent={currentAgent}
                 />
               </div>
             </div>
 
             {/* Floating Close Button — Bottom Center */}
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center z-20 pointer-events-none">
+            <div className="absolute bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center z-20 pointer-events-none">
               <button
-                onClick={() => setCompactDetailId(null)}
+                onClick={closeCompactDetail}
                 className="
                   pointer-events-auto
                   flex items-center gap-2
