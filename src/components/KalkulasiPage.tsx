@@ -31,8 +31,8 @@ import {
 import { getPackages } from '@/services';
 import { describeLoadError } from '@/lib/loadError';
 import type { UmrohPackage } from '@/types';
-import {
 import { hasInAppHistory } from '../lib/appHistory';
+import {
   cheapestPackageTier,
   packageCityHotels,
   tierHotelInfo,
