@@ -2,6 +2,11 @@ import { StrictMode, lazy, Suspense, Component, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import { resolveInstallStart } from './lib/installScope.js'
+import { decideVersionAction, repairStuckServiceWorker } from './lib/pwa/versionCheck'
+import { markUpdateReady } from './lib/pwa/updateStore'
+import { isStandaloneDisplay, shouldResumeSessionOnLogin } from './lib/pwa/launch'
+import { suppressUnloadGuard } from './lib/unsavedChanges'
+import PwaStatusLayer from './components/pwa/PwaStatusLayer'
 import './index.css'
 import App from './App.tsx'
 
@@ -138,12 +143,35 @@ if (isPwaHost) {
       ?.setAttribute('href', `/app.webmanifest?start=${encodeURIComponent(installStart)}`)
   }
 
+  const reloadPage = () => {
+    suppressUnloadGuard()
+    window.location.reload()
+  }
+
+  // Aktifkan SW yang menunggu lalu muat ulang. workbox-window hanya me-reload sendiri bila
+  // tab ini sudah dikendalikan SW saat didaftarkan; tab kunjungan pertama (SW baru dipasang
+  // di sesi itu) menganggap update berikutnya "eksternal" dan diam saja — tombol
+  // "Muat ulang" jadi tak berefek. Reload sendiri saat controllerchange, dengan batas waktu.
+  const activateWaitingWorker = () => {
+    suppressUnloadGuard()
+    let reloaded = false
+    const reloadOnce = () => {
+      if (reloaded) return
+      reloaded = true
+      window.location.reload()
+    }
+    navigator.serviceWorker?.addEventListener('controllerchange', reloadOnce, { once: true })
+    void updateSW(true)
+    window.setTimeout(reloadOnce, 4000)
+  }
+
+  // Mode "prompt": SW baru menunggu sampai pengguna memilih "Muat ulang" di UpdateToast
+  // (atau semua jendela app ditutup). Dulu autoUpdate me-reload SEMUA tab tanpa peringatan
+  // begitu SW baru aktif, membuang teks yang sedang diketik (audit 2026-09-17).
   const updateSW = registerSW({
+    immediate: true,
     onNeedRefresh() {
-      updateSW(true)
-    },
-    onOfflineReady() {
-      console.log('App ready to work offline')
+      markUpdateReady(activateWaitingWorker)
     },
     onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
       if (!registration) return
@@ -158,19 +186,18 @@ if (isPwaHost) {
         if (document.visibilityState === 'visible') checkForUpdate()
       })
     },
-    immediate: true
   })
 
-  // ── Stuck-SW escape hatch ──────────────────────────────────────────────────
-  // After a deploy the SW's navigateFallback can keep serving a stale precached
-  // shell (made worse by Cloudflare caching *.js immutable), so registration.update()
-  // alone may never take. Poll /api/version (NetworkOnly → always fresh) and, when the
-  // deployed entry chunk differs from the running one, force a CLEAN reload: unregister
-  // the SW + clear caches so the navigation actually hits the new shell. Guarded so it
-  // fires at most once per new build per tab session (no reload loop).
+  // ── Stuck-SW check ─────────────────────────────────────────────────────────
+  // /api/version (tidak pernah di-cache SW) melaporkan entry chunk build yang sedang
+  // di-deploy. Kalau berbeda dari yang berjalan: biarkan jalur Workbox normal bekerja
+  // (SW baru dipasang → ditawarkan lewat toast). Hanya bila TIDAK ada SW baru sama sekali
+  // (SW macet menyajikan shell lama) SW dilepas + cache precache-nya dibuang — cache
+  // runtime tetap, dan muat ulang tetap ditawarkan, bukan dipaksa. Sekali per build per tab.
   const runningEntry = (
     document.querySelector('script[type="module"][src*="/assets/index-"]') as HTMLScriptElement | null
   )?.src.match(/index-[A-Za-z0-9]+\.js/)?.[0] || ''
+  const REPAIRED_KEY = 'sw-repaired-entry'
 
   let versionChecking = false
   const checkBuildVersion = async () => {
@@ -181,18 +208,24 @@ if (isPwaHost) {
       if (!res.ok) return
       const { entry } = (await res.json()) as { entry?: string }
       if (!entry || entry === runningEntry) return
-      const KEY = 'forced-reload-entry'
-      if (storageGet('session', KEY) === entry) return // already tried for this build
-      storageSet('session', KEY, entry)
-      try {
-        const regs = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(regs.map(r => r.unregister()))
-        if (window.caches) {
-          const keys = await caches.keys()
-          await Promise.all(keys.map(k => caches.delete(k)))
-        }
-      } catch { /* ignore */ }
-      window.location.reload()
+      const registration = 'serviceWorker' in navigator
+        ? await navigator.serviceWorker.getRegistration()
+        : undefined
+      await registration?.update().catch(() => { /* offline — ignore */ })
+      const action = decideVersionAction({
+        runningEntry,
+        deployedEntry: entry,
+        swWaiting: !!registration?.waiting,
+        swInstalling: !!registration?.installing,
+        repairedFor: storageGet('session', REPAIRED_KEY),
+      })
+      if (action === 'prompt') {
+        markUpdateReady(registration?.waiting ? activateWaitingWorker : reloadPage)
+      } else if (action === 'repair') {
+        storageSet('session', REPAIRED_KEY, entry)
+        await repairStuckServiceWorker()
+        markUpdateReady(reloadPage)
+      }
     } catch {
       /* offline / network error — ignore */
     } finally {
@@ -266,7 +299,10 @@ import { isSessionValid } from './utils/authUtils'
 const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
 const shouldAutoRedirect = isSessionValid() && currentPath === '/'
 
-if (shouldAutoRedirect) {
+// Di host PWA dashboard dirender langsung oleh bundle yang sama (lihat `page` di bawah):
+// start_url app terpasang = "/", dan location.replace dulu memuat dokumen kedua + boot
+// JS ulang setiap kali app dibuka. Host lain tetap lewat server (custom domain).
+if (shouldAutoRedirect && !isPwaHost) {
   window.location.replace('/dashboard')
 }
 
@@ -300,6 +336,14 @@ function LoginRouter() {
   const [session, setSession] = useState<AuthSession | null>(null)
 
   useEffect(() => {
+    if (shouldResumeSessionOnLogin({
+      standalone: isStandaloneDisplay(),
+      referrer: document.referrer,
+      hasSession: !!getStoredSession(),
+    })) {
+      window.location.replace('/dashboard')
+      return
+    }
     clearSession()
   }, [])
 
@@ -410,7 +454,7 @@ if (isPwaHost && isSsrLandingPath) {
     }
     window.location.reload()
   })()
-} else if (!shouldAutoRedirect) {
+} else if (!shouldAutoRedirect || isPwaHost) {
   void (async () => {
     // Routing for /:slug paths depends on AGENTS_DATA. If the cache doesn't
     // know this slug (cold start or stale cache after a new agent was added),
@@ -460,6 +504,10 @@ if (isPwaHost && isSsrLandingPath) {
       : null
 
     const page = (() => {
+      if (shouldAutoRedirect) {
+        window.history.replaceState(window.history.state, '', `/dashboard${window.location.search}${window.location.hash}`)
+        return <DashboardRouter />
+      }
       if (isLogin) return <LoginRouter />
       if (isRegister) return <RegisterPage />
       if (isResetPassword) return <ResetPasswordPage />
@@ -512,6 +560,9 @@ if (isPwaHost && isSsrLandingPath) {
       }>
         <RenderErrorBoundary fallback={<RouteErrorFallback />}>
           {page}
+        </RenderErrorBoundary>
+        <RenderErrorBoundary fallback={null}>
+          <PwaStatusLayer />
         </RenderErrorBoundary>
         {LocalAgentation ? (
           <RenderErrorBoundary fallback={null}>

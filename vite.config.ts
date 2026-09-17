@@ -420,7 +420,8 @@ export default defineConfig({
     capiDevPlugin(),
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // prompt: SW baru menunggu pilihan pengguna (UpdateToast) alih-alih me-reload semua tab.
+      registerType: 'prompt',
       manifest: {
         // `id` tetap: identitas aplikasi agent tidak lagi ikut berubah mengikuti path.
         // Halaman agent/kloter/portal mendapat id + start_url sendiri lewat
@@ -465,8 +466,8 @@ export default defineConfig({
         // diunduh berurutan oleh setiap pengunjung baru (audit 2026-09-17).
         globPatterns: PRECACHE_GLOB_PATTERNS,
         globIgnores: PRECACHE_GLOB_IGNORES,
-        // Force new SW to take over immediately
-        skipWaiting: true,
+        // Tanpa skipWaiting: SW baru aktif saat pengguna memilih "Muat ulang" atau semua
+        // jendela app tertutup. clientsClaim tetap — kunjungan pertama langsung terkendali SW.
         clientsClaim: true,
         // Serve the precached shell instantly for in-app navigations (no network
         // round-trip for HTML). SW only registers on alhijaz.co, where the SPA

@@ -219,7 +219,7 @@ test('schedule sync invalidates brochure cache in the same upsert as a changed s
   assert.match(sync, /buildBrochureCacheReset\(previousById\.get\(String\(p\.jadwal_id\)\), brochureSource\)/);
 });
 
-test('document source proxy bypasses browser and service-worker stale caches', () => {
+test('document source proxy bypasses browser and service-worker stale caches', async () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const vite = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
   const proxy = server.slice(
@@ -230,7 +230,32 @@ test('document source proxy bypasses browser and service-worker stale caches', (
   assert.match(proxy, /buildSourceDownloadCandidates\(targetUrl\)/);
   assert.match(proxy, /cache: 'no-store'/);
   assert.match(proxy, /res\.set\('Cache-Control', 'no-store'\)/);
-  assert.match(vite, /urlPattern: \/\^\\\/\(itinerary\|brosur\)\\\/\.\*\/i,[\s\S]*?handler: 'NetworkOnly'/);
+
+  // Service worker tidak boleh menyajikan /itinerary/* atau /brosur/* dari cache: byte-nya
+  // bisa berubah tanpa ganti URL. Invariannya diuji lewat perilaku matcher (bukan lagi rute
+  // RegExp NetworkOnly lama, yang tak pernah cocok karena Workbox mencocokkan URL lengkap).
+  const pwa = await import('../src/lib/pwa/buildConfig.js');
+  const matchers = [pwa.isAgentPhotoImage, pwa.isHotelMediaImage, pwa.isSameOriginImage, pwa.isHashedAsset, pwa.isFontRequest];
+  for (const path of ['/itinerary/umrah-plus-turkey.pdf', '/brosur/katalog.jpg', '/itinerary/JBU1504.png']) {
+    const url = new URL(`https://alhijaz.co${path}`);
+    for (const destination of ['document', 'image', 'object', 'iframe', '']) {
+      const input = { request: { destination, mode: destination === 'document' ? 'navigate' : 'no-cors' }, url, sameOrigin: true };
+      for (const matcher of matchers) {
+        assert.equal(matcher(input), false, `${matcher.name} tidak boleh meng-cache ${path} (${destination || 'fetch'})`);
+      }
+    }
+    assert.ok(pwa.NAVIGATE_FALLBACK_DENYLIST.some((re) => re.test(path)), `${path} tidak boleh dijawab shell SPA`);
+  }
+  // Semua rute runtime di vite.config.ts memakai matcher teruji di atas (plus navigasi
+  // NetworkOnly), tidak ada RegExp ad-hoc yang bisa menangkap berkas dokumen.
+  const patterns = [...vite.matchAll(/urlPattern: ([^,\n]+),/g)].map((m) => m[1].trim());
+  assert.ok(patterns.length > 0);
+  for (const pattern of patterns) {
+    assert.ok(
+      ['isAgentPhotoImage', 'isHotelMediaImage', 'isSameOriginImage', 'isHashedAsset', 'isFontRequest', 'isNavigationRequest'].includes(pattern),
+      `urlPattern tak dikenal di vite.config.ts: ${pattern}`,
+    );
+  }
 });
 
 // Salinan CDN dulu (byte-nya yang di-fingerprint), origin sebagai jaring
