@@ -27,6 +27,18 @@ export function manualChunkFor(id) {
   return undefined;
 }
 
+// Data jamaah per kloter (src/lib/kloter/*: nama, umur, nomor HP) mendapat nama
+// chunk tetap supaya bisa dikecualikan dari precache — precache diunduh SETIAP
+// pengunjung. Halaman kloter memuat chunk-nya sendiri (lazy), lalu isHashedAsset
+// menyimpannya di cache runtime. Dipanggil Rollup saat build, bukan diserialisasi.
+const KLOTER_DATA_CHUNK_PREFIX = 'kloter-data-';
+
+export function chunkFileNameFor(chunk) {
+  return chunk.facadeModuleId?.includes('/src/lib/kloter/')
+    ? `assets/${KLOTER_DATA_CHUNK_PREFIX}[name]-[hash].js`
+    : 'assets/[name]-[hash].js';
+}
+
 // Precache = shell aplikasi saja. Gambar OG (untuk crawler), cover brosur, aset
 // WordPress landing, dan vendor berat yang hanya dipakai fitur tertentu diambil
 // saat dibutuhkan lewat runtime cache.
@@ -46,6 +58,7 @@ export const PRECACHE_GLOB_IGNORES = [
   'assets/vendor-recharts-*',
   'assets/jspdf*',
   'assets/html2canvas*',
+  `assets/${KLOTER_DATA_CHUNK_PREFIX}*`,
 ];
 
 // Navigasi yang TIDAK boleh dijawab shell SPA dari service worker. Workbox menguji

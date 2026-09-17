@@ -13,6 +13,7 @@ import { fetchTopPartnerData, isTopPartnerCacheFresh } from './lib/top-partner.j
 // @ts-expect-error — shared JS module used by the production server too
 import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js'
 import {
+  chunkFileNameFor,
   manualChunkFor,
   PRECACHE_GLOB_PATTERNS,
   PRECACHE_GLOB_IGNORES,
@@ -588,6 +589,8 @@ export default defineConfig({
         // runtime bersama (react-dom, tslib, helper preload) punya chunk sendiri
         // supaya entry tidak mengimpor chunk berat itu secara statis.
         manualChunks: manualChunkFor,
+        // Chunk data jamaah per kloter bernama kloter-data-* → dikecualikan dari precache.
+        chunkFileNames: chunkFileNameFor,
       },
     },
   },

@@ -1,5 +1,6 @@
+import type { KloterSubPage } from './kloterSlugs.js';
+
 export type KloterChecklistId = 'wa' | 'nusuk';
-export type KloterSubPage = 'doa' | 'dzikir' | 'itinerary' | 'room-list';
 
 export interface KloterTripInfo {
   kloterLabel: string;
@@ -97,12 +98,7 @@ export interface KloterTrip {
   roomLists: KloterRoomList[];
 }
 
-export const KLOTER_TRIPS: KloterTrip[];
-export const KLOTER_SLUGS: string[];
-export function findKloterTripBySlug(segment: string | null | undefined): KloterTrip | null;
-export const KLOTER_SUB_PAGES: KloterSubPage[];
 export const KLOTER_MENU: KloterMenuItem[];
-export function resolveKloterSubPage(segment: string | null | undefined): KloterSubPage | null;
 export function getKloterSubPagePath(trip: KloterTrip, subPage: KloterSubPage | null): string;
 export const KLOTER_CHECKLIST_ITEMS: KloterChecklistItem[];
 export function isKloterChecked(

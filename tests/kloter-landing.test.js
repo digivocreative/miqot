@@ -1,8 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
+import { minimatch } from 'minimatch';
+import ts from 'typescript';
 import * as kloter from '../src/lib/kloterLanding.js';
+import { PRECACHE_GLOB_IGNORES, PRECACHE_GLOB_PATTERNS, chunkFileNameFor } from '../src/lib/pwa/buildConfig.js';
+import {
+  KLOTER_SLUGS,
+  KLOTER_SUB_PAGES,
+  loadKloterTrip,
+  resolveKloterSlug,
+  resolveKloterSubPage,
+} from '../src/lib/kloterSlugs.js';
+import { KLOTER_TRIPS, findKloterTripBySlug } from '../src/lib/kloterTrips.js';
 import { DOA_CATEGORIES } from '../src/components/portal-jamaah/lib/doaData.ts';
 import { DZIKIR_CATEGORIES } from '../src/components/portal-jamaah/lib/dzikirData.ts';
 import {
@@ -15,17 +26,12 @@ import {
 } from '../src/lib/kloterBacaan.ts';
 
 const {
-  KLOTER_TRIPS,
-  KLOTER_SLUGS,
   KLOTER_CHECKLIST_ITEMS,
   KLOTER_MENU,
-  KLOTER_SUB_PAGES,
   filterKloterGroups,
   findKloterRoomsByName,
-  findKloterTripBySlug,
   getKloterGroups,
   getKloterSubPagePath,
-  resolveKloterSubPage,
 } = kloter;
 
 // Kloter 45 dipakai sebagai fixture asersi spesifik; invarian umum diuji untuk semua kloter.
@@ -184,6 +190,25 @@ test('every kloter in the registry carries its own share metadata and slug rules
   assert.equal(K39.meta.title, 'KLOTER 39 | 12 - 20 SEP 2026 | ALHIJAZ INDOWISATA');
   assert.equal(K39.meta.ogImageUrl, 'https://alhijaz.b-cdn.net/og-kloter39-12sep2026.jpg');
   assert.equal(K39.meta.description, 'Daftar jamaah dan checklist persiapan Kloter 39 Umroh Uhud Reguler (Kereta Cepat), 12 - 20 September 2026 bersama Saudia dan Tour Leader Dyah Ratna.');
+});
+
+test('kloterSlugs.js routes by slug alone and loads one kloter data file on demand', async () => {
+  // Kunci loader ditulis tangan, slug di berkas data dibuat skrip parse:
+  // melenceng = rute klien memuat jamaah kloter lain.
+  for (const slug of KLOTER_SLUGS) {
+    assert.equal((await loadKloterTrip(slug)).slug, slug);
+  }
+  assert.deepEqual(KLOTER_TRIPS.map((trip) => trip.slug), KLOTER_SLUGS);
+  assert.equal((await loadKloterTrip('19SEP2026')).code, 'JBU1505');
+
+  assert.equal(resolveKloterSlug('26SEP2026'), '26sep2026');
+  assert.equal(resolveKloterSlug(' 12sep2026 '), '12sep2026');
+  assert.equal(resolveKloterSlug('nikita'), null);
+  assert.equal(resolveKloterSlug('constructor'), null);
+  assert.equal(resolveKloterSlug(undefined), null);
+
+  await assert.rejects(loadKloterTrip('nikita'), /nikita/);
+  await assert.rejects(loadKloterTrip('constructor'), /constructor/);
 });
 
 test('Kloter 41 data matches the JBU1505 manifest and room list, with age hidden', () => {
@@ -871,7 +896,8 @@ test('Kloter 45 Room List page renders the lists natively with the PDF still one
 test('server.js serves every kloter (and its sub-pages) from the registry', () => {
   const server = read('server.js');
 
-  assert.match(server, /import \{ KLOTER_TRIPS, KLOTER_SUB_PAGES, findKloterTripBySlug \} from '\.\/src\/lib\/kloterLanding\.js';/);
+  assert.match(server, /import \{ KLOTER_TRIPS, findKloterTripBySlug \} from '\.\/src\/lib\/kloterTrips\.js';/);
+  assert.match(server, /import \{ KLOTER_SUB_PAGES \} from '\.\/src\/lib\/kloterSlugs\.js';/);
   assert.match(server, /RESERVED_SPA_SLUGS = new Set\(\[[^\]]*\.\.\.KLOTER_TRIPS\.map\(\(trip\) => trip\.slug\)\]\)/);
   assert.match(server, /function injectKloterMeta\(html, origin, trip, subPath = ''\)/);
   assert.match(server, /const pageUrl = escapeHtmlAttr\(`\$\{origin\}\$\{trip\.publicPath\}\$\{subPath\}`\);/);
@@ -886,10 +912,79 @@ test('server.js serves every kloter (and its sub-pages) from the registry', () =
 test('main.tsx routes every registry slug and its sub-pages before the package fallback', () => {
   const main = read('src/main.tsx');
 
-  assert.match(main, /import \{ KLOTER_SLUGS, findKloterTripBySlug, resolveKloterSubPage \} from '@\/lib\/kloterLanding\.js'/);
-  assert.match(main, /const kloterTrip = findKloterTripBySlug\(segments\[0\]\)/);
-  assert.match(main, /const isKloterLanding = !!kloterTrip\s*&& \(segments\.length === 1 \|\| \(segments\.length === 2 && resolveKloterSubPage\(segments\[1\]\) !== null\)\)/);
+  assert.match(main, /import \{[^}]*\bresolveKloterSlug\b[^}]*\} from '@\/lib\/kloterSlugs\.js'/);
+  assert.match(main, /const kloterSlug = resolveKloterSlug\(segments\[0\]\)/);
+  assert.match(main, /const isKloterLanding = kloterSlug !== null\s*&& \(segments\.length === 1 \|\| \(segments\.length === 2 && resolveKloterSubPage\(segments\[1\]\) !== null\)\)/);
   assert.match(main, /const knownFirstSegments = \[[^\]]*\.\.\.KLOTER_SLUGS\]/);
-  assert.match(main, /if \(isKloterLanding && kloterTrip\) return <KloterLandingPage trip=\{kloterTrip\} initialSubPage=\{resolveKloterSubPage\(segments\[1\]\)\} \/>/);
+  // Komponen + data jamaah SATU kloter dimuat bersamaan di dalam lazy(), jadi
+  // gagal muat jatuh ke Suspense + RenderErrorBoundary yang sama.
+  assert.match(main, /const lazyKloterLandingPage = \(slug: string\) => lazy\(async \(\) => \{\s*const \[\{ default: KloterLandingPage \}, trip\] = await Promise\.all\(\[\s*import\('\.\/components\/KloterLandingPage\.tsx'\),\s*loadKloterTrip\(slug\),\s*\]\)/);
+  assert.match(main, /return <KloterLandingPage \{\.\.\.props\} trip=\{trip\} \/>/);
+  assert.match(main, /if \(isKloterLanding && kloterSlug\) \{\s*const KloterLandingRoute = lazyKloterLandingPage\(kloterSlug\)\s*return <KloterLandingRoute initialSubPage=\{resolveKloterSubPage\(segments\[1\]\)\} \/>/);
   assert.doesNotMatch(main, /Kloter45|'26sep2026'/);
+});
+
+function listSourceFiles(dir) {
+  return readdirSync(join(rootPath, dir), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return listSourceFiles(path);
+    return /\.(?:[cm]?js|jsx|ts|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts') ? [path] : [];
+  });
+}
+
+// Impor STATIS bernilai (bukan `import type`, bukan import() dinamis) ke modul
+// kloter mana pun di src/, dengan target yang sudah di-resolve ke path repo.
+function listStaticKloterImports() {
+  const edges = [];
+  for (const file of listSourceFiles('src')) {
+    const source = read(file);
+    if (!/kloter/i.test(source)) continue;
+    const { statements } = ts.createSourceFile(file, source, ts.ScriptTarget.Latest);
+    for (const statement of statements) {
+      const isValueImport = ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly;
+      const isValueReExport = ts.isExportDeclaration(statement) && !!statement.moduleSpecifier && !statement.isTypeOnly;
+      if (!isValueImport && !isValueReExport) continue;
+      const specifier = statement.moduleSpecifier.text;
+      if (!/kloter/i.test(specifier)) continue;
+      if (specifier.startsWith('@/')) edges.push({ file, target: posix.normalize(`src/${specifier.slice(2)}`) });
+      else if (specifier.startsWith('.')) edges.push({ file, target: posix.join(posix.dirname(file), specifier) });
+    }
+  }
+  return edges;
+}
+
+// Data jamaah per kloter (nama, umur, nomor HP) hanya boleh sampai ke browser
+// lewat import() dinamis. Satu impor statis saja — di main.tsx, komponen, atau
+// helper — menyeretnya ke chunk yang diunduh (dan di-precache) oleh setiap
+// pengunjung halaman mana pun, bukan cuma jamaah kloter itu.
+test('browser code never statically imports per-kloter jamaah data', () => {
+  const edges = listStaticKloterImports();
+  const offenders = edges
+    .filter(({ target }) => target.startsWith('src/lib/kloter/') || /^src\/lib\/kloterTrips(?:\.js)?$/.test(target))
+    .map(({ file, target }) => `${file} -> ${target}`);
+  assert.deepEqual(offenders, []);
+  // Pemindai benar-benar melihat impor statis (tidak lolos karena buta).
+  assert.ok(edges.some(({ file, target }) => file === ROOM_LIST_PAGE_PATH && target === 'src/lib/kloterLanding.js'));
+});
+
+test('vite build keeps per-kloter jamaah data out of the service worker precache', () => {
+  // Nama chunk dari chunkFileNameFor dan pola precache harus sejalan: melenceng
+  // satu = data jamaah diam-diam di-precache (diunduh setiap pengunjung) lagi.
+  const precached = (path) => PRECACHE_GLOB_PATTERNS.some((pattern) => minimatch(path, pattern))
+    && !PRECACHE_GLOB_IGNORES.some((pattern) => minimatch(path, pattern));
+  const builtPath = (chunk) => chunkFileNameFor(chunk).replace('[name]', chunk.name).replace('[hash]', '20ec795c');
+
+  const dataFiles = readdirSync(join(rootPath, 'src/lib/kloter'));
+  assert.ok(dataFiles.length >= 3);
+  for (const file of dataFiles) {
+    const path = builtPath({ facadeModuleId: join(rootPath, 'src/lib/kloter', file), name: file.replace(/\.js$/, '') });
+    assert.equal(precached(path), false, `${path} ikut precache`);
+  }
+  // Chunk lain tetap bernama default dan tetap di-precache (bukan lolos karena semua dikecualikan).
+  const pagePath = builtPath({ facadeModuleId: join(rootPath, COMPONENT_PATH), name: 'KloterLandingPage' });
+  assert.equal(pagePath, 'assets/KloterLandingPage-20ec795c.js');
+  assert.equal(precached(pagePath), true);
+  assert.equal(builtPath({ facadeModuleId: null, name: 'vendor-react' }), 'assets/vendor-react-20ec795c.js');
+
+  assert.match(read('vite.config.ts'), /\n\s+chunkFileNames: chunkFileNameFor,\n/);
 });

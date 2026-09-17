@@ -17,14 +17,13 @@ import {
   getKloterMemberPhone as getMemberPhone,
   getKloterSubPagePath,
   isKloterChecked as isChecked,
-  resolveKloterSubPage,
   type KloterChecklistId,
   type KloterContact,
   type KloterGroup,
   type KloterJamaah,
-  type KloterSubPage,
   type KloterTrip,
 } from '@/lib/kloterLanding.js';
+import { resolveKloterSubPage, type KloterSubPage } from '@/lib/kloterSlugs.js';
 
 type JamaahPrepItem = Partial<Record<KloterChecklistId, boolean>> & { phone?: string };
 type JamaahPrepState = Record<number, JamaahPrepItem>;

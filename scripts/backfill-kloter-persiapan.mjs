@@ -10,7 +10,7 @@
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
-import { KLOTER_TRIPS } from '../src/lib/kloterLanding.js';
+import { KLOTER_TRIPS } from '../src/lib/kloterTrips.js';
 
 const apply = process.argv.includes('--apply');
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY);

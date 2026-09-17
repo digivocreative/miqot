@@ -175,7 +175,8 @@ import {
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
-import { KLOTER_TRIPS, KLOTER_SUB_PAGES, findKloterTripBySlug } from './src/lib/kloterLanding.js';
+import { KLOTER_TRIPS, findKloterTripBySlug } from './src/lib/kloterTrips.js';
+import { KLOTER_SUB_PAGES } from './src/lib/kloterSlugs.js';
 import { isValidInstallStart } from './src/lib/installScope.js';
 import {
   prepareLegacyPaymentRowForUpsert,

@@ -76,6 +76,8 @@ test('precache hanya memuat shell aplikasi', () => {
     'assets/vendor-recharts-c6c9e651.js',
     'assets/jspdf.es.min-2b573246.js',
     'assets/html2canvas.esm-e0a7d97b.js',
+    // Data jamaah per kloter (nama, umur, nomor HP): hanya untuk pengunjung halaman kloter.
+    'assets/kloter-data-kloter45-20ec795c.js',
     'assets/pdf.worker.min-dbcae78a.mjs',
     'og/bagas.png',
     'img-brosur/cover-katalog.png',
