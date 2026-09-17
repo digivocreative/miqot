@@ -7,6 +7,8 @@
 // replaceAppState ke layar induk — supaya back tidak menumpuk entri atau keluar dari app.
 
 const DEPTH_KEY = '__appDepth';
+// Penanda entri overlay milik src/lib/overlayHistory.ts.
+const OVERLAY_KEY = '__overlay';
 
 type StateRecord = Record<string, unknown>;
 
@@ -21,7 +23,11 @@ export function pushAppState(state: StateRecord, url: string): void {
 }
 
 export function replaceAppState(state: StateRecord, url?: string): void {
-  window.history.replaceState({ ...state, [DEPTH_KEY]: currentDepth() }, '', url);
+  // Entri overlay menyalin kedalaman halaman di bawahnya. Kalau entri itu diganti layar
+  // tujuan (navigasi dari dalam modal), layar itu satu langkah di atas halaman tersebut.
+  const current = window.history.state as StateRecord | null;
+  const aboveOverlayPage = typeof current?.[OVERLAY_KEY] === 'string' ? 1 : 0;
+  window.history.replaceState({ ...state, [DEPTH_KEY]: currentDepth() + aboveOverlayPage }, '', url);
 }
 
 export function canGoBackInApp(): boolean {

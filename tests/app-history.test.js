@@ -48,6 +48,22 @@ test('setelah navigasi dalam app, kembali = history.back() (bukan push baru)', (
   assert.equal(canGoBackInApp(), false);
 });
 
+// Entri overlay (src/lib/overlayHistory.ts) menyalin state halaman di bawahnya, termasuk
+// kedalamannya. Navigasi dari dalam modal (mis. "Lihat Semua" → Edit jamaah) MENGGANTI
+// entri overlay itu dengan layar tujuan — layar itu satu langkah di atas halaman daftar.
+// Daftar yang dibuka langsung (shortcut app "Jamaah", kedalaman 0) dulu membuat layar edit
+// ikut berkedalaman 0: Kembali mengganti ke daftar alih-alih mundur, meninggalkan entri
+// daftar kembar yang membuat satu tekan back berikutnya terasa mati.
+test('entri overlay yang diganti layar tujuan dihitung satu langkah di atas halamannya', () => {
+  installFakeHistory('/dashboard/jamaah');
+  window.history.pushState({ ...window.history.state, __overlay: 'overlay-abc-1' }, '', '/dashboard/jamaah');
+  replaceAppState({}, '/dashboard/jamaah/edit/7');
+  assert.equal(canGoBackInApp(), true, 'daftar jamaah masih ada di bawah layar edit');
+  assert.equal(window.history.state.__overlay, undefined, 'penanda overlay tidak terbawa');
+  replaceAppState({}, '/dashboard/jamaah/edit/7?tab=2');
+  assert.equal(window.history.state.__appDepth, 1, 'replace berikutnya tidak menambah lagi');
+});
+
 test('replaceAppState mempertahankan kedalaman entri saat ini dan state tambahan', () => {
   installFakeHistory('/dashboard');
   pushAppState({ tab: 'teras' }, '/dashboard/teras');
