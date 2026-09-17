@@ -176,6 +176,7 @@ import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './l
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import { KLOTER_TRIPS, KLOTER_SUB_PAGES, findKloterTripBySlug } from './src/lib/kloterLanding.js';
+import { isValidInstallStart } from './src/lib/installScope.js';
 import {
   prepareLegacyPaymentRowForUpsert,
 } from './lib/jamaah-payment-provenance.js';
@@ -23790,6 +23791,46 @@ app.get('/agents/:file', async (req, res, next) => {
     return next();
   }
 });
+// Manifest PWA per konteks halaman. Klien (src/main.tsx) menukar <link rel="manifest">
+// ke /app.webmanifest?start=/:slug (halaman agent/kloter) atau /:slug/jamaah (portal)
+// supaya aplikasi yang dipasang dari link agent membuka halaman agent itu — termasuk di
+// iOS, yang mengabaikan manifest blob. Basisnya manifest hasil build (satu sumber:
+// vite.config.ts); `start` divalidasi ulang dengan aturan yang sama dengan klien.
+let _baseManifest = null;
+let _baseManifestMtimeMs = 0;
+function getBaseManifest() {
+  try {
+    const p = resolve(distPath, 'manifest.webmanifest');
+    const mtimeMs = statSync(p).mtimeMs;
+    if (_baseManifest === null || mtimeMs !== _baseManifestMtimeMs) {
+      _baseManifest = JSON.parse(readFileSync(p, 'utf-8'));
+      _baseManifestMtimeMs = mtimeMs;
+    }
+  } catch {
+    // dist/ sedang ditukar deploy — pakai manifest terakhir yang valid.
+  }
+  return _baseManifest;
+}
+
+app.get('/app.webmanifest', (req, res) => {
+  const base = getBaseManifest();
+  if (!base) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(404).type('text/plain').send('Not found');
+  }
+  const start = typeof req.query.start === 'string' ? req.query.start : '';
+  const manifest = { ...base };
+  if (isValidInstallStart(start)) {
+    manifest.id = start;
+    manifest.start_url = start;
+    // Shortcut dashboard hanya relevan untuk aplikasi agent.
+    delete manifest.shortcuts;
+  }
+  res.set('Content-Type', 'application/manifest+json; charset=utf-8');
+  res.set('Cache-Control', 'public, max-age=3600');
+  return res.send(JSON.stringify(manifest));
+});
+
 // maxAge+immutable: kebijakan cache milik origin sendiri — tidak bergantung header
 // injeksi Cloudflare (custom domain tidak melewatinya). Asset ber-hash di assets/
 // aman immutable. TAPI file kontrol PWA (sw.js, manifest, index.html) memakai URL

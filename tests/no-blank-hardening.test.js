@@ -48,7 +48,15 @@ test('custom-domain and service-worker paths keep stale shells from blanking pag
   for (const path of ['/bio', '/bagas/bio', '/bagas/bio?igsh=x', '/bagas/umroh', '/bagas/haji?fbclid=x']) {
     assert.equal(deniedNavigation(path), true, path);
   }
-  assert.match(html, /\(\?:umroh\|haji\|bio\)/);
+  // Skrip bypass di index.html hanya untuk landing server-rendered (umroh/haji) yang
+  // mungkin masih disajikan SW lama. /:slug/bio dan portal /jamaah adalah rute SPA:
+  // me-reload-nya hanya menggandakan muat dokumen (+3 dtk di Slow 4G, audit 2026-09-17).
+  const bypass = html.match(/Bypass service worker[\s\S]*?<\/script>/)?.[0] ?? '';
+  const condition = bypass.match(/\n\s*if \((\/.*\.test\(p\)[^\n]*)\) \{/)?.[1] ?? '';
+  assert.notEqual(condition, '', 'kondisi skrip bypass tidak ditemukan');
+  assert.match(condition, /\(\?:umroh\|haji\)/);
+  assert.doesNotMatch(condition, /bio/);
+  assert.doesNotMatch(condition, /jamaah/);
   assert.match(deploy, /Retaining previous hashed assets/);
   assert.match(deploy, /cp -an dist\/assets\/\. dist_staging\/assets\//);
 });

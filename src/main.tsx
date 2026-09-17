@@ -1,6 +1,7 @@
 import { StrictMode, lazy, Suspense, Component, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
+import { resolveInstallStart } from './lib/installScope.js'
 import './index.css'
 import App from './App.tsx'
 
@@ -114,6 +115,16 @@ const host = window.location.hostname
 const isPwaHost = host === 'alhijaz.co' || host === 'localhost' || host === '127.0.0.1'
 
 if (isPwaHost) {
+  // Identitas aplikasi terpasang per konteks (agent / kloter / portal jamaah): tukar
+  // <link rel="manifest"> ke manifest server dengan `id` + `start_url` konteks itu.
+  // URL asli (bukan blob) — iOS mengabaikan manifest blob dan membuka "/".
+  const installStart = resolveInstallStart(window.location.pathname)
+  if (installStart) {
+    document
+      .querySelector('link[rel="manifest"]')
+      ?.setAttribute('href', `/app.webmanifest?start=${encodeURIComponent(installStart)}`)
+  }
+
   const updateSW = registerSW({
     onNeedRefresh() {
       updateSW(true)

@@ -421,33 +421,41 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
+        // `id` tetap: identitas aplikasi agent tidak lagi ikut berubah mengikuti path.
+        // Halaman agent/kloter/portal mendapat id + start_url sendiri lewat
+        // GET /app.webmanifest?start=… (server.js, src/lib/installScope.js).
+        id: '/',
         name: 'Alhijaz Indowisata',
         short_name: 'Alhijaz',
-        description: 'Jadwal Paket Umroh Alhijaz Indowisata',
-        theme_color: '#001427',
+        description: 'Jadwal paket umroh & haji khusus, kalkulasi harga, dan alat kerja agen Alhijaz Indowisata',
+        lang: 'id',
+        dir: 'ltr',
+        categories: ['travel', 'business'],
+        theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
-        orientation: 'portrait',
+        // Tanpa kunci orientasi: layout tablet/desktop (rail jadwal ≥1024px) harus bisa dipakai.
         scope: '/',
         start_url: '/',
         icons: [
-          {
-            src: '/icon-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: '/icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
+          { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          // Logo di dalam zona aman 80% (scripts/generate-pwa-icons.mjs) — ikon asli
+          // terpotong di launcher Android bermasker bulat.
+          { src: '/icon-maskable-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        shortcuts: [
+          { name: 'Dashboard', short_name: 'Dashboard', url: '/dashboard', icons: [{ src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Data Jamaah', short_name: 'Jamaah', url: '/dashboard/jamaah', icons: [{ src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Teras', short_name: 'Teras', url: '/dashboard/teras', icons: [{ src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' }] },
+          { name: 'Brosur', short_name: 'Brosur', url: '/dashboard/brosur', icons: [{ src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' }] },
+        ],
+        screenshots: [
+          { src: '/screenshots/jadwal-narrow.webp', sizes: '780x1688', type: 'image/webp', form_factor: 'narrow', label: 'Daftar jadwal paket umroh' },
+          { src: '/screenshots/paket-narrow.webp', sizes: '780x1688', type: 'image/webp', form_factor: 'narrow', label: 'Detail paket dan brosur' },
+          { src: '/screenshots/jadwal-wide.webp', sizes: '1280x800', type: 'image/webp', form_factor: 'wide', label: 'Jadwal di layar lebar' },
+        ],
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB — @react-pdf/renderer enlarges the bundle
