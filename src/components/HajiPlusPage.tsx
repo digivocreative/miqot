@@ -5,6 +5,7 @@ import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
 import SimulasiHajiPlus from './SimulasiHajiPlus';
 import { fetchHajiPlusStats, formatSyncedAt, type HajiPlusData, type HajiPlusSeries } from '../lib/fetchHajiPlusStats';
+import { replaceAppState } from '../lib/appHistory';
 
 type HajiPlusTab = 'statistik' | 'simulasi';
 
@@ -193,9 +194,12 @@ export default function HajiPlusPage({ agent: _agent, onExport, initialTab }: Ha
 
   const currentYear = new Date().getFullYear();
 
+  // Ganti tab = ganti URL di tempat (pola sub-tab Settings/Jamaah/Statistik): halaman ini
+  // tak mendengar popstate, jadi entri per tab membuat back mengubah URL tanpa mengubah
+  // tab. replaceAppState menjaga kedalaman riwayat supaya Kembali header tetap mundur.
   const switchTab = (tab: HajiPlusTab) => {
     setActiveTab(tab);
-    window.history.pushState(null, '', `/dashboard/ai-tools/haji-plus/${tab}`);
+    replaceAppState({}, `/dashboard/ai-tools/haji-plus/${tab}`);
   };
 
   const shell = (children: React.ReactNode) => (

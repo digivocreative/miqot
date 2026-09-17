@@ -65,8 +65,9 @@ test('each Haji Plus tab owns a URL that survives a reload', () => {
   const layout = read('src/components/DashboardLayout.tsx');
 
   // Ganti tab harus menulis URL per-tab, bukan memulangkan Statistik ke /haji-plus
-  // (yang di-resolve jadi Simulasi saat reload).
-  assert.match(page, /pushState\([^)]*`\/dashboard\/ai-tools\/haji-plus\/\$\{tab\}`\)/);
+  // (yang di-resolve jadi Simulasi saat reload). Ditulis dengan replaceAppState (audit PWA
+  // 2026-09-17): tab tidak menumpuk entri riwayat, kedalaman back dalam-app tetap terjaga.
+  assert.match(page, /replaceAppState\([^)]*`\/dashboard\/ai-tools\/haji-plus\/\$\{tab\}`\)/);
 
   // ...dan URL itu harus dikenali balik oleh router di tiga tempat yang sinkron.
   // [^\]]* wajib: [\s\S]*? bisa lolos dari literal Set-nya dan mencocokkan

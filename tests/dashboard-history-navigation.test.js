@@ -23,6 +23,8 @@ const FILES = [
   'src/components/FlightStatusCard.tsx',
   'src/components/DashboardProfile.tsx',
   'src/components/HotelKelolaPage.tsx',
+  'src/components/HajiPlusPage.tsx',
+  'src/components/CapiPage.tsx',
 ];
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');

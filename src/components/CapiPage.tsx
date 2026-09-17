@@ -11,6 +11,7 @@ import type { LucideIcon } from 'lucide-react';
 import CapiEventLog from './CapiEventLog';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import { replaceAppState } from '../lib/appHistory';
 
 // ── Types ──
 
@@ -331,12 +332,13 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
     return path.endsWith('/capi/log') ? 'event-log' : 'settings';
   });
 
-  // Sync URL when sub-tab changes
+  // Sync URL when sub-tab changes. Replace (pola sub-tab Settings): Kembali/gestur back
+  // keluar dari halaman, bukan memutar ulang Pengaturan ↔ Log; kedalaman riwayat dijaga.
   const switchCapiView = (view: 'settings' | 'event-log') => {
     setCapiView(view);
     const base = '/dashboard/settings/capi';
     const url = view === 'event-log' ? base + '/log' : base;
-    window.history.pushState(null, '', url);
+    replaceAppState({}, url);
   };
 
   // Listen for popstate (browser back/forward)
