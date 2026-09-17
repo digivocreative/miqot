@@ -14,6 +14,7 @@ import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
+import { canShareFiles, downloadBlob } from '../utils/share';
 
 // ── Animated Counter: smooth count-up between values ──
 function AnimatedCounter({ value, duration = 600 }: { value: number; duration?: number }) {
@@ -175,6 +176,9 @@ function formatUsd(value: number | string | null) {
 // ── Document Viewer with auth proxy ──
 function DocViewerPopup({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  // Blob aslinya disimpan untuk share/unduh: window.open(blob:) tidak berfungsi di app
+  // terpasang iOS (gagal diam-diam) dan fetch ulang URL blob membuang gestur ketuk.
+  const docBlobRef = useRef<Blob | null>(null);
   const [docLoading, setDocLoading] = useState(true);
   const [docError, setDocError] = useState('');
   const [sharing, setSharing] = useState(false);
@@ -204,6 +208,7 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
           blob = await res.blob();
         }
         if (!cancelled) {
+          docBlobRef.current = blob;
           setBlobUrl(URL.createObjectURL(blob));
           setDocLoading(false);
         }
@@ -266,20 +271,23 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
         <div className="shrink-0 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <button
             onClick={async () => {
-              if (navigator.share) {
-                setSharing(true);
-                try {
-                  const res = await fetch(blobUrl);
-                  const blob = await res.blob();
-                  const file = new File([blob], `${title}.pdf`, { type: blob.type });
-                  await navigator.share({ title, files: [file] });
-                } catch (err: any) {
-                  if (err?.name !== 'AbortError') window.open(blobUrl, '_blank');
-                } finally {
-                  setSharing(false);
-                }
-              } else {
-                window.open(blobUrl, '_blank');
+              const blob = docBlobRef.current;
+              if (!blob) return;
+              // Ekstensi mengikuti isi: surat pernyataan disajikan sebagai HTML, bukan PDF.
+              const ext = blob.type.includes('html') ? 'html' : blob.type.includes('pdf') ? 'pdf' : blob.type.startsWith('image/') ? (blob.type.split('/')[1] || 'jpg') : 'bin';
+              const fileName = `${title}.${ext}`;
+              const file = new File([blob], fileName, { type: blob.type });
+              if (!canShareFiles([file])) {
+                downloadBlob(blob, fileName);
+                return;
+              }
+              setSharing(true);
+              try {
+                await navigator.share({ title, files: [file] });
+              } catch (err: any) {
+                if (err?.name !== 'AbortError') downloadBlob(blob, fileName);
+              } finally {
+                setSharing(false);
               }
             }}
             disabled={sharing}
