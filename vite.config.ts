@@ -12,6 +12,18 @@ import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './
 import { fetchTopPartnerData, isTopPartnerCacheFresh } from './lib/top-partner.js'
 // @ts-expect-error — shared JS module used by the production server too
 import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js'
+import {
+  manualChunkFor,
+  PRECACHE_GLOB_PATTERNS,
+  PRECACHE_GLOB_IGNORES,
+  NAVIGATE_FALLBACK_DENYLIST,
+  isAgentPhotoImage,
+  isHotelMediaImage,
+  isSameOriginImage,
+  isHashedAsset,
+  isFontRequest,
+  isNavigationRequest,
+} from './src/lib/pwa/buildConfig.js'
 
 dotenv.config()
 
@@ -408,7 +420,6 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
         name: 'Alhijaz Indowisata',
         short_name: 'Alhijaz',
@@ -440,29 +451,31 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB — @react-pdf/renderer enlarges the bundle
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+        // Precache = shell aplikasi saja (±1 MB terkompresi). Dulu `**/*` ikut
+        // menyedot cover brosur, gambar OG, dan aset WordPress landing: 17,4 MB
+        // diunduh berurutan oleh setiap pengunjung baru (audit 2026-09-17).
+        globPatterns: PRECACHE_GLOB_PATTERNS,
+        globIgnores: PRECACHE_GLOB_IGNORES,
         // Force new SW to take over immediately
         skipWaiting: true,
         clientsClaim: true,
         // Serve the precached shell instantly for in-app navigations (no network
         // round-trip for HTML). SW only registers on alhijaz.co, where the SPA
         // derives the agent from the URL path — so the generic shell is correct.
-        // The denylist routes still hit the server (OG/SSR injection, landing
-        // pages, portal-jamaah meta, dashboard auth shell).
+        // /dashboard, /login dan portal jamaah SENGAJA dilayani shell: server
+        // mengirim HTML generik yang identik, dan tanpa shell app agent tidak
+        // bisa dibuka sama sekali saat offline. Denylist = landing server-rendered
+        // dan berkas (lihat src/lib/pwa/buildConfig.js).
         navigateFallback: '/index.html',
-        // Don't cache API responses in SW
-        navigateFallbackDenylist: [/^\/api/, /\/umroh\/?$/, /\/haji\/?$/, /\/bio\/?$/, /^\/bio\/?$/, /\/brosur/, /\/itinerary/, /^\/agents\//, /^\/login/, /^\/dashboard/, /^\/f\//, /\/jamaah(\/|$)/],
+        navigateFallbackDenylist: NAVIGATE_FALLBACK_DENYLIST,
         runtimeCaching: [
-          {
-            urlPattern: /^\/api\/.*/i,
-            handler: 'NetworkOnly',
-          },
           {
             // Agent photos are immutable per version (1yr Cache-Control + ?v= cache-bust),
             // so serve instantly from cache and revalidate in the background. NetworkFirst
             // made every render wait on the network → stalls + onError→initials on any hiccup.
-            // Matches local /agents/ paths and Supabase Storage URLs (self-hosted sb.alhijaz.co + legacy supabase.co)
-            urlPattern: /(?:^\/agents\/|(?:supabase\.co|sb\.alhijaz\.co)\/storage\/.*agent-photos\/).*\.(?:jpg|jpeg|png|webp)/i,
+            // Matcher berupa fungsi: RegExp Workbox diuji terhadap URL LENGKAP, jadi pola
+            // lama `^\/agents\/` tidak pernah cocok dan cache ini tak pernah terbentuk.
+            urlPattern: isAgentPhotoImage,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'agent-photos',
@@ -489,9 +502,7 @@ export default defineConfig({
             // → fetch ditolak peramban ("Gagal membagikan media") persis setelah
             // fotonya tampil di layar. fetch() dari JS lewat langsung ke CDN
             // (ACAO: *) dan memakai HTTP cache peramban seperti biasa.
-            urlPattern: ({ request, url }: { request: Request; url: URL }) =>
-              request.destination === 'image' &&
-              /^https:\/\/[^/]+\.b-cdn\.net\/(?:hotels|hotel-agent-media)\/.*\.(?:jpg|jpeg|png|webp)/i.test(url.href),
+            urlPattern: isHotelMediaImage,
             handler: 'CacheFirst',
             options: {
               cacheName: 'hotel-media',
@@ -503,11 +514,55 @@ export default defineConfig({
             },
           },
           {
-            // Stable origin paths can change bytes without changing their URL.
-            // Never resurrect an old brochure/itinerary from the service worker;
-            // successful mirrors use immutable, fingerprinted CDN URLs instead.
-            urlPattern: /^\/(itinerary|brosur)\/.*/i,
+            // Gambar same-origin (bendera kartu paket, logo bank, cover brosur) yang
+            // tidak lagi di-precache. /itinerary dan /brosur dikecualikan di matcher:
+            // isinya bisa berubah tanpa ganti URL, jangan pernah dihidupkan dari cache.
+            urlPattern: isSameOriginImage,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'images',
+              cacheableResponse: { statuses: [200] },
+              expiration: {
+                maxEntries: 150,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+              },
+            },
+          },
+          {
+            // Chunk ber-hash yang dikecualikan dari precache (PDF, Leaflet, Recharts):
+            // di-cache saat fitur pertama kali dipakai. URL ber-hash = immutable.
+            urlPattern: isHashedAsset,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'assets',
+              cacheableResponse: { statuses: [200] },
+              expiration: {
+                maxEntries: 60,
+                maxAgeSeconds: 60 * 24 * 60 * 60, // 60 days
+              },
+            },
+          },
+          {
+            // Font brosur/portal selain Inter yang di-precache.
+            urlPattern: isFontRequest,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'fonts',
+              cacheableResponse: { statuses: [200] },
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 365 * 24 * 60 * 60,
+              },
+            },
+          },
+          {
+            // Navigasi yang ada di denylist (landing, bio, berkas) langsung ke jaringan;
+            // saat offline tampilkan halaman offline, bukan halaman error peramban.
+            urlPattern: isNavigationRequest,
             handler: 'NetworkOnly',
+            options: {
+              precacheFallback: { fallbackURL: '/offline.html' },
+            },
           },
         ]
       }
@@ -521,29 +576,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          // Split heavy PDF libraries into separate chunks (loaded on-demand)
-          if (id.includes('@react-pdf/renderer') || id.includes('@react-pdf/')) {
-            return 'vendor-pdf-renderer';
-          }
-          if (id.includes('react-pdf') || id.includes('pdfjs-dist')) {
-            return 'vendor-pdf-viewer';
-          }
-          if (id.includes('framer-motion')) {
-            return 'vendor-framer';
-          }
-          if (id.includes('modern-screenshot')) {
-            return 'vendor-screenshot';
-          }
-          // recharts (Analytics/Statistik/HajiPlus) — only reached via lazy pages
-          if (id.includes('recharts')) {
-            return 'vendor-recharts';
-          }
-          // leaflet + react-leaflet (FlightSharePage / FlightMap only)
-          if (id.includes('leaflet')) {
-            return 'vendor-leaflet';
-          }
-        },
+        // Vendor berat (PDF, Leaflet, Recharts) dipisah & dimuat saat dibutuhkan;
+        // runtime bersama (react-dom, tslib, helper preload) punya chunk sendiri
+        // supaya entry tidak mengimpor chunk berat itu secara statis.
+        manualChunks: manualChunkFor,
       },
     },
   },

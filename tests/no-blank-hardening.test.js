@@ -30,18 +30,24 @@ test('agent schedule tools do not require localStorage to render', () => {
   }
 });
 
-test('custom-domain and service-worker paths keep stale shells from blanking pages', () => {
+test('custom-domain and service-worker paths keep stale shells from blanking pages', async () => {
   const server = read('server.js');
   const vite = read('vite.config.ts');
   const html = read('index.html');
   const deploy = read('deploy.sh');
+  const { NAVIGATE_FALLBACK_DENYLIST } = await import('../src/lib/pwa/buildConfig.js');
+  const deniedNavigation = (path) => NAVIGATE_FALLBACK_DENYLIST.some((re) => re.test(path));
 
   assert.match(server, /function isSharedStaticRequestPath\(path\)/);
   assert.match(server, /if \(isSharedStaticRequestPath\(req\.path \|\| '\/'\)\) return next\(\);/);
   assert.match(server, /async function isCustomDomainDnsHealthyForRedirect\(domain\)/);
   assert.match(server, /if \(!\(await isCustomDomainDnsHealthyForRedirect\(agent\.custom_domain\)\)\) return next\(\);/);
-  assert.match(vite, /\/\\\/bio\\\/\?\$\//);
-  assert.match(vite, /\^\\\/bio\\\/\?\$/);
+  // Halaman bio & landing server-rendered tidak boleh dijawab shell SPA dari SW
+  // (juga saat link membawa query iklan).
+  assert.match(vite, /navigateFallbackDenylist: NAVIGATE_FALLBACK_DENYLIST/);
+  for (const path of ['/bio', '/bagas/bio', '/bagas/bio?igsh=x', '/bagas/umroh', '/bagas/haji?fbclid=x']) {
+    assert.equal(deniedNavigation(path), true, path);
+  }
   assert.match(html, /\(\?:umroh\|haji\|bio\)/);
   assert.match(deploy, /Retaining previous hashed assets/);
   assert.match(deploy, /cp -an dist\/assets\/\. dist_staging\/assets\//);

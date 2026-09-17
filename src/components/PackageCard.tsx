@@ -9,7 +9,8 @@ import { BrochureModal } from './BrochureModal';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
-const ItineraryModal = lazy(() => import('./ItineraryModal').then(m => ({ default: m.ItineraryModal })));
+const loadItineraryModal = () => import('./ItineraryModal');
+const ItineraryModal = lazy(() => loadItineraryModal().then(m => ({ default: m.ItineraryModal })));
 const AskAIModal = lazy(() => import('./AskAIModal'));
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
@@ -157,6 +158,12 @@ function PackageCardImpl({
   const shouldReduceMotion = useReducedMotion();
   const [isBrochureOpen, setIsBrochureOpen] = useState(false);
   const [isItineraryOpen, setIsItineraryOpen] = useState(false);
+  // Modal lazy baru di-mount setelah pertama kali dibuka. Merender <ItineraryModal
+  // isOpen={false}> / <AskAIModal isOpen={false}> saja sudah memicu import chunk-nya
+  // (ItineraryModal menarik vendor PDF ±630 KB) di SETIAP kartu halaman agent.
+  // Tetap ter-mount setelah dibuka pertama kali supaya animasi tutupnya jalan.
+  const [itineraryMounted, setItineraryMounted] = useState(false);
+  const [askAIMounted, setAskAIMounted] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedGradient, setSelectedGradient] = useState(0);
@@ -2052,8 +2059,12 @@ _________________________
                   e.stopPropagation();
                   fireViewContent();
                   trackEvent('action', 'download_itinerary', { paket: pkg.nama });
+                  setItineraryMounted(true);
                   setIsItineraryOpen(true);
                 }}
+                // Mulai unduh chunk modal selagi jari/kursor menuju tombol.
+                onPointerEnter={() => { void loadItineraryModal(); }}
+                onFocus={() => { void loadItineraryModal(); }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:border-slate-700 dark:hover:border-blue-500"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-500 dark:text-blue-400 mb-1">
@@ -2139,6 +2150,7 @@ _________________________
                 onClick={(e) => {
                   e.stopPropagation();
                   fireViewContent();
+                  setAskAIMounted(true);
                   setAskAIOpen(true);
                 }}
                 className="diskusi-ai-border flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 border-transparent transition-transform active:scale-95"
@@ -2171,6 +2183,7 @@ _________________________
               onClick={(e) => {
                 e.stopPropagation();
                 fireViewContent();
+                setAskAIMounted(true);
                 setAskAIOpen(true);
               }}
               className="diskusi-ai-border w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-transparent mb-2 transition-transform active:scale-[0.98]"
@@ -2480,8 +2493,15 @@ _________________________
       )}
 
       {/* Itinerary Modal */}
-      {pkg.itineraryUrl && (
-        <Suspense fallback={null}>
+      {pkg.itineraryUrl && itineraryMounted && (
+        <Suspense
+          fallback={isItineraryOpen ? (
+            <div role="status" aria-live="polite" className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/80 backdrop-blur-sm dark:bg-slate-900/80">
+              <Loader2 size={28} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+              <span className="sr-only">Memuat itinerary…</span>
+            </div>
+          ) : null}
+        >
           <ItineraryModal
             isOpen={isItineraryOpen}
             onClose={() => setIsItineraryOpen(false)}
@@ -2497,7 +2517,7 @@ _________________________
       )}
 
       {/* Tanya AI Modal (agent-mode only) */}
-      {currentAgent && agentSlug && (
+      {currentAgent && agentSlug && askAIMounted && (
         <Suspense fallback={null}>
           <AskAIModal
             isOpen={askAIOpen}
