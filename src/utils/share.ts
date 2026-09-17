@@ -29,7 +29,9 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // iOS menampilkan konfirmasi "Unduh?" dulu; URL blob yang dicabut sebelum pengguna
+  // mengetuk membuat unduhan gagal diam-diam. 60 dtk cukup longgar dan tetap membebaskan memori.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /**
