@@ -5,7 +5,7 @@ import {
   Calendar, Building2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, RefreshCw,
   SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
-  FileText, Download, Share2,
+  FileText, Download, Share2, WifiOff, AlertCircle,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from './LoginPage';
 import FilterDropdown from './FilterDropdown';
@@ -16,6 +16,9 @@ import { trackEvent } from '../utils/analytics';
 import HajiPage from './HajiPage';
 import MagicLinkButton from './dashboard/portal-jamaah-tools/MagicLinkButton';
 import { isUmrahRegisterEnabledForAgent, UMRAH_REGISTER_DISABLED_MESSAGE } from '../lib/umrahRegisterAccess';
+import { pushAppState, replaceAppState } from '../lib/appHistory';
+import { describeLoadError } from '../lib/loadError';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 const UmrohPernyataanPdfPreview = lazy(() => import('./UmrohPernyataanPdfPreview'));
 
@@ -90,7 +93,7 @@ interface JamaahData {
   piutang: number;
 }
 
-type ViewState = 'loading' | 'login' | 'connecting' | 'syncing' | 'data';
+type ViewState = 'loading' | 'login' | 'connecting' | 'syncing' | 'data' | 'unavailable';
 type PaymentFilter = 'semua' | 'belum_dp' | 'belum_lunas' | 'lunas' | 'lebih_bayar';
 type DepartureFilter = 'semua' | '30' | '60' | '90' | 'departed';
 type DocumentFilter = 'semua' | 'paspor_missing' | 'paspor_expiring' | 'documents_incomplete';
@@ -264,8 +267,8 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
       } else {
         downloadBlob(blob, fileName);
       }
-    } catch (err: any) {
-      setError(err.message || 'Gagal mengunduh PDF');
+    } catch {
+      setError('PDF belum bisa diunduh. Coba lagi.');
     } finally {
       setExportingPdf(false);
     }
@@ -282,7 +285,7 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
         setPdfBlob(null);
         const pdfUrl = resolveDocumentFormatUrl(url, 'pdf');
         const res = await fetch(pdfUrl, { headers: { ...getAuthHeaders() }, cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const sourceBlob = await res.blob();
         const blob = sourceBlob.type === 'application/pdf'
           ? sourceBlob
@@ -293,9 +296,9 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
           setBlobUrl(objectUrl);
           setLoading(false);
         }
-      } catch (err: any) {
+      } catch (err) {
         if (!cancelled) {
-          setError(err.message || 'Gagal memuat surat pernyataan');
+          setError(describeLoadError(err));
           setLoading(false);
         }
       }
@@ -314,7 +317,7 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
       exit={{ opacity: 0, y: '100%' }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
+      <div className="flex items-center justify-between px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] border-b border-gray-200 dark:border-slate-700 shrink-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
         <div className="flex flex-col min-w-0">
           <p className="text-sm font-bold text-gray-800 dark:text-white">Surat Pernyataan</p>
           <span className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{jamaahName}</span>
@@ -322,8 +325,9 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
         <button
           type="button"
           onClick={onClose}
-          className="p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
+          className="relative touch-hit p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
           title="Tutup"
+          aria-label="Tutup"
         >
           <X size={20} />
         </button>
@@ -355,7 +359,7 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
       </div>
 
       {blobUrl && pdfBlob && (
-        <div className="shrink-0 p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+        <div className="shrink-0 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <button
             type="button"
             onClick={handleDownloadPdf}
@@ -385,7 +389,7 @@ interface JamaahPageProps {
   initialSubTab?: 'umroh' | 'haji';
   onConnectionChange?: (connected: boolean, user: string) => void;
   onHeaderRight?: (node: React.ReactNode) => void;
-  onNavigate?: (path: string) => void;
+  onNavigate?: (path: string, opts?: { replace?: boolean }) => void;
 }
 
 export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, initialSubTab = 'umroh', onConnectionChange, onHeaderRight, onNavigate }: JamaahPageProps) {
@@ -400,12 +404,20 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     window.alert(UMRAH_REGISTER_DISABLED_MESSAGE);
     return false;
   };
+  // Ada overlay milik halaman ini yang memegang entri riwayat (useBackToClose)?
+  // Diisi tiap render di bawah, dibaca goTo saat dipanggil.
+  const overlayHistoryEntryRef = useRef(false);
   // Fallback for callers that didn't pass onNavigate. Uses pushState +
   // popstate dispatch so DashboardLayout's listener can re-render — avoids
   // window.location.reload() which serves cached HTML via the service worker.
+  // Dari dalam overlay (mis. modal "Lihat Semua" → Edit), entri riwayat overlay
+  // DIGANTI halaman tujuan: kalau ditumpuk, back dari halaman tujuan mendarat di
+  // entri overlay yang sudah tertutup dan back itu terasa mati.
   const goTo = useCallback((path: string) => {
-    if (onNavigate) { onNavigate(path); return; }
-    window.history.pushState({}, '', path);
+    const replace = overlayHistoryEntryRef.current;
+    if (onNavigate) { onNavigate(path, replace ? { replace: true } : undefined); return; }
+    if (replace) replaceAppState({}, path);
+    else pushAppState({}, path);
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, [onNavigate]);
   // Analytics: fire once when the Jamaah page mounts (single source — the menu
@@ -461,6 +473,17 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   // Modal state for "Lihat Semua" on a Belum DP group card
   const [expandedGroupModal, setExpandedGroupModal] = useState<{ idu: string; members: JamaahItem[] } | null>(null);
   const [pernyataanViewer, setPernyataanViewer] = useState<{ url: string; jamaahName: string } | null>(null);
+  // Back Android menutup modal/penampil ini, bukan meninggalkan halaman Jamaah.
+  const closeGroupModal = useCallback(() => setExpandedGroupModal(null), []);
+  const closePernyataanViewer = useCallback(() => setPernyataanViewer(null), []);
+  useBackToClose(expandedGroupModal !== null, closeGroupModal);
+  useBackToClose(pernyataanViewer !== null, closePernyataanViewer);
+  overlayHistoryEntryRef.current = expandedGroupModal !== null || pernyataanViewer !== null;
+  // Galat cek status koneksi (offline / server bermasalah) — BUKAN alasan meminta login.
+  const [statusError, setStatusError] = useState('');
+  // Pesan galat terakhir dari MEMUAT DAFTAR; tombol "Coba lagi" di banner hanya muncul
+  // bila banner sedang menampilkan galat itu (bukan galat sync/login).
+  const listLoadErrorRef = useRef('');
 
   // Per-row refresh (Phase 4 — single-jamaah pull from API resmi)
   const [refreshingJmId, setRefreshingJmId] = useState<string | null>(null);
@@ -506,7 +529,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     // Fire only on an actual switch INTO umroh (not when already on it / re-render).
     if (tab === 'umroh' && subTab !== 'umroh') trackEvent('feature', 'open_jamaah_umroh');
     setSubTab(tab);
-    window.history.replaceState(null, '', `/dashboard/jamaah/${tab}`);
+    replaceAppState({}, `/dashboard/jamaah/${tab}`);
     document.title = tab === 'haji' ? 'Jamaah - Haji' : 'Jamaah';
   }, [subTab]);
 
@@ -716,18 +739,40 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
   const checkStatus = async () => {
     try {
       const res = await fetch('/api/laporan/status', { headers: { ...getAuthHeaders() } });
+      // Hanya penolakan otorisasi (401/403) atau akun yang memang belum punya kredensial
+      // yang boleh berujung ke form login. Dulu galat apa pun — termasuk sinyal hilang —
+      // melempar agent ke form login seolah kredensialnya hilang.
+      if (res.status === 401 || res.status === 403) { setView('login'); return; }
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const result = await res.json();
-      if (result.success && result.data.hasCredentials) {
+      if (!result.success) throw new Error('API returned error status');
+      if (result.data?.hasCredentials) {
         setConnectedUser(result.data.username);
         setView('data');
         onConnectionChange?.(true, result.data.username);
         return;
       }
       setView('login');
-    } catch {
-      setView('login');
+    } catch (err) {
+      setStatusError(describeLoadError(err));
+      setView('unavailable');
     }
   };
+
+  const retryStatus = () => {
+    setStatusError('');
+    setView('loading');
+    checkStatus();
+  };
+
+  // Sinyal kembali saat layar galat tampil → cek ulang tanpa menunggu ketukan.
+  useEffect(() => {
+    if (view !== 'unavailable') return;
+    const onOnline = () => retryStatus();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   // ── Fetch jamaah data from Supabase ──
   const fetchJamaah = useCallback(async (p = page) => {
@@ -746,14 +791,18 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       if (searchQuery) params.set('search', searchQuery);
 
       const res = await fetch(`/api/laporan/jamaah?${params}`, { headers: { ...getAuthHeaders() } });
+      // Status gagal dari server (500 membawa teks galat database mentah) → pesan ramah.
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const result = await res.json();
       if (result.success) {
         setData(result.data);
       } else {
         setError(result.error || 'Gagal memuat data');
       }
-    } catch {
-      setError('Gagal menghubungi server');
+    } catch (err) {
+      const message = describeLoadError(err);
+      listLoadErrorRef.current = message;
+      setError(message);
     }
     setLoadingData(false);
   }, [hijriahYear, paymentFilter, departureFilter, documentFilter, equipmentFilter, notesFilter, packageFilter, searchQuery, sortKey, page]);
@@ -809,7 +858,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       params.delete('sync');
       const newSearch = params.toString();
       const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
-      window.history.replaceState(null, '', newUrl);
+      replaceAppState({}, newUrl);
       handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     }
   }, [view]);
@@ -826,7 +875,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     params.delete('refresh_id_umroh');
     const newSearch = params.toString();
     const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
-    window.history.replaceState(null, '', newUrl);
+    replaceAppState({}, newUrl);
 
     (async () => {
       setBackgroundSyncing(true);
@@ -883,8 +932,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
       // Then trigger sync in background (non-blocking)
       handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
-    } catch {
-      setError('Gagal menghubungi server');
+    } catch (err) {
+      setError(describeLoadError(err));
       setView('login');
     }
   };
@@ -943,8 +992,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       } else {
         setSyncing(false);
       }
-    } catch {
-      setError('Gagal menghubungi server');
+    } catch (err) {
+      setError(describeLoadError(err));
       setSyncing(false);
       if (isFirstSync) setView('data');
     }
@@ -1156,6 +1205,30 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             100% { transform: translateY(-6px); }
           }
         `}</style>
+      </div>
+    );
+  }
+  if (view === 'unavailable') {
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <div role="alert" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm px-5 py-8 text-center">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
+            {offline
+              ? <WifiOff size={20} className="text-amber-500" />
+              : <AlertCircle size={20} className="text-amber-500" />}
+          </div>
+          <p className="text-sm font-bold text-gray-800 dark:text-white">Data jamaah belum bisa dimuat</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">{statusError}</p>
+          <button
+            type="button"
+            onClick={retryStatus}
+            className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 text-sm font-bold text-white shadow-md shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-95"
+          >
+            <RefreshCw size={15} />
+            Coba Lagi
+          </button>
+        </div>
       </div>
     );
   }
@@ -1463,7 +1536,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
           <button
             onClick={() => handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR)}
             disabled={syncing}
-            className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:opacity-70 transition-opacity disabled:opacity-50"
+            className="relative touch-hit flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:opacity-70 transition-opacity disabled:opacity-50"
           >
             <RefreshCw size={10} className={syncing ? 'animate-spin' : ''} />
             {syncing ? 'Syncing...' : 'Sync Ulang'}
@@ -1472,8 +1545,17 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
         {/* Error */}
         {error && (
-          <div className="p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-[11px] text-red-600 dark:text-red-400 font-medium text-center">
+          <div role="alert" className="p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl text-[11px] text-red-600 dark:text-red-400 font-medium text-center">
             {error}
+            {!syncing && error === listLoadErrorRef.current && (
+              <button
+                type="button"
+                onClick={() => fetchJamaah(page)}
+                className="relative touch-hit ml-1.5 font-bold underline underline-offset-2"
+              >
+                Coba lagi
+              </button>
+            )}
           </div>
         )}
 
@@ -2397,7 +2479,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
           >
             <motion.div
               onClick={e => e.stopPropagation()}
-              className="w-full max-w-lg max-h-[85vh] bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+              className="w-full max-w-lg max-h-[85dvh] bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
               initial={{ y: '100%', opacity: 0, scale: 0.98 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: '100%', opacity: 0, scale: 0.98 }}
@@ -2422,13 +2504,15 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                 <button
                   type="button"
                   onClick={() => setExpandedGroupModal(null)}
-                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                  className="relative touch-hit w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
                   title="Tutup"
+                  aria-label="Tutup"
                 >
                   <X size={16} />
                 </button>
               </div>
-              <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700/50">
+              {/* Safe area bawah (sheet menempel dasar layar di HP): baris terakhir bebas home indicator. */}
+              <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700/50 pb-[env(safe-area-inset-bottom)] sm:pb-0">
                 {expandedGroupModal.members.map(m => {
                   const mInitials = (m.nama || '?').split(' ').slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('');
                   const mRing = m.jk === 'P' ? 'ring-2 ring-pink-300' : 'ring-2 ring-blue-300';

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useBackToClose } from '../../../hooks/useBackToClose';
 
 interface Props {
   open: boolean;
@@ -18,6 +19,10 @@ interface Props {
 export default function SheetBase({ open, onClose, title, children, footer }: Props) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+
+  // Back Android menutup sheet (sheet bertumpuk — mis. Pilih Paket di atas Edit Bagian —
+  // masing-masing punya entri riwayat, jadi back menutup yang teratas dulu).
+  useBackToClose(open, onClose);
 
   useEffect(() => {
     if (open) {
@@ -65,7 +70,8 @@ export default function SheetBase({ open, onClose, title, children, footer }: Pr
       {/* Panel */}
       <div
         className={`relative w-full max-w-lg mx-auto bg-white dark:bg-slate-800 rounded-t-2xl shadow-2xl border-t border-gray-100 dark:border-slate-700 transition-transform duration-200 ease-out flex flex-col ${visible ? 'translate-y-0' : 'translate-y-full'}`}
-        style={{ maxHeight: '90vh' }}
+        // dvh: sheet berisi input — saat keyboard muncul, tinggi mengikuti viewport yang terlihat.
+        style={{ maxHeight: '90dvh' }}
       >
         {/* Handle */}
         <div className="flex justify-center pt-2 pb-1 shrink-0">
@@ -77,18 +83,19 @@ export default function SheetBase({ open, onClose, title, children, footer }: Pr
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+            className="relative touch-hit w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
             aria-label="Tutup"
           >
             <X size={16} />
           </button>
         </div>
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        {/* Scrollable body. Safe area bawah dipasang di elemen paling bawah (footer bila
+            ada) supaya isi/tombol tidak tertimpa home indicator iOS. */}
+        <div className={`flex-1 overflow-y-auto px-5 pt-4 ${footer ? 'pb-4' : 'pb-[max(1rem,env(safe-area-inset-bottom))]'}`}>
           {children}
         </div>
         {footer && (
-          <div className="shrink-0 border-t border-gray-100 dark:border-slate-700 px-5 py-3 bg-gray-50 dark:bg-slate-800/80 rounded-b-xl">
+          <div className="shrink-0 border-t border-gray-100 dark:border-slate-700 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-gray-50 dark:bg-slate-800/80 rounded-b-xl">
             {footer}
           </div>
         )}

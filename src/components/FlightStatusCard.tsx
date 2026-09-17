@@ -12,6 +12,8 @@ import { formatFlightNumberCompact } from '../lib/flightNumberFormat';
 import { isReturnFlight } from '../lib/flightDirection';
 import FlightRouteLine from './FlightRouteLine';
 import { compareFlightDepartureTimestamp } from '../../lib/flight-entry-merge.js';
+import { pushAppState } from '../lib/appHistory';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 const FlightMap = lazy(() => import('./FlightMap'));
 
@@ -498,6 +500,12 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
   const [authAlertClosing, setAuthAlertClosing] = useState(false);
   const [jamaahPopup, setJamaahPopup] = useState<string | null>(null);
   const [jamaahPopupClosing, setJamaahPopupClosing] = useState(false);
+  const closeJamaahPopup = useCallback(() => {
+    setJamaahPopupClosing(true);
+    setTimeout(() => { setJamaahPopup(null); setJamaahPopupClosing(false); }, 200);
+  }, []);
+  // Back Android menutup sheet "Jamaah Saya", bukan meninggalkan dashboard.
+  useBackToClose(jamaahPopup !== null && !jamaahPopupClosing, closeJamaahPopup);
 
   // Pre-generated share URL cache: flightKey → url
   const shareCache = useRef<Record<string, string>>({});
@@ -1096,7 +1104,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                   setTimeout(() => {
                     setShowAuthAlert(false);
                     setAuthAlertClosing(false);
-                    window.history.pushState({ tab: 'jamaah' }, '', '/dashboard/jamaah');
+                    pushAppState({ tab: 'jamaah' }, '/dashboard/jamaah');
                     window.dispatchEvent(new PopStateEvent('popstate'));
                   }, 200);
                 }}
@@ -1119,10 +1127,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         const jamaahList = popupFlight?.jamaah || [];
         if (jamaahList.length === 0) return null;
 
-        const closePopup = () => {
-          setJamaahPopupClosing(true);
-          setTimeout(() => { setJamaahPopup(null); setJamaahPopupClosing(false); }, 200);
-        };
+        const closePopup = closeJamaahPopup;
 
         return (
           <div
@@ -1158,14 +1163,16 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                 </div>
                 <button
                   onClick={closePopup}
-                  className="w-8 h-8 rounded-xl bg-gray-100/80 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                  aria-label="Tutup"
+                  className="relative touch-hit w-8 h-8 rounded-xl bg-gray-100/80 dark:bg-slate-700 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
 
               {/* List */}
-              <div className="px-4 pb-5 overflow-y-auto" style={{ maxHeight: 'calc(70vh - 100px)' }}>
+              {/* Safe area bawah: baris terakhir tidak tertimpa home indicator iOS. */}
+              <div className="px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] overflow-y-auto" style={{ maxHeight: 'calc(70vh - 100px)' }}>
                 <div className="flex flex-col">
                   {jamaahList.map((j, idx) => {
                     const initials = (j.nama || '')

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import type { Birthday } from './BirthdayWidget';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 interface Props {
   birthdays: Birthday[];
@@ -25,6 +26,10 @@ function formatBerangkat(iso: string): string {
 }
 
 export default function BirthdayListSheet({ birthdays, onClose, onSelectJamaah }: Props) {
+  // Back Android menutup sheet ini. Sheet detail yang ditumpuk di atasnya punya entri
+  // riwayat sendiri, jadi back dari detail kembali ke daftar ini dulu.
+  useBackToClose(true, onClose);
+
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -55,7 +60,7 @@ export default function BirthdayListSheet({ birthdays, onClose, onSelectJamaah }
       />
 
       <motion.div
-        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85vh] overflow-y-auto shadow-2xl"
+        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85dvh] overflow-y-auto shadow-2xl"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
@@ -78,14 +83,15 @@ export default function BirthdayListSheet({ birthdays, onClose, onSelectJamaah }
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
+            className="relative touch-hit w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
             aria-label="Tutup"
           >
             <X size={16} />
           </button>
         </div>
 
-        <div className="pb-4">
+        {/* Safe area bawah: baris terakhir tidak tertimpa home indicator iOS. */}
+        <div className="pb-[max(1rem,env(safe-area-inset-bottom))]">
           {grouped.map(({ offset, items }) => {
             const dateLabel = formatIndoDate(items[0].birthday_date);
             return (

@@ -283,13 +283,16 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
       } else {
-        // Fallback: download
+        // Fallback: download. URL blob dicabut belakangan — Safari (terutama app
+        // terpasang) masih membacanya setelah klik; dicabut seketika = unduhan gagal.
         const url = URL.createObjectURL(previewBlob);
         const link = document.createElement('a');
         link.download = fileName;
         link.href = url;
+        document.body.appendChild(link);
         link.click();
-        URL.revokeObjectURL(url);
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {

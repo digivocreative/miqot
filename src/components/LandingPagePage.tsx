@@ -15,6 +15,9 @@ import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';
 // Aturan validasi dipakai bersama dengan server (PUT /api/landing-config)
 // supaya yang divalidasi di layar persis yang diterima server.
 import { TRACKING_SCRIPT_LIMIT, trackingScriptError } from '../../lib/landing-tracking-script.js';
+import { pushAppState, replaceAppState } from '../lib/appHistory';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -82,6 +85,14 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// Pesan toast galat: Error yang dilempar sendiri (pesan server / fallback) tampil apa adanya;
+// galat jaringan/parsing ("Failed to fetch", "Unexpected token <") diganti pesan ramah.
+function toastErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.constructor === Error && err.message) return err.message;
+  const message = describeLoadError(err);
+  return message === LOAD_ERROR_MESSAGES.generic ? fallback : message;
+}
+
 function counterColor(len: number, max: number): string {
   if (len > max) return 'text-red-500';
   if (len >= max * 0.9) return 'text-amber-500 dark:text-amber-400';
@@ -124,7 +135,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
     }
     if (onNavigate) onNavigate('/dashboard/ai-tools/landing-page/custom-domain');
     else {
-      window.history.pushState({}, '', '/dashboard/ai-tools/landing-page/custom-domain');
+      pushAppState({}, '/dashboard/ai-tools/landing-page/custom-domain');
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
   }, [customDomainEnabled, onNavigate]);
@@ -146,13 +157,15 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
   const [currentMeta, setCurrentMeta] = useState<CurrentMetaState | null>(null);
   const [activeType, setActiveType] = useState<ActiveTab>(getLandingTabFromPath);
 
-  // Push state on tab change so reload/back keeps the user on the active tab
+  // Tab ikut URL supaya muat ulang tetap di tab yang sama. Ganti tab = REPLACE (pola sub-tab
+  // Jamaah/Statistik/Settings): Kembali di header dan gestur back Android sama-sama keluar
+  // dari halaman ini, bukan memutar ulang Umroh/Haji/Bio yang pernah dibuka.
   const switchTab = useCallback((tab: ActiveTab) => {
     setActiveType(tab);
     const newPath = `/dashboard/ai-tools/landing-page/${tab}`;
     if (typeof window !== 'undefined' && window.location.pathname !== newPath) {
-      if (onNavigate) onNavigate(newPath);
-      else window.history.pushState({}, '', newPath);
+      if (onNavigate) onNavigate(newPath, { replace: true });
+      else replaceAppState({}, newPath);
     }
   }, [onNavigate]);
 
@@ -168,7 +181,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
     const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
     const hasTabSegment = segments.length >= 4 && segments[2] === 'landing-page';
     if (!hasTabSegment) {
-      window.history.replaceState({}, '', `/dashboard/ai-tools/landing-page/${activeType}`);
+      replaceAppState({}, `/dashboard/ai-tools/landing-page/${activeType}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -189,8 +202,9 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
     setLoadError(null);
     try {
       const res = await fetch('/api/landing-config', { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat');
+      if (!json.success) throw new Error('API returned error status');
       const raw = json.data || {};
       const state: ConfigState = {
         umroh: buildDraft(raw.umroh),
@@ -200,8 +214,9 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       setDraft({ umroh: { ...state.umroh }, haji: { ...state.haji } });
       setDefaults(json.defaults);
       setCurrentMeta(json.currentMeta);
-    } catch (err: any) {
-      setLoadError(err.message || 'Terjadi kesalahan');
+    } catch (err) {
+      // Bukan Error.message mentah ("Unexpected token <", "Failed to fetch").
+      setLoadError(describeLoadError(err));
     } finally {
       setLoading(false);
     }
@@ -220,6 +235,9 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       draft.haji.tracking_script !== loaded.haji.tracking_script
     );
   }, [loaded, draft]);
+  // Sinyal yang sama dengan bar "Simpan Perubahan": muat ulang (versi baru / tak sengaja)
+  // minta konfirmasi dulu. Tetap aktif di tab Bio — draf Umroh/Haji belum tersimpan.
+  useUnsavedChanges('landing-config', textDirty);
 
   const hasValidationError = useMemo(() => {
     if (!draft) return false;
@@ -279,7 +297,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       showToast('Perubahan tersimpan', 'success');
       trackEvent('action', 'landing_config_saved');
     } catch (err: any) {
-      showToast(err.message || 'Gagal menyimpan', 'error');
+      showToast(toastErrorMessage(err, 'Gagal menyimpan'), 'error');
     } finally {
       setSaving(false);
     }
@@ -322,7 +340,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       setDraft(prev => prev ? { ...prev, [type]: { ...prev[type], og_image_url: json.og_image_url } } : prev);
       showToast('Gambar berhasil diunggah', 'success');
     } catch (err: any) {
-      showToast(err.message || 'Upload gagal', 'error');
+      showToast(toastErrorMessage(err, 'Upload gagal'), 'error');
     } finally {
       setUploading(null);
     }
@@ -343,7 +361,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       setDraft(prev => prev ? { ...prev, [type]: { ...prev[type], og_image_url: null } } : prev);
       showToast('Gambar dikembalikan ke default', 'success');
     } catch (err: any) {
-      showToast(err.message || 'Gagal', 'error');
+      showToast(toastErrorMessage(err, 'Gagal mengembalikan gambar'), 'error');
     } finally {
       setUploading(null);
     }
@@ -374,7 +392,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       await fetchConfig();
       showToast('Kembali ke default', 'success');
     } catch (err: any) {
-      showToast(err.message || 'Reset gagal', 'error');
+      showToast(toastErrorMessage(err, 'Reset gagal'), 'error');
     } finally {
       setResetting(curr => (curr === type ? null : curr));
     }
@@ -500,7 +518,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       {/* Sticky save bar — hidden on Bio tab (Bio has its own auto-save) */}
       {textDirty && activeType !== 'bio' && (
         <div className="fixed inset-x-0 bottom-0 z-40 pointer-events-none">
-          <div className="max-w-lg mx-auto px-4 pb-4 pointer-events-auto">
+          <div className="max-w-lg mx-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pointer-events-auto">
             <div className="backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border border-gray-100 dark:border-slate-700 rounded-2xl shadow-lg p-2">
               <button
                 onClick={handleSave}

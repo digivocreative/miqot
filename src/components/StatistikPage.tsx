@@ -7,7 +7,9 @@ import { getAuthHeaders } from './LoginPage';
 import PinInput from './PinInput';
 import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';
-import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import { DASHBOARD_SUBPAGE_HEADER_OFFSET, dashboardViewportBelowHeader } from '../constants/dashboard-chrome';
+import { backOr, pushAppState, replaceAppState } from '../lib/appHistory';
+import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, CartesianGrid,
@@ -497,6 +499,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       const yr = year !== undefined ? year : selectedYear;
       if (yr) params.set('year', yr);
       const res = await fetch(`/api/laporan/stats?${params}`, { headers: { ...getAuthHeaders() } });
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const result = await res.json();
       if (result.success) {
         setData(result.data);
@@ -504,8 +507,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       } else {
         setError(result.error || 'Gagal memuat statistik');
       }
-    } catch {
-      setError('Gagal menghubungi server');
+    } catch (err) {
+      // Offline / server bermasalah → pesan yang bisa ditindaklanjuti, bukan teks teknis.
+      setError(describeLoadError(err));
     }
     setLoading(false);
   }, [selectedYear]);
@@ -736,7 +740,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {pinGateActive ? (
       /* ── PIN Gate View ── */
-      <main className="max-w-lg mx-auto px-4 flex flex-col items-center" style={{ minHeight: 'calc(100vh - 53px)' }}>
+      <main className="max-w-lg mx-auto px-4 flex flex-col items-center" style={{ minHeight: dashboardViewportBelowHeader() }}>
         <div className="flex-1 flex flex-col items-center justify-center w-full pb-8">
           <div className="w-12 h-12 rounded-full bg-emerald-50/80 dark:bg-emerald-500/[0.06] border border-emerald-200 dark:border-emerald-500/[0.12] flex items-center justify-center mb-4">
             <Lock size={20} className="text-emerald-600 dark:text-emerald-400" />
@@ -749,16 +753,21 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           <p className="text-[11px] text-gray-400 dark:text-slate-600 mt-7">
             Lupa PIN?{' '}
             <button onClick={() => {
-              window.history.pushState({ tab: 'settings' }, '', '/dashboard/settings#pin-keamanan');
+              pushAppState({ tab: 'settings' }, '/dashboard/settings#pin-keamanan');
               window.dispatchEvent(new PopStateEvent('popstate'));
             }} className="text-gray-500 dark:text-slate-500 underline underline-offset-2">
               Nonaktifkan di Profil
             </button>
           </p>
         </div>
-        <div className="w-full pb-6">
+        <div className="w-full pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <button
-            onClick={() => window.history.back()}
+            // Tanpa riwayat dalam-app (Statistik dibuka langsung / app baru diluncurkan)
+            // history.back() polos keluar dari app — pulang ke dashboard saja.
+            onClick={() => backOr(() => {
+              replaceAppState({ tab: 'home' }, '/dashboard');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            })}
             className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 active:scale-[0.97] transition-all"
           >
             <ArrowLeft size={15} />
@@ -793,7 +802,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── Tab Bar (Umroh + Haji always; Tren admin-only) ── */}
       <div
-        style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+        style={{ top: DASHBOARD_SUBPAGE_HEADER_OFFSET }}
         className="sticky z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700"
       >
         <div className="px-4 py-2">
@@ -811,7 +820,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
                   const slug = tab.id === 'tren' ? '/dashboard/statistik/tren-daftar'
                     : tab.id === 'haji' ? '/dashboard/statistik/haji'
                     : '/dashboard/statistik';
-                  window.history.replaceState({ tab: 'statistik' }, '', slug);
+                  replaceAppState({ tab: 'statistik' }, slug);
                 }}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg transition-all duration-200 active:opacity-70 ${
                     active ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-500 dark:text-emerald-400 font-semibold' : 'bg-transparent text-gray-400 dark:text-slate-500 font-medium'

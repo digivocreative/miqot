@@ -5,6 +5,8 @@ import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import FilterDropdown from './FilterDropdown';
 import JamaahEditSkeleton from './JamaahEditSkeleton';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
 
 type EditOption = { value: string; label: string };
 
@@ -185,6 +187,8 @@ export default function JamaahEditPage({
 }) {
   const rowId = useMemo(getRowIdFromPath, []);
   const [form, setForm] = useState<EditForm>(EMPTY_FORM);
+  // Isian sesuai data server saat dimuat; null = belum termuat (belum ada yang bisa hilang).
+  const [loadedForm, setLoadedForm] = useState<EditForm | null>(null);
   const [hidden, setHidden] = useState<HiddenLegacyFields>(EMPTY_HIDDEN);
   const [meta, setMeta] = useState<EditMeta>({
     values: {},
@@ -197,6 +201,10 @@ export default function JamaahEditPage({
 
   const disabled = loading || saving;
   const fullName = combineFullName(form);
+  // Muat ulang (versi baru / tak sengaja) selagi ada ketikan yang belum disimpan → konfirmasi.
+  const dirty = loadedForm !== null
+    && (Object.keys(form) as (keyof EditForm)[]).some(key => form[key] !== loadedForm[key]);
+  useUnsavedChanges('jamaah-edit', dirty);
 
   // Analytics: fire once when the edit page mounts. Ref-guarded against double-fire.
   const openTracked = useRef(false);
@@ -227,6 +235,11 @@ export default function JamaahEditPage({
         });
         const result = await res.json().catch(() => ({}));
         if (cancelled) return;
+        if (!res.ok && !result.error) {
+          // Tanpa pesan dari server (mis. halaman galat proxy) → pesan ramah, bukan kosong.
+          setError(describeLoadError(new Error(`HTTP error! status: ${res.status}`)));
+          return;
+        }
         if (!res.ok || !result.success) {
           setError(result.error || 'Gagal memuat data jamaah');
           return;
@@ -239,12 +252,14 @@ export default function JamaahEditPage({
             diskonMarketing: String(result.data?.readOnly?.diskonMarketing ?? '0'),
           },
         });
-        setForm(buildForm(values));
+        const initialForm = buildForm(values);
+        setForm(initialForm);
+        setLoadedForm(initialForm);
         setHidden(buildHidden(values));
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to load jamaah edit page:', err);
-          setError('Gagal menghubungi server');
+          setError(describeLoadError(err));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -362,7 +377,9 @@ export default function JamaahEditPage({
       else onBack();
     } catch (err) {
       console.error('Failed to save jamaah edit page:', err);
-      setError('Gagal menghubungi server');
+      // Offline / server lambat → pesan yang bisa ditindaklanjuti; isian tetap di layar.
+      const message = describeLoadError(err);
+      setError(message === LOAD_ERROR_MESSAGES.generic ? 'Perubahan belum tersimpan. Coba lagi.' : message);
     } finally {
       setSaving(false);
     }
@@ -428,7 +445,7 @@ export default function JamaahEditPage({
           </div>
         </section>
 
-        <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-gray-100 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-gray-100 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
           {saving ? (
             <div
               className="relative flex h-12 w-full items-center gap-3 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 px-3 dark:border-emerald-800/60 dark:bg-emerald-900/20"

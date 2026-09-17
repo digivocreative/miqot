@@ -7,6 +7,20 @@ import PinInput from './PinInput';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
 import { trackEvent } from '../utils/analytics';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
+import { replaceAppState } from '../lib/appHistory';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+
+// Buka link t.me DI LUAR jendela app (setara target="_blank" rel="noopener noreferrer"):
+// navigasi same-window di app terpasang meninggalkan dashboard. Link baru didapat setelah
+// fetch, jadi window.open bisa diblokir peramban — bila begitu, jatuh ke navigasi biasa.
+function openExternalLink(url: string): void {
+  const opened = window.open(url, '_blank');
+  if (opened) {
+    try { opened.opener = null; } catch { /* lintas-origin: abaikan */ }
+    return;
+  }
+  window.location.href = url;
+}
 
 interface AgentProfile {
   slug: string;
@@ -490,7 +504,9 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                 }
                 if (json.success) {
                   trackEvent('action', 'connect_telegram');
-                  window.location.href = json.data.deepLink;
+                  openExternalLink(json.data.deepLink);
+                  // Dashboard tetap terbuka; status disegarkan saat pengguna kembali (visibilitychange).
+                  setTelegramLoading(false);
                 } else {
                   setTelegramLoading(false);
                 }
@@ -1136,6 +1152,9 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   const [slugError, setSlugError] = useState('');
   const [slugCooldown, setSlugCooldown] = useState<{ canChange: boolean; nextChangeDate: string | null; isAdmin?: boolean }>({ canChange: true, nextChangeDate: null });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Diset hanya dari ketikan pengguna. Tanpa ini, data agent yang disegarkan dari server
+  // setelah mount (nama/HP berbeda dari sesi tersimpan) terbaca sebagai "belum disimpan".
+  const [profileEdited, setProfileEdited] = useState(false);
 
   // ── Fetch slug cooldown on mount ──
   useEffect(() => {
@@ -1202,7 +1221,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           el.classList.add('ring-2', 'ring-emerald-500/30', 'rounded-xl', '-mx-2', 'px-2', 'transition-all');
           setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-500/30', 'rounded-xl', '-mx-2', 'px-2'), 2500);
-          window.history.replaceState(null, '', window.location.pathname);
+          replaceAppState({}, window.location.pathname);
         }, 300);
       }
     }
@@ -1281,6 +1300,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
       }
       setSaving(false);
       setSaved(true);
+      setProfileEdited(false);
       setSavedMessage('Profil disimpan.');
       trackEvent('action', 'update_profil');
       onUpdated();
@@ -1341,6 +1361,8 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
 
 
   const hasChanges = name !== agent.name || website !== agent.website || phone !== agent.phone || email !== (agent.email || '');
+  // Muat ulang (versi baru / tak sengaja) selagi isian profil belum disimpan → konfirmasi.
+  useUnsavedChanges('dashboard-profile', profileEdited && hasChanges);
   const requiredMissing = !name.trim() || !phone.trim();
   const hasErrors = Object.keys(fieldErrors).length > 0;
 
@@ -1435,7 +1457,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             <input
               type="text"
               value={name}
-              onChange={e => { setName(e.target.value); clearFieldError('name'); }}
+              onChange={e => { setName(e.target.value); setProfileEdited(true); clearFieldError('name'); }}
               onBlur={() => handleBlur('name', name)}
               className={inputCls('name')}
             />
@@ -1449,7 +1471,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             <input
               type="text"
               value={website}
-              onChange={e => { setWebsite(cleanWebsite(e.target.value)); clearFieldError('website'); }}
+              onChange={e => { setWebsite(cleanWebsite(e.target.value)); setProfileEdited(true); clearFieldError('website'); }}
               onBlur={() => handleBlur('website', website)}
               placeholder="contoh: alhijaz.co/nikita"
               className={inputCls('website')}
@@ -1464,7 +1486,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             <input
               type="tel"
               value={phone}
-              onChange={e => { setPhone(cleanPhone(e.target.value)); clearFieldError('phone'); }}
+              onChange={e => { setPhone(cleanPhone(e.target.value)); setProfileEdited(true); clearFieldError('phone'); }}
               onBlur={() => handleBlur('phone', phone)}
               placeholder="628xxxxxxxxxx"
               className={inputCls('phone')}
@@ -1479,7 +1501,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
             <input
               type="email"
               value={email}
-              onChange={e => { setEmail(e.target.value); clearFieldError('email'); }}
+              onChange={e => { setEmail(e.target.value); setProfileEdited(true); clearFieldError('email'); }}
               onBlur={() => handleBlur('email', email)}
               placeholder="agent@email.com"
               className={inputCls('email')}

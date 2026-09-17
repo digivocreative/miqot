@@ -13,7 +13,8 @@ import MediaViewerModal from './MediaViewerModal';
 import HotelAgentGallerySection from './HotelAgentGallery';
 import { agentWatermarkText } from './PhotoWatermark';
 import SegmentedControl from './common/SegmentedControl';
-import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
+import { describeLoadError } from '../lib/loadError';
 import {
   HOTEL_SHEET_CLASS, HOTEL_SHEET_MIN_HEIGHT,
   HotelSkeletonKategori, HotelSkeletonList, HotelSkeletonDetail,
@@ -122,12 +123,21 @@ function readHotelView(): View {
 }
 
 async function fetchHotelJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: getAuthHeaders() });
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: getAuthHeaders() });
+  } catch (err) {
+    // Sinyal hilang: "Failed to fetch"/"Load failed" mentah → pesan yang bisa ditindaklanjuti.
+    throw new Error(describeLoadError(err));
+  }
   let json: { success?: boolean; data?: T; error?: string } = {};
   try {
     json = await res.json();
   } catch {
     /* body bukan JSON — pakai pesan generik di bawah */
+  }
+  if (!res.ok && !json.error) {
+    throw new Error(describeLoadError(new Error(`HTTP error! status: ${res.status}`)));
   }
   if (!res.ok || !json.success) {
     throw new Error(json.error || 'Gagal memuat direktori hotel');
@@ -882,7 +892,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                     anak (SettingsPage/StatistikPage, lihat Kelola Hotel). */}
                 <div
                   aria-label="Jenis media"
-                  style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+                  style={{ top: DASHBOARD_SUBPAGE_HEADER_OFFSET }}
                   className="sticky z-20 -mx-4 -mt-4 mb-3 border-b border-gray-100 bg-white/90 px-4 py-2 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
                 >
                   <SegmentedControl

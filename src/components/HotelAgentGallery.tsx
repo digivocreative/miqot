@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, X, Loader2, Trash2, Play, ImageOff } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
 import MediaViewerModal from './MediaViewerModal';
+import { useBackToClose } from '../hooks/useBackToClose';
+import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
 
 // Galeri hotel VERSI AGENT SENDIRI (permintaan user 2026-08-30) — terpisah
 // dari galeri resmi (HotelPage/HotelKelolaPage): satu baris per agent per
@@ -22,6 +24,14 @@ export interface HotelAgentMediaEntry {
   note: string | null;
   updated_at: string;
   agent: { slug: string; name: string; photo: string | null };
+}
+
+// Error yang dilempar sendiri (pesan server / fallback) tampil apa adanya; galat jaringan
+// atau parsing ("Load failed", "Unexpected token <") diganti pesan yang bisa ditindaklanjuti.
+function sheetErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.constructor === Error && err.message) return err.message;
+  const message = describeLoadError(err);
+  return message === LOAD_ERROR_MESSAGES.generic ? fallback : message;
 }
 
 const NOTE_MAX = 300;
@@ -156,6 +166,9 @@ function EditSheet({
   // storage — pola identik pendingUploadsRef di HotelKelolaPage.
   const pendingUploadsRef = useRef<Map<string, 'image' | 'video'>>(new Map());
 
+  // Back Android menutup sheet ini, bukan meninggalkan halaman detail hotel.
+  useBackToClose(true, onClose);
+
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -192,7 +205,7 @@ function EditSheet({
         setItems(prev => prev.map(it => (it.key === key ? { ...it, url: uploaded.url, status: 'done' as const } : it)));
       } catch (err) {
         setItems(prev => prev.map(it => (it.key === key ? { ...it, status: 'error' as const } : it)));
-        setError(err instanceof Error ? err.message : 'Gagal mengunggah media');
+        setError(sheetErrorMessage(err, 'Gagal mengunggah media'));
       }
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -220,7 +233,7 @@ function EditSheet({
       const entry = await saveAgentMedia(hotelSlug, media, note);
       onSaved(entry);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan galeri');
+      setError(sheetErrorMessage(err, 'Gagal menyimpan galeri'));
     } finally {
       setSaving(false);
     }
@@ -235,7 +248,7 @@ function EditSheet({
       await deleteAgentMedia(hotelSlug);
       onDeleted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menghapus galeri');
+      setError(sheetErrorMessage(err, 'Gagal menghapus galeri'));
       setDeleting(false);
     }
   };
@@ -250,7 +263,7 @@ function EditSheet({
         onClick={onClose}
       />
       <motion.div
-        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg max-h-[85vh] overflow-y-auto rounded-t-2xl border-x border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-2xl border-x border-t border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
@@ -266,12 +279,13 @@ function EditSheet({
             <div className="text-[14px] font-bold text-gray-900 dark:text-white">Foto Saya</div>
             <div className="mt-0.5 truncate text-[11px] text-gray-500 dark:text-slate-400">{hotelName}</div>
           </div>
-          <button onClick={onClose} aria-label="Tutup" className="shrink-0 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">
+          <button onClick={onClose} aria-label="Tutup" className="relative touch-hit shrink-0 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700">
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-4">
+        {/* Safe area bawah: tombol Simpan tidak tertimpa home indicator iOS. */}
+        <div className="px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="grid grid-cols-4 gap-2">
             {items.map(item => (
               <div key={item.key} className="relative aspect-square overflow-hidden rounded-xl border border-gray-100 bg-gray-100 dark:border-slate-700 dark:bg-slate-700">

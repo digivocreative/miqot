@@ -6,6 +6,7 @@ import {
 import { getPackages } from '../services/data-service';
 import { getAuthHeaders } from './LoginPage';
 import { trackEvent } from '../utils/analytics';
+import { canShareFiles } from '../utils/share';
 
 // ── Voice definitions ──
 const VOICES = [
@@ -48,6 +49,32 @@ function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
+/**
+ * Simpan hasil audio. App terpasang di iOS tidak bisa mengunduh lewat a.download, jadi di HP
+ * dipakai lembar Bagikan bawaan (ada "Simpan ke File"); desktop, atau bila Bagikan ditolak
+ * (mis. ketukan sudah kedaluwarsa selama audio dibuat), jatuh ke unduhan biasa. URL blob
+ * dicabut belakangan — Safari masih membacanya setelah klik.
+ */
+async function shareOrDownloadAudio(blob: Blob, filename: string, type: string): Promise<void> {
+  const file = new File([blob], filename, { type });
+  if (canShareFiles([file])) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function formatTanggal(dateStr: string): string {
   if (!dateStr) return '';
   try {
@@ -86,6 +113,8 @@ export default function VoiceOverPage() {
   // Audio
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // Blob MP3 yang sedang diputar — dibagikan/diunduh langsung tanpa fetch ulang.
+  const audioBlobRef = useRef<Blob | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -171,6 +200,7 @@ export default function VoiceOverPage() {
     setGeneratingAudio(true);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
+    audioBlobRef.current = null;
     setIsPlaying(false);
     setCurrentTime(0);
     setAudioDuration(0);
@@ -193,6 +223,7 @@ export default function VoiceOverPage() {
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
+      audioBlobRef.current = blob;
       setAudioUrl(url);
       fetchCredits();
       const voiceObj = VOICES.find(v => v.id === selectedVoice);
@@ -204,12 +235,20 @@ export default function VoiceOverPage() {
     setGeneratingAudio(false);
   };
 
-  const handleDownloadMp3 = () => {
+  const handleDownloadMp3 = async () => {
     if (!audioUrl) return;
-    const a = document.createElement('a');
-    a.href = audioUrl;
-    a.download = 'voiceover.mp3';
-    a.click();
+    const blob = audioBlobRef.current;
+    if (blob) {
+      // Masih di dalam ketukan (blob sudah di memori) → lembar Bagikan diizinkan.
+      await shareOrDownloadAudio(blob, 'voiceover.mp3', blob.type || 'audio/mpeg');
+    } else {
+      const a = document.createElement('a');
+      a.href = audioUrl;
+      a.download = 'voiceover.mp3';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
     trackEvent('action', 'download_mp3');
   };
 
@@ -223,12 +262,7 @@ export default function VoiceOverPage() {
       });
       if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'voiceover.wav';
-      a.click();
-      URL.revokeObjectURL(url);
+      await shareOrDownloadAudio(blob, 'voiceover.wav', blob.type || 'audio/wav');
       fetchCredits();
       trackEvent('action', 'download_wav');
     } catch { /* silent */ }

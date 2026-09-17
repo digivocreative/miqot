@@ -17,6 +17,8 @@ import {
 } from '../utils/sebutan';
 import FilterDropdown from './FilterDropdown';
 import type { Birthday } from './BirthdayWidget';
+import { useBackToClose } from '../hooks/useBackToClose';
+import { canShareFiles } from '../utils/share';
 import {
   BirthdayCard,
   BirthdayCardThumb,
@@ -59,7 +61,29 @@ function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Jangan dicabut seketika: Safari (terutama app terpasang) masih membaca blob
+  // setelah klik; URL yang sudah dicabut = unduhan gagal diam-diam.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * Kartu ke galeri/WhatsApp. Di HP lembar Bagikan bawaan (ada "Simpan Gambar") — app
+ * terpasang di iOS tidak bisa mengunduh lewat a.download. Tanpa dukungan berbagi berkas,
+ * atau bila Bagikan ditolak karena ketukan sudah "kedaluwarsa" selama kartu dirender,
+ * jatuh ke unduhan biasa. Membatalkan lembar Bagikan bukan kegagalan.
+ */
+async function shareOrDownloadCard(blob: Blob, filename: string): Promise<'shared' | 'cancelled' | 'downloaded'> {
+  const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+  if (canShareFiles([file])) {
+    try {
+      await navigator.share({ files: [file] });
+      return 'shared';
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return 'cancelled';
+    }
+  }
+  downloadBlob(blob, filename);
+  return 'downloaded';
 }
 
 function WhatsAppIcon({ size = 14 }: { size?: number }) {
@@ -92,6 +116,9 @@ export default function BirthdayDetailSheet({
 
   const classicRef = useRef<HTMLDivElement>(null);
   const islamicRef = useRef<HTMLDivElement>(null);
+
+  // Tombol/gestur back Android menutup sheet, bukan halaman di bawahnya.
+  useBackToClose(true, onClose);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -177,8 +204,9 @@ export default function BirthdayDetailSheet({
         showToast('Gagal generate kartu, coba lagi');
         return;
       }
-      downloadBlob(blob, cardFileName(jamaah, selectedTemplate));
-      showToast('Berhasil download');
+      const result = await shareOrDownloadCard(blob, cardFileName(jamaah, selectedTemplate));
+      if (result === 'cancelled') return;
+      if (result === 'downloaded') showToast('Berhasil download');
       trackEvent('action', 'birthday_download', { template: selectedTemplate });
     } finally {
       setIsExporting(false);
@@ -221,7 +249,7 @@ export default function BirthdayDetailSheet({
       />
 
       <motion.div
-        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85vh] overflow-y-auto shadow-2xl"
+        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-lg bg-white dark:bg-slate-800 rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 max-h-[85dvh] overflow-y-auto shadow-2xl"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
@@ -258,14 +286,15 @@ export default function BirthdayDetailSheet({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
+            className="relative touch-hit w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
             aria-label="Tutup"
           >
             <X size={16} />
           </button>
         </div>
 
-        <div className="px-4 pb-4 space-y-3">
+        {/* Safe area bawah: "Kirim Ucapan" tidak boleh tertimpa home indicator iOS. */}
+        <div className="px-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
           <div className="flex items-end gap-2">
             <div className="flex-1 min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-2">
@@ -411,7 +440,7 @@ export default function BirthdayDetailSheet({
         </div>
 
         {toast && (
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl">
+          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-xl">
             {toast}
           </div>
         )}

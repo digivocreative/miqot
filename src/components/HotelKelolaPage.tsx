@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ElementType } from 'react';
+import { useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Plus, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
@@ -11,7 +11,10 @@ import {
   type HotelListItem, type HotelDetail, type HotelMediaItem, type HotelFaqItemData,
   HOTEL_FAQ_MAX,
 } from './HotelPage';
-import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import { DASHBOARD_SUBPAGE_HEADER_OFFSET, dashboardViewportBelowHeader } from '../constants/dashboard-chrome';
+import { backOr } from '../lib/appHistory';
+import { describeLoadError } from '../lib/loadError';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import HotelMediaCategorySheet from './HotelMediaCategorySheet';
 import { HOTEL_MEDIA_CATEGORY_PRESETS, hotelMediaCategories, HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
 
@@ -64,6 +67,12 @@ function emptyForm(): FormState {
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
     description: '', facilities: [], agent_note: '', media: [], ratings: {}, faq: [],
   };
+}
+
+// Potret isian form untuk mendeteksi perubahan yang belum disimpan. Media dibaca dari
+// url/status/kategori saja — previewUrl blob berbeda tiap sesi walau isinya sama.
+function formSnapshot(form: FormState): string {
+  return JSON.stringify({ ...form, media: form.media.map(m => [m.type, m.url, m.status, m.category]) });
 }
 
 function formFromDetail(detail: HotelDetail): FormState {
@@ -226,6 +235,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const [cityFilter, setCityFilter] = useState<string>('semua');
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm());
+  // Isian terakhir yang sama dengan server (kosong untuk Tambah). Beda = belum disimpan.
+  const [formBaseline, setFormBaseline] = useState(() => formSnapshot(emptyForm()));
   const [formLoading, setFormLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -260,12 +271,14 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const refetch = () => {
     fetch('/api/hotels', { headers: getAuthHeaders() })
       .then(async res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const json = await res.json();
-        if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat daftar hotel');
+        if (!json.success) throw new Error('API returned error status');
         setHotels(json.data);
         setLoadError(null);
       })
-      .catch(err => setLoadError(err.message));
+      // Bukan Error.message mentah ("Failed to fetch", "Unexpected token <").
+      .catch(err => setLoadError(describeLoadError(err)));
   };
 
   useEffect(() => { refetch(); }, []);
@@ -342,6 +355,11 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   const isCreate = view.kind === 'create';
   const inForm = view.kind !== 'list';
 
+  // Form belum tersimpan → muat ulang (tombol versi baru / tak sengaja) minta konfirmasi
+  // dulu, bukan membuang isian diam-diam.
+  const formSnapshotNow = useMemo(() => formSnapshot(form), [form]);
+  useUnsavedChanges('hotel-kelola-form', inForm && !formLoading && formSnapshotNow !== formBaseline);
+
   // Tab form ikut URL (/edit/:slug[/media], /tambah[/media]) supaya refresh
   // bertahan di tab yang sama. Pindah tab memakai replace: riwayat tidak
   // menumpuk, jadi back (header / browser / gestur iOS) tetap keluar ke daftar.
@@ -370,6 +388,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   useEffect(() => {
     if (!isCreate) return;
     setForm(emptyForm());
+    setFormBaseline(formSnapshot(emptyForm()));
     setEditingId(null);
     setSaveError(null);
   }, [isCreate]);
@@ -395,7 +414,9 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
         const json = await res.json();
         if (!res.ok || !json.success) throw new Error(json.error || 'Gagal memuat data hotel');
         if (cancelled) return;
-        setForm(formFromDetail(json.data));
+        const loadedForm = formFromDetail(json.data);
+        setForm(loadedForm);
+        setFormBaseline(formSnapshot(loadedForm));
         setEditingId(json.data.id);
       })
       .catch(err => { if (!cancelled) setSaveError(err instanceof Error ? err.message : 'Gagal memuat data hotel'); })
@@ -560,7 +581,9 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       // Form disegarkan dari baris hasil simpan, bukan dibiarkan apa adanya:
       // server menormalkan isian (trim, jarak dipaksa null untuk Turki/Dubai),
       // jadi yang tampil = yang benar-benar tersimpan.
-      setForm(formFromDetail(json.data));
+      const savedForm = formFromDetail(json.data);
+      setForm(savedForm);
+      setFormBaseline(formSnapshot(savedForm));
       setEditingId(json.data.id);
       // Tambah → pindah ke URL edit hotel baru (replace, tanpa muat ulang):
       // tetap di halaman yang sama, dan klik Simpan berikutnya jadi PUT
@@ -648,7 +671,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             material yang sama supaya terbaca sebagai satu chrome. */}
         <div
           aria-label="Bagian form hotel"
-          style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+          style={{ top: DASHBOARD_SUBPAGE_HEADER_OFFSET }}
           className="sticky z-20 -mx-4 -mt-4 mb-4 border-b border-gray-100 bg-white/90 px-4 py-2 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90"
         >
           <SegmentedControl
@@ -678,7 +701,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
           // membatalkan pb-8 milik shell supaya bar benar-benar rata bawah.
           <div
             className="-mb-8 flex flex-col"
-            style={{ minHeight: `calc(100dvh - ${DASHBOARD_SUBPAGE_HEADER_H + HOTEL_FORM_TABBAR_H + 16}px)` }}
+            style={{ minHeight: dashboardViewportBelowHeader(HOTEL_FORM_TABBAR_H + 16) }}
           >
           {/* SegmentedControl bukan pola tab ARIA (tombol biasa, seperti
               SettingsPage), jadi panel ini tidak lagi role="tabpanel" —
@@ -1083,7 +1106,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
           {/* Action bar menempel di dasar layar (pola JamaahEditPage) supaya
               Simpan terjangkau dari tab mana pun tanpa scroll ke dasar halaman.
               Error ikut pindah ke sini agar tak pernah muncul di luar layar. */}
-          <div className="sticky bottom-0 -mx-4 mt-6 border-t border-gray-100 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+          <div className="sticky bottom-0 -mx-4 mt-6 border-t border-gray-100 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
             {saveError && (
               <div className="mb-2.5 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
                 {saveError}
@@ -1091,7 +1114,8 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
             )}
             <div className="flex gap-2">
               <button
-                onClick={() => onNavigate('/dashboard/hotels')}
+                // Batal = mundur seperti Kembali header (tanpa menumpuk entri daftar baru).
+                onClick={() => backOr(() => onNavigate('/dashboard/hotels', { replace: true }))}
                 disabled={saving}
                 className="shrink-0 rounded-xl bg-gray-100 px-5 py-3 text-[13px] font-semibold text-gray-600 transition-colors hover:bg-gray-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >

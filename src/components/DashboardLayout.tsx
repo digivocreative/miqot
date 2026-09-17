@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import {
   Calculator, ArrowLeftRight, Settings,
@@ -22,6 +22,8 @@ import NotificationBell from './NotificationBell';
 import { useTerasNotifications } from '../hooks/useTerasNotifications';
 import TerasNotificationSettings from './TerasNotificationSettings';
 import { useTerasNotificationPrefs } from '../hooks/useTerasNotificationPrefs';
+import { backOr, canGoBackInApp, pushAppState, replaceAppState } from '../lib/appHistory';
+import InstallAppCard from './pwa/InstallAppCard';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -189,6 +191,9 @@ function getSubTabFromPath(): 'umroh' | 'haji' | 'daftar' | 'edit' {
   return 'umroh';
 }
 
+// Daftar Jamaah (tab Umroh/Haji) — tempat query ?sync=1 / ?refresh_id_umroh= dibaca.
+const JAMAAH_LIST_PATH = /^\/dashboard\/jamaah(?:\/(?:umroh|haji))?\/?$/;
+
 function getSettingsTabFromPath(): 'profil' | 'telegram' | 'capi' {
   const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
   // /dashboard/settings/telegram or /dashboard/settings/capi
@@ -316,6 +321,35 @@ function getCurrentDocumentTitle(): string {
   if (getTerasPostIdFromPath()) return 'Kiriman';
   if (getTerasProfileSlugFromPath()) return 'Teras';
   return TAB_TITLES[getTabFromPath()] || 'Dashboard';
+}
+
+// Induk sub-halaman untuk tombol Kembali header saat layar dibuka langsung (deep
+// link / app diluncurkan — tak ada riwayat dalam-app untuk dimundurkan).
+// null = dashboard. Sub-halaman Jamaah & detail Teras punya jalur sendiri.
+function subPageParentPath(tab: TabId): string | null {
+  if (tab === 'ai-tools') {
+    const aiSub = getAIToolsSubFromPath();
+    if (!aiSub) return null;
+    // Poster hanya bisa dibuka dari Haji Plus → balik ke tab Statistik-nya
+    if (aiSub === 'haji-plus/export') return '/dashboard/ai-tools/haji-plus/statistik';
+    // Custom Domain → landing-page (induk custom-domain)
+    if (aiSub === 'landing-page/custom-domain') return '/dashboard/ai-tools/landing-page/umroh';
+    return '/dashboard/ai-tools';
+  }
+  // Direktori Hotel (menu mandiri): mundur bertahap
+  // media → detail → daftar kota → kategori → dashboard
+  if (tab === 'hotel') {
+    const hotelPath = getHotelPathInfo();
+    if (hotelPath.isMedia && hotelPath.slug && hotelPath.city) {
+      return `/dashboard/hotel/${hotelPath.city}/${encodeURIComponent(hotelPath.slug)}`;
+    }
+    if (hotelPath.slug && hotelPath.city) return `/dashboard/hotel/${hotelPath.city}`;
+    if (hotelPath.city) return '/dashboard/hotel';
+    return null;
+  }
+  // Panel Kelola Hotel: form tambah/edit → daftar kelola
+  if (tab === 'hotels' && getHotelsKelolaSub()) return '/dashboard/hotels';
+  return null;
 }
 
 // Bentuk skeleton Direktori Hotel yang dipakai selagi chunk halamannya diunduh.
@@ -500,7 +534,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     const legacy = window.location.pathname.match(/^\/dashboard\/ai-tools\/hotel(\/.*)?$/);
     if (!legacy) return;
     const target = `/dashboard/hotel${legacy[1] || ''}`;
-    window.history.replaceState({}, '', target + window.location.search);
+    replaceAppState({}, target + window.location.search);
     setActiveTab('hotel');
     setPathTick(t => t + 1);
   }, []);
@@ -628,16 +662,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     }, 200);
   }, []);
 
-  // Navigate tab + update URL
+  // Navigate tab + update URL. Entri riwayat lewat appHistory (bukan pushState
+  // polos): entri membawa kedalaman dalam-app sehingga tombol Kembali header bisa
+  // memakai backOr — mundur persis seperti gestur back Android.
   const navigateTab = useCallback((tab: TabId, replace = false) => {
     setActiveTab(tab);
     document.title = TAB_TITLES[tab] || 'Dashboard';
     const slug = TAB_TO_SLUG[tab];
     const url = slug ? `/dashboard/${slug}` : '/dashboard';
     if (replace) {
-      window.history.replaceState({ tab }, '', url);
+      replaceAppState({ tab }, url);
     } else {
-      window.history.pushState({ tab }, '', url);
+      pushAppState({ tab }, url);
     }
   }, []);
 
@@ -647,9 +683,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const navigatePath = useCallback((path: string, opts?: { replace?: boolean; state?: Record<string, unknown> }) => {
     const state = opts?.state || {};
     if (opts?.replace) {
-      window.history.replaceState(state, '', path);
+      replaceAppState(state, path);
     } else {
-      window.history.pushState(state, '', path);
+      pushAppState(state, path);
     }
     const tab = getTabFromPath();
     setActiveTab(tab);
@@ -657,9 +693,24 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     setPathTick(t => t + 1);
   }, []);
 
+  // Query untuk entri daftar Jamaah yang sedang dituju lewat history.back() (lihat
+  // returnToJamaahList). Ditempel DI DALAM listener popstate ini, sebelum state diubah:
+  // listener terpisah baru jalan setelah React me-render daftar (microtask berjalan di
+  // antara listener; urutan capture pun tak dihormati untuk window di Chromium), jadi
+  // daftar ter-mount tanpa query lalu harus di-mount ulang — open_jamaah tercatat dua kali.
+  const pendingJamaahSearchRef = useRef<{ search: string; expires: number } | null>(null);
+
   // Listen for browser back/forward
   useEffect(() => {
     const onPopState = () => {
+      const pending = pendingJamaahSearchRef.current;
+      if (pending) {
+        pendingJamaahSearchRef.current = null;
+        const { pathname } = window.location;
+        if (pending.search && Date.now() < pending.expires && JAMAAH_LIST_PATH.test(pathname)) {
+          replaceAppState({}, pathname + pending.search);
+        }
+      }
       const tab = getTabFromPath();
       setActiveTab(tab);
       document.title = getCurrentDocumentTitle();
@@ -669,9 +720,51 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Set initial history state on mount
+  // Sub-halaman Jamaah (daftar/edit) → daftar Jamaah: Kembali, Batal, dan selesai
+  // simpan. Dibuka dari dalam app → mundur di riwayat, jadi form tidak tertinggal
+  // sebagai entri yang dibuka lagi oleh gestur back. Dibuka langsung (deep link) →
+  // ganti URL di tempat. `search` (?sync=1 / ?refresh_id_umroh=…) ditempel ke entri
+  // daftar saat mendarat (listener popstate di atas); JamaahPage ter-mount segar
+  // karena sub-halaman menggantikannya, jadi query langsung terbaca.
+  const returnToJamaahList = useCallback((search = '') => {
+    if (!canGoBackInApp()) {
+      navigatePath(`/dashboard/jamaah${search}`, { replace: true });
+      setJamaahRefreshKey(k => k + 1);
+      return;
+    }
+    pendingJamaahSearchRef.current = { search, expires: Date.now() + 2000 };
+    window.history.back();
+  }, [navigatePath]);
+
+  // Selesai simpan di form daftar/edit jamaah: target daftar (?sync=1 /
+  // ?refresh_id_umroh=…) dicapai dengan mundur, bukan mendorong entri daftar baru di
+  // atas form yang sudah terkirim.
+  const finishJamaahSubPage = useCallback((path: string) => {
+    const target = new URL(path, window.location.origin);
+    if (target.pathname !== '/dashboard/jamaah') {
+      navigatePath(path);
+      setJamaahRefreshKey(k => k + 1);
+      return;
+    }
+    const here = window.location.pathname;
+    if (/^\/dashboard\/jamaah\/(?:daftar|edit)(?:\/|$)/.test(here)) {
+      returnToJamaahList(target.search);
+      return;
+    }
+    // Form sudah ditinggalkan lebih dulu (mis. back ditekan selama layar sukses pendaftaran
+    // yang menunggu 1,5 dtk): JANGAN mundur lagi dari layar yang sedang dibuka. Bila itu
+    // daftar Jamaah, cukup tempel query-nya lalu muat ulang daftar.
+    if (JAMAAH_LIST_PATH.test(here)) {
+      replaceAppState({}, here + target.search);
+      setJamaahRefreshKey(k => k + 1);
+    }
+  }, [navigatePath, returnToJamaahList]);
+
+  // Set initial history state on mount. replaceAppState mempertahankan kedalaman
+  // entri: setelah muat ulang di sub-halaman, Kembali tetap mundur ke layar
+  // sebelumnya; app yang baru diluncurkan berkedalaman 0 → Kembali mengganti URL.
   useEffect(() => {
-    window.history.replaceState({ tab: activeTab }, '', window.location.pathname + window.location.search + window.location.hash);
+    replaceAppState({ tab: activeTab }, window.location.pathname + window.location.search + window.location.hash);
     document.title = getCurrentDocumentTitle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -759,7 +852,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           </p>
           <button
             type="button"
-            onClick={() => navigatePath('/dashboard')}
+            onClick={() => backOr(() => navigatePath('/dashboard', { replace: true }))}
             className="mt-1 min-h-11 rounded-xl bg-emerald-500 px-5 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95"
           >
             Kembali ke Dashboard
@@ -792,14 +885,16 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       <div className={`min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 transition-colors dark:from-slate-900 dark:to-slate-950 ${activeTab === 'teras' ? 'flex min-h-[100dvh] flex-col' : ''}`}>
         {/* Sub-page header.
             Tingginya (varian normal, non-compact) dicatat sebagai
-            DASHBOARD_SUBPAGE_HEADER_H di src/constants/dashboard-chrome.ts —
-            dipakai halaman anak untuk menempelkan sub-bar sticky-nya. Mengubah
-            padding, ukuran chip back, atau border di bawah ini WAJIB diikuti
-            ukur ulang angka tersebut di browser. */}
+            DASHBOARD_SUBPAGE_HEADER_H (+ safe area atas → _OFFSET) di
+            src/constants/dashboard-chrome.ts — dipakai halaman anak untuk
+            menempelkan sub-bar sticky-nya. Mengubah padding, ukuran chip back,
+            atau border di bawah ini WAJIB diikuti ukur ulang angka tersebut di
+            browser. Safe area atas sengaja calc (DITAMBAHKAN ke 0.75rem), bukan
+            max(): tinggi header = 61px + inset, persis konstanta itu. */}
         <header
           className={`sticky top-0 z-30 border-b border-gray-100 bg-white/90 backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/90 ${activeTab === 'teras' ? 'shrink-0' : ''}`}
         >
-          <div className={`${compactHeader ? 'max-w-2xl gap-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]' : 'max-w-lg gap-3 py-3'} mx-auto flex items-center px-4`}>
+          <div className={`${compactHeader ? 'max-w-2xl gap-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]' : 'max-w-lg gap-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]'} mx-auto flex items-center px-4`}>
             <button
               type="button"
               aria-label={(terasPostId || terasProfileSlug) ? 'Kembali ke Teras' : 'Kembali ke dashboard'}
@@ -813,49 +908,18 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 }
                 // Jamaah sub-pages → back to /dashboard/jamaah list
                 if (activeTab === 'jamaah' && (jamaahSub === 'daftar' || jamaahSub === 'edit')) {
-                  navigatePath('/dashboard/jamaah');
-                  setJamaahRefreshKey(k => k + 1);
+                  returnToJamaahList();
                   return;
                 }
-                // If on AI Tools sub-page, go back appropriately
-                if (activeTab === 'ai-tools' && getAIToolsSubFromPath()) {
-                  const aiSub = getAIToolsSubFromPath();
-                  // Poster hanya bisa dibuka dari tab Statistik → balik ke sana
-                  if (aiSub === 'haji-plus/export') {
-                    navigatePath('/dashboard/ai-tools/haji-plus/statistik');
-                    return;
-                  }
-                  // Custom Domain → go back to landing-page (parent of custom-domain)
-                  if (aiSub === 'landing-page/custom-domain') {
-                    navigatePath('/dashboard/ai-tools/landing-page/umroh');
-                    return;
-                  }
-                  navigatePath('/dashboard/ai-tools');
-                  return;
-                }
-                // Direktori Hotel (menu mandiri): mundur bertahap
-                // media → detail → daftar kota → kategori → dashboard
-                if (activeTab === 'hotel') {
-                  const hotelPath = getHotelPathInfo();
-                  if (hotelPath.isMedia && hotelPath.slug && hotelPath.city) {
-                    navigatePath(`/dashboard/hotel/${hotelPath.city}/${encodeURIComponent(hotelPath.slug)}`);
-                    return;
-                  }
-                  if (hotelPath.slug && hotelPath.city) {
-                    navigatePath(`/dashboard/hotel/${hotelPath.city}`);
-                    return;
-                  }
-                  if (hotelPath.city) {
-                    navigatePath('/dashboard/hotel');
-                    return;
-                  }
-                }
-                // Panel Kelola Hotel: form tambah/edit → daftar kelola
-                if (activeTab === 'hotels' && getHotelsKelolaSub()) {
-                  navigatePath('/dashboard/hotels');
-                  return;
-                }
-                navigateTab('home');
+                // Selebihnya Kembali = gestur back Android. Layar yang dibuka dari
+                // dalam app mundur di riwayat; dulu Kembali MENDORONG entri induk
+                // baru, jadi back sesudahnya membuka lagi layar yang baru ditinggal.
+                // Dibuka langsung (deep link / app diluncurkan) → ganti URL ke induk.
+                backOr(() => {
+                  const parent = subPageParentPath(activeTab);
+                  if (parent) navigatePath(parent, { replace: true });
+                  else navigateTab('home', true);
+                });
               }}
               // Hit-area 44px (aturan a11y desain) dengan chip visual tetap
               // 32/36px (d7d97bf): tombol transparan 44px membungkus chip;
@@ -959,7 +1023,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                     type="button"
                     onClick={() => chooseBrosurDisplayMode(mode)}
                     aria-pressed={brosurDisplayMode === mode}
-                    className={`h-7 m-0.5 px-2.5 inline-flex items-center justify-center rounded-md text-[10px] font-bold leading-none tracking-wide transition-colors ${
+                    className={`h-7 m-0.5 px-2.5 inline-flex items-center justify-center rounded-md relative touch-hit text-[10px] font-bold leading-none tracking-wide transition-colors ${
                       brosurDisplayMode === mode
                         ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
                         : 'text-gray-400 dark:text-slate-500'
@@ -1125,11 +1189,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               isUmrahRegisterEnabledForAgent(agentData.slug) ? (
                 <UmrahRegisterPage
                   agentSlug={agentData.slug}
-                  onBack={() => {
-                    navigatePath('/dashboard/jamaah');
-                    setJamaahRefreshKey(k => k + 1);
-                  }}
-                  onNavigate={navigatePath}
+                  onBack={() => returnToJamaahList()}
+                  onNavigate={finishJamaahSubPage}
                 />
               ) : (
                 // Akses URL langsung oleh non-nikita: fitur pendaftaran sedang
@@ -1141,7 +1202,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   </p>
                   <button
                     type="button"
-                    onClick={() => navigatePath('/dashboard/jamaah')}
+                    onClick={() => returnToJamaahList()}
                     className="h-9 px-4 flex items-center rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white active:scale-95 transition-all"
                   >
                     Kembali ke Daftar Jamaah
@@ -1150,14 +1211,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               )
             ) : jamaahSub === 'edit' ? (
               <JamaahEditPage
-                onBack={() => {
-                  navigatePath('/dashboard/jamaah');
-                  setJamaahRefreshKey(k => k + 1);
-                }}
-                onNavigate={(path) => {
-                  navigatePath(path);
-                  setJamaahRefreshKey(k => k + 1);
-                }}
+                onBack={() => returnToJamaahList()}
+                onNavigate={finishJamaahSubPage}
                 onHeaderTitle={setJamaahEditHeader}
               />
             ) : (
@@ -1300,14 +1355,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // ── Home / Card Grid ──
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 transition-colors">
-      {/* Header with avatar */}
+      {/* Header with avatar. Safe area atas: app terpasang di iOS 26 digambar di bawah status bar. */}
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-gray-100 dark:border-slate-700/50">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-lg mx-auto px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => navigateTab('settings')}
-              className="relative shrink-0 active:scale-95 transition-transform"
+              className="relative touch-hit shrink-0 active:scale-95 transition-transform"
               title="Settings"
+              aria-label="Settings"
             >
               <img
                 src={agentData.photo}
@@ -1354,14 +1410,17 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             )}
             <button
               onClick={() => setIsDarkMode(p => !p)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
+              aria-label={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
+              title={isDarkMode ? 'Gunakan mode terang' : 'Gunakan mode gelap'}
+              className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors active:scale-95"
             >
               {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <button
               onClick={handleLogout}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors active:scale-95"
+              className="relative touch-hit w-9 h-9 flex items-center justify-center rounded-xl bg-gray-100/80 dark:bg-slate-800/80 text-gray-500 dark:text-slate-300 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors active:scale-95"
               title="Logout"
+              aria-label="Logout"
             >
               <LogOut size={16} />
             </button>
@@ -1371,12 +1430,15 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
       <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
 
+        {/* ── Ajakan pasang aplikasi (hilang sendiri di app terpasang / setelah ditutup) ── */}
+        <InstallAppCard />
+
         <Suspense fallback={null}>
           {/* ── Telegram Connect Banner ── */}
           <TelegramConnectBanner
             onConnect={() => {
               navigateTab('settings');
-              window.history.replaceState({}, '', '/dashboard/settings/telegram');
+              replaceAppState({ tab: 'settings' }, '/dashboard/settings/telegram');
             }}
           />
         </Suspense>

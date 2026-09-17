@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2, ArrowLeft, User, Phone, Mail } from 'lucide-react';
 import { useDarkMode } from '../utils/useDarkMode';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 
 function slugify(name: string): string {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -19,6 +20,11 @@ export default function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // Form ini mulai kosong, jadi "berubah" = ada isian. Muat ulang tak sengaja / versi baru
+  // minta konfirmasi dulu; setelah akun terbuat tidak ada lagi yang bisa hilang.
+  const hasInput = Boolean(name.trim() || phone.trim() || email.trim() || password || (slugManual && slug.trim()));
+  useUnsavedChanges('register-agent', hasInput && !success);
 
   // Set page title
   useEffect(() => { document.title = 'Buat Akun Baru - Alhijaz.co'; }, []);

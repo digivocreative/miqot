@@ -11,6 +11,10 @@ import {
   getMarketingDiscountError,
   normalizeMarketingDiscountInput,
 } from '../lib/marketingDiscount';
+import { pushAppState } from '../lib/appHistory';
+import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { useBackToClose } from '../hooks/useBackToClose';
 
 type ViewMode = 'form' | 'ocr-processing';
 
@@ -508,6 +512,14 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
   const [filePreview, setFilePreview] = useState<string | null>(null); // data URL for image preview
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [loadingPaket, setLoadingPaket] = useState(false);
+  // Pengguna sudah mengisi/mengubah sesuatu (ketik, pilih, tombol Auto, unggah KTP).
+  // Nilai bawaan yang diisi otomatis saat form dimuat TIDAK dihitung.
+  const [userEdited, setUserEdited] = useState(false);
+  useUnsavedChanges('umrah-register', userEdited && !success);
+
+  // Back Android menutup pratinjau KTP layar penuh, bukan meninggalkan form.
+  const closePreviewModal = useCallback(() => setShowPreviewModal(false), []);
+  useBackToClose(showPreviewModal && !!filePreview, closePreviewModal);
 
   // Analytics: fire once when the daftar (register) page mounts. Ref-guarded.
   const openTracked = useRef(false);
@@ -633,7 +645,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       }
     } catch (err) {
       console.error('fetchOptions error:', err);
-      setError('Gagal menghubungi server');
+      setError(describeLoadError(err));
     }
     setLoading(false);
   }, [bindIdb]);
@@ -828,6 +840,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
   };
 
   const updateField = (name: string, value: string) => {
+    setUserEdited(true);
     // Single source of truth for Nama Pendaftar uppercase — normalizes every code path
     // (typing, Auto button, OCR, OCR retry, hidden-field defaults).
     const normalized = getFieldDef(name).label === 'Nama Pendaftar' ? value.toUpperCase() : value;
@@ -852,6 +865,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
     }
     setOcrError('');
     setFieldErrors(prev => ({ ...prev, file_ktp: '' }));
+    setUserEdited(true);
 
     try {
       // Read file as base64
@@ -894,7 +908,11 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       applyOcrToFields(data.data);
     } catch (err) {
       console.error('OCR error:', err);
-      setOcrError('Gagal memproses KTP: ' + (err as Error).message);
+      // Jangan tampilkan Error.message mentah; isian manual tetap bisa dilanjutkan.
+      const message = describeLoadError(err);
+      setOcrError(message === LOAD_ERROR_MESSAGES.generic
+        ? 'KTP belum bisa dibaca otomatis. Isi data manual atau unggah ulang.'
+        : `KTP belum bisa dibaca otomatis. ${message}`);
       setViewMode('form');
     }
   };
@@ -1196,12 +1214,14 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
           onNavigate(target);
         } else {
           // Fallback: avoid full reload (SW would serve stale shell)
-          window.history.pushState({}, '', target);
+          pushAppState({}, target);
           window.dispatchEvent(new PopStateEvent('popstate'));
         }
       }, 1500);
-    } catch {
-      setError('Gagal menghubungi server');
+    } catch (err) {
+      // Sinyal hilang saat kirim: isian tetap utuh di layar, pengguna tinggal kirim ulang.
+      const message = describeLoadError(err);
+      setError(message === LOAD_ERROR_MESSAGES.generic ? 'Pendaftaran belum terkirim. Coba lagi.' : message);
       setSubmitting(false);
     }
   };
@@ -1930,8 +1950,10 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
           <button
             type="button"
             onClick={() => setShowPreviewModal(false)}
-            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors backdrop-blur-sm"
+            // Safe area atas: di app terpasang iOS tombol ini tertutup status bar/Dynamic Island.
+            className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 w-10 h-10 touch-hit flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors backdrop-blur-sm"
             title="Tutup"
+            aria-label="Tutup"
           >
             <X size={20} />
           </button>

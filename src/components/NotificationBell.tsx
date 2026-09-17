@@ -47,6 +47,8 @@ function initials(name: string): string {
 //  - home:    home/card-grid header                           → w-9 h-9 rounded-xl, icon 16
 // NB: 'header' and 'home' are intentionally the same size so the sub-page
 // header matches the Dashboard header exactly; kept as two names for clarity.
+// Visual stays 32/36px; the tap area is widened to 44px by `touch-hit` on the
+// button itself (index.css ::after), so header spacing does not change.
 const SIZE_CLASSES: Record<'compact' | 'header' | 'home', { button: string; icon: number }> = {
   compact: { button: 'h-8 w-8 rounded-lg', icon: 14 },
   header: { button: 'h-9 w-9 rounded-xl', icon: 16 },
@@ -177,7 +179,7 @@ export default function NotificationBell({
         aria-label="Notifikasi"
         aria-expanded={open}
         title="Notifikasi"
-        className={`relative flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${sizeButtonClass}`}
+        className={`relative touch-hit flex shrink-0 items-center justify-center bg-gray-100/80 text-gray-500 transition-colors hover:bg-gray-200 active:scale-95 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700 ${sizeButtonClass}`}
       >
         <Bell size={iconSize} />
         {unread > 0 && (

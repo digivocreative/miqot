@@ -6,7 +6,8 @@ import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from './LoginPage';
 import SegmentedControl from './common/SegmentedControl';
-import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
+import { replaceAppState } from '../lib/appHistory';
 
 interface AgentData {
   slug: string;
@@ -47,12 +48,15 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'profil');
 
-  // Update tab on URL change (browser back/forward)
+  // Ganti sub-tab = ganti URL di tempat (replace, pola sama dengan sub-tab Jamaah &
+  // Statistik): Kembali di header dan gestur back Android sama-sama keluar ke layar
+  // sebelumnya, bukan memutar ulang tab yang pernah dibuka. Kedalaman riwayat dalam-app
+  // ikut dipertahankan (replaceAppState) supaya Kembali tetap bisa mundur.
   const switchTab = (tab: SettingsTab) => {
     setActiveTab(tab);
     trackEvent('feature', TAB_OPEN_EVENT[tab]);
     const url = `/dashboard/settings/${tab}`;
-    window.history.pushState(null, '', url);
+    replaceAppState({ tab: 'settings' }, url);
     window.scrollTo({ top: 0 });
   };
 
@@ -77,7 +81,7 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
   useEffect(() => {
     const segments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
     if (segments.length === 2 && segments[0] === 'dashboard' && segments[1] === 'settings') {
-      window.history.replaceState(null, '', `/dashboard/settings/${activeTab}`);
+      replaceAppState({ tab: 'settings' }, `/dashboard/settings/${activeTab}`);
     }
   }, []);
 
@@ -85,7 +89,7 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
     <div>
       {/* Segmented Control Tab Bar */}
       <div
-        style={{ top: DASHBOARD_SUBPAGE_HEADER_H }}
+        style={{ top: DASHBOARD_SUBPAGE_HEADER_OFFSET }}
         className="sticky z-20 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700"
       >
         <div className="max-w-lg mx-auto px-4 py-2">

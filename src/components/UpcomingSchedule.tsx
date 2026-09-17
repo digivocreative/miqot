@@ -12,6 +12,8 @@ import { buildManasikSessions, pickDefaultSection, wibTodayKey, MANASIK_WINDOW_D
 import type { ManasikSession } from '../../lib/manasik-sessions.js';
 import { BERANGKAT_MENDATANG_WINDOW_DAYS } from '../../lib/laporan-stats.js';
 import { ManasikSessionSummaryRow, ManasikSessionDetail } from './berangkat/ManasikSessionViews';
+import { useBackToClose } from '../hooks/useBackToClose';
+import { describeLoadError } from '../lib/loadError';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -149,6 +151,9 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('keberangkatan');
   const [calendarData, setCalendarData] = useState<Record<string, CalendarEvent[]>>({});
+  // Galat muat per bulan, TERPISAH dari cache data: bulan yang gagal dimuat tidak boleh
+  // tersimpan sebagai [] ("Belum ada jadwal") dan harus bisa dicoba lagi.
+  const [monthErrors, setMonthErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string; jadwalId: string | null } | null>(null);
   const calendarDataRef = useRef(calendarData);
@@ -240,14 +245,28 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
       const res = await fetch(`/api/calendar/events?month=${month}&year=${year}`, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) { setCalendarData(prev => ({ ...prev, [key]: [] })); return; }
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const result = await res.json();
-      const events: CalendarEvent[] = result.success ? (result.data?.events || []) : [];
+      if (!result.success) throw new Error('API returned error status');
+      const events: CalendarEvent[] = result.data?.events || [];
       setCalendarData(prev => ({ ...prev, [key]: events }));
-    } catch {
-      setCalendarData(prev => ({ ...prev, [key]: [] }));
+      setMonthErrors(prev => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } catch (err) {
+      // Jangan di-cache: kalender akan bilang "Belum ada jadwal" dan tak pernah memuat
+      // ulang bulan ini sepanjang sesi, padahal yang terjadi sinyal hilang / server error.
+      setMonthErrors(prev => ({ ...prev, [key]: describeLoadError(err) }));
     }
   }, []);
+
+  const retryCurrentMonth = useCallback(() => {
+    setLoading(true);
+    fetchMonth(currentMonth.year, currentMonth.month).finally(() => setLoading(false));
+  }, [fetchMonth, currentMonth.year, currentMonth.month]);
 
   useEffect(() => {
     setLoading(true);
@@ -269,6 +288,14 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   const anySheetOpen = selectedDay !== null || showAllList || !!selectedGroup || !!selectedSession;
   const daySheetOpen = selectedDay !== null;
   const listSheetOpen = showAllList || !!selectedGroup || !!selectedSession;
+
+  // Back Android menutup sheet yang terbuka, bukan meninggalkan dashboard. Daftar →
+  // detail berangkat/manasik berganti ISI di satu sheet yang sama (bukan sheet baru),
+  // jadi cukup satu entri riwayat: back menutup sheet itu seperti tombol X.
+  const closeDaySheet = useCallback(() => setSelectedDay(null), []);
+  const closeListSheet = useCallback(() => { setSelectedKey(null); setShowAllList(false); }, []);
+  useBackToClose(daySheetOpen, closeDaySheet);
+  useBackToClose(listSheetOpen, closeListSheet);
 
   useEffect(() => {
     if (anySheetOpen) {
@@ -368,6 +395,14 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
 
   const key = cacheKey(currentMonth.year, currentMonth.month);
   const monthEvents = calendarData[key] || [];
+  const monthError = calendarData[key] ? null : monthErrors[key] || null;
+
+  // Sinyal kembali → coba lagi bulan yang tadi gagal, tanpa menunggu pengguna mengetuk.
+  useEffect(() => {
+    if (!monthError) return;
+    window.addEventListener('online', retryCurrentMonth);
+    return () => window.removeEventListener('online', retryCurrentMonth);
+  }, [monthError, retryCurrentMonth]);
 
   const eventMap = useMemo(() => {
     const map: Record<number, Set<string>> = {};
@@ -508,7 +543,18 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
             );
           })}
         </div>
-        {monthEvents.length === 0 && !loading && (
+        {monthError && !loading ? (
+          <div role="alert" className="flex flex-col items-center gap-1.5 px-4 pb-3 text-center">
+            <p className="text-[11px] text-gray-500 dark:text-slate-400">Jadwal bulan ini belum termuat. {monthError}</p>
+            <button
+              type="button"
+              onClick={retryCurrentMonth}
+              className="relative touch-hit rounded-lg bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-100 active:scale-95 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/40"
+            >
+              Coba lagi
+            </button>
+          </div>
+        ) : monthEvents.length === 0 && !loading && (
           <div className="pb-2 text-center text-[11px] text-gray-400 dark:text-slate-500">
             Belum ada jadwal di bulan ini
           </div>
@@ -632,7 +678,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                   ref={dayCloseButtonRef}
                   onClick={() => setSelectedDay(null)}
                   aria-label="Tutup"
-                  className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                  className="relative touch-hit w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
                   <X size={16} />
                 </button>
@@ -814,7 +860,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                   </div>
 
                   {/* Footer Summary */}
-                  <div className={`sticky bottom-0 ${tabConfig.footerBg} border-t ${tabConfig.footerBorder} px-4 py-2.5 flex items-center justify-between`}>
+                  <div className={`sticky bottom-0 ${tabConfig.footerBg} border-t ${tabConfig.footerBorder} px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] flex items-center justify-between`}>
                     <span className={`text-[10px] font-bold ${tabConfig.textColor} ${tabConfig.textColorDark}`}>
                       Total {tabConfig.label}
                     </span>
@@ -874,12 +920,12 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                   ref={listCloseButtonRef}
                   onClick={() => { setSelectedKey(null); setShowAllList(false); }}
                   aria-label="Tutup"
-                  className="w-8 h-8 shrink-0 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                  className="relative touch-hit w-8 h-8 shrink-0 rounded-lg bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
                 >
                   <X size={16} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
                 {selectedSession ? (
                   <ManasikSessionDetail session={selectedSession} />
                 ) : selectedGroup ? (

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAuthHeaders } from '../LoginPage';
 import type { BioConfig, BioTile, BioTheme } from '../bio/types';
+import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import { describeLoadError } from '../../lib/loadError';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -20,6 +22,11 @@ export function useBioConfig(slug: string) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  // Ada suntingan yang belum dikonfirmasi server: masih menunggu debounce, sedang
+  // terkirim, atau kiriman terakhir gagal. Muat ulang di jendela itu membuang suntingan
+  // (flush saat unmount tidak jalan pada reload), jadi didaftarkan ke penjaga unsaved.
+  const [hasPendingEdits, setHasPendingEdits] = useState(false);
+  useUnsavedChanges(`bio-config:${slug}`, hasPendingEdits);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingBodyRef = useRef<BioConfig | null>(null);
@@ -31,12 +38,13 @@ export function useBioConfig(slug: string) {
       const res = await fetch(`/api/bio/${encodeURIComponent(slug)}/config`, {
         headers: getAuthHeaders(),
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const d = await res.json();
       setConfig(ensureBioEditorConfig(d.data as BioConfig));
       setError(null);
     } catch (e) {
-      setError('Gagal memuat konfigurasi');
+      // Offline → "Tidak ada koneksi internet…", server error → pesan server; tanpa teks teknis.
+      setError(describeLoadError(e));
     } finally {
       setLoading(false);
     }
@@ -61,6 +69,8 @@ export function useBioConfig(slug: string) {
       setLastSaved(new Date());
       setSaveStatus('saved');
       setError(null);
+      // Suntingan baru bisa sudah antre lagi selama kiriman ini berjalan.
+      setHasPendingEdits(pendingBodyRef.current !== null);
     } catch (e: any) {
       setSaveStatus('error');
       setError(e?.message || 'Gagal menyimpan');
@@ -123,6 +133,7 @@ export function useBioConfig(slug: string) {
       scheduleSave(next);
       return next;
     });
+    setHasPendingEdits(true);
   }, [scheduleSave]);
 
   const addTile = useCallback((tile: Omit<BioTile, 'order'>) => {

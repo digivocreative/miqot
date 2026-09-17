@@ -1,4 +1,4 @@
-import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
+import { dashboardViewportBelowHeader } from '../constants/dashboard-chrome';
 
 // Skeleton Direktori Hotel — SENGAJA di berkas sendiri (eager, ~1KB) alih-alih
 // di dalam HotelPage: DashboardLayout memakainya sebagai fallback Suspense
@@ -11,7 +11,7 @@ import { DASHBOARD_SUBPAGE_HEADER_H } from '../constants/dashboard-chrome';
 // lembarnya tidak bercabang dua.
 export const HOTEL_SHEET_CLASS =
   'bg-white dark:bg-slate-900 sm:border-x sm:border-gray-100 dark:sm:border-slate-800';
-export const HOTEL_SHEET_MIN_HEIGHT = `calc(100dvh - ${DASHBOARD_SUBPAGE_HEADER_H}px)`;
+export const HOTEL_SHEET_MIN_HEIGHT = dashboardViewportBelowHeader();
 
 const BLOCK = 'bg-gray-100 dark:bg-slate-800 animate-pulse motion-reduce:animate-none';
 const INNER_BLOCK = 'bg-gray-100 dark:bg-slate-700 animate-pulse motion-reduce:animate-none';
