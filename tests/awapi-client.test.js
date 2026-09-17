@@ -13,6 +13,8 @@ import {
   allocateAggregatePartialRow,
   hasTrustedManualPaymentGuard,
   buildBookingPriceIndex,
+  awapiFetchUmrahByKeberangkatan,
+  awapiFetchHajiByPendaftaran,
 } from '../awapi-client.js';
 
 function jakartaYear() {
@@ -833,4 +835,139 @@ test('buildBookingPriceIndex marks bookings with unresolvable pax prices as not 
     { id_umroh: 'AIW3', jm_id: 'JM5', raw_data: { paket_harga: '34900000' } },
   ], []);
   assert.deepEqual(ghost.get('AIW3'), { priceTotal: 69800000, paxCount: 2, priceKnown: true, distinctAggregateCount: 0 });
+});
+
+
+// ── Paged list endpoints (/limit/{n}/offset/{m}, since 2026-09-17) ──
+
+function pagedRows(count, prefix = 'AIW') {
+  return Array.from({ length: count }, (_, i) => ({
+    id_umrah: `${prefix}${String(count - i).padStart(5, '0')}`,
+    id_jamaah: `JM${String(count - i).padStart(5, '0')}`,
+    nama: `PAX ${i}`,
+  }));
+}
+
+// Fake upstream: serves `listFor()` (re-read per request so tests can mutate
+// it mid-listing), clamps limit like production (> maxLimit → 50), records paths.
+async function withFakeUpstream(handler, run) {
+  const originalFetch = globalThis.fetch;
+  const paths = [];
+  globalThis.fetch = async (url) => {
+    const path = new URL(url).pathname;
+    paths.push(path);
+    const { status = 200, body } = handler(path, paths.length - 1);
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+  };
+  try {
+    return await run(paths);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function pagedHandler(listFor, { maxLimit = 100 } = {}) {
+  return (path, callIndex) => {
+    const list = listFor(callIndex);
+    const m = /\/limit\/(\d+)\/offset\/(\d+)$/.exec(path);
+    if (!m) {
+      return { body: { status: 'true', draw: 1, recordsTotal: list.length, recordsFiltered: list.length, aaData: list.slice(0, 50) } };
+    }
+    const limit = Number(m[1]) > maxLimit ? 50 : Number(m[1]);
+    const offset = Number(m[2]);
+    return { body: { status: 'true', draw: 1, recordsTotal: list.length, recordsFiltered: list.length, aaData: list.slice(offset, offset + limit) } };
+  };
+}
+
+test('list endpoints page through /limit/offset until recordsTotal (nila 73 > bare cap 50)', async () => {
+  const list = pagedRows(230);
+  await withFakeUpstream(pagedHandler(() => list), async (paths) => {
+    const { rows, raw } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM792', { tahun: 1448, hijriah: true });
+    assert.equal(rows.length, 230);
+    assert.deepEqual(rows.map(r => r.id_jamaah), list.map(r => r.id_jamaah));
+    assert.equal(raw.aaData.length, 230);
+    assert.deepEqual(paths, [
+      '/awapi/gu/SM792/bh/1448/limit/100/offset/0',
+      '/awapi/gu/SM792/bh/1448/limit/100/offset/95',
+      '/awapi/gu/SM792/bh/1448/limit/100/offset/190',
+    ]);
+  });
+});
+
+test('haji list endpoints are paged too', async () => {
+  const list = pagedRows(120, 'HAJ');
+  await withFakeUpstream(pagedHandler(() => list.map(r => ({ id_haji: r.id_umrah, id_jamaah: r.id_jamaah })) ), async (paths) => {
+    const { rows } = await awapiFetchHajiByPendaftaran('K-1', 'SM1', { tahun: 1447, hijriah: true });
+    assert.equal(rows.length, 120);
+    assert.equal(paths[0], '/awapi/gh/SM1/dh/1447/limit/100/offset/0');
+  });
+});
+
+test('a silently smaller page cap advances by rows received, never skipping rows', async () => {
+  const list = pagedRows(130);
+  await withFakeUpstream(pagedHandler(() => list, { maxLimit: 40 }), async () => {
+    const { rows } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true });
+    assert.deepEqual(rows.map(r => r.id_jamaah), list.map(r => r.id_jamaah));
+  });
+});
+
+test('a list ending short of recordsTotal throws instead of returning a truncated list', async () => {
+  const list = pagedRows(150);
+  const handler = (path) => {
+    const offset = Number(/offset\/(\d+)$/.exec(path)[1]);
+    return { body: { status: 'true', recordsTotal: 150, aaData: offset === 0 ? list.slice(0, 100) : [] } };
+  };
+  await withFakeUpstream(handler, async () => {
+    await assert.rejects(
+      awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true }),
+      /Upstream list incomplete: 100\/150/,
+    );
+  });
+});
+
+test('an upstream delete shifting rows past the page overlap throws (no silent seam gap)', async () => {
+  const full = pagedRows(200);
+  // Between page 1 and page 2, ten of the already-fetched newest rows vanish.
+  const handler = pagedHandler((callIndex) => (callIndex === 0 ? full : full.slice(10)));
+  await withFakeUpstream(handler, async () => {
+    await assert.rejects(
+      awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true }),
+      /shifted between pages/,
+    );
+  });
+});
+
+test('a small shift within the overlap still yields every surviving row', async () => {
+  const full = pagedRows(200);
+  const handler = pagedHandler((callIndex) => (callIndex === 0 ? full : full.slice(2)));
+  await withFakeUpstream(handler, async () => {
+    const { rows } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true });
+    const got = new Set(rows.map(r => r.id_jamaah));
+    for (const row of full.slice(2)) assert.ok(got.has(row.id_jamaah), `missing ${row.id_jamaah}`);
+  });
+});
+
+test('pagination route 404 falls back to the bare path only when it is complete', async () => {
+  const notFound = { status: 404, body: '<html>404 Not Found</html>' };
+  const small = pagedRows(30);
+  await withFakeUpstream((path) => (path.includes('/limit/') ? notFound : { body: { status: 'true', recordsTotal: 30, aaData: small } }), async () => {
+    const { rows } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true });
+    assert.equal(rows.length, 30);
+  });
+  const big = pagedRows(73);
+  await withFakeUpstream((path) => (path.includes('/limit/') ? notFound : { body: { status: 'true', recordsTotal: 73, aaData: big.slice(0, 50) } }), async () => {
+    await assert.rejects(
+      awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 1448, hijriah: true }),
+      /50\/73 rows \(pagination unavailable\)/,
+    );
+  });
+});
+
+test('an unpaged payload without recordsTotal is returned as-is', async () => {
+  const list = pagedRows(12);
+  await withFakeUpstream(() => ({ body: { status: 'true', aaData: list } }), async (paths) => {
+    const { rows } = await awapiFetchUmrahByKeberangkatan('K-1', 'SM1', { tahun: 2026, bulan: 8 });
+    assert.equal(rows.length, 12);
+    assert.deepEqual(paths, ['/awapi/gu/SM1/bm/2026/8/limit/100/offset/0']);
+  });
 });

@@ -10,9 +10,11 @@
  *   GET /awapi/gh/{kode}/haji/{IDHaji}
  *   GET /awapi/gh/{kode}/jamaah/{IDJamaah}
  *
- * Auth: header `x-api-key: {kode}-{secret}`. The upstream API does not currently
- * enforce key validation (only the {kode} segment in the URL matters), but we
- * always send the header for forward-compatibility.
+ * Auth: header `x-api-key: {kode}-{secret}`. Enforced upstream since 2026-09-17
+ * (a request without it gets 401 "API Key is missing.").
+ *
+ * List endpoints (bm|bh|dm|dh) are paged via `/limit/{n}/offset/{m}` and always
+ * return the complete list or throw (see awapiRequestList).
  *
  * All `fetch*` functions throw a structured error `{ status, message, body }`
  * on non-2xx or network failure. Success returns `{ rows, raw }` where
@@ -92,6 +94,88 @@ async function awapiRequest(path, { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {
   return { rows, raw: json };
 }
 
+// List endpoints (bm/bh/dm/dh, umroh & haji) became DataTables-paged upstream
+// on 2026-09-17: a bare request silently returns only the newest 50 rows while
+// `recordsTotal` reports the real size, and sync cleanup read the missing tail
+// as cancellations (nila lost 21 jamaah, harga 30 haji). Pages are requested as
+// `/limit/{n}/offset/{m}`; a limit above 100 silently falls back to 50, so the
+// offset advances by rows actually received, never by the requested limit.
+//
+// Consecutive pages overlap by a few rows: if an upstream insert/delete shifts
+// the list between requests, the overlap proves no row slipped through the
+// seam. Anything short of the full recordsTotal throws, so callers treat the
+// list as incomplete and skip deletion — a truncated list must never delete.
+const LIST_PAGE_SIZE = 100;
+const LIST_PAGE_OVERLAP = 5;
+const LIST_MAX_PAGES = 200;
+
+function listRowKey(row) {
+  const booking = row?.id_umrah ?? row?.id_haji;
+  if (booking != null && row?.id_jamaah != null) return `${booking}_${row.id_jamaah}`;
+  return JSON.stringify(row);
+}
+
+function reportedListTotal(raw) {
+  const total = Number(raw?.recordsTotal);
+  return Number.isFinite(total) ? total : null;
+}
+
+async function awapiRequestList(path, { apiKey } = {}) {
+  const byKey = new Map();
+  let firstRaw = null;
+  let total = null;
+  let offset = 0;
+
+  for (let page = 0; page < LIST_MAX_PAGES; page++) {
+    let result;
+    try {
+      result = await awapiRequest(`${path}/limit/${LIST_PAGE_SIZE}/offset/${offset}`, { apiKey });
+    } catch (err) {
+      // Pagination route withdrawn upstream → the bare path is still usable,
+      // but only when it proves it returned the whole list.
+      if (page === 0 && err.status === 404) {
+        const plain = await awapiRequest(path, { apiKey });
+        const plainTotal = reportedListTotal(plain.raw);
+        if (plainTotal !== null && plain.rows.length < plainTotal) {
+          throw new AwapiError(`Upstream list incomplete: ${plain.rows.length}/${plainTotal} rows (pagination unavailable)`, { status: 0 });
+        }
+        return plain;
+      }
+      throw err;
+    }
+
+    const { rows, raw } = result;
+    firstRaw ??= raw;
+    const pageTotal = reportedListTotal(raw);
+    if (pageTotal === null) {
+      if (page === 0) return result; // unpaged payload — already the whole list
+      throw new AwapiError('Upstream pagination metadata disappeared mid-list', { status: 0 });
+    }
+    total = pageTotal;
+
+    if (page > 0 && rows.length > 0) {
+      const overlapSeen = rows.slice(0, LIST_PAGE_OVERLAP).some(row => byKey.has(listRowKey(row)));
+      if (!overlapSeen) {
+        throw new AwapiError(`Upstream list shifted between pages at offset ${offset}`, { status: 0 });
+      }
+    }
+
+    const sizeBefore = byKey.size;
+    for (const row of rows) byKey.set(listRowKey(row), row);
+    if (byKey.size >= total) break;
+    // Empty page, a page adding nothing new, or a tail too short to overlap:
+    // the list ended before recordsTotal was reached.
+    if (byKey.size === sizeBefore || rows.length <= LIST_PAGE_OVERLAP) break;
+    offset += rows.length - LIST_PAGE_OVERLAP;
+  }
+
+  if (total !== null && byKey.size < total) {
+    throw new AwapiError(`Upstream list incomplete: ${byKey.size}/${total} rows`, { status: 0 });
+  }
+  const rows = Array.from(byKey.values());
+  return { rows, raw: { ...firstRaw, aaData: rows } };
+}
+
 /**
  * List umrah jamaah by tahun keberangkatan.
  * @param {string} apiKey  Full x-api-key (`{kode}-{secret}`)
@@ -107,7 +191,7 @@ export async function awapiFetchUmrahByKeberangkatan(apiKey, agentCode, { tahun,
   const segment = hijriah ? 'bh' : 'bm';
   let path = `/awapi/gu/${encodeURIComponent(agentCode)}/${segment}/${encodeURIComponent(tahun)}`;
   if (bulan && !hijriah) path += `/${encodeURIComponent(bulan)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey });
 }
 
 /**
@@ -119,7 +203,7 @@ export async function awapiFetchUmrahByPendaftaran(apiKey, agentCode, { tahun, b
   const segment = hijriah ? 'dh' : 'dm';
   let path = `/awapi/gu/${encodeURIComponent(agentCode)}/${segment}/${encodeURIComponent(tahun)}`;
   if (bulan && !hijriah) path += `/${encodeURIComponent(bulan)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey });
 }
 
 /** Fetch one booking (and all its jamaah) by id_umrah. */
@@ -149,7 +233,7 @@ export async function awapiFetchHajiByKeberangkatan(apiKey, agentCode, { tahun, 
   if (!tahun) throw new AwapiError('tahun required', { status: 0 });
   const segment = hijriah ? 'bh' : 'bm';
   const path = `/awapi/gh/${encodeURIComponent(agentCode)}/${segment}/${encodeURIComponent(tahun)}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey });
 }
 
 /**
@@ -161,7 +245,7 @@ export async function awapiFetchHajiByPendaftaran(apiKey, agentCode, { tahun, bu
   const segment = hijriah ? 'dh' : 'dm';
   let path = `/awapi/gh/${encodeURIComponent(agentCode)}/${segment}/${encodeURIComponent(tahun)}`;
   if (bulan && !hijriah) path += `/${encodeURIComponent(Number(bulan))}`;
-  return awapiRequest(path, { apiKey });
+  return awapiRequestList(path, { apiKey });
 }
 
 /** Fetch one haji booking (and all its jamaah) by id_haji. */
