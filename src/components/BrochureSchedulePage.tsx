@@ -1,7 +1,7 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown } from 'lucide-react';
+import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown, Sticker } from 'lucide-react';
 import FilterDropdown from './FilterDropdown';
 import { brosurModePath, readBrosurModeFromPath, type BrosurMode } from '../lib/brosur-mode';
 import {
@@ -48,6 +48,7 @@ import { CatalogLoadingModal } from './CatalogLoadingModal';
 import { CatalogCoverPicker } from './CatalogCoverPicker';
 import { getCatalogCover, DEFAULT_COVER_ID } from '@/lib/catalogCovers';
 import { BROCHURE_DESIGNS, getBrochureDesign, normalizeBrochureDesignId, type BrochureDesignId } from './brochure-designs';
+import { StickerStudio } from './StickerStudio';
 // Dipakai bersama brosur jadwal yang dirender di dalam Bani — pemenggalan
 // halaman dan rasterisasinya harus identik di kedua tempat.
 import { PACKAGES_PER_IMAGE, splitPackagesIntoPages } from '@/lib/brosurJadwalPages';
@@ -419,6 +420,8 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     catch { return DEFAULT_COVER_ID; }
   });
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  // Halaman yang sedang ditempeli sticker; non-null = studio terbuka.
+  const [stickerPage, setStickerPage] = useState<{ blob: Blob; name: string } | null>(null);
   const selectCover = (id: string) => {
     setCoverId(id);
     try { localStorage.setItem('catalogCoverId', id); } catch { /* private mode: ignore */ }
@@ -1089,6 +1092,25 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
   }
 
+  // Studio sticker bekerja pada blob KANONIK — gambar yang byte-nya identik
+  // dengan hasil Simpan. Kalau ekspornya belum siap, studio tidak dibuka sama
+  // sekali; membukanya kosong hanya memindahkan kebingungan ke dalam modal.
+  function handleSticker(pageIndex: number) {
+    if (!exportLabel) return;
+    const image = canonicalImageAt(pageIndex);
+    if (!image) {
+      showToast('File ekspor masih disiapkan, coba lagi sebentar');
+      return;
+    }
+    setStickerPage({
+      blob: image.blob,
+      // filenameForBrochure membawa ekstensinya sendiri; studio selalu
+      // menghasilkan .jpg dan memasang ekstensinya lagi, jadi dibuang di sini.
+      name: filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext)
+        .replace(/\.[^.]+$/, ''),
+    });
+  }
+
   // The background export is already a Blob, so navigator.share remains inside
   // the original user-activation window on iOS.
   function handleShare(pageIndex: number) {
@@ -1393,7 +1415,8 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
                       }}
                     >
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
                         {/* Tidak menunggu blob ekspor: modal punya UI pending
                             sendiri dan file referensi ditunggu di sana
                             (waitForCanonicalImage), tetap identik dgn Simpan. */}
@@ -1470,6 +1493,19 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                             <span>Download</span>
                           </button>
                         )}
+                        </div>
+                        {/* Baris sendiri, bukan kolom ketiga: dengan "Buat Ulang AI" di
+                            sebelahnya, tiga kolom memotong labelnya di layar HP. */}
+                        <button
+                          type="button"
+                          data-sticker-open
+                          onClick={() => handleSticker(index)}
+                          disabled={!previewAvailable || busy !== null || catalogBusy}
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                        >
+                          <Sticker size={16} />
+                          <span>Tempel Sticker</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1528,6 +1564,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
           title={promptPage && promptPageIndex !== null ? titleForPromptPage(promptPageIndex) : 'Brosur Paket Umroh'}
         />
       )}
+
+      {/* Studio sticker — bekerja pada blob kanonik halaman terpilih, jadi yang
+          ditempeli persis berkas yang keluar dari tombol Simpan. */}
+      <StickerStudio
+        isOpen={stickerPage !== null}
+        onClose={() => setStickerPage(null)}
+        baseBlob={stickerPage?.blob ?? null}
+        fileNameBase={stickerPage?.name ?? 'Brosur'}
+      />
 
       {/* Off-screen catalog stage — cover dipakai kedua mode; halaman template
           hanya dipasang untuk katalog Brosur Jadwal. */}
