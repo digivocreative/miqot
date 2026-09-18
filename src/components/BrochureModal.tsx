@@ -328,6 +328,27 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                   />
                 )}
 
+                {/* Pil sticker melayang di pojok kanan atas BROSUR (pembungkus
+                    ini `relative`), bukan pojok layar. Brosur ramai merah-emas,
+                    jadi pil emerald butuh cincin putih supaya tidak menempel ke
+                    latar — tanpa itu ia hilang di template keemasan. */}
+                {displayUrl && isImageLoaded && !isStamping && (
+                  <motion.button
+                    type="button"
+                    data-sticker-open
+                    onClick={handleOpenStickerStudio}
+                    disabled={isSharing}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ type: 'spring', damping: 18, stiffness: 320, delay: 0.15 }}
+                    whileTap={{ scale: 0.94 }}
+                    className="absolute top-4 right-4 z-20 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30 disabled:opacity-60"
+                  >
+                    <Sticker size={14} />
+                    <span>Sticker</span>
+                  </motion.button>
+                )}
+
                 {!displayUrl && (
                   <div className="py-20 text-center">
                     <p className="text-gray-400 dark:text-slate-500">Brosur tidak tersedia</p>
@@ -375,19 +396,6 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           {displayUrl && (
             <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
               {aiToolsControl}
-              {/* Tombol persegi, bukan flex-1: dengan AI Tools + Bagikan di
-                  baris yang sama, tiga tombol lebar memotong labelnya di HP. */}
-              <button
-                type="button"
-                data-sticker-open
-                aria-label="Tempel sticker"
-                title="Tempel sticker"
-                onClick={handleOpenStickerStudio}
-                disabled={isStamping || isSharing}
-                className="flex-none w-12 flex items-center justify-center rounded-xl border border-emerald-200 dark:border-emerald-700/70 bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 transition-all duration-200 active:scale-95 disabled:opacity-60"
-              >
-                <Sticker size={18} />
-              </button>
               <button
                 onClick={handleShareBrosur}
                 disabled={isSharing}

@@ -2016,29 +2016,37 @@ _________________________
                       Lihat penuh
                     </div>
                   )}
+
+                  {/* Pil sticker melayang — satu-satunya chrome BERWARNA di atas
+                      brosur, jadi ia yang menarik mata sementara "Lihat penuh"
+                      tetap kaca gelap. stopPropagation wajib: pembungkusnya
+                      membuka modal layar penuh saat diklik. */}
+                  {brosurSiap && (
+                    <motion.button
+                      type="button"
+                      data-sticker-open
+                      onClick={(e) => { e.stopPropagation(); handleOpenStickerStudio(); }}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ type: 'spring', damping: 18, stiffness: 320, delay: 0.15 }}
+                      whileTap={{ scale: 0.94 }}
+                      className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30"
+                    >
+                      <Sticker size={14} />
+                      <span>Sticker</span>
+                    </motion.button>
+                  )}
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between gap-3">
-                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2 min-w-0">
-                    <Download size={16} className="shrink-0 text-emerald-500" />
-                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400 whitespace-nowrap">Download brosur</span>
+                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
+                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
+                    <Download size={16} className="text-emerald-500" />
+                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400">Download brosur</span>
                   </button>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button
-                      type="button"
-                      data-sticker-open
-                      onClick={handleOpenStickerStudio}
-                      disabled={!brosurSiap}
-                      className="flex items-center gap-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
-                    >
-                      <Sticker size={16} />
-                      <span className="text-xs font-semibold whitespace-nowrap">Sticker</span>
-                    </button>
-                    <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
-                      <Share2 size={16} />
-                    </button>
-                  </div>
+                  <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+                    <Share2 size={16} />
+                  </button>
                 </div>
               </div>
             </div>
