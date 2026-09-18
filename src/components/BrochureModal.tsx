@@ -40,13 +40,21 @@ interface BrochureModalProps {
    * tak dikenal, kanvas) → brosur asli, seperti sebelum fitur ini ada.
    */
   agent?: BrochureAgentIdentity | null;
+  /**
+   * Menampilkan baris "Tempel sticker ke brosur". Sticker adalah alat AGENT,
+   * dan modal ini juga dipakai di permukaan publik (share itinerary lewat
+   * JourneyStrip, lampiran di AskAIModal) yang dilihat calon jamaah. Karena itu
+   * default-nya MATI dan pemanggil yang agent-only yang menyalakannya —
+   * kebalikannya berarti setiap pemanggil baru bocor sampai ada yang sadar.
+   */
+  allowSticker?: boolean;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null, allowSticker = false }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -380,7 +388,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           {/* Baris ajakan sticker: satu baris penuh tepat di atas footer, jadi ia
               betul-betul "di bawah brosur" tanpa berebut padding dengan kartu
               putih pembungkus gambar. */}
-          {displayUrl && !isStamping && (
+          {allowSticker && displayUrl && !isStamping && (
             <div className="flex-none">
               <StickerPromoRow
                 onOpen={handleOpenStickerStudio}
@@ -427,7 +435,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           {/* Studio sticker — melayani modal ini DAN dashboard Brosur Paket,
               karena BrochurePaketGrid memakai modal yang sama. */}
           <StickerStudio
-            isOpen={stickerBase !== null}
+            isOpen={allowSticker && stickerBase !== null}
             onClose={() => setStickerBase(null)}
             baseBlob={stickerBase}
             fileNameBase={`Brosur - ${title}`}

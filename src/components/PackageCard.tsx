@@ -2021,11 +2021,15 @@ _________________________
                 </div>
 
                 {/* Footer */}
-                <StickerPromoRow
-                  onOpen={handleOpenStickerStudio}
-                  disabled={!brosurSiap}
-                  allowCallout={isExpanded}
-                />
+                {/* Alat AGENT: kartu ini juga tampil di halaman publik agent
+                    (/:slug) yang dilihat calon jamaah. */}
+                {isSessionValid() && (
+                  <StickerPromoRow
+                    onOpen={handleOpenStickerStudio}
+                    disabled={!brosurSiap}
+                    allowCallout={isExpanded}
+                  />
+                )}
 
                 <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
                   <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
@@ -2512,6 +2516,7 @@ _________________________
             setIsPackageValueOpen(true);
           } : undefined}
           onPrompt={isSessionValid() ? () => setIsPromptOpen(true) : undefined}
+          allowSticker={isSessionValid()}
         />
       )}
 
@@ -2519,7 +2524,7 @@ _________________________
           BrochureModal punya tombolnya sendiri, jadi agent tidak perlu membuka
           layar penuh dulu hanya untuk menempel. */}
       <StickerStudio
-        isOpen={stickerBase !== null}
+        isOpen={isSessionValid() && stickerBase !== null}
         onClose={() => setStickerBase(null)}
         baseBlob={stickerBase}
         fileNameBase={`Brosur - ${pkg.nama || 'Paket'}`}

@@ -12,5 +12,8 @@ createRoot(document.getElementById('root')!).render(
     title="PAKET UJI"
     onCaption={() => {}}
     onPrompt={() => {}}
+    // Meniru permukaan agent (dashboard Brosur Paket): baris sticker default
+    // MATI, dan hanya pemanggil agent-only yang menyalakannya.
+    allowSticker
   />,
 );
