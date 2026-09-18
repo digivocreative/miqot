@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem, Sticker } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
+import { StickerStudio } from './StickerStudio';
 import type { BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
 
 // ============================================
@@ -49,6 +50,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  // Gambar dasar yang sedang ditempeli sticker; non-null = studio terbuka.
+  const [stickerBase, setStickerBase] = useState<Blob | null>(null);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -67,6 +70,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       setScale(1);
       setIsImageLoaded(false);
       setAiMenuOpen(false);
+      setStickerBase(null);
     }
   }, [isOpen, imageUrl]);
 
@@ -190,6 +194,17 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       window.open(fullUrl, '_blank');
     } finally {
       setIsSharing(false);
+    }
+  };
+
+  // Sticker ditempel di ATAS brosur yang identitas agent-nya sudah terbakar.
+  // `renderUrl` sudah menunjuk hasil gubahan kalau ada, jadi fallback fetch-nya
+  // tidak pernah mengambil gambar polos saat stamping berhasil.
+  const handleOpenStickerStudio = async () => {
+    try {
+      setStickerBase(stampedBlob ?? await (await fetch(renderUrl)).blob());
+    } catch (err) {
+      console.error('Sticker studio error:', err);
     }
   };
 
@@ -360,6 +375,19 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           {displayUrl && (
             <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
               {aiToolsControl}
+              {/* Tombol persegi, bukan flex-1: dengan AI Tools + Bagikan di
+                  baris yang sama, tiga tombol lebar memotong labelnya di HP. */}
+              <button
+                type="button"
+                data-sticker-open
+                aria-label="Tempel sticker"
+                title="Tempel sticker"
+                onClick={handleOpenStickerStudio}
+                disabled={isStamping || isSharing}
+                className="flex-none w-12 flex items-center justify-center rounded-xl border border-emerald-200 dark:border-emerald-700/70 bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 transition-all duration-200 active:scale-95 disabled:opacity-60"
+              >
+                <Sticker size={18} />
+              </button>
               <button
                 onClick={handleShareBrosur}
                 disabled={isSharing}
@@ -389,6 +417,16 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
               </button>
             </div>
           )}
+
+          {/* Studio sticker — melayani modal ini DAN dashboard Brosur Paket,
+              karena BrochurePaketGrid memakai modal yang sama. */}
+          <StickerStudio
+            isOpen={stickerBase !== null}
+            onClose={() => setStickerBase(null)}
+            baseBlob={stickerBase}
+            fileNameBase={`Brosur - ${title}`}
+            tone={tone}
+          />
 
         </motion.div>
       )}

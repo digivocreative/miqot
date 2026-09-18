@@ -2,10 +2,11 @@
 
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight, Sticker } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
+import { StickerStudio } from './StickerStudio';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
@@ -174,6 +175,8 @@ function PackageCardImpl({
   const [askAIOpen, setAskAIOpen] = useState(false);
   const [brosurError, setBrosurError] = useState(false);
   const [brosurLoaded, setBrosurLoaded] = useState(false);
+  // Gambar dasar yang sedang ditempeli sticker; non-null = studio terbuka.
+  const [stickerBase, setStickerBase] = useState<Blob | null>(null);
   // Brosur ±300KB/gambar — di list, mount hanya setelah kartu pernah dibuka
   // supaya deretan kartu tertutup tidak mengunduh semua brosur sekaligus.
   const [showBrosurPreview, setShowBrosurPreview] = useState(isSingleView);
@@ -616,6 +619,18 @@ _________________________
       if (err.name !== 'AbortError') {
         console.error('Share brosur error:', err);
       }
+    }
+  };
+
+  // Sticker ditempel di ATAS brosur yang identitas agent-nya sudah terbakar —
+  // ekspresi blob-nya sengaja sama persis dengan downloadBrosurFile. Urutan
+  // sebaliknya akan merusak pemindaian kotak kontak milik stampAgentOnBrochure.
+  const handleOpenStickerStudio = async () => {
+    fireViewContent();
+    try {
+      setStickerBase(stampedBrosur.blob ?? await (await fetch(brosurImageUrl)).blob());
+    } catch (err) {
+      console.error('Sticker studio error:', err);
     }
   };
 
@@ -2004,14 +2019,26 @@ _________________________
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
-                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
-                    <Download size={16} className="text-emerald-500" />
-                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400">Download brosur</span>
+                <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between gap-3">
+                  <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2 min-w-0">
+                    <Download size={16} className="shrink-0 text-emerald-500" />
+                    <span className="text-xs font-semibold text-emerald-500 dark:text-emerald-400 whitespace-nowrap">Download brosur</span>
                   </button>
-                  <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
-                    <Share2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      type="button"
+                      data-sticker-open
+                      onClick={handleOpenStickerStudio}
+                      disabled={!brosurSiap}
+                      className="flex items-center gap-1.5 text-gray-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors disabled:opacity-50"
+                    >
+                      <Sticker size={16} />
+                      <span className="text-xs font-semibold whitespace-nowrap">Sticker</span>
+                    </button>
+                    <button type="button" onClick={handleShareBrosur} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+                      <Share2 size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2491,6 +2518,16 @@ _________________________
           onPrompt={isSessionValid() ? () => setIsPromptOpen(true) : undefined}
         />
       )}
+
+      {/* Studio sticker — dipanggil dari footer pratinjau brosur di dalam kartu.
+          BrochureModal punya tombolnya sendiri, jadi agent tidak perlu membuka
+          layar penuh dulu hanya untuk menempel. */}
+      <StickerStudio
+        isOpen={stickerBase !== null}
+        onClose={() => setStickerBase(null)}
+        baseBlob={stickerBase}
+        fileNameBase={`Brosur - ${pkg.nama || 'Paket'}`}
+      />
 
       {/* Itinerary Modal */}
       {pkg.itineraryUrl && itineraryMounted && (
