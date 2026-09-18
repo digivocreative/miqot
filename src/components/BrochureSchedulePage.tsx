@@ -1376,6 +1376,21 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         background: '#fff',
                       }}
                     >
+                      {/* Pil sticker melayang, sebahasa dengan kartu Jadwal dan
+                          BrochureModal. Sengaja SIBLING dari node yang di-capture
+                          (data-brochure-preview-page), bukan anaknya: apa pun di
+                          dalam node itu ikut terbakar ke berkas ekspor. */}
+                      <button
+                        type="button"
+                        data-sticker-open
+                        onClick={() => handleSticker(index)}
+                        disabled={!previewAvailable || busy !== null || catalogBusy}
+                        className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30 transition-transform duration-200 active:scale-95 disabled:opacity-60"
+                      >
+                        <Sticker size={14} />
+                        <span>Sticker</span>
+                      </button>
+
                       <div
                         style={{
                           width: BROCHURE_W,
@@ -1415,97 +1430,83 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
                       }}
                     >
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                        {/* Tidak menunggu blob ekspor: modal punya UI pending
-                            sendiri dan file referensi ditunggu di sana
-                            (waitForCanonicalImage), tetap identik dgn Simpan. */}
-                        <button
-                          type="button"
-                          onClick={() => setPromptPageIndex(index)}
-                          disabled={busy !== null || catalogBusy}
-                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
-                        >
-                          <Wand2 size={16} />
-                          <span className="whitespace-nowrap">Buat Ulang AI</span>
-                        </button>
-                        {showShareButton ? (
-                          <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
-                            <div
-                              role="menu"
-                              className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
-                                saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setSaveMenuPageIndex(null);
-                                  handleShare(index);
-                                }}
-                                disabled={!previewAvailable || busy !== null || catalogBusy}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
-                              >
-                                {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
-                                <span>Share</span>
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setSaveMenuPageIndex(null);
-                                  handleDownload(index);
-                                }}
-                                disabled={!previewAvailable || busy !== null || catalogBusy}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
-                              >
-                                {!previewAvailable && !previewError
-                                  ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-                                  : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
-                                <span>Download</span>
-                              </button>
-                            </div>
+                      <div className="grid grid-cols-2 gap-2">
+                      {/* Tidak menunggu blob ekspor: modal punya UI pending
+                          sendiri dan file referensi ditunggu di sana
+                          (waitForCanonicalImage), tetap identik dgn Simpan. */}
+                      <button
+                        type="button"
+                        onClick={() => setPromptPageIndex(index)}
+                        disabled={busy !== null || catalogBusy}
+                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                      >
+                        <Wand2 size={16} />
+                        <span className="whitespace-nowrap">Buat Ulang AI</span>
+                      </button>
+                      {showShareButton ? (
+                        <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
+                          <div
+                            role="menu"
+                            className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
+                              saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
+                            }`}
+                          >
                             <button
                               type="button"
-                              onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
+                              role="menuitem"
+                              onClick={() => {
+                                setSaveMenuPageIndex(null);
+                                handleShare(index);
+                              }}
                               disabled={!previewAvailable || busy !== null || catalogBusy}
-                              aria-haspopup="menu"
-                              aria-expanded={saveMenuOpen}
-                              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
                             >
-                              {(shareBusy || (!previewAvailable && !previewError))
-                                ? <Loader2 size={17} className="animate-spin" />
-                                : <Download size={17} />}
-                              <span>Simpan</span>
-                              <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
+                              {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              <span>Share</span>
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setSaveMenuPageIndex(null);
+                                handleDownload(index);
+                              }}
+                              disabled={!previewAvailable || busy !== null || catalogBusy}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                            >
+                              {!previewAvailable && !previewError
+                                ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                                : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              <span>Download</span>
                             </button>
                           </div>
-                        ) : (
                           <button
-                            onClick={() => handleDownload(index)}
+                            type="button"
+                            onClick={() => setSaveMenuPageIndex(saveMenuOpen ? null : index)}
                             disabled={!previewAvailable || busy !== null || catalogBusy}
-                            className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                            aria-haspopup="menu"
+                            aria-expanded={saveMenuOpen}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                           >
-                            {!previewAvailable && !previewError
+                            {(shareBusy || (!previewAvailable && !previewError))
                               ? <Loader2 size={17} className="animate-spin" />
                               : <Download size={17} />}
-                            <span>Download</span>
+                            <span>Simpan</span>
+                            <ChevronDown size={15} className={`transition-transform duration-200 ${saveMenuOpen ? 'rotate-180' : ''}`} />
                           </button>
-                        )}
                         </div>
-                        {/* Baris sendiri, bukan kolom ketiga: dengan "Buat Ulang AI" di
-                            sebelahnya, tiga kolom memotong labelnya di layar HP. */}
+                      ) : (
                         <button
-                          type="button"
-                          data-sticker-open
-                          onClick={() => handleSticker(index)}
+                          onClick={() => handleDownload(index)}
                           disabled={!previewAvailable || busy !== null || catalogBusy}
-                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                         >
-                          <Sticker size={16} />
-                          <span>Tempel Sticker</span>
+                          {!previewAvailable && !previewError
+                            ? <Loader2 size={17} className="animate-spin" />
+                            : <Download size={17} />}
+                          <span>Download</span>
                         </button>
+                      )}
                       </div>
                     </div>
                   </div>
