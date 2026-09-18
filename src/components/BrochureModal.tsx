@@ -346,7 +346,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           {/* ─── ZOOM CONTROLS — bottom right ─── */}
           {isImageLoaded && (
             <div className={`fixed bottom-[calc(9.5rem+env(safe-area-inset-bottom))] right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${(aiMenuOpen || stickerCalloutOpen) ? 'opacity-0' : 'opacity-100'}`}>
-              <div className={`${aiMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg`}>
+              <div className={`${(aiMenuOpen || stickerCalloutOpen) ? 'pointer-events-none' : 'pointer-events-auto'} flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg`}>
                 <button
                   type="button"
                   onClick={() => setScale(s => Math.max(1, +(s - 0.25).toFixed(2)))}

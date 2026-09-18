@@ -161,7 +161,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
               <p className="text-xs font-extrabold text-gray-900 dark:text-white">Baru — Tempel Sticker</p>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500 dark:text-slate-400">
-              Tandai brosurmu: sisa seat, promo, atau hotel bintang 5. Menempel langsung ke gambar yang kamu kirim.
+              Tempel “SISA 2 SEAT” atau “PROMO TERBATAS” langsung di brosurnya.
             </p>
             <div className="mt-2.5 flex items-center gap-2">
               <button
