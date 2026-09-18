@@ -75,6 +75,57 @@ describe('Callout sticker di BrochureModal', { concurrency: false }, () => {
     }
   });
 
+  // Gerbang 4 jam / 10 kali diuji sebagai fungsi murni di sticker-promo-gate.
+  // Yang diuji DI SINI cuma kabelnya: tombol callout menambah hitungan, membuka
+  // baris tidak. Keduanya WAJIB dilakukan selagi callout masih tampil — di luar
+  // itu `dismiss` memang tidak mencatat apa pun, jadi tesnya akan hijau tanpa
+  // membuktikan apa-apa (versi pertama tes ini persis begitu: membalik
+  // argumennya tidak membuatnya merah).
+  async function bukaBersih() {
+    const page = await context.newPage();
+    await page.addInitScript(() => localStorage.removeItem('stickerPromoState'));
+    await page.route('**/__uji-brosur-modal.png', route => route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(RED_PNG_BASE64, 'base64'),
+    }));
+    await page.goto(`${appOrigin}${HARNESS}`);
+    await page.locator('[data-sticker-callout-later]').hover();
+    return page;
+  }
+
+  const tersimpan = page => page.evaluate(() => {
+    try { return JSON.parse(localStorage.getItem('stickerPromoState') || 'null'); }
+    catch { return null; }
+  });
+
+  test('tombol Nanti menambah hitungan menuju batas 10', async () => {
+    const page = await bukaBersih();
+    try {
+      await page.click('[data-sticker-callout-later]');
+      await page.locator('[data-sticker-callout]').waitFor({ state: 'detached', timeout: 10_000 });
+      const s = await tersimpan(page);
+      assert.equal(s?.dismissals, 1, 'tombol Nanti tidak menambah hitungan');
+      assert.ok(s?.lastAt > 0, 'waktu tutup tidak dicatat');
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('membuka baris selagi callout tampil menunda, tapi TIDAK menghitung', async () => {
+    const page = await bukaBersih();
+    try {
+      await page.click('[data-sticker-open]');
+      await page.locator('[data-sticker-pick]').first().waitFor({ timeout: 20_000 });
+      await page.locator('[data-sticker-callout]').waitFor({ state: 'detached', timeout: 10_000 });
+      const s = await tersimpan(page);
+      assert.equal(s?.dismissals, 0, 'membuka baris ikut terhitung menuju batas 10');
+      assert.ok(s?.lastAt > 0, 'jendela 4 jam tidak ditunda sama sekali');
+    } finally {
+      await page.close();
+    }
+  });
+
   // Penjaga akar masalahnya, bukan cuma gejalanya: elemen apa pun yang menutupi
   // tombol callout akan membuat asersi ini merah walau tombolnya sendiri sehat.
   test('tidak ada elemen lain yang menutupi tombol-tombol callout', async () => {

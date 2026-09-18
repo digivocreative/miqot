@@ -17,8 +17,14 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronRight, Sparkles } from 'lucide-react';
 
 import { STICKER_PROMO_PREVIEW, stickerThumbUrl } from '../lib/stickerCatalog.js';
+import {
+  promoStateAfterDismiss,
+  readPromoState,
+  serializePromoState,
+  shouldShowPromo,
+} from '../lib/stickerPromoGate.js';
 
-const SEEN_KEY = 'stickerPromoSeen';
+const STATE_KEY = 'stickerPromoState';
 
 /** Hanya satu baris di layar yang boleh menampilkan callout. */
 let calloutClaimed = false;
@@ -44,21 +50,30 @@ function forcedByUrl(): boolean {
   return false;
 }
 
-function alreadySeen(): boolean {
+/**
+ * Boleh muncul? Gerbangnya di src/lib/stickerPromoGate.js; di sini hanya I/O.
+ * localStorage yang melempar (mode privat, site data diblokir) = TIDAK boleh:
+ * tanpa penyimpanan kita tak bisa menghitung apa pun, dan callout yang muncul
+ * tiap buka halaman jauh lebih mengganggu daripada yang tidak pernah muncul.
+ */
+function bolehMuncul(): boolean {
   try {
-    return localStorage.getItem(SEEN_KEY) === '1';
+    return shouldShowPromo(readPromoState(localStorage.getItem(STATE_KEY)), Date.now());
   } catch {
-    // Mode privat / site data diblokir: perlakukan sebagai sudah pernah lihat.
-    // Callout yang muncul terus tiap buka halaman lebih mengganggu daripada
-    // callout yang tidak pernah muncul.
-    return true;
+    return false;
   }
 }
 
-function markSeen() {
+/** @param counted true hanya untuk tombol "Coba sekarang"/"Nanti". */
+function catatTutup(counted: boolean) {
   try {
-    localStorage.setItem(SEEN_KEY, '1');
-  } catch { /* tidak apa-apa; klaim modul tetap menahannya selama sesi ini */ }
+    const next = promoStateAfterDismiss(
+      readPromoState(localStorage.getItem(STATE_KEY)),
+      Date.now(),
+      counted,
+    );
+    localStorage.setItem(STATE_KEY, serializePromoState(next));
+  } catch { /* klaim tingkat modul tetap menahannya selama sesi ini */ }
 }
 
 export interface StickerPromoRowProps {
@@ -112,7 +127,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
 
   useEffect(() => {
     if (!allowCallout || disabled || calloutClaimed) return;
-    if (!forcedByUrl() && alreadySeen()) return;
+    if (!forcedByUrl() && !bolehMuncul()) return;
     calloutClaimed = true;
     claimedRef.current = true;
     setShowCallout(true);
@@ -124,10 +139,17 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
     };
   }, [allowCallout, disabled]);
 
-  function dismiss() {
-    // Saat dipaksa lewat URL, sengaja TIDAK menandai sudah-dilihat: peragaan
+  /**
+   * @param counted true = agent menjawab ajakannya lewat tombol callout, jadi
+   *   ikut menghitung menuju batas 10. Membuka baris langsung hanya menunda
+   *   4 jam berikutnya.
+   */
+  function dismiss(counted: boolean) {
+    // Hanya mencatat kalau callout memang sedang tampil: membuka baris di luar
+    // itu tidak boleh diam-diam menggeser jadwal munculnya.
+    // Saat dipaksa lewat URL, sengaja tidak mencatat apa pun — peragaan
     // berikutnya cukup memuat ulang halaman.
-    if (!forcedByUrl()) markSeen();
+    if (showCallout && !forcedByUrl()) catatTutup(counted);
     setShowCallout(false);
   }
 
@@ -136,7 +158,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
       <button
         type="button"
         data-sticker-open
-        onClick={(e) => { e.stopPropagation(); dismiss(); onOpen(); }}
+        onClick={(e) => { e.stopPropagation(); dismiss(false); onOpen(); }}
         disabled={disabled}
         className={`w-full flex items-center gap-3 px-4 py-3 text-left border-t transition-colors disabled:opacity-60 ${cls.row}`}
       >
@@ -189,7 +211,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
               <button
                 type="button"
                 data-sticker-callout-try
-                onClick={(e) => { e.stopPropagation(); dismiss(); onOpen(); }}
+                onClick={(e) => { e.stopPropagation(); dismiss(true); onOpen(); }}
                 className="rounded-full bg-emerald-500 px-3.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-emerald-600"
               >
                 Coba sekarang
@@ -197,7 +219,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
               <button
                 type="button"
                 data-sticker-callout-later
-                onClick={(e) => { e.stopPropagation(); dismiss(); }}
+                onClick={(e) => { e.stopPropagation(); dismiss(true); }}
                 className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold ${cls.nanti}`}
               >
                 Nanti

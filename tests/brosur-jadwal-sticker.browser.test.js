@@ -138,7 +138,8 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
     const p2 = await context.newPage();
     await p2.addInitScript(() => {
       localStorage.setItem('brosurDesignId', 'classic');
-      localStorage.setItem('stickerPromoSeen', '1');
+      // Baru saja ditutup: dalam jendela 4 jam, jadi seharusnya diam.
+      localStorage.setItem('stickerPromoState', JSON.stringify({ dismissals: 1, lastAt: Date.now() }));
     });
     await p2.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
       status: 200,
@@ -152,16 +153,16 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
     return { p2, terlihat };
   }
 
-  test('?stiker=1 memaksa callout muncul walau sudah pernah dilihat', async () => {
+  test('?stiker=1 memaksa callout muncul walau baru saja ditutup', async () => {
     const { p2, terlihat } = await bukaHalamanCallout('&stiker=1');
     await p2.close();
     assert.equal(terlihat, 1, 'callout tidak muncul padahal dipaksa lewat URL');
   });
 
-  test('tanpa ?stiker=1, callout tetap diam untuk yang sudah pernah melihat', async () => {
+  test('tanpa ?stiker=1, callout diam selama jendela 4 jam belum lewat', async () => {
     const { p2, terlihat } = await bukaHalamanCallout('');
     await p2.close();
-    assert.equal(terlihat, 0, 'callout muncul lagi padahal bendera sudah-dilihat menyala');
+    assert.equal(terlihat, 0, 'callout muncul lagi padahal baru saja ditutup');
   });
 
   test('pil membuka studio sticker, lengkap dengan galerinya', async () => {
