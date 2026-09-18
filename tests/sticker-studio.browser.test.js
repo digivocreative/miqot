@@ -61,12 +61,23 @@ describe('StickerStudio', () => {
     await page.goto(baseUrl);
     await page.waitForFunction(() => window.__ready === true);
     await page.waitForSelector('[data-sticker-add]');
+    // Galeri naik SENDIRI saat studio terbuka: studio tanpa sticker tidak
+    // menampilkan apa pun yang baru, jadi tap 'Tambah Sticker' pertama dibuang.
+    await page.waitForSelector('[data-sticker-pick]');
   }
 
   async function addSticker(id = 'sold-out') {
-    await page.click('[data-sticker-add]');
+    const before = await page.locator('[data-sticker-layer]').count();
+    // Terbuka otomatis hanya untuk sticker PERTAMA; sisanya lewat tombol.
+    if ((await page.locator('[data-sticker-pick]').count()) === 0) {
+      await page.click('[data-sticker-add]');
+      await page.waitForSelector('[data-sticker-pick]');
+    }
     await page.click(`[data-sticker-pick="${id}"]`);
-    await page.waitForSelector(LAYER);
+    await page.waitForFunction(
+      n => document.querySelectorAll('[data-sticker-layer]').length === n,
+      before + 1,
+    );
     // Sheet picker menutupi seluruh panggung selama animasi keluarnya (spring
     // ±0,4 dtk). Tanpa menunggu ia benar-benar lepas, pointer tes mendarat di
     // thumbnail picker, bukan di sticker — dan gestur tampak "tidak bekerja".
@@ -75,10 +86,32 @@ describe('StickerStudio', () => {
 
   const boxOf = selector => page.locator(selector).boundingBox();
 
-  test('picker menempelkan sticker ke panggung', async () => {
+  test('galeri sudah terbuka begitu studio dibuka — tanpa tap tambahan', async () => {
     await openStudio();
+    assert.ok(await page.locator('[data-sticker-pick]').first().isVisible());
     assert.equal(await page.locator(LAYER).count(), 0, 'panggung seharusnya kosong di awal');
     await addSticker();
+    assert.equal(await page.locator(LAYER).count(), 1);
+  });
+
+  // Menutup galeri tanpa memilih apa pun = batal. Tanpa ini agent yang berubah
+  // pikiran mendarat di editor kosong — layar mati yang justru dihilangkan
+  // dengan membuka galeri otomatis.
+  test('menutup galeri tanpa memilih menutup studio sekalian', async () => {
+    await openStudio();
+    await page.click('[aria-label="Tutup pilihan sticker"]');
+    await page.waitForFunction(() => window.__closed === true);
+    assert.equal(await page.evaluate(() => window.__closed), true);
+  });
+
+  test('menutup galeri setelah ada sticker TIDAK menutup studio', async () => {
+    await openStudio();
+    await addSticker();
+    await page.click('[data-sticker-add]');
+    await page.waitForSelector('[data-sticker-pick]');
+    await page.click('[aria-label="Tutup pilihan sticker"]');
+    await page.waitForSelector('[data-sticker-pick]', { state: 'detached' });
+    assert.notEqual(await page.evaluate(() => window.__closed), true, 'studio ikut tertutup padahal sudah ada sticker');
     assert.equal(await page.locator(LAYER).count(), 1);
   });
 

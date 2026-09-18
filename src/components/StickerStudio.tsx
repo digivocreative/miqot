@@ -114,9 +114,16 @@ export function StickerStudio({
     };
   }, [isOpen, baseBlob]);
 
-  // ── Penyimpanan sekali pakai: tutup studio = semua tempelan hilang ──
+  // ── Buka = galeri langsung naik; tutup = semua tempelan hilang ──
+  //
+  // Galeri dibuka otomatis karena studio yang terbuka tanpa sticker tidak
+  // menampilkan apa pun yang baru — cuma brosur yang sama dengan satu tap
+  // tambahan sebelum bisa berbuat apa-apa.
   useEffect(() => {
-    if (isOpen) return;
+    if (isOpen) {
+      setPickerOpen(true);
+      return;
+    }
     setPlacements([]);
     setSelected(null);
     setPickerOpen(false);
@@ -124,6 +131,14 @@ export function StickerStudio({
     setSaved(false);
     gestureRef.current = null;
   }, [isOpen]);
+
+  // Menutup galeri saat belum ada satu pun sticker = batal. Tanpa ini agent
+  // yang berubah pikiran mendarat di editor kosong — persis layar mati yang
+  // dihilangkan dengan membuka galeri otomatis.
+  function closePicker() {
+    setPickerOpen(false);
+    if (placements.length === 0) onClose();
+  }
 
   // ── Ukuran kotak panggung ──
   useEffect(() => {
@@ -523,7 +538,7 @@ export function StickerStudio({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setPickerOpen(false)}
+                onClick={closePicker}
               >
                 <motion.div
                   className="max-h-[75%] overflow-y-auto rounded-t-2xl bg-white dark:bg-slate-900 pb-[max(1rem,env(safe-area-inset-bottom))]"
@@ -537,7 +552,7 @@ export function StickerStudio({
                     <p className="text-sm font-bold text-gray-800 dark:text-white">Pilih Sticker</p>
                     <button
                       type="button"
-                      onClick={() => setPickerOpen(false)}
+                      onClick={closePicker}
                       aria-label="Tutup pilihan sticker"
                       className="p-1.5 rounded-full text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800"
                     >
