@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown, Sticker } from 'lucide-react';
-import FilterDropdown from './FilterDropdown';
+import FilterDropdown, { type FilterDropdownOption } from './FilterDropdown';
 import { brosurModePath, readBrosurModeFromPath, type BrosurMode } from '../lib/brosur-mode';
 import {
   BrochureScheduleTemplate,
@@ -167,6 +167,14 @@ const BROCHURE_MODE_OPTIONS: Array<{ value: BrochureMode; label: string }> = [
   { value: 'jadwal', label: 'Brosur Jadwal' },
   { value: 'paket', label: 'Brosur Paket' },
 ];
+
+// Opsi dropdown desain brosur. Statis (BROCHURE_DESIGNS tidak berubah saat
+// runtime), jadi dibentuk sekali di modul — bukan tiap render.
+const BROCHURE_DESIGN_OPTIONS: ReadonlyArray<FilterDropdownOption> = BROCHURE_DESIGNS.map(d => ({
+  value: d.id,
+  label: d.label,
+  swatch: d.swatch,
+}));
 
 type CatalogStage =
   | { kind: 'cover' }
@@ -1270,25 +1278,44 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         </div>
       </div>
 
-      {/* Kedua mode memakai aksi katalog yang sama, tetapi sumber halamannya
-          mengikuti mode + filter aktif: template jadwal atau brosur resmi. */}
+      {/* Baris aksi. Kedua mode memakai aksi katalog yang sama, tetapi sumber
+          halamannya mengikuti mode + filter aktif: template jadwal atau brosur
+          resmi. Di mode jadwal, picker desain duduk di kiri tombol — di mode
+          paket tidak ada desain alternatif, jadi tombol memakai lebar penuh. */}
       <div className="px-4 pt-3">
-        <button
-          type="button"
-          onClick={openCatalogPicker}
-          disabled={
-            !catalogAllowed
-            || (mode === 'paket' ? packageCatalogPackages.length === 0 : !hasResults)
-            || catalogBusy
-            || busy !== null
-          }
-          className="h-10 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-[0.99] disabled:opacity-70"
-        >
-          {catalogBusy
-            ? <Loader2 size={16} className="animate-spin" />
-            : <FileDown size={16} />}
-          <span>Unduh Katalog PDF</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {mode !== 'paket' && (
+            /* Desain brosur — Klasik default + 3 desain alternatif (opsi).
+               Pilihan tersimpan di localStorage dan berlaku utk preview +
+               export gambar; katalog PDF tetap klasik. */
+            <FilterDropdown
+              variant="compact"
+              value={designId}
+              onChange={(v) => selectDesign(normalizeBrochureDesignId(v))}
+              options={BROCHURE_DESIGN_OPTIONS}
+              ariaLabel="Pilih desain brosur"
+              triggerSizeClass="h-10 gap-2 px-3 text-xs font-bold rounded-xl"
+              widthClass="shrink-0 w-[40%] max-w-[170px]"
+              disabled={catalogBusy || busy !== null}
+            />
+          )}
+          <button
+            type="button"
+            onClick={openCatalogPicker}
+            disabled={
+              !catalogAllowed
+              || (mode === 'paket' ? packageCatalogPackages.length === 0 : !hasResults)
+              || catalogBusy
+              || busy !== null
+            }
+            className="h-10 flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 px-4 text-xs font-bold text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-[0.99] disabled:opacity-70"
+          >
+            {catalogBusy
+              ? <Loader2 size={16} className="animate-spin" />
+              : <FileDown size={16} />}
+            <span className="truncate">Unduh Katalog PDF</span>
+          </button>
+        </div>
       </div>
 
       {mode === 'paket' ? (
@@ -1297,34 +1324,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         <BrochurePaketGrid packages={filteredPackages} filterLabel={filterLabel} agent={agent} />
       ) : (
         <>
-        {/* Picker desain brosur — Klasik default + 3 desain alternatif (opsi).
-            Pilihan tersimpan di localStorage dan berlaku utk preview + export
-            gambar; katalog PDF tetap klasik. */}
-        <div className="px-4 pt-3">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-[11px] font-black uppercase tracking-wide text-gray-400 dark:text-slate-500">Desain</span>
-            <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-              {BROCHURE_DESIGNS.map(d => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => selectDesign(d.id)}
-                  aria-pressed={designId === d.id}
-                  disabled={catalogBusy || busy !== null}
-                  className={`shrink-0 inline-flex items-center gap-1.5 h-8 rounded-full border pl-1.5 pr-3 text-[11px] font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-60 ${
-                    designId === d.id
-                      ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                      : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
-                  }`}
-                >
-                  <span aria-hidden="true" className="h-5 w-5 rounded-full border border-black/10 dark:border-white/15" style={{ background: d.swatch }} />
-                  <span className="whitespace-nowrap">{d.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
         {/* Brochure previews + per-image actions */}
         <div className="flex justify-center px-4 pt-5">
           <div

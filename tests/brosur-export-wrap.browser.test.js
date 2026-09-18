@@ -128,7 +128,10 @@ async function openHarness(mode) {
 }
 
 async function selectDesign(page, design) {
-  await page.getByRole('button', { name: design.label, exact: true }).click();
+  // Picker desain kini FilterDropdown (kiri tombol katalog), bukan baris pil:
+  // buka trigger dulu, baru klik opsinya.
+  await page.getByRole('button', { name: 'Pilih desain brosur' }).click();
+  await page.getByRole('option', { name: design.label, exact: true }).click();
   await page.locator(`${PREVIEW}[data-brochure-design="${design.id}"]`).waitFor();
   await page.evaluate(async () => {
     await document.fonts?.ready;

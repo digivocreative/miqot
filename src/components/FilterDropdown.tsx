@@ -5,6 +5,20 @@ import { ChevronDown, Check, Search, X } from 'lucide-react';
 export interface FilterDropdownOption {
   value: string;
   label: string;
+  /** Warna/gradien CSS untuk dot kecil di kiri label. Dipakai picker yang memilih
+   *  TAMPILAN, bukan data (mis. desain brosur) — opsi tanpa swatch tetap polos. */
+  swatch?: string;
+}
+
+/** Dot warna opsi — sejajar baris teks text-xs (line-height 16px = h-4). */
+function OptionSwatch({ background }: { background: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-4 w-4 shrink-0 rounded-full border border-black/10 dark:border-white/15"
+      style={{ background }}
+    />
+  );
 }
 
 export interface FilterDropdownProps {
@@ -91,7 +105,8 @@ export default function FilterDropdown({
     placeAbove: false,
   });
 
-  const selectedLabel = options.find(o => o.value === value)?.label ?? '';
+  const selectedOption = options.find(o => o.value === value);
+  const selectedLabel = selectedOption?.label ?? '';
   const showSearch = searchable && !showAllOptions && options.length >= 8;
   const filtered = showSearch && query.trim()
     ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()))
@@ -334,6 +349,7 @@ export default function FilterDropdown({
                   <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center mt-0.5">
                     {selected && <Check size={14} strokeWidth={3} className="text-emerald-600 dark:text-emerald-400" />}
                   </span>
+                  {o.swatch && <OptionSwatch background={o.swatch} />}
                   <span className="flex-1 min-w-0 truncate">{o.label}</span>
                 </button>
               );
@@ -354,7 +370,10 @@ export default function FilterDropdown({
         onClick={() => { if (portal && !open) measure(); setOpen(o => !o); }}
         className={triggerClass}
       >
-        <span className="truncate">{selectedLabel || '—'}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          {selectedOption?.swatch && <OptionSwatch background={selectedOption.swatch} />}
+          <span className="truncate">{selectedLabel || '—'}</span>
+        </span>
         <ChevronDown
           size={chevronSize}
           className={`shrink-0 ${chevronColor} transition-transform duration-150 ${open ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`}

@@ -91,8 +91,11 @@ async function previewDetails(page) {
 }
 
 async function selectDesign(page, label, designId) {
-  const button = page.getByRole('button', { name: label, exact: true });
-  await button.click();
+  // Desain dipilih lewat FilterDropdown di kiri tombol katalog: buka triggernya
+  // dulu, baru klik opsinya. Panel selalu ter-mount tapi ber-`inert` saat tutup,
+  // jadi opsinya tidak terjangkau sebelum dropdown dibuka.
+  await page.getByRole('button', { name: 'Pilih desain brosur' }).click();
+  await page.getByRole('option', { name: label, exact: true }).click();
   await page.locator(`[data-brochure-preview-page="0"][data-brochure-design="${designId}"]`).waitFor();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
@@ -274,7 +277,8 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       // Jelajahi semua desain dengan cepat — capture generasi lama harus
       // dibatalkan, bukan mengantre di depan capture desain aktif.
       for (const label of ['Boarding Pass', 'Serambi Nabawi', 'Klasik', 'Tasbih Hijau']) {
-        await page.getByRole('button', { name: label, exact: true }).click();
+        await page.getByRole('button', { name: 'Pilih desain brosur' }).click();
+        await page.getByRole('option', { name: label, exact: true }).click();
         await page.waitForTimeout(300);
       }
 
