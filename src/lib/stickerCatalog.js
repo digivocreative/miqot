@@ -46,6 +46,11 @@ export const STICKERS = [
   { id: 'promo-terbatas',    label: 'Promo Terbatas',    group: 'promo',        aspect: 1 },
 ];
 
+// Empat sticker yang dipamerkan di baris ajakan. Sengaja mewakili empat alasan
+// berbeda (sisa seat, promo, fasilitas, populer) supaya agent langsung paham
+// cakupannya, bukan mengira fiturnya cuma soal seat.
+export const STICKER_PROMO_PREVIEW = ['sisa-1-seat', 'promo-terbatas', 'hotel-bintang-5', 'best-seller'];
+
 const BY_ID = new Map(STICKERS.map(s => [s.id, s]));
 
 export function stickerById(id) {

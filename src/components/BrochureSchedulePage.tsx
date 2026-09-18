@@ -1,7 +1,7 @@
 // src/components/BrochureSchedulePage.tsx
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown, Sticker } from 'lucide-react';
+import { Download, Share2, Loader2, FileDown, Check, Wand2, ChevronDown } from 'lucide-react';
 import FilterDropdown, { type FilterDropdownOption } from './FilterDropdown';
 import { brosurModePath, readBrosurModeFromPath, type BrosurMode } from '../lib/brosur-mode';
 import {
@@ -49,6 +49,7 @@ import { CatalogCoverPicker } from './CatalogCoverPicker';
 import { getCatalogCover, DEFAULT_COVER_ID } from '@/lib/catalogCovers';
 import { BROCHURE_DESIGNS, getBrochureDesign, normalizeBrochureDesignId, type BrochureDesignId } from './brochure-designs';
 import { StickerStudio } from './StickerStudio';
+import { StickerPromoRow } from './StickerPromoRow';
 // Dipakai bersama brosur jadwal yang dirender di dalam Bani — pemenggalan
 // halaman dan rasterisasinya harus identik di kedua tempat.
 import { PACKAGES_PER_IMAGE, splitPackagesIntoPages } from '@/lib/brosurJadwalPages';
@@ -1375,21 +1376,6 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         background: '#fff',
                       }}
                     >
-                      {/* Pil sticker melayang, sebahasa dengan kartu Jadwal dan
-                          BrochureModal. Sengaja SIBLING dari node yang di-capture
-                          (data-brochure-preview-page), bukan anaknya: apa pun di
-                          dalam node itu ikut terbakar ke berkas ekspor. */}
-                      <button
-                        type="button"
-                        data-sticker-open
-                        onClick={() => handleSticker(index)}
-                        disabled={!previewAvailable || busy !== null || catalogBusy}
-                        className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30 transition-transform duration-200 active:scale-95 disabled:opacity-60"
-                      >
-                        <Sticker size={14} />
-                        <span>Sticker</span>
-                      </button>
-
                       <div
                         style={{
                           width: BROCHURE_W,
@@ -1422,10 +1408,18 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                       </div>
                     )}
 
+                    {/* Baris ajakan sticker: di dalam kartu tapi SIBLING dari node
+                        yang di-capture (data-brochure-preview-page). Apa pun yang
+                        jadi anak node itu ikut terbakar ke berkas ekspor. */}
+                    <StickerPromoRow
+                      onOpen={() => handleSticker(index)}
+                      disabled={!previewAvailable || busy !== null || catalogBusy}
+                      allowCallout={index === 0}
+                    />
+
                     <div
                       style={{
                         padding: 10,
-                        borderTop: '1px solid rgba(15, 23, 42, 0.08)',
                         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
                       }}
                     >

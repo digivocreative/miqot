@@ -2,12 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem, Sticker } from 'lucide-react';
+import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 import { StickerStudio } from './StickerStudio';
+import { StickerPromoRow } from './StickerPromoRow';
 import type { BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
 
 // ============================================
@@ -52,6 +53,8 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   // Gambar dasar yang sedang ditempeli sticker; non-null = studio terbuka.
   const [stickerBase, setStickerBase] = useState<Blob | null>(null);
+  // Callout sticker menempati sudut kanan bawah yang sama dengan kontrol zoom.
+  const [stickerCalloutOpen, setStickerCalloutOpen] = useState(false);
   const pinchRef = useRef({ startDist: 0, startScale: 1 });
   const aiMenuRef = useRef<HTMLDivElement>(null);
   const useShareLabel = isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -71,6 +74,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
       setIsImageLoaded(false);
       setAiMenuOpen(false);
       setStickerBase(null);
+      setStickerCalloutOpen(false);
     }
   }, [isOpen, imageUrl]);
 
@@ -328,26 +332,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                   />
                 )}
 
-                {/* Pil sticker melayang di pojok kanan atas BROSUR (pembungkus
-                    ini `relative`), bukan pojok layar. Brosur ramai merah-emas,
-                    jadi pil emerald butuh cincin putih supaya tidak menempel ke
-                    latar — tanpa itu ia hilang di template keemasan. */}
-                {displayUrl && isImageLoaded && !isStamping && (
-                  <motion.button
-                    type="button"
-                    data-sticker-open
-                    onClick={handleOpenStickerStudio}
-                    disabled={isSharing}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ type: 'spring', damping: 18, stiffness: 320, delay: 0.15 }}
-                    whileTap={{ scale: 0.94 }}
-                    className="absolute top-4 right-4 z-20 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30 disabled:opacity-60"
-                  >
-                    <Sticker size={14} />
-                    <span>Sticker</span>
-                  </motion.button>
-                )}
+
 
                 {!displayUrl && (
                   <div className="py-20 text-center">
@@ -360,7 +345,7 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── ZOOM CONTROLS — bottom right ─── */}
           {isImageLoaded && (
-            <div className={`fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${aiMenuOpen ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`fixed bottom-[calc(9.5rem+env(safe-area-inset-bottom))] right-4 z-[10000] pointer-events-none transition-opacity duration-150 ${(aiMenuOpen || stickerCalloutOpen) ? 'opacity-0' : 'opacity-100'}`}>
               <div className={`${aiMenuOpen ? 'pointer-events-none' : 'pointer-events-auto'} flex items-center gap-0.5 bg-black/70 backdrop-blur-md rounded-full px-1 py-1 shadow-lg`}>
                 <button
                   type="button"
@@ -389,6 +374,19 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
                   <ZoomIn size={18} />
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Baris ajakan sticker: satu baris penuh tepat di atas footer, jadi ia
+              betul-betul "di bawah brosur" tanpa berebut padding dengan kartu
+              putih pembungkus gambar. */}
+          {displayUrl && !isStamping && (
+            <div className="flex-none">
+              <StickerPromoRow
+                onOpen={handleOpenStickerStudio}
+                disabled={isSharing || !isImageLoaded}
+                onCalloutChange={setStickerCalloutOpen}
+              />
             </div>
           )}
 

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import {
-  STICKERS, STICKER_GROUPS, STICKER_BASE,
+  STICKERS, STICKER_GROUPS, STICKER_BASE, STICKER_PROMO_PREVIEW,
   stickerById, stickerFullUrl, stickerThumbUrl,
 } from '../src/lib/stickerCatalog.js';
 
@@ -47,4 +47,19 @@ test('URL terbentuk dari id, bukan ditulis ulang per entri', () => {
   assert.equal(stickerThumbUrl('sold-out'), '/img-sticker/sold-out.webp');
   assert.equal(stickerById('sold-out').label, 'Sold Out');
   assert.equal(stickerById('tidak-ada'), null);
+});
+
+// Baris ajakan memamerkan empat sticker ini. Kalau salah satu id-nya salah ketik
+// atau dihapus dari katalog, barisnya tampil dengan kotak kosong — dan tidak ada
+// yang error, jadi tanpa tes ini kerusakannya diam.
+test('sticker yang dipamerkan di baris ajakan semuanya ada di katalog', () => {
+  assert.equal(STICKER_PROMO_PREVIEW.length, 4);
+  for (const id of STICKER_PROMO_PREVIEW) {
+    assert.ok(stickerById(id), `id tidak ada di katalog: ${id}`);
+  }
+});
+
+test('empat sticker yang dipamerkan mewakili grup yang berbeda-beda', () => {
+  const grup = STICKER_PROMO_PREVIEW.map(id => stickerById(id).group);
+  assert.equal(new Set(grup).size, grup.length, `grup terduplikasi: ${grup.join(', ')}`);
 });
