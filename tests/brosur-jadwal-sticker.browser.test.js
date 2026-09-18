@@ -68,6 +68,7 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
   let browser;
   let context;
   let page;
+  let appOrigin;
 
   before(async () => {
     viteServer = await createServer({
@@ -86,7 +87,8 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
       contentType: 'application/json; charset=utf-8',
       body: JSON.stringify(API_PAYLOAD),
     }));
-    await page.goto(`http://127.0.0.1:${address.port}${HARNESS}?mode=hari`);
+    appOrigin = `http://127.0.0.1:${address.port}`;
+    await page.goto(`${appOrigin}${HARNESS}?mode=hari`);
     await page.locator(PREVIEW).waitFor({ state: 'visible', timeout: 45_000 });
     await page.locator('[data-sticker-open]').first().waitFor({ timeout: 15_000 });
   });
@@ -126,6 +128,40 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
     const jumlah = await page.evaluate(() =>
       document.querySelectorAll('[data-sticker-open] img[src*="/img-sticker/"]').length);
     assert.equal(jumlah, 4, 'sticker contoh tidak tampil di baris ajakan');
+  });
+
+  // Berpasangan: yang pertama membuktikan `?stiker=1` memaksa callout muncul
+  // walau bendera "sudah dilihat" menyala, yang kedua membuktikan tanpa
+  // parameter itu callout memang TIDAK muncul. Tanpa kontrolnya, tes pertama
+  // bisa hijau hanya karena callout selalu muncul.
+  async function bukaHalamanCallout(query) {
+    const p2 = await context.newPage();
+    await p2.addInitScript(() => {
+      localStorage.setItem('brosurDesignId', 'classic');
+      localStorage.setItem('stickerPromoSeen', '1');
+    });
+    await p2.route('**/api/ai-tools/brosur-jadwal-bulan', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(API_PAYLOAD),
+    }));
+    await p2.goto(`${appOrigin}${HARNESS}?mode=hari${query}`);
+    await p2.locator('[data-sticker-open]').first().waitFor({ timeout: 45_000 });
+    await p2.waitForTimeout(1500);
+    const terlihat = await p2.locator('[data-sticker-callout]').count();
+    return { p2, terlihat };
+  }
+
+  test('?stiker=1 memaksa callout muncul walau sudah pernah dilihat', async () => {
+    const { p2, terlihat } = await bukaHalamanCallout('&stiker=1');
+    await p2.close();
+    assert.equal(terlihat, 1, 'callout tidak muncul padahal dipaksa lewat URL');
+  });
+
+  test('tanpa ?stiker=1, callout tetap diam untuk yang sudah pernah melihat', async () => {
+    const { p2, terlihat } = await bukaHalamanCallout('');
+    await p2.close();
+    assert.equal(terlihat, 0, 'callout muncul lagi padahal bendera sudah-dilihat menyala');
   });
 
   test('pil membuka studio sticker, lengkap dengan galerinya', async () => {

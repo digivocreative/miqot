@@ -23,6 +23,27 @@ const SEEN_KEY = 'stickerPromoSeen';
 /** Hanya satu baris di layar yang boleh menampilkan callout. */
 let calloutClaimed = false;
 
+/**
+ * `?stiker=1` memaksa callout muncul untuk demo, tanpa menyentuh localStorage —
+ * jadi memperagakannya berkali-kali tidak perlu membersihkan apa pun, dan agent
+ * sungguhan yang sudah pernah melihatnya tidak ikut terganggu.
+ *
+ * Nilainya diingat sepanjang sesi karena app menulis ulang URL-nya sendiri
+ * (sub-tab, filter); tanpa ini bendera itu hilang begitu URL berubah.
+ */
+let forcedSession = false;
+function forcedByUrl(): boolean {
+  if (forcedSession) return true;
+  try {
+    if (typeof window === 'undefined') return false;
+    if (new URLSearchParams(window.location.search).get('stiker') === '1') {
+      forcedSession = true;
+      return true;
+    }
+  } catch { /* URL aneh: perlakukan sebagai tidak dipaksa */ }
+  return false;
+}
+
 function alreadySeen(): boolean {
   try {
     return localStorage.getItem(SEEN_KEY) === '1';
@@ -68,7 +89,8 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
   useEffect(() => () => { calloutChangeRef.current?.(false); }, []);
 
   useEffect(() => {
-    if (!allowCallout || disabled || alreadySeen() || calloutClaimed) return;
+    if (!allowCallout || disabled || calloutClaimed) return;
+    if (!forcedByUrl() && alreadySeen()) return;
     calloutClaimed = true;
     claimedRef.current = true;
     setShowCallout(true);
@@ -81,7 +103,9 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
   }, [allowCallout, disabled]);
 
   function dismiss() {
-    markSeen();
+    // Saat dipaksa lewat URL, sengaja TIDAK menandai sudah-dilihat: peragaan
+    // berikutnya cukup memuat ulang halaman.
+    if (!forcedByUrl()) markSeen();
     setShowCallout(false);
   }
 
