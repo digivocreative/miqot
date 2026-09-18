@@ -49,14 +49,40 @@ test('lebar di-clamp ke rentang yang diizinkan', () => {
   assert.equal(clampPlacement({ stickerId: 'x', cx: 0.5, cy: 0.5, w: 0.001 }, 1, 0.75).w, STICKER_W_MIN);
 });
 
-test('sticker tidak bisa digeser hilang di luar tepi — minimal 25% tetap terlihat', () => {
+// Sticker WAJIB utuh di dalam brosur. Bagian yang menggantung di luar tepi tidak
+// ikut terbakar ke berkas — kanvas dipotong di tepi gambar — jadi sticker yang
+// boleh menggantung berarti yang dilihat agent bukan yang terkirim.
+test('sticker tidak pernah bisa keluar dari brosur, dari arah mana pun', () => {
   const imageAspect = 1080 / 1440;
-  const p = clampPlacement({ stickerId: 'x', cx: 9, cy: -9, w: 0.3 }, 1, imageAspect);
-  const rect = placementToRect(p, 1, 1080, 1440);
-  const visibleW = Math.min(rect.x + rect.w, 1080) - Math.max(rect.x, 0);
-  const visibleH = Math.min(rect.y + rect.h, 1440) - Math.max(rect.y, 0);
-  assert.ok(visibleW >= rect.w * 0.25 - 1e-6, `lebar terlihat ${visibleW} < 25% dari ${rect.w}`);
-  assert.ok(visibleH >= rect.h * 0.25 - 1e-6, `tinggi terlihat ${visibleH} < 25% dari ${rect.h}`);
+  for (const [cx, cy] of [[9, -9], [-9, 9], [0.5, 9], [-3, 0.5], [1.4, 1.4]]) {
+    for (const w of [0.1, 0.3, 0.75, 1]) {
+      const p = clampPlacement({ stickerId: 'x', cx, cy, w }, 1, imageAspect);
+      const rect = placementToRect(p, 1, 1080, 1440);
+      const where = `cx=${cx} cy=${cy} w=${w}`;
+      assert.ok(rect.x >= -1e-6, `${where}: keluar kiri (${rect.x})`);
+      assert.ok(rect.y >= -1e-6, `${where}: keluar atas (${rect.y})`);
+      assert.ok(rect.x + rect.w <= 1080 + 1e-6, `${where}: keluar kanan (${rect.x + rect.w})`);
+      assert.ok(rect.y + rect.h <= 1440 + 1e-6, `${where}: keluar bawah (${rect.y + rect.h})`);
+    }
+  }
+});
+
+test('sticker yang lebih besar dari gambarnya dipusatkan, bukan dijepit ke rentang terbalik', () => {
+  // Gambar melebar (rasio 2): sticker persegi selebar penuh jadi LEBIH TINGGI
+  // dari gambarnya, sehingga batas bawah clamp melewati batas atasnya.
+  const p = clampPlacement({ stickerId: 'x', cx: 0.1, cy: 0.1, w: 1 }, 1, 2);
+  assert.equal(p.cx, 0.5);
+  assert.equal(p.cy, 0.5);
+});
+
+test('placement default sudah utuh di dalam brosur tanpa perlu dikoreksi', () => {
+  const imageAspect = 1080 / 1440;
+  for (let i = 0; i < 12; i++) {
+    const p = clampPlacement(defaultPlacement('x', i), 1, imageAspect);
+    const d = defaultPlacement('x', i);
+    assert.ok(Math.abs(p.cx - d.cx) < 1e-9 && Math.abs(p.cy - d.cy) < 1e-9,
+      `placement default index ${i} tergeser oleh clamp: ${d.cx},${d.cy} → ${p.cx},${p.cy}`);
+  }
 });
 
 test('rasio sticker terjaga di semua ukuran kanvas — persegi tetap persegi', () => {

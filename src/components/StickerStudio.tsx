@@ -14,8 +14,8 @@
 // ikut digambar ke kanvas, jadi ornamen editor tidak mungkin bocor ke berkas.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Check, Download, Loader2, Plus, Share2, Trash2, X } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AlertTriangle, Check, Download, Loader2, MoveDiagonal2, Plus, Share2, Trash2, X } from 'lucide-react';
 
 import { useBackToClose } from '../hooks/useBackToClose';
 import { STICKERS, STICKER_GROUPS, stickerById, stickerThumbUrl } from '../lib/stickerCatalog.js';
@@ -36,6 +36,14 @@ export interface StickerStudioProps {
   /** Nama berkas TANPA ekstensi; studio menambahkan `.jpg`. */
   fileNameBase: string;
   tone?: 'emerald' | 'burgundy';
+}
+
+// Placement + identitas stabil. AnimatePresence memakai `key` untuk tahu
+// elemen mana yang keluar; kalau key-nya indeks, menghapus sticker di TENGAH
+// membuat semua key setelahnya bergeser dan yang dianimasikan keluar adalah
+// sticker yang salah.
+interface StudioLayer extends StickerPlacement {
+  uid: number;
 }
 
 type GestureKind = 'move' | 'pinch' | 'handle';
@@ -65,12 +73,15 @@ export function StickerStudio({
   fileNameBase,
   tone = 'emerald',
 }: StickerStudioProps) {
-  const [placements, setPlacements] = useState<StickerPlacement[]>([]);
+  const [placements, setPlacements] = useState<StudioLayer[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // uid lapisan yang animasi mendaratnya sudah selesai. Dipakai sebagai penanda
+  // uji: mengukur kotak sticker selagi springnya berjalan membaca nilai antara.
+  const [settled, setSettled] = useState<Set<number>>(() => new Set());
 
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -79,11 +90,14 @@ export function StickerStudio({
   const stageBoxRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  const uidRef = useRef(0);
 
   // Handler pointer membaca placement TERBARU, bukan yang tertangkap closure
   // saat render — tanpa cermin ini, gerakan kedua memakai nilai basi.
-  const placementsRef = useRef<StickerPlacement[]>([]);
+  const placementsRef = useRef<StudioLayer[]>([]);
   placementsRef.current = placements;
+
+  const reduceMotion = useReducedMotion();
 
   const useShareLabel =
     isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -126,6 +140,7 @@ export function StickerStudio({
     }
     setPlacements([]);
     setSelected(null);
+    setSettled(new Set());
     setPickerOpen(false);
     setError(null);
     setSaved(false);
@@ -165,7 +180,13 @@ export function StickerStudio({
 
   function updatePlacement(index: number, next: StickerPlacement) {
     setPlacements(prev =>
-      prev.map((p, i) => (i === index ? clampPlacement(next, aspectOf(next.stickerId), imageAspect) : p)),
+      prev.map((p, i) =>
+        // uid dipasang ulang: clampPlacement murni dan mengembalikan objek baru
+        // tanpa membawa serta identitas lapisan.
+        i === index
+          ? { ...clampPlacement(next, aspectOf(next.stickerId), imageAspect), uid: p.uid }
+          : p,
+      ),
     );
   }
 
@@ -178,7 +199,7 @@ export function StickerStudio({
       aspectOf(stickerId),
       imageAspect,
     );
-    setPlacements(prev => [...prev, placement]);
+    setPlacements(prev => [...prev, { ...placement, uid: ++uidRef.current }]);
     setSelected(index);
     setPickerOpen(false);
     setSaved(false);
@@ -369,11 +390,17 @@ export function StickerStudio({
           exit={{ opacity: 0, y: '100%' }}
           transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         >
-          {/* ─── HEADER ─── */}
-          <div className="flex-none flex items-center justify-between gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 border-b border-gray-200/60 dark:border-slate-700/60">
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-gray-800 dark:text-white">Tempel Sticker</p>
-              <p className="text-[11px] text-gray-400 dark:text-slate-500 leading-tight">
+          {/* ─── STICKY HEADER ─── mengikuti BrochureModal persis (varian
+              modal layar penuh): sticky + backdrop-blur, judul text-lg, dan
+              tombol tutup berupa chip bulat abu. Studio ini dibuka DARI modal
+              itu, jadi kepala yang berbeda terasa seperti aplikasi lain.
+              Baris petunjuk memakai gaya subjudul baku text-[11px] abu. */}
+          <div className="flex-none sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-700/60 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center shadow-sm">
+            <div className="min-w-0 pr-4">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white leading-tight truncate">
+                Tempel Sticker
+              </h2>
+              <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">
                 Geser untuk memindah, cubit untuk besar-kecil
               </p>
             </div>
@@ -381,22 +408,30 @@ export function StickerStudio({
               type="button"
               onClick={onClose}
               aria-label="Tutup"
-              className="flex-none p-2 rounded-full text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              className="touch-hit relative p-2 bg-gray-100 dark:bg-slate-800 rounded-full text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors shrink-0"
             >
-              <X size={20} />
+              <X className="w-6 h-6" />
             </button>
           </div>
 
           {/* ─── PANGGUNG ─── */}
           <div
-            ref={stageBoxRef}
             className="flex-1 min-h-0 overflow-hidden flex items-center justify-center p-3 bg-gray-50 dark:bg-slate-950"
             onPointerDown={() => setSelected(null)}
           >
+            {/* Kotak ukur TANPA padding. Sebelumnya panggung diukur dari elemen
+                ber-p-3 dan clientWidth ikut menghitung padding itu, jadi
+                panggung diberi lebar 420px lalu MENYUSUT jadi 396px sebagai
+                flex item: brosur tergepeng (rasio 0,707 bukan 0,75) dan posisi
+                sticker melenceng ±3% dari nilai yang tersimpan. */}
+            <div ref={stageBoxRef} className="w-full h-full flex items-center justify-center">
             {baseUrl && stage.w > 0 ? (
               <div
                 ref={stageRef}
-                className="relative shadow-lg"
+                // shrink-0: stage.w selalu ≤ lebar kotak ukur, jadi flexbox tak
+                // punya alasan mengecilkannya — dan kalau suatu saat punya,
+                // geometrinya tidak boleh berubah diam-diam di belakang math.
+                className="relative shrink-0 shadow-lg"
                 style={{ width: stage.w, height: stage.h, touchAction: 'none' }}
               >
                 <img
@@ -406,17 +441,37 @@ export function StickerStudio({
                   className="absolute inset-0 w-full h-full select-none"
                 />
 
+                {/* Sticker mendarat dan lepas dengan animasi: gerakan di sini
+                    menjawab aksi agent dan menunjukkan APA yang berubah — mana
+                    yang baru menempel, mana yang barusan dibuang. `key` memakai
+                    uid, bukan indeks, supaya menghapus sticker di tengah tidak
+                    menganimasikan keluar tetangganya. */}
+                <AnimatePresence initial={false}>
                 {placements.map((placement, index) => {
                   const def = stickerById(placement.stickerId);
                   if (!def) return null;
                   const rect = placementToRect(placement, def.aspect, stage.w, stage.h);
                   const isSelected = selected === index;
                   return (
-                    <div
-                      key={`${placement.stickerId}-${index}`}
+                    <motion.div
+                      key={placement.uid}
                       data-sticker-layer={index}
                       className="absolute"
                       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, touchAction: 'none' }}
+                      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.55 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={
+                        reduceMotion
+                          ? { opacity: 0, transition: { duration: 0.12 } }
+                          : { opacity: 0, scale: 0.6, transition: { duration: 0.16, ease: [0.4, 0, 1, 1] } }
+                      }
+                      transition={
+                        reduceMotion
+                          ? { duration: 0.12 }
+                          : { type: 'spring', damping: 15, stiffness: 420, mass: 0.6 }
+                      }
+                      onAnimationComplete={() => setSettled(s => (s.has(placement.uid) ? s : new Set(s).add(placement.uid)))}
+                      data-sticker-settled={settled.has(placement.uid) ? 'true' : undefined}
                     >
                       <img
                         src={stickerThumbUrl(def.id)}
@@ -433,7 +488,11 @@ export function StickerStudio({
                       {/* Ornamen editor — DOM saja, tidak pernah masuk kanvas. */}
                       {isSelected && (
                         <>
-                          <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-emerald-500 rounded-sm" />
+                          {/* Garis pilih: dasar putih tipis di bawah garis
+                              emerald supaya tetap terbaca di atas brosur yang
+                              terang maupun gelap. */}
+                          <div className="absolute -inset-px pointer-events-none rounded-md ring-1 ring-white/70" />
+                          <div className="absolute inset-0 pointer-events-none rounded-md border-2 border-dashed border-emerald-500" />
                           <button
                             type="button"
                             data-sticker-remove={index}
@@ -443,9 +502,9 @@ export function StickerStudio({
                               e.stopPropagation();
                               removeSticker(index);
                             }}
-                            className="absolute -top-3 -left-3 w-7 h-7 rounded-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 shadow flex items-center justify-center text-red-500"
+                            className="touch-hit absolute -top-3.5 -left-3.5 w-7 h-7 rounded-full bg-white text-red-500 ring-1 ring-black/5 shadow-md flex items-center justify-center active:scale-95 transition-transform"
                           >
-                            <Trash2 size={13} />
+                            <Trash2 size={12} />
                           </button>
                           <div
                             data-sticker-handle={index}
@@ -460,17 +519,21 @@ export function StickerStudio({
                             onPointerMove={e => onHandlePointerMove(index, e)}
                             onPointerUp={endGesture}
                             onPointerCancel={endGesture}
-                            className="absolute -bottom-3 -right-3 w-7 h-7 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-800 shadow cursor-nwse-resize"
-                          />
+                            className="touch-hit absolute -bottom-3.5 -right-3.5 w-7 h-7 rounded-full bg-emerald-500 text-white border-2 border-white shadow-md flex items-center justify-center cursor-nwse-resize"
+                          >
+                            <MoveDiagonal2 size={12} />
+                          </div>
                         </>
                       )}
-                    </div>
+                    </motion.div>
                   );
                 })}
+                </AnimatePresence>
               </div>
             ) : (
               <Loader2 size={28} className="animate-spin text-gray-300 dark:text-slate-600" />
             )}
+            </div>
           </div>
 
           {/* ─── GALAT / SUKSES ─── */}
@@ -530,33 +593,45 @@ export function StickerStudio({
             </button>
           </div>
 
-          {/* ─── PICKER ─── */}
+          {/* ─── PICKER ─── bottom sheet mengikuti HotelMediaCategorySheet:
+              backdrop ber-blur, grabber, rounded-t-2xl di atas slate-800, dan
+              kurva yang sama (0,25 dtk ease-out) — bukan spring sendiri. */}
           <AnimatePresence>
             {pickerOpen && (
               <motion.div
-                className="absolute inset-0 z-10 flex flex-col justify-end bg-black/40"
+                className="absolute inset-0 z-10 flex flex-col justify-end bg-black/40 backdrop-blur-sm"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
                 onClick={closePicker}
               >
                 <motion.div
-                  className="max-h-[75%] overflow-y-auto rounded-t-2xl bg-white dark:bg-slate-900 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Pilih sticker"
+                  className="max-h-[85%] overflow-y-auto rounded-t-2xl border-t border-x border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
                   initial={{ y: '100%' }}
                   animate={{ y: 0 }}
                   exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                   onClick={e => e.stopPropagation()}
                 >
-                  <div className="sticky top-0 flex items-center justify-between gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800">
-                    <p className="text-sm font-bold text-gray-800 dark:text-white">Pilih Sticker</p>
+                  <div className="sticky top-0 z-10 flex justify-center bg-white pt-2 pb-1 dark:bg-slate-800">
+                    <div className="h-1 w-10 rounded-full bg-gray-300 dark:bg-slate-600" />
+                  </div>
+
+                  <div className="flex items-center gap-3 border-b border-gray-100 px-4 pt-2 pb-3 dark:border-slate-700/50">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[14px] font-bold text-gray-900 dark:text-white">Pilih sticker</div>
+                    </div>
                     <button
                       type="button"
                       onClick={closePicker}
                       aria-label="Tutup pilihan sticker"
-                      className="p-1.5 rounded-full text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800"
+                      className="touch-hit relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                     >
-                      <X size={18} />
+                      <X size={16} />
                     </button>
                   </div>
 
@@ -572,7 +647,7 @@ export function StickerStudio({
                             type="button"
                             data-sticker-pick={s.id}
                             onClick={() => addSticker(s.id)}
-                            className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-100 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-600 hover:bg-emerald-50/50 dark:hover:bg-slate-700/60 transition-colors"
                           >
                             <img
                               src={stickerThumbUrl(s.id)}

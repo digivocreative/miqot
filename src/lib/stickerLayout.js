@@ -15,8 +15,10 @@ export const STICKER_W_MIN = 0.1;
 export const STICKER_W_MAX = 1;
 export const STICKER_W_DEFAULT = 0.3;
 
-/** Bagian sticker yang wajib tetap di dalam gambar, supaya tak bisa hilang. */
-export const MIN_VISIBLE = 0.25;
+// Sticker WAJIB seluruhnya di dalam brosur. Versi pertama hanya menuntut 25%
+// terlihat — hasilnya sticker bisa menggantung separuh di luar tepi brosur, dan
+// bagian yang menggantung itu TIDAK ikut terbakar ke berkas (kanvas dipotong di
+// tepi gambar). Jadi yang dilihat agent bukan yang terkirim.
 
 // Sticker ke-n muncul bergeser dari yang sebelumnya supaya tumpukan tidak
 // menimpa persis dan yang di bawah masih bisa ditap. Berputar di 8 posisi
@@ -40,17 +42,23 @@ export function defaultPlacement(stickerId, index = 0) {
  * @param {number} imageAspect lebar/tinggi GAMBAR DASAR — dibutuhkan karena `w`
  *   diukur terhadap lebar sedangkan batas vertikal diukur terhadap tinggi.
  */
+/**
+ * Kunci satu sumbu supaya sticker tetap utuh di dalam gambar.
+ * Sticker yang lebih besar dari gambarnya pada sumbu itu tidak punya ruang
+ * gerak sama sekali — dipusatkan, bukan dijepit ke rentang terbalik.
+ */
+function clampAxis(center, half) {
+  return half * 2 >= 1 ? 0.5 : clampNumber(center, half, 1 - half);
+}
+
 export function clampPlacement(placement, aspect, imageAspect) {
   const w = clampNumber(placement.w, STICKER_W_MIN, STICKER_W_MAX);
   // Tinggi sticker sebagai pecahan TINGGI gambar.
   const h = (w / aspect) * imageAspect;
-  // Titik tengah boleh keluar tepi sejauh (setengah − bagian wajib terlihat).
-  const slackX = w / 2 - w * MIN_VISIBLE;
-  const slackY = h / 2 - h * MIN_VISIBLE;
   return {
     stickerId: placement.stickerId,
-    cx: clampNumber(placement.cx, -slackX, 1 + slackX),
-    cy: clampNumber(placement.cy, -slackY, 1 + slackY),
+    cx: clampAxis(placement.cx, w / 2),
+    cy: clampAxis(placement.cy, h / 2),
     w,
   };
 }

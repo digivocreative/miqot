@@ -19,7 +19,6 @@ export interface StickerRect {
 export const STICKER_W_MIN: number;
 export const STICKER_W_MAX: number;
 export const STICKER_W_DEFAULT: number;
-export const MIN_VISIBLE: number;
 export function defaultPlacement(stickerId: string, index?: number): StickerPlacement;
 export function clampPlacement(
   placement: StickerPlacement,
