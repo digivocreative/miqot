@@ -60,9 +60,10 @@ describe('StickerStudio', () => {
     );
     await page.goto(baseUrl);
     await page.waitForFunction(() => window.__ready === true);
-    await page.waitForSelector('[data-sticker-add]');
     // Galeri naik SENDIRI saat studio terbuka: studio tanpa sticker tidak
-    // menampilkan apa pun yang baru, jadi tap 'Tambah Sticker' pertama dibuang.
+    // menampilkan apa pun yang baru, jadi tap 'Tambah' pertama dibuang. Pil
+    // 'Tambah' sendiri TIDAK ada selagi galeri terbuka — ia tidak punya
+    // pekerjaan di sana — jadi jangan menunggunya di sini.
     await page.waitForSelector('[data-sticker-pick]');
   }
 
@@ -119,6 +120,23 @@ describe('StickerStudio', () => {
     await page.waitForSelector('[data-sticker-pick]', { state: 'detached' });
     assert.notEqual(await page.evaluate(() => window.__closed), true, 'studio ikut tertutup padahal sudah ada sticker');
     assert.equal(await page.locator(LAYER).count(), 1);
+  });
+
+  // Pil melayang hidup di stacking context akar modal, jadi tanpa gerbang ini ia
+  // menembus sheet galeri dan menutupi tombol tutupnya.
+  test('pil Tambah tidak muncul selagi galeri terbuka', async () => {
+    await openStudio();
+    assert.equal(await page.locator('[data-sticker-add]').count(), 0,
+      'pil Tambah menumpuk di atas galeri');
+
+    await addSticker();
+    assert.equal(await page.locator('[data-sticker-add]').count(), 1,
+      'pil Tambah tidak kembali setelah galeri ditutup');
+
+    await page.click('[data-sticker-add]');
+    await page.waitForSelector('[data-sticker-pick]');
+    assert.equal(await page.locator('[data-sticker-add]').count(), 0,
+      'pil Tambah masih tampil saat galeri dibuka lagi');
   });
 
   test('tombol simpan mati sampai ada sticker yang ditempel', async () => {

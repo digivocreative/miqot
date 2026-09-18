@@ -535,7 +535,13 @@ export function StickerStudio({
                     "Tambah Sticker") supaya tidak memakan sepertiga lebar
                     brosur di layar HP. z-30 menaruhnya di atas sticker —
                     konsekuensinya sticker yang diparkir persis di pojok kanan
-                    atas tertutup pil ini dan harus digeser dari sisi lain. */}
+                    atas tertutup pil ini dan harus digeser dari sisi lain.
+
+                    Disembunyikan selagi galeri terbuka: di situ ia tidak punya
+                    pekerjaan, dan karena pil ini hidup di stacking context akar
+                    modal ia justru menembus sheet galeri dan menutupi tombol
+                    tutupnya. */}
+                {!pickerOpen && (
                 <motion.button
                   type="button"
                   data-sticker-add
@@ -551,6 +557,7 @@ export function StickerStudio({
                   <Plus size={14} />
                   <span>Tambah</span>
                 </motion.button>
+                )}
               </div>
             ) : (
               <Loader2 size={28} className="animate-spin text-gray-300 dark:text-slate-600" />
@@ -611,7 +618,7 @@ export function StickerStudio({
           <AnimatePresence>
             {pickerOpen && (
               <motion.div
-                className="absolute inset-0 z-10 flex flex-col justify-end bg-black/40 backdrop-blur-sm"
+                className="absolute inset-0 z-40 flex flex-col justify-end bg-black/40 backdrop-blur-sm"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}

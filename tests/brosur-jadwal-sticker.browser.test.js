@@ -129,9 +129,13 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
     assert.ok(posisi.diAtas, 'pil tidak berada di bagian atas brosur');
   });
 
-  test('pil membuka studio sticker', async () => {
+  test('pil membuka studio sticker, lengkap dengan galerinya', async () => {
     await page.click('[data-sticker-open]');
+    // Galeri naik sendiri; pil 'Tambah' justru TIDAK ada selagi galeri terbuka,
+    // jadi kehadirannya bukan penanda studio terbuka. Yang selalu ada adalah
+    // tombol simpan di footer studio.
     await page.locator('[data-sticker-pick]').first().waitFor({ timeout: 20_000 });
-    assert.ok(await page.locator('[data-sticker-add]').count() > 0, 'studio tidak terbuka');
+    assert.ok(await page.locator('[data-sticker-save]').count() > 0, 'studio tidak terbuka');
+    assert.ok(await page.locator('[data-sticker-pick]').count() >= 21, 'galeri sticker tidak lengkap');
   });
 });
