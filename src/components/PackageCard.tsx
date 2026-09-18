@@ -2,11 +2,12 @@
 
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight, Sticker } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
 import { StickerStudio } from './StickerStudio';
+import { StickerPromoRow } from './StickerPromoRow';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 
 // Lazy-load heavy components (react-pdf ~500kB loaded on-demand)
@@ -2017,28 +2018,15 @@ _________________________
                     </div>
                   )}
 
-                  {/* Pil sticker melayang — satu-satunya chrome BERWARNA di atas
-                      brosur, jadi ia yang menarik mata sementara "Lihat penuh"
-                      tetap kaca gelap. stopPropagation wajib: pembungkusnya
-                      membuka modal layar penuh saat diklik. */}
-                  {brosurSiap && (
-                    <motion.button
-                      type="button"
-                      data-sticker-open
-                      onClick={(e) => { e.stopPropagation(); handleOpenStickerStudio(); }}
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ type: 'spring', damping: 18, stiffness: 320, delay: 0.15 }}
-                      whileTap={{ scale: 0.94 }}
-                      className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30"
-                    >
-                      <Sticker size={14} />
-                      <span>Sticker</span>
-                    </motion.button>
-                  )}
                 </div>
 
                 {/* Footer */}
+                <StickerPromoRow
+                  onOpen={handleOpenStickerStudio}
+                  disabled={!brosurSiap}
+                  allowCallout={isExpanded}
+                />
+
                 <div className="px-4 py-3 border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
                   <button type="button" onClick={handleDownloadBrosur} className="flex items-center gap-2">
                     <Download size={16} className="text-emerald-500" />

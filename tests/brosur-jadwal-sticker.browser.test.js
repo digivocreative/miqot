@@ -106,27 +106,26 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
       'pil sticker jadi keturunan node ekspor — ia akan ikut terbakar ke brosur yang dikirim');
   });
 
-  test('pil tetap melayang di pojok kanan atas brosur', async () => {
+  test('baris ajakan duduk DI BAWAH brosur, selebar kartu', async () => {
     const posisi = await page.evaluate(() => {
-      const pil = document.querySelector('[data-sticker-open]').getBoundingClientRect();
-      const brosur = document.querySelector('[data-brochure-preview-page="0"]')
-        .closest('div[style*="aspect-ratio"], div')
-        .getBoundingClientRect();
-      const frame = document.querySelector('[data-brochure-preview-page="0"]').parentElement.parentElement.getBoundingClientRect();
+      const baris = document.querySelector('[data-sticker-open]').getBoundingClientRect();
+      const bingkai = document.querySelector('[data-brochure-preview-page="0"]')
+        .parentElement.parentElement.getBoundingClientRect();
       return {
-        diDalamBingkai:
-          pil.left >= frame.left - 1 && pil.right <= frame.right + 1 &&
-          pil.top >= frame.top - 1 && pil.bottom <= frame.bottom + 1,
-        // Pojok KANAN ATAS: dekat tepi kanan, di sepertiga teratas.
-        dekatKanan: (frame.right - pil.right) / frame.width < 0.1,
-        diAtas: (pil.top - frame.top) / frame.height < 0.15,
-        brosurAda: brosur.width > 0,
+        diBawahBrosur: baris.top >= bingkai.bottom - 1,
+        lebarPenuh: baris.width / bingkai.width > 0.95,
+        punyaTinggi: baris.height > 40,
       };
     });
-    assert.ok(posisi.brosurAda, 'pratinjau brosur tidak terender');
-    assert.ok(posisi.diDalamBingkai, 'pil keluar dari bingkai brosur');
-    assert.ok(posisi.dekatKanan, 'pil tidak menempel ke tepi kanan brosur');
-    assert.ok(posisi.diAtas, 'pil tidak berada di bagian atas brosur');
+    assert.ok(posisi.diBawahBrosur, 'baris menutupi brosur, bukan duduk di bawahnya');
+    assert.ok(posisi.lebarPenuh, 'baris tidak selebar kartu — area tapnya jadi kecil');
+    assert.ok(posisi.punyaTinggi, 'baris kolaps');
+  });
+
+  test('empat sticker asli ikut tampil di baris, bukan ikon generik', async () => {
+    const jumlah = await page.evaluate(() =>
+      document.querySelectorAll('[data-sticker-open] img[src*="/img-sticker/"]').length);
+    assert.equal(jumlah, 4, 'sticker contoh tidak tampil di baris ajakan');
   });
 
   test('pil membuka studio sticker, lengkap dengan galerinya', async () => {
