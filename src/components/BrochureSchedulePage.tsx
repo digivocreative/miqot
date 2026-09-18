@@ -1412,6 +1412,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         yang di-capture (data-brochure-preview-page). Apa pun yang
                         jadi anak node itu ikut terbakar ke berkas ekspor. */}
                     <StickerPromoRow
+                      surface="light"
                       onOpen={() => handleSticker(index)}
                       disabled={!previewAvailable || busy !== null || catalogBusy}
                       allowCallout={index === 0}
@@ -1431,7 +1432,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         type="button"
                         onClick={() => setPromptPageIndex(index)}
                         disabled={busy !== null || catalogBusy}
-                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
+                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 transition-all duration-200 active:scale-[0.98] disabled:opacity-70"
                       >
                         <Wand2 size={16} />
                         <span className="whitespace-nowrap">Buat Ulang AI</span>
@@ -1440,7 +1441,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                         <div className="relative" ref={saveMenuOpen ? saveMenuRef : undefined}>
                           <div
                             role="menu"
-                            className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
+                            className={`absolute bottom-full right-0 mb-2 w-44 rounded-xl border border-gray-100 bg-white shadow-xl overflow-hidden origin-bottom-right transition-all duration-150 z-20 ${
                               saveMenuOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
                             }`}
                           >
@@ -1452,9 +1453,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                                 handleShare(index);
                               }}
                               disabled={!previewAvailable || busy !== null || catalogBusy}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-70"
                             >
-                              {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" /> : <Share2 size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                              {shareBusy ? <Loader2 size={16} className="animate-spin text-emerald-600" /> : <Share2 size={16} className="text-emerald-600" />}
                               <span>Share</span>
                             </button>
                             <button
@@ -1465,11 +1466,11 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
                                 handleDownload(index);
                               }}
                               disabled={!previewAvailable || busy !== null || catalogBusy}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors disabled:opacity-70"
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-70"
                             >
                               {!previewAvailable && !previewError
-                                ? <Loader2 size={16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-                                : <Download size={16} className="text-emerald-600 dark:text-emerald-400" />}
+                                ? <Loader2 size={16} className="animate-spin text-emerald-600" />
+                                : <Download size={16} className="text-emerald-600" />}
                               <span>Download</span>
                             </button>
                           </div>
