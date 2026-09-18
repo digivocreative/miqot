@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <title>sticker composite harness</title>
+  </head>
+  <body>
+    <!-- Modul di-import lewat dev server vite supaya TS-nya ditranspile oleh
+         pipeline yang SAMA dengan produksi, bukan oleh esbuild manual di tes. -->
+    <script type="module">
+      import { compositeStickers } from '/src/utils/compositeStickers.ts';
+      window.__compositeStickers = compositeStickers;
+      window.__ready = true;
+    </script>
+  </body>
+</html>
