@@ -529,6 +529,28 @@ export function StickerStudio({
                   );
                 })}
                 </AnimatePresence>
+
+                {/* Pil yang SAMA dengan yang membuka studio ini, di pojok yang
+                    sama: satu aksi, satu bahasa. Labelnya "Tambah" (bukan
+                    "Tambah Sticker") supaya tidak memakan sepertiga lebar
+                    brosur di layar HP. z-30 menaruhnya di atas sticker —
+                    konsekuensinya sticker yang diparkir persis di pojok kanan
+                    atas tertutup pil ini dan harus digeser dari sisi lain. */}
+                <motion.button
+                  type="button"
+                  data-sticker-add
+                  onClick={e => { e.stopPropagation(); setPickerOpen(true); }}
+                  onPointerDown={e => e.stopPropagation()}
+                  disabled={busy}
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: 'spring', damping: 18, stiffness: 320, delay: 0.15 }}
+                  whileTap={{ scale: 0.94 }}
+                  className="absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-full pl-2 pr-3 py-1.5 text-[11px] font-bold text-white bg-gradient-to-br from-emerald-400 to-emerald-600 ring-1 ring-white/70 shadow-lg shadow-emerald-900/30 disabled:opacity-60"
+                >
+                  <Plus size={14} />
+                  <span>Tambah</span>
+                </motion.button>
               </div>
             ) : (
               <Loader2 size={28} className="animate-spin text-gray-300 dark:text-slate-600" />
@@ -558,21 +580,11 @@ export function StickerStudio({
           <div className="flex-none border-t border-gray-200/60 dark:border-slate-700/60 bg-white dark:bg-slate-900 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] flex gap-2">
             <button
               type="button"
-              data-sticker-add
-              onClick={() => setPickerOpen(true)}
-              disabled={!natural || busy}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700/70 transition-all duration-200 active:scale-95 disabled:opacity-60"
-            >
-              <Plus size={17} />
-              <span>Tambah Sticker</span>
-            </button>
-            <button
-              type="button"
               data-sticker-save
               onClick={() => handleSave(useShareLabel ? 'share' : 'download')}
               disabled={placements.length === 0 || busy}
               title={placements.length === 0 ? 'Pilih sticker dulu' : undefined}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white shadow-md transition-all duration-200 active:scale-95 disabled:opacity-50 ${accent}`}
+              className={`w-full flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-bold text-white shadow-md transition-all duration-200 active:scale-95 disabled:opacity-50 ${accent}`}
             >
               {busy ? (
                 <>
