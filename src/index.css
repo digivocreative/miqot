@@ -46,6 +46,22 @@
   --jadwal-top-gap: 11px;
 }
 
+/* Pasangan gelap untuk `color-scheme` + `background-color` di :root di atas.
+   Keduanya dulu dipaku ke terang dan tak pernah dibalik saat class `dark` mendarat
+   di <html>. Akibatnya di PWA terpasang iOS 26 — yang SELALU edge-to-edge, jadi web
+   digambar sampai ke bawah status bar — iOS menyimpulkan ini halaman terang: glyph
+   status bar jadi hitam dan material status bar-nya versi terang. Header dashboard
+   cuma `bg-slate-900/90` + backdrop-blur, jadi pita terang itu tembus dan melebur ke
+   navy — terbaca sebagai gradasi di atas header. `color-scheme: dark` juga membuat
+   scrollbar, date picker, dan kontrol form native ikut gelap tanpa tambalan
+   per-komponen (lih. dateInputClass di src/components/JamaahEditPage.tsx).
+   Selektor `html.dark` — BUKAN `.dark` — karena yang perlu digelapkan kanvasnya,
+   dan kanvas halaman diambil dari elemen akar. */
+html.dark {
+  color-scheme: dark;
+  background-color: #0f172a;
+}
+
 @media (min-width: 640px) {
   :root {
     --filter-header-h: 181px;
