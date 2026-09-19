@@ -147,7 +147,7 @@ if (isPwaHost) {
   // Aktifkan SW yang menunggu lalu muat ulang. workbox-window hanya me-reload sendiri bila
   // tab ini sudah dikendalikan SW saat didaftarkan; tab kunjungan pertama (SW baru dipasang
   // di sesi itu) menganggap update berikutnya "eksternal" dan diam saja — tombol
-  // "Muat ulang" jadi tak berefek. Reload sendiri saat controllerchange, dengan batas waktu.
+  // "Refresh" jadi tak berefek. Reload sendiri saat controllerchange, dengan batas waktu.
   const activateWaitingWorker = () => {
     suppressUnloadGuard()
     let reloaded = false
@@ -161,7 +161,7 @@ if (isPwaHost) {
     window.setTimeout(reloadOnce, 4000)
   }
 
-  // Mode "prompt": SW baru menunggu sampai pengguna memilih "Muat ulang" di UpdateToast
+  // Mode "prompt": SW baru menunggu sampai pengguna memilih "Refresh" di UpdateToast
   // (atau semua jendela app ditutup). Dulu autoUpdate me-reload SEMUA tab tanpa peringatan
   // begitu SW baru aktif, membuang teks yang sedang diketik (audit 2026-09-17).
   const updateSW = registerSW({

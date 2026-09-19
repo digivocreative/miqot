@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { RefreshCw } from 'lucide-react';
 import { applyUpdate, getUpdateState, subscribeUpdate } from '../../lib/pwa/updateStore';
@@ -10,6 +10,9 @@ const UNSAVED_CONFIRM = 'Ada perubahan yang belum disimpan. Refresh sekarang dan
 // judul dan deskripsi tetap duduk di atas hijau polos. Pola yang merata seluruh kartu
 // terbaca ramai dan menggerus keterbacaan.
 const PATTERN_MASK = 'linear-gradient(to left, #000 6%, transparent 68%)';
+
+// Cukup untuk satu putaran penuh ikon; di bawah ini klik terasa seperti kedipan.
+const SPIN_BEFORE_RELOAD_MS = 520;
 
 // Khatam/bintang delapan: dua persegi yang saling diputar 45°, ubin bersambung di tiap
 // sudut supaya polanya menyambung mulus antar-ubin.
@@ -53,14 +56,28 @@ function KhatamPattern() {
 // disimpan tetap ada — Refresh minta konfirmasi lebih dulu (lihat `reload` di bawah).
 // `dismissUpdate` di store dibiarkan: dipakai tes, dan jadi jalan keluar kalau suatu
 // saat tombol tutup dihidupkan lagi.
+//
+// Setelah ditekan, tombol berputar dulu sebentar sebelum halaman berganti: mengaktifkan
+// SW yang menunggu lalu menunggu `controllerchange` memang makan waktu (lihat
+// activateWaitingWorker di src/main.tsx), dan tombol yang diam selama itu terasa seperti
+// tidak tertekan. Jeda kecil sebelum applyUpdate menjamin putarannya sempat terlihat
+// walau reload-nya kebetulan cepat.
 export default function UpdateToast() {
   const state = useSyncExternalStore(subscribeUpdate, getUpdateState, getUpdateState);
   const reduceMotion = useReducedMotion();
   const visible = state.ready && !state.dismissed;
 
+  const [busy, setBusy] = useState(false);
+
   const reload = () => {
+    if (busy) return;
     if (hasUnsavedChanges() && !window.confirm(UNSAVED_CONFIRM)) return;
-    applyUpdate();
+    setBusy(true);
+    if (reduceMotion) {
+      applyUpdate();
+      return;
+    }
+    window.setTimeout(applyUpdate, SPIN_BEFORE_RELOAD_MS);
   };
 
   return (
@@ -85,7 +102,7 @@ export default function UpdateToast() {
             <div className="relative">
               <div className="flex items-start gap-3">
                 <span className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-amber-100">
-                  {!reduceMotion && (
+                  {!reduceMotion && !busy && (
                     <motion.span
                       aria-hidden="true"
                       className="absolute inset-0 rounded-full bg-amber-200/35"
@@ -100,13 +117,32 @@ export default function UpdateToast() {
                   <p className="mt-1 text-xs leading-snug text-emerald-100/80">Refresh untuk memakai pembaruan.</p>
                 </div>
               </div>
-              <button
+              <motion.button
                 type="button"
                 onClick={reload}
-                className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-white text-sm font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-50 active:scale-[0.98]"
+                disabled={busy}
+                aria-busy={busy}
+                whileTap={reduceMotion || busy ? undefined : { scale: 0.97 }}
+                animate={busy && !reduceMotion ? { scale: [1, 0.985, 1] } : { scale: 1 }}
+                transition={{ duration: 0.45, ease: 'easeOut' }}
+                className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-50 disabled:cursor-default disabled:hover:bg-white"
               >
-                Refresh
-              </button>
+                {busy ? (
+                  <>
+                    <motion.span
+                      aria-hidden="true"
+                      className="flex"
+                      animate={reduceMotion ? undefined : { rotate: 360 }}
+                      transition={{ duration: 0.85, ease: 'linear', repeat: Infinity }}
+                    >
+                      <RefreshCw size={15} />
+                    </motion.span>
+                    Menyegarkan…
+                  </>
+                ) : (
+                  'Refresh'
+                )}
+              </motion.button>
             </div>
           </motion.div>
         )}
