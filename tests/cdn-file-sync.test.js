@@ -74,10 +74,10 @@ test('canonicalScheduleSourceIdentity: abaikan token sekali-pakai di ujung path'
     canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-plus-turki-12hr-8qYx4rV'),
   );
 
-  // Token sungguhan dari produksi, termasuk yang huruf kecil semua dan yang
-  // tanpa angka — dua bentuk yang dulu lolos dan membuat paketnya ter-reset
-  // tiap siklus.
-  for (const token of ['hrh6gfr', 'mJEkogX', '3uaEow8E', '4SL9VSV', 'pt283ue']) {
+  // Token sungguhan dari produksi, termasuk yang huruf kecil semua (`hrh6gfr`)
+  // dan yang tanpa angka sama sekali (`bqpsjim`) — dua bentuk yang dulu lolos
+  // dan membuat paketnya ter-reset tiap siklus.
+  for (const token of ['hrh6gfr', 'mJEkogX', '3uaEow8E', '4SL9VSV', 'pt283ue', 'bqpsjim']) {
     assert.equal(
       canonicalScheduleSourceIdentity(`http://115.124.86.220/brosur/umrah-paket-hemat-9hr-${token}`),
       'schedule:/brosur/umrah-paket-hemat-9hr',
@@ -85,11 +85,14 @@ test('canonicalScheduleSourceIdentity: abaikan token sekali-pakai di ujung path'
     );
   }
 
-  // Kata biasa di ujung slug (huruf kecil, tanpa angka) bukan token.
-  assert.equal(
-    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-promo-sembilan'),
-    'schedule:/brosur/umrah-promo-sembilan',
-  );
+  // Kata penutup yang lazim di nama paket (semuanya ≤5 aksara) tidak ikut
+  // terpotong — kalau ikut, dua paket berbeda bisa beridentitas sama.
+  for (const akhiran of ['9hr', '12hr', 'cepat', 'badar', 'hemat']) {
+    assert.equal(
+      canonicalScheduleSourceIdentity(`http://jadwal.alhijaz.co/brosur/umrah-plus-${akhiran}`),
+      `schedule:/brosur/umrah-plus-${akhiran}`,
+    );
+  }
 
   // Path di luar brosur/itinerary tidak disentuh sama sekali.
   assert.equal(
