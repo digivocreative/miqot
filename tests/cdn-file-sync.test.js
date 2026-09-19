@@ -74,11 +74,21 @@ test('canonicalScheduleSourceIdentity: abaikan token sekali-pakai di ujung path'
     canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-plus-turki-12hr-8qYx4rV'),
   );
 
-  // Segmen slug biasa (huruf kecil, boleh berangka) bukan token; memotongnya
-  // akan menyamakan dua brosur yang berbeda.
+  // Token sungguhan dari produksi, termasuk yang huruf kecil semua dan yang
+  // tanpa angka — dua bentuk yang dulu lolos dan membuat paketnya ter-reset
+  // tiap siklus.
+  for (const token of ['hrh6gfr', 'mJEkogX', '3uaEow8E', '4SL9VSV', 'pt283ue']) {
+    assert.equal(
+      canonicalScheduleSourceIdentity(`http://115.124.86.220/brosur/umrah-paket-hemat-9hr-${token}`),
+      'schedule:/brosur/umrah-paket-hemat-9hr',
+      `token ${token} tidak dikenali — paketnya akan kehilangan salinan CDN tiap 30 menit`,
+    );
+  }
+
+  // Kata biasa di ujung slug (huruf kecil, tanpa angka) bukan token.
   assert.equal(
-    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-promo-12hari'),
-    'schedule:/brosur/umrah-promo-12hari',
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-promo-sembilan'),
+    'schedule:/brosur/umrah-promo-sembilan',
   );
 
   // Path di luar brosur/itinerary tidak disentuh sama sekali.
