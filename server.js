@@ -21844,8 +21844,13 @@ async function syncUmrohSchedules() {
         console.log(`[ScheduleSync] Year ${year}: filtered ${rejectedPackages.length} paket tanpa harga valid dan tanpa seat tersedia: ${sample}${rejectedPackages.length > 5 ? ', ...' : ''}`);
       }
 
+      // Paket yang brosurnya BENAR-BENAR ditukar di hulu — nyaris selalu kosong.
+      const brochureCacheResets = new Map();
+
       const rows = includedPackages.map(p => {
         const brochureSource = resolveScheduleBrochureSource(p);
+        const brochureReset = buildBrochureCacheReset(previousById.get(String(p.jadwal_id)), brochureSource);
+        if (Object.keys(brochureReset).length) brochureCacheResets.set(p.jadwal_id, brochureReset);
         return {
           jadwal_id: p.jadwal_id,
           year_code: year,
@@ -21865,7 +21870,6 @@ async function syncUmrohSchedules() {
           manasik_tgl: p.manasik_tgl,
           manasik_jam: p.manasik_jam,
           brosur: brochureSource,
-          ...buildBrochureCacheReset(previousById.get(String(p.jadwal_id)), brochureSource),
           itinerary: p.itinerary,
           perlengkapan_harga: p.perlengkapan_harga,
           paket_harga: p.paket_harga,
@@ -21873,6 +21877,28 @@ async function syncUmrohSchedules() {
           synced_at: new Date().toISOString(),
         };
       });
+
+      // Penghapusan aset turunan sengaja TIDAK ikut menumpang upsert di bawah.
+      // PostgREST menyatukan kunci SELURUH baris dalam satu payload dan mengisi
+      // yang absen dengan NULL (supabase-js: defaultToNull = true), jadi satu
+      // baris yang membawa kunci reset akan menghapus brosur_cdn SEMUA paket
+      // lain sekaligus — persis yang terjadi 19 Sep 2026 begitu reset berhenti
+      // menyala untuk semua baris. Ditulis lebih dulu, bukan sesudah, supaya
+      // celah sesaatnya berpihak aman: URL sumber lama tanpa CDN (pembaca jatuh
+      // ke origin), bukan URL sumber baru dengan gambar lama.
+      if (brochureCacheResets.size) {
+        const resetIds = [...brochureCacheResets.keys()];
+        const { error: resetError } = await supabase
+          .from('umroh_schedules')
+          .update(brochureCacheResets.get(resetIds[0]))
+          .eq('year_code', year)
+          .in('jadwal_id', resetIds);
+        if (resetError) {
+          console.error(`[ScheduleSync] Year ${year}: gagal menghapus cache brosur ${resetIds.join(', ')}: ${resetError.message}`);
+        } else {
+          console.log(`[ScheduleSync] Year ${year}: brosur diganti di hulu → cache dihapus untuk ${resetIds.join(', ')}`);
+        }
+      }
 
       const { error } = await supabase
         .from('umroh_schedules')

@@ -253,7 +253,7 @@ test('buildCdnInvalidationUpdate: keeps current source fingerprint but removes s
   );
 });
 
-test('schedule sync invalidates brochure cache in the same upsert as a changed source URL', () => {
+test('schedule sync invalidates brochure cache only for the packages whose source changed', () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const sync = server.slice(
     server.indexOf('async function syncUmrohSchedules()'),
@@ -262,6 +262,22 @@ test('schedule sync invalidates brochure cache in the same upsert as a changed s
 
   assert.match(sync, /\.select\('jadwal_id, brosur'\)/);
   assert.match(sync, /buildBrochureCacheReset\(previousById\.get\(String\(p\.jadwal_id\)\), brochureSource\)/);
+
+  // Kunci reset TIDAK boleh menumpang payload upsert. PostgREST menyatukan kunci
+  // seluruh baris lalu mengisi yang absen dengan NULL (supabase-js:
+  // defaultToNull = true), jadi SATU paket yang brosurnya diganti akan menghapus
+  // brosur_cdn semua paket lain — 19 Sep 2026 itu membuat seluruh mirror CDN
+  // hilang tiap sync, dan pembaca jatuh ke proksi origin yang tak bisa di-cache.
+  assert.doesNotMatch(
+    sync,
+    /\.\.\.buildBrochureCacheReset\(/,
+    'reset brosur ikut disebar ke baris upsert — satu paket akan menghapus cache paket lain',
+  );
+  assert.match(
+    sync,
+    /\.update\(brochureCacheResets\.get\([^)]*\)\)[\s\S]{0,200}?\.in\('jadwal_id', resetIds\)/,
+    'reset brosur tidak diterapkan sebagai update terbatas ke paket yang berubah',
+  );
 });
 
 test('document source proxy bypasses browser and service-worker stale caches', async () => {
