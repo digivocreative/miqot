@@ -112,13 +112,13 @@ function RouteErrorFallback() {
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center px-4">
       <div className="max-w-sm rounded-xl border border-red-100 bg-white p-5 text-center shadow-sm dark:border-red-900/40 dark:bg-slate-900">
         <h1 className="text-base font-bold text-slate-900 dark:text-white">Halaman gagal dimuat</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Silakan muat ulang halaman ini.</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Silakan refresh halaman ini.</p>
         <button
           type="button"
           onClick={() => window.location.reload()}
           className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
-          Muat ulang
+          Refresh
         </button>
       </div>
     </div>
