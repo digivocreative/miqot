@@ -24,7 +24,7 @@ const HARNESS = '/tests/fixtures/brochure-modal-sticker-harness.html';
 const RED_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR42mO8o6b2nwEPYGIgAIaHAgA8CAI3MY4HhgAAAABJRU5ErkJggg==';
 
-describe('Callout sticker di BrochureModal', { concurrency: false }, () => {
+describe('Bagian bawah BrochureModal: callout sticker, menu AI Tools, kerangka brosur', { concurrency: false }, () => {
   let viteServer;
   let browser;
   let context;
@@ -144,6 +144,106 @@ describe('Callout sticker di BrochureModal', { concurrency: false }, () => {
         return hasil;
       });
       assert.deepEqual(tertutup, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Menu "AI Tools" membuka KE ATAS dari footer, tepat menimpa baris sticker.
+  // Baris itu membawa z-index sendiri (tumpukan thumbnail + balon perkenalan);
+  // tanpa konteks penumpukan sendiri, angka-angka itu naik ke konteks layar
+  // brosur dan mencoret menunya — persis keluhan "dropdown ketiban section
+  // Tempel sticker". Yang diuji di sini piksel teratas di banyak titik, bukan
+  // nama kelas: pelakunya tidak harus elemen yang sama lain kali.
+  test('baris sticker tidak mencoret menu AI Tools', async () => {
+    const page = await buka();
+    try {
+      await page.getByRole('button', { name: 'AI Tools' }).click();
+      await page.locator('[role="menuitem"]').first().waitFor({ timeout: 10_000 });
+      // Menunya beranimasi masuk (opacity + scale + translate); mengukur sebelum
+      // ia diam membaca posisi yang belum final. Ditunggu lewat gaya
+      // terkomputasi, BUKAN hover(): kalau menunya memang tertutup, hover()
+      // menggantung 30 detik lalu mati sebagai "timeout" — kegagalan yang
+      // menyamarkan justru bug yang sedang dijaga.
+      await page.waitForFunction(() => {
+        const m = document.querySelector('[role="menu"]');
+        return m && Number(getComputedStyle(m).opacity) === 1;
+      }, undefined, { timeout: 10_000 });
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+
+      const tertutup = await page.evaluate(() => {
+        const menu = document.querySelector('[role="menu"]');
+        const hasil = [];
+        for (const item of menu.querySelectorAll('[role="menuitem"]')) {
+          const r = item.getBoundingClientRect();
+          for (const bagian of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+            const atas = document.elementFromPoint(r.x + r.width * bagian, r.y + r.height / 2);
+            if (!atas || !menu.contains(atas)) {
+              hasil.push(
+                `${item.textContent.slice(0, 18)} @${Math.round(bagian * 100)}% tertutup oleh ` +
+                `${atas ? atas.tagName + '.' + String(atas.className).slice(0, 48) : 'null'}`,
+              );
+            }
+          }
+        }
+        return hasil;
+      });
+      assert.deepEqual(tertutup, []);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Brosur rata-rata ~650 KB (terbesar 2,4 MB) dan baru boleh tampil setelah
+  // identitas agent dibakar ke pikselnya, jadi jeda ini SELALU ada. Dulu tidak
+  // ada yang menahan tingginya: pembungkusnya kolaps jadi sepotong putih
+  // setinggi padding dengan spinner gepeng di tengahnya, dan layarnya terbaca
+  // kosong. Yang dikunci di sini tingginya — bukan rupa kerangkanya.
+  test('kerangka menahan tinggi brosur selagi gambarnya belum mendarat', async () => {
+    const page = await context.newPage();
+    let ditahan = null;
+    await page.route('**/__uji-brosur-modal.png', route => { ditahan = route; });
+    try {
+      await page.goto(`${appOrigin}${HARNESS}`);
+      await page.locator('text=Preview Brosur').waitFor({ timeout: 30_000 });
+      await page.getByRole('button', { name: 'AI Tools' }).hover();
+
+      const kerangka = await page.evaluate(() => {
+        const el = document.querySelector('.brosur-skeleton');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, animasi: getComputedStyle(el).animationName };
+      });
+      assert.ok(kerangka, 'tidak ada kerangka sama sekali selagi brosur dimuat');
+      assert.ok(
+        kerangka.h > kerangka.w * 1.2,
+        `kerangka cuma ${Math.round(kerangka.h)}px pada lebar ${Math.round(kerangka.w)}px — ` +
+        'pembungkusnya kolaps lagi, bukan menahan rasio brosur',
+      );
+      assert.notEqual(kerangka.animasi, 'none', 'kerangka diam — tidak terbaca sebagai "sedang dimuat"');
+
+      for (let sisa = 100; !ditahan && sisa > 0; sisa -= 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.ok(ditahan, 'permintaan brosur tidak pernah sampai ke page.route()');
+      await ditahan.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(RED_PNG_BASE64, 'base64'),
+      });
+
+      await page.waitForFunction(
+        () => !document.querySelector('.brosur-skeleton'),
+        undefined,
+        { timeout: 10_000 },
+      );
+      const gambar = page.locator('img[alt^="Brosur"]');
+      await gambar.waitFor({ timeout: 10_000 });
+      assert.equal(
+        await gambar.evaluate(el => Number(getComputedStyle(el).opacity)),
+        1,
+        'kerangka sudah pergi tapi brosurnya tidak tampil',
+      );
     } finally {
       await page.close();
     }

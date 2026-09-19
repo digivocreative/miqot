@@ -6,6 +6,7 @@ import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun,
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
+import { BrosurBlurPlaceholder } from './BrosurBlurPlaceholder';
 import { StickerStudio } from './StickerStudio';
 import { StickerPromoRow } from './StickerPromoRow';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
@@ -583,6 +584,9 @@ _________________________
   );
   /** Kerangka 3:4 bertahan sampai gambarnya BENAR-BENAR siap tampil. */
   const brosurSiap = brosurLoaded && !stampedBrosur.isStamping;
+  // Bayangan kabur yang mengisi kerangka itu: ~30 KB, sampai jauh sebelum brosur
+  // penuhnya (rata-rata ~650 KB) selesai diunduh dan distempel.
+  const brosurThumbUrl = pkg.brosurThumbUrl || '';
 
   const downloadBrosurFile = async () => {
     try {
@@ -1978,7 +1982,12 @@ _________________________
                   // (handleCardClick di root) sehingga kartu tertutup di balik popup
                   onClick={(e) => { e.stopPropagation(); fireViewContent(); setIsBrochureOpen(true); }}
                 >
-                  <div className={brosurSiap ? undefined : 'aspect-[3/4] bg-gray-100 dark:bg-slate-950/60 animate-pulse'}>
+                  <div className={brosurSiap ? undefined : 'relative overflow-hidden aspect-[3/4] brosur-skeleton'}>
+                    {/* Kerangka berkilau + bayangan kabur brosurnya. Keduanya
+                        hidup di kotak yang SAMA dengan gambar aslinya: kotak
+                        inilah yang menahan rasio 3:4 supaya panel expand tidak
+                        melompat saat gambarnya mendarat. */}
+                    {!brosurSiap && <BrosurBlurPlaceholder thumbUrl={brosurThumbUrl} />}
                     {/* Gambar ditahan selama identitas agent digubah: brosur
                         polos yang sempat terlihat bisa ikut ter-screenshot
                         tanpa identitas, dan menukarnya setelah tampil membuat
@@ -1987,7 +1996,7 @@ _________________________
                       <img
                         src={stampedBrosur.url}
                         alt="Brosur paket"
-                        className={`w-full h-auto block transition-opacity duration-300 ${brosurSiap ? 'opacity-100' : 'opacity-0'}`}
+                        className={`relative w-full h-auto block transition-opacity duration-300 ${brosurSiap ? 'opacity-100' : 'opacity-0'}`}
                         // JANGAN kembalikan ke "lazy" tanpa syarat. Saat ada
                         // identitas agent, gambar ini mount TERLAMBAT — setelah
                         // penggubahan selesai — ke layout yang sudah diam,
@@ -2505,6 +2514,7 @@ _________________________
           // adanya — tidak perlu menggubah ulang gambar yang sama. Kalau belum,
           // modal menggubah sendiri dengan identitas yang sama.
           imageUrl={stampedBrosur.blob ? stampedBrosur.url : pkg.brosurUrl}
+          thumbUrl={brosurThumbUrl}
           title={pkg.nama}
           agent={stampedBrosur.blob ? null : brosurAgent}
           onCaption={isSessionValid() ? () => {

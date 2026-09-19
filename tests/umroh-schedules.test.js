@@ -148,6 +148,9 @@ test('serializeScheduleRows: uses CDN URLs and strips storage-only fields', () =
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].brosur, 'https://cdn/brosur/JBU1522-abcdef1234567890.pdf?v=abcdef1234567890');
+  // Thumb ikut keluar sebagai bayangan pemuatan di kartu & modal, tapi hanya
+  // lewat resolver ber-fingerprint — bukan kolom _cdn mentah.
+  assert.equal(rows[0].brosur_thumb, 'https://cdn/brosur-thumb/JBU1522-abcdef1234567890.webp');
   assert.equal(rows[0].itinerary, 'https://cdn/itinerary.pdf?v=1234567890abcdef');
   assert.deepEqual(rows[0].journey_order, ['Madinah', 'Umroh']);
   assert.equal(rows[0].journey_order_source, 'itinerary');

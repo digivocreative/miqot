@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
+import { BrosurBlurPlaceholder } from './BrosurBlurPlaceholder';
 import { StickerStudio } from './StickerStudio';
 import { StickerPromoRow } from './StickerPromoRow';
 import type { BrochureAgentIdentity } from '../utils/stampAgentOnBrochure';
@@ -19,6 +20,12 @@ interface BrochureModalProps {
   isOpen: boolean;
   onClose: () => void;
   imageUrl: string;
+  /**
+   * Turunan kecil brosur (lebar 400px) untuk bayangan kabur selagi gambar
+   * penuhnya dimuat. Opsional: pemanggil yang tidak punya turunannya cukup
+   * mendapat kerangka berkilau saja.
+   */
+  thumbUrl?: string | null;
   title: string;
   /** When provided, shows a "Caption" button in the footer (agent-only tool). */
   onCaption?: () => void;
@@ -54,7 +61,7 @@ interface BrochureModalProps {
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null, allowSticker = false }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, thumbUrl = null, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null, allowSticker = false }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -313,23 +320,29 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
           >
             <div className="flex justify-center">
               <div className="relative bg-white dark:bg-slate-800 p-2 rounded-xl shadow-lg max-w-md w-full">
-                {/* Loading Spinner */}
-                {(!isImageLoaded || isStamping) && displayUrl && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-800 rounded-xl z-10">
-                    <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-                  </div>
+                {/* Kerangka brosur: menahan tinggi 3:4 (rasio brosur 1080×1440,
+                    1200×1600) SELAMA gambarnya belum siap — bukan hanya selagi
+                    identitas agent digubah. Tanpa penahan itu pembungkusnya
+                    kolaps jadi sepotong putih setinggi padding, dan layar ini
+                    terbaca kosong sepanjang unduhan (brosur rata-rata ~650 KB,
+                    terbesar 2,4 MB). Bayangan kabur di dalamnya = turunan
+                    ~30 KB yang mendarat jauh lebih dulu. */}
+                {displayUrl && (!isImageLoaded || isStamping) && (
+                  <>
+                    <div className="absolute inset-2 overflow-hidden rounded-lg brosur-skeleton">
+                      <BrosurBlurPlaceholder thumbUrl={thumbUrl} />
+                    </div>
+                    {/* Penahan tingginya sendiri: kerangka di atas `absolute`,
+                        jadi tanpa baris ini pembungkusnya tetap kolaps. */}
+                    <div className="w-full aspect-[3/4] rounded-lg" />
+                  </>
                 )}
-
-                {/* Penahan tinggi selagi identitas agent digubah. Tanpa ini
-                    pembungkusnya kolaps ke tinggi padding dan spinner di atas
-                    jadi gepeng. Rasio 3:4 = rasio brosur (1080×1440, 1200×1600). */}
-                {displayUrl && isStamping && <div className="w-full aspect-[3/4] rounded-lg" />}
 
                 {displayUrl && !isStamping && (
                   <img
                     src={renderUrl}
                     alt={`Brosur ${title}`}
-                    className={`w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                    className={`relative w-full h-auto rounded-lg transition-opacity duration-300 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     style={{
                       transform: `scale(${scale})`,
                       transformOrigin: 'top left',
@@ -393,6 +406,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
               <StickerPromoRow
                 onOpen={handleOpenStickerStudio}
                 disabled={isSharing || !isImageLoaded}
+                // Dua balon yang terbuka ke ruang yang sama tidak boleh hidup
+                // bersamaan: menu AI Tools membuka KE ATAS, tepat menimpa balon
+                // perkenalan sticker. Selagi menunya terbuka, balonnya mundur —
+                // dan kembali begitu menunya ditutup, tanpa mencatat apa pun ke
+                // gerbang 4 jam / 10 kali.
+                allowCallout={!aiMenuOpen}
                 onCalloutChange={setStickerCalloutOpen}
               />
             </div>
@@ -400,7 +419,12 @@ export function BrochureModal({ isOpen, onClose, imageUrl, title, onCaption, onP
 
           {/* ─── FIXED FOOTER ─── */}
           {displayUrl && (
-            <div className="flex-none sticky bottom-0 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
+            // z-20: footer sticky memang sudah membentuk konteks penumpukan
+            // sendiri, tapi dengan z-index auto ia hanya menang atas saudara
+            // yang ber-z 0. Baris sticker di atasnya membawa z-index sendiri
+            // (tumpukan thumbnail, balon perkenalan), dan tanpa angka di sini
+            // keduanya mencoret menu AI Tools yang membuka ke atas.
+            <div className="flex-none sticky bottom-0 z-20 bg-white dark:bg-slate-900 border-t border-gray-200/60 dark:border-slate-700/60 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex gap-2">
               {aiToolsControl}
               <button
                 onClick={handleShareBrosur}

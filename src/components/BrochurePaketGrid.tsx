@@ -355,6 +355,9 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
             isOpen={view === 'brosur'}
             onClose={() => setView(null)}
             imageUrl={selected.brosur || ''}
+            // Thumb yang sudah dipakai kartunya di grid: sudah ter-cache, jadi
+            // bayangan kabur di modal muncul seketika.
+            thumbUrl={selected.brosurThumb || ''}
             title={selected.nama}
             tone="emerald"
             agent={{ name: agent.name, phone: agent.phone }}

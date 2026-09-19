@@ -217,6 +217,7 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
 
     // Documents
     brosurUrl: normalizeApiUrl(raw.brosur),
+    brosurThumbUrl: normalizeApiUrl(raw.brosur_thumb),
     itineraryUrl: normalizeApiUrl(raw.itinerary),
 
     // Pricing

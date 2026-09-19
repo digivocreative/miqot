@@ -84,7 +84,10 @@ test('sebelum brosur siap: kotaknya sudah menahan tinggi 3:4, gambarnya belum ta
   );
 
   // Kerangkanya harus terbaca "sedang memuat", bukan kotak kosong sewarna kartu.
-  assert.match(kelasKotak, /(?:^|\s)animate-pulse(?:\s|$)/, 'kerangka 3:4 tidak berdenyut');
+  // Sapuan kilaunya sendiri (.brosur-skeleton, src/index.css) tidak bisa dibaca
+  // dari HTML statis — yang dijaga di sini cuma kelasnya terpasang; gerak dan
+  // matinya dikunci lewat gaya terkomputasi di browser test.
+  assert.match(kelasKotak, /(?:^|\s)brosur-skeleton(?:\s|$)/, 'kerangka 3:4 tidak berkilau');
 
   // Gambarnya menunggu di balik kerangka, dan masuknya lewat transisi opacity.
   const kelasGambar = img.attr('class') ?? '';

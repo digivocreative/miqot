@@ -146,6 +146,11 @@ export interface UmrohPackage {
   // ---- Documents ----
   /** Brochure URL (can be empty string) */
   brosurUrl: string;
+  /**
+   * Turunan kecil brosur (lebar 400px) untuk bayangan kabur selagi brosur
+   * penuhnya dimuat. Kosong kalau paketnya belum punya salinan CDN.
+   */
+  brosurThumbUrl: string;
   /** Itinerary URL (can be empty string) */
   itineraryUrl: string;
 
@@ -190,6 +195,7 @@ export interface UmrohPackageRaw {
   manasik_tgl: string;
   manasik_jam: string;
   brosur: string;
+  brosur_thumb?: string;
   itinerary: string;
   perlengkapan_harga: string;
   paket_harga: Record<string, RoomPricing>;

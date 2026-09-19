@@ -53,6 +53,51 @@ test('canonicalScheduleSourceIdentity: treats public host and direct IP as the s
   );
 });
 
+// Hulu menerbitkan ulang token di ujung path pada SETIAP panggilan api-get, jadi
+// dua bacaan brosur yang sama tidak pernah beridentitas sama kalau token itu ikut
+// dihitung. Akibatnya nyata dan terukur: salinan CDN tiap paket dihapus tiap 30
+// menit, lalu diunggah ulang byte-per-byte sama — dan selama jeda itu pembaca
+// jatuh ke proksi origin yang tak bisa di-cache. Inilah "brosurnya lemot".
+test('canonicalScheduleSourceIdentity: abaikan token sekali-pakai di ujung path', () => {
+  assert.equal(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-reguler-9hr-kereta-cepat-jkurkKG'),
+    canonicalScheduleSourceIdentity('http://115.124.86.220/brosur/umrah-reguler-9hr-kereta-cepat-8qYx4rV'),
+  );
+  assert.equal(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/itinerary/umrah-promo-9hr-geGAyST'),
+    'schedule:/itinerary/umrah-promo-9hr',
+  );
+
+  // Paket yang benar-benar BERBEDA tetap berbeda — yang dibuang hanya tokennya.
+  assert.notEqual(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-reguler-9hr-jkurkKG'),
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-plus-turki-12hr-8qYx4rV'),
+  );
+
+  // Segmen slug biasa (huruf kecil, boleh berangka) bukan token; memotongnya
+  // akan menyamakan dua brosur yang berbeda.
+  assert.equal(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/brosur/umrah-promo-12hari'),
+    'schedule:/brosur/umrah-promo-12hari',
+  );
+
+  // Path di luar brosur/itinerary tidak disentuh sama sekali.
+  assert.equal(
+    canonicalScheduleSourceIdentity('http://jadwal.alhijaz.co/jadwal/api-get-1448AbCdEf'),
+    'schedule:/jadwal/api-get-1448AbCdEf',
+  );
+});
+
+test('buildBrochureCacheReset: token baru untuk brosur yang sama tidak menghapus apa pun', () => {
+  assert.deepEqual(
+    buildBrochureCacheReset(
+      { brosur: 'http://jadwal.alhijaz.co/brosur/umrah-reguler-9hr-kereta-cepat-jkurkKG' },
+      'http://jadwal.alhijaz.co/brosur/umrah-reguler-9hr-kereta-cepat-8qYx4rV',
+    ),
+    {},
+  );
+});
+
 test('buildBrochureCacheReset: clears every derived asset when source locator changes', () => {
   assert.deepEqual(
     buildBrochureCacheReset(

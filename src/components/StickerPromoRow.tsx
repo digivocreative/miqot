@@ -125,6 +125,13 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
   useEffect(() => { calloutChangeRef.current?.(showCallout); }, [showCallout]);
   useEffect(() => () => { calloutChangeRef.current?.(false); }, []);
 
+  // Izinnya dicabut selagi balon tampil (mis. menu AI Tools dibuka di modal
+  // brosur) → balonnya mundur tanpa dicatat sebagai "dijawab": gerbang 4 jam /
+  // 10 kali tidak boleh bergeser gara-gara agent membuka menu lain.
+  useEffect(() => {
+    if (!allowCallout) setShowCallout(false);
+  }, [allowCallout]);
+
   useEffect(() => {
     if (!allowCallout || disabled || calloutClaimed) return;
     if (!forcedByUrl() && !bolehMuncul()) return;
@@ -154,7 +161,11 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
   }
 
   return (
-    <div className="relative">
+    // isolate: tumpukan thumbnail dan balon perkenalan di dalam baris ini
+    // membawa z-index sendiri. Tanpa konteks penumpukan di sini, angka-angka itu
+    // naik ke konteks milik layar brosur dan mencoret apa pun yang dibuka di
+    // atasnya — persisnya menu "AI Tools" yang membuka ke atas dari footer.
+    <div className="relative isolate">
       <button
         type="button"
         data-sticker-open

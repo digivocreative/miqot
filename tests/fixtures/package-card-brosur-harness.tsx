@@ -25,6 +25,8 @@ import '../../src/index.css';
 // MENAHAN responsnya. Penahanan itu inti tesnya: keadaan "belum siap" harus bisa
 // diukur dengan tenang, bukan dikejar dalam beberapa milidetik.
 const BROSUR_URL = '/__uji-brosur.jpg';
+// Turunan kecilnya, yang mengisi kerangka selagi brosur penuhnya ditahan.
+const BROSUR_THUMB_URL = '/__uji-brosur-thumb.jpg';
 
 const SAMPLE_FLIGHT = {
   tgl: '2026-09-03',
@@ -50,6 +52,7 @@ const pkg = {
   manasikTanggal: '2026-08-24',
   manasikJam: '09:00:00',
   brosurUrl: BROSUR_URL,
+  brosurThumbUrl: BROSUR_THUMB_URL,
   itineraryUrl: '',
   perlengkapanHarga: '0',
   harga: { RAHMAH: { Quard: '33900000', Triple: '34900000', Double: '36900000' } },

@@ -760,3 +760,50 @@ body.page-entering > #root {
   max-width: 100%;
   max-height: calc(100dvh - 10rem);
 }
+
+/* ============================================ */
+/* Kerangka brosur — pratinjau kartu & modal    */
+/* ============================================ */
+/*
+ * Brosur paket berat (rata-rata ~650 KB, terbesar 2,4 MB) dan baru boleh tampil
+ * setelah identitas agent dibakar ke pikselnya, jadi selalu ada jeda sebelum
+ * gambarnya muncul. Kotak abu polos membuat jeda itu terbaca sebagai "kosong";
+ * sapuan kilau ini yang memberi tahu bahwa sesuatu memang sedang dimuat.
+ *
+ * Dipakai pada kotak yang SAMA dengan <img> brosurnya (bukan lapisan terpisah):
+ * kotak itulah yang menahan rasio 3:4 supaya panel expand tidak melompat saat
+ * gambarnya mendarat — lihat tests/package-card-brosur-preview.browser.test.js.
+ */
+@keyframes brosur-shimmer {
+  0%   { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
+
+.brosur-skeleton {
+  background-color: #f3f4f6;
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 30%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: brosur-shimmer 1.6s linear infinite;
+}
+
+.dark .brosur-skeleton {
+  background-color: #0f172a;
+  background-image: linear-gradient(
+    100deg,
+    rgba(148, 163, 184, 0) 30%,
+    rgba(148, 163, 184, 0.18) 50%,
+    rgba(148, 163, 184, 0) 70%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brosur-skeleton {
+    animation-duration: 3.2s;
+  }
+}

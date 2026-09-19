@@ -11,6 +11,52 @@ import { stampAgentOnBrochure, type BrochureAgentIdentity } from '../utils/stamp
 // untuk dikirim. Menyalin efeknya ke dua tempat berarti dua tempat yang bisa
 // bocor object URL dengan cara berbeda.
 
+/**
+ * Hasil stempel yang sudah jadi, dipakai ulang lintas mount.
+ *
+ * Satu brosur bisa diminta beberapa kali dalam satu sesi: kartu dibuka-tutup,
+ * lalu modal layar penuh, lalu studio sticker. Tanpa ini, tiap permintaan
+ * mengulang seluruh rangkaian mahalnya — unduh, decode, pindai piksel strip
+ * bawah, gambar, encode ulang — untuk byte yang persis sama.
+ *
+ * Yang disimpan PROMISE-nya, bukan hasilnya: dua permintaan yang datang
+ * bersamaan (kartu belum selesai menstempel, agent sudah mengetuk pratinjau)
+ * jadi ikut menumpang pekerjaan yang sama alih-alih memulai yang kedua.
+ *
+ * Kuncinya memuat URL, dan URL brosur ber-fingerprint isi (`?v=<sha>`), jadi
+ * brosur yang diganti di hulu tidak mungkin terlayani dari sini. Batasnya kecil
+ * karena isinya gambar penuh: 4 entri ≈ 1–2 MB pada brosur biasa.
+ */
+const STAMP_CACHE_MAX = 4;
+const stampCache = new Map<string, Promise<Blob | null>>();
+
+/** @returns Blob hasil gubahan, atau null kalau tidak ada yang berhasil digambar. */
+function stampOnce(key: string, imageUrl: string, agent: BrochureAgentIdentity): Promise<Blob | null> {
+  const cached = stampCache.get(key);
+  if (cached) return cached;
+
+  const job = (async () => {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error('Fetch failed');
+    const original = await response.blob();
+    const out = await stampAgentOnBrochure(original, agent);
+    // Blob yang sama = tidak ada yang berhasil digambar; pakai jalur lama
+    // apa adanya ketimbang menahan satu salinan identik di memori.
+    return out === original ? null : out;
+  })();
+
+  // Kegagalan (jaringan putus, CORS) tidak boleh mengendap: percobaan
+  // berikutnya harus benar-benar mencoba lagi, bukan mewarisi galat lama.
+  job.catch(() => { if (stampCache.get(key) === job) stampCache.delete(key); });
+
+  stampCache.set(key, job);
+  for (const oldest of stampCache.keys()) {
+    if (stampCache.size <= STAMP_CACHE_MAX) break;
+    stampCache.delete(oldest);
+  }
+  return job;
+}
+
 export interface StampedBrochure {
   /** URL siap pakai: hasil gubahan bila ada, kalau tidak URL aslinya. */
   url: string;
@@ -71,14 +117,9 @@ export function useStampedBrochure(
     setIsStamping(true);
     (async () => {
       try {
-        const response = await fetch(imageUrl);
-        if (!response.ok) throw new Error('Fetch failed');
-        const original = await response.blob();
-        const out = await stampAgentOnBrochure(original, agentRef.current!);
+        const out = await stampOnce(`${imageUrl}|${agentKey}`, imageUrl, agentRef.current!);
         if (cancelled) return;
-        // Blob yang sama = tidak ada yang berhasil digambar; pakai jalur lama
-        // apa adanya ketimbang menahan satu salinan identik di memori.
-        replace(out === original ? null : { url: URL.createObjectURL(out), blob: out });
+        replace(out ? { url: URL.createObjectURL(out), blob: out } : null);
       } catch {
         if (!cancelled) replace(null);
       } finally {

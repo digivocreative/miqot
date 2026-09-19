@@ -24,6 +24,7 @@ import { createServer } from 'vite';
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const HARNESS = '/tests/fixtures/package-card-brosur-harness.html';
 const BROSUR_ROUTE = '**/__uji-brosur.jpg';
+const THUMB_ROUTE = '**/__uji-brosur-thumb.jpg';
 const BROSUR = 'img[alt="Brosur paket"]';
 
 // Rasio brosur yang sesungguhnya. Kotak penahan HARUS memakai rasio ini juga:
@@ -65,6 +66,14 @@ const bacaKeadaan = () => {
     // animasi expand. Inilah yang dulu melompat +574px di frame terakhir.
     tinggiKontenPanel: panel ? panel.scrollHeight : null,
     lencanaSiap: document.body.textContent.includes('Lihat penuh'),
+    // Bayangan kabur dari turunan 400px: yang membuat ruang brosur terbaca
+    // "sedang dimuat" alih-alih "kosong" selama beberapa detik pertama.
+    bayangan: (() => {
+      const lqip = kotak.querySelector('img[aria-hidden="true"]');
+      if (!lqip) return null;
+      const gaya = getComputedStyle(lqip);
+      return { filter: gaya.filter, src: lqip.getAttribute('src') };
+    })(),
   };
 };
 
@@ -73,6 +82,13 @@ async function bukaHarness() {
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
+
+  // Turunan kecilnya TIDAK ditahan: justru itu intinya — ia mendarat duluan.
+  await page.route(THUMB_ROUTE, route => route.fulfill({
+    status: 200,
+    contentType: 'image/jpeg',
+    body: brosurJpeg,
+  }));
 
   let ditahan = null;
   await page.route(BROSUR_ROUTE, route => {
@@ -157,6 +173,12 @@ describe('Pratinjau brosur: kerangka menahan tinggi, lalu gambarnya fade-in', { 
         `brosurnya ${(BROSUR_H / BROSUR_W).toFixed(3)}`,
       );
       assert.notEqual(menunggu.animasiKerangka, 'none', 'kerangka tidak berdenyut');
+      assert.ok(menunggu.bayangan, 'turunan kecil brosur tidak ikut mengisi kerangka');
+      assert.match(
+        menunggu.bayangan.filter,
+        /blur\(/,
+        'bayangan brosur tidak dikaburkan — brosur polos tanpa identitas agent tidak boleh terbaca',
+      );
       assert.equal(menunggu.lencanaSiap, false, 'kartu mengaku siap padahal gambarnya belum ada');
       assert.match(menunggu.transitionProperty, /opacity/, 'munculnya gambar tidak ditransisikan');
       assert.notEqual(menunggu.transitionDuration, '0s', 'transisi opacity berdurasi nol = mengedip');
@@ -169,6 +191,7 @@ describe('Pratinjau brosur: kerangka menahan tinggi, lalu gambarnya fade-in', { 
       assert.equal(siap.rasioTerkunci, 'auto', 'kunci rasio tidak dilepas; gambar dipaksa masuk kotak 3:4');
       assert.equal(siap.animasiKerangka, 'none', 'kerangka masih berdenyut di belakang gambar yang sudah tampil');
       assert.equal(siap.lencanaSiap, true, 'lencana "Lihat penuh" tidak muncul setelah gambar siap');
+      assert.equal(siap.bayangan, null, 'bayangan kabur masih menumpuk di belakang brosur yang sudah tampil');
 
       // INVARIAN UTAMA: tinggi yang diukur framer-motion sebagai target animasi
       // expand harus SAMA sebelum dan sesudah gambarnya mendarat.
