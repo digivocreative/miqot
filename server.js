@@ -43,7 +43,8 @@ import {
   calendarPublicFallbackOriginLookup,
   CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
 } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, generateFilterOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { buildFilterShareMeta } from './lib/filter-share-meta.js';
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { PACKAGE_ID_RE, buildPackageShareMeta } from './lib/package-share-meta.js';
 import { assessUniversalListCoverage, computeSafeDeletions } from './lib/sync-cleanup.js';
@@ -23788,6 +23789,68 @@ app.get('/og/paket/:packageId.png', async (req, res) => {
     return await sendPackageOgPng(res, { agent: null, packageId });
   } catch (err) {
     console.error('[og/paket] generation failed (tanpa slug):', packageId, err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
+// ── Kartu share per filter jadwal ──
+// Tidak memuat data paket, jadi tidak perlu penanda versi ?v= seperti kartu
+// paket — tak ada harga atau sisa kursi yang bisa basi di sini.
+const FILTER_SLUG_RE = /^[a-z0-9-]{1,48}$/;
+
+async function sendFilterOgPng(res, { agent, filterSlug }) {
+  // buildFilterShareMeta mengembalikan null untuk slug yang bukan filter
+  // berdimensi (termasuk ID paket dan /semua-data) — itu 404, bukan kartu kosong.
+  const meta = buildFilterShareMeta({
+    filterSlug,
+    agentName: agent?.name || '',
+    agentSlug: agent?.slug || '',
+  });
+  if (!meta) return res.status(404).type('text/plain').send('not found');
+
+  const agentPhotoBuffer = agent ? await loadAgentPhotoBuffer(agent.photo, agent.slug) : null;
+  const png = await generateFilterOgPng({
+    eyebrow: meta.eyebrow,
+    headline: meta.headline,
+    agentName: agent?.name || '',
+    agentPhotoBuffer,
+  });
+
+  return res.set({
+    'Content-Type': 'image/png',
+    'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+  }).send(png);
+}
+
+app.get('/og/filter/:slug/:filterSlug.png', async (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const filterSlug = String(req.params.filterSlug || '').toLowerCase();
+  if (!/^[a-z0-9-]{1,64}$/.test(slug) || !FILTER_SLUG_RE.test(filterSlug)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved?.agent) return res.status(404).type('text/plain').send('not found');
+    return await sendFilterOgPng(res, { agent: resolved.agent, filterSlug });
+  } catch (err) {
+    console.error('[og/filter] generation failed:', slug, filterSlug, err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
+// Bentuk tanpa agent, untuk link telanjang alhijaz.co/umroh-ramadhan. Sengaja
+// TIDAK menyimpulkan agent dari host: middleware deteksi custom domain melewati
+// path .png, jadi req.customDomainAgent selalu kosong di sini (pola sama dengan
+// /og/paket/:packageId.png).
+app.get('/og/filter/:filterSlug.png', async (req, res) => {
+  const filterSlug = String(req.params.filterSlug || '').toLowerCase();
+  if (!FILTER_SLUG_RE.test(filterSlug)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    return await sendFilterOgPng(res, { agent: null, filterSlug });
+  } catch (err) {
+    console.error('[og/filter] generation failed (tanpa slug):', filterSlug, err.message);
     return res.status(500).type('text/plain').send('og generation failed');
   }
 });
