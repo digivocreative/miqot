@@ -3,6 +3,7 @@
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
+import { isViaCustomDomain, readAgentContext } from '@/lib/agent-context';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
 import { BrochureModal } from './BrochureModal';
@@ -2234,8 +2235,10 @@ _________________________
             <div data-screenshot-ignore className={`grid ${currentAgent ? 'grid-cols-4' : 'grid-cols-2'} gap-2 mb-4`}>
               {/* Link (Copy URL) - deterministic desktop-friendly action */}
               {currentAgent && (() => {
-                const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
-                const isCustomDomain = !!ctx?.customDomain;
+                // Bukan `!!ctx.customDomain`: field itu terisi juga di
+                // alhijaz.co, dan dulu membuat URL yang disalin kehilangan slug
+                // agent (jadi /JBU1517, bukan /nikita/JBU1517).
+                const isCustomDomain = isViaCustomDomain(readAgentContext());
                 const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0] || '';
                 if (!seg && !isCustomDomain) return null;
                 const shareUrl = isCustomDomain
@@ -2269,8 +2272,7 @@ _________________________
                   e.stopPropagation();
                   fireViewContent();
                   document.body.classList.add('navigating');
-                  const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
-                  const isCustomDomain = !!ctx?.customDomain;
+                  const isCustomDomain = isViaCustomDomain(readAgentContext());
                   const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
                   const base = isCustomDomain ? '/kalkulasi' : (seg ? `/${seg}/kalkulasi` : '/kalkulasi');
                   setTimeout(() => {
@@ -2287,8 +2289,7 @@ _________________________
 
               {/* Compare Button — only with agent slug or on custom domain */}
               {(() => {
-                const ctx = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null } }).__AGENT_CONTEXT__;
-                const isCustomDomain = !!ctx?.customDomain;
+                const isCustomDomain = isViaCustomDomain(readAgentContext());
                 const seg = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean)[0];
                 if (!seg && !isCustomDomain) return null;
                 const compareUrl = isCustomDomain

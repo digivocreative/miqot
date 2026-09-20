@@ -19,7 +19,10 @@ interface Window {
     phone?: string;
     photo?: string;
     email?: string | null;
+    /** Domain milik agent — TERISI walau request datang lewat alhijaz.co. */
     customDomain?: string | null;
     hasCustomDomain?: boolean;
+    /** Request INI benar-benar lewat custom domain. Satu-satunya yang boleh dipercaya. */
+    viaCustomDomain?: boolean;
   };
 }

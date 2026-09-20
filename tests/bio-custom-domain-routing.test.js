@@ -26,14 +26,19 @@ test('frontend routes custom-domain /bio to BioPage using server agent slug', ()
   const featuredTile = read('src/components/bio/tiles/TileFeatured.tsx');
   const urlHelper = read('src/components/bio/bioUrls.ts');
 
-  assert.match(main, /const serverAgentContext = \(window as unknown as \{ __AGENT_CONTEXT__\?: \{ customDomain\?: string \| null; slug\?: string \} \}\)\.__AGENT_CONTEXT__/);
-  assert.match(main, /const customDomainSlug = serverAgentContext\?\.slug\?\.toLowerCase\(\) \|\| ''/);
+  // Kesimpulan "lewat custom domain" WAJIB dari flag eksplisit server, bukan
+  // dari ada/tidaknya field customDomain — lihat src/lib/agent-context.js dan
+  // tests/agent-context-custom-domain.test.js.
+  assert.match(main, /const serverAgentContext = readAgentContext\(\)/);
+  assert.match(main, /const isCustomDomainHost = isViaCustomDomain\(serverAgentContext\)/);
+  assert.match(main, /const customDomainSlug = \(customDomainSlugFrom\(serverAgentContext\) \|\| ''\)\.toLowerCase\(\)/);
   assert.match(main, /const isCustomDomainBio = isCustomDomainHost && segments\.length === 1 && segments\[0\] === 'bio'/);
   assert.match(main, /const bioSlug = isBio \? \(isCustomDomainBio \? customDomainSlug : segments\[0\]\?\.toLowerCase\(\)\) : null/);
   assert.match(main, /if \(isBio && bioSlug\) return <BioPage slug=\{bioSlug\} \/>/);
   assert.match(viteEnv, /customDomain\?: string \| null;/);
-  assert.match(urlHelper, /context\?\.customDomain/);
-  assert.match(urlHelper, /context\.slug\?\.toLowerCase\(\) === agentSlug\.toLowerCase\(\)/);
+  assert.match(viteEnv, /viaCustomDomain\?: boolean;/);
+  assert.match(urlHelper, /isViaCustomDomain\(context\)/);
+  assert.match(urlHelper, /context\?\.slug\?\.toLowerCase\(\) === agentSlug\.toLowerCase\(\)/);
   assert.match(urlHelper, /return normalizedPath \? `\/\$\{normalizedPath\}` : '\/';/);
   assert.match(urlHelper, /return normalizedPath \? `\/\$\{agentSlug\}\/\$\{normalizedPath\}` : `\/\$\{agentSlug\}`;/);
   assert.match(productTile, /import \{ getBioAgentPath \} from '\.\.\/bioUrls';/);

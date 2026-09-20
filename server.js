@@ -23051,6 +23051,11 @@ function buildAgentContextPayload(agent, servedCustomDomain = null) {
     email: agent.email || null,
     customDomain: servedCustomDomain || (hasCustomDomain ? agent.custom_domain : null),
     hasCustomDomain,
+    // `customDomain` di atas TERISI walau request datang lewat alhijaz.co (ia
+    // menjawab "agent ini punya domain apa"), jadi klien TIDAK boleh memakainya
+    // untuk menyimpulkan host. Hanya server yang tahu, jadi ia bilang eksplisit.
+    // Tanpa ini, /nikita/landing-madinah membaca "nikita" sebagai slug filter.
+    viaCustomDomain: !!servedCustomDomain,
   };
 }
 
@@ -24545,6 +24550,9 @@ app.get('{*path}', async (req, res) => {
       email: agent.email || null,
       customDomain: req.customDomain || (hasCustomDomain ? agent.custom_domain : null),
       hasCustomDomain,
+      // Lihat catatan di buildAgentContextPayload: klien tidak boleh menebak
+      // host dari field `customDomain`.
+      viaCustomDomain: !!req.customDomain,
     });
 
     // Inject OG + Twitter tags + canonical + agent context

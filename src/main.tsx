@@ -260,9 +260,11 @@ const isTerasShare = terasRoute?.kind === 'share'
 const terasShareCode = terasRoute?.kind === 'share' ? terasRoute.code : null
 const isTerasProfile = terasRoute?.kind === 'profile'
 // On custom domain the agent is implicit, so /kalkulasi and /compare may be single-segment.
-const serverAgentContext = (window as unknown as { __AGENT_CONTEXT__?: { customDomain?: string | null; slug?: string } }).__AGENT_CONTEXT__
-const isCustomDomainHost = !!serverAgentContext?.customDomain
-const customDomainSlug = serverAgentContext?.slug?.toLowerCase() || ''
+// `customDomain` terisi walau request lewat alhijaz.co, jadi kesimpulan host
+// WAJIB lewat helper bersama (flag eksplisit dari server).
+const serverAgentContext = readAgentContext()
+const isCustomDomainHost = isViaCustomDomain(serverAgentContext)
+const customDomainSlug = (customDomainSlugFrom(serverAgentContext) || '').toLowerCase()
 const isKalkulasi = (segments.length >= 2 && segments[1] === 'kalkulasi')
   || (isCustomDomainHost && segments.length === 1 && segments[0] === 'kalkulasi')
 const isCompare = (segments.length >= 2 && segments[1] === 'compare') || (segments.length === 1 && segments[0] === 'compare')
@@ -285,6 +287,7 @@ const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || se
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
+import { customDomainSlugFrom, isViaCustomDomain, readAgentContext } from '@/lib/agent-context'
 import { KLOTER_SLUGS, loadKloterTrip, resolveKloterSlug, resolveKloterSubPage, type KloterSubPage } from '@/lib/kloterSlugs.js'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner', ...KLOTER_SLUGS]
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
@@ -475,7 +478,7 @@ if (isPwaHost && isSsrLandingPath) {
     // On custom domain, /kalkulasi and /compare are single-segment and the
     // agent comes from the host (server-injected context), not the path.
     const ctxSlug = isCustomDomainHost
-      ? ((window as unknown as { __AGENT_CONTEXT__?: { slug?: string } }).__AGENT_CONTEXT__?.slug || '').toLowerCase()
+      ? (customDomainSlugFrom(readAgentContext()) || '').toLowerCase()
       : ''
     const agentSlugForKalkulasi = isKalkulasi
       ? (segments.length === 1 && ctxSlug
