@@ -622,6 +622,7 @@ export function FilterHeader({
                 // dan sisa seat sudah terbaca per kartu.
                 ...monthGroups.map((m) => ({ value: m.monthKey, label: m.monthName })),
               ]}
+              searchable={false}
               ariaLabel="Pilih Bulan"
               widthClass="flex-1"
             />
@@ -639,6 +640,12 @@ export function FilterHeader({
                 { value: '', label: '- Pilih Durasi -' },
                 ...durationOptions.map((d) => ({ value: d.days.toString(), label: `${d.label} (${d.count} paket)` })),
               ]}
+              // Daftar durasi lewat 8 opsi, jadi FilterDropdown otomatis
+              // memunculkan kotak Cari — dan kotak itu MEREBUT FOKUS saat panel
+              // dibuka. Untuk menyaring daftar sependek ini, di HP itu cuma
+              // berarti keyboard naik menutupi opsinya. Alasan yang sama dengan
+              // Jenis Paket & Bulan.
+              searchable={false}
               ariaLabel="Pilih Durasi"
               widthClass="flex-1"
             />

@@ -132,3 +132,22 @@ test('Brosur memakai roster bersama, bukan daftar tipe inline lagi', () => {
   // Pill "Kereta Cepat" tetap satu pola dengan filternya.
   assert.match(brochureTemplate, /import \{ KERETA_CEPAT_PATTERN \} from '@\/lib\/packageType'/);
 });
+
+test('sub-filter pendek tidak memakai kotak Cari — ia merebut fokus & menaikkan keyboard', () => {
+  // Sejak sub-filter menyembul sendiri, kotak Cari yang auto-focus berarti
+  // keyboard HP ikut naik menutupi opsinya. Keempat daftar ini pendek & urut.
+  for (const label of ['Pilih Jenis Paket', 'Pilih Bulan', 'Pilih Durasi']) {
+    const block = filterHeader.match(
+      new RegExp(`<FilterDropdown(?:(?!<FilterDropdown)[\\s\\S])*?ariaLabel="${label}"(?:(?!<FilterDropdown)[\\s\\S])*?/>`),
+    )?.[0] ?? '';
+    assert.notEqual(block, '', `dropdown ${label} tidak ditemukan`);
+    assert.match(block, /searchable=\{false\}/, `${label} masih memunculkan kotak Cari`);
+  }
+  // Brosur: satu kontrol yang isinya berganti ikut dimensi, jadi Cari dimatikan
+  // untuk SEMUA dimensi — kalau tidak, kotaknya muncul-hilang sendiri.
+  const brochureValue = brochurePage.match(
+    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel=\{`Pilih \$\{FILTER_DIM_LABELS\[filterDim\]\}`\}(?:(?!<FilterDropdown)[\s\S])*?\/>/,
+  )?.[0] ?? '';
+  assert.notEqual(brochureValue, '', 'dropdown nilai Brosur tidak ditemukan');
+  assert.match(brochureValue, /searchable=\{false\}/);
+});

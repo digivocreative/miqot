@@ -1247,6 +1247,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             value={filterValue ?? ''}
             onChange={setFilterValue}
             options={availableValues}
+            // Roster tipe paket (dan bulan di katalog panjang) lewat 8 opsi, jadi
+            // FilterDropdown otomatis memunculkan kotak Cari — tidak berguna di
+            // sini: daftarnya pendek dan sudah urut. Dimatikan untuk SEMUA
+            // dimensi, bukan cuma 'tipe': ini satu kontrol yang isinya berganti
+            // ikut dropdown di kirinya, jadi Cari yang muncul-hilang sendiri
+            // (dan tinggi panel yang ikut berubah) lebih mengganggu daripada
+            // keduanya konsisten. Alasan & keputusan yang sama dengan sub-filter
+            // Jenis Paket di halaman Jadwal — lihat FilterHeader.tsx.
+            searchable={false}
             ariaLabel={`Pilih ${FILTER_DIM_LABELS[filterDim]}`}
             widthClass="flex-1 min-w-0"
             disabled={availableValues.length === 0}
