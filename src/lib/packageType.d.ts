@@ -28,6 +28,7 @@ export const PACKAGE_TYPE_UMROH_SAJA: 'UMROH SAJA';
 export const PACKAGE_TYPE_UMROH_RAHMAH: 'UMROH RAHMAH';
 export const PACKAGE_TYPE_UMROH_PROMO: 'UMROH PROMO';
 export const PACKAGE_TYPE_UMROH_MUSIM_DINGIN: 'UMROH MUSIM DINGIN';
+export const PACKAGE_TYPE_UMROH_RAMADHAN: 'UMROH RAMADHAN';
 export const PACKAGE_TYPE_KERETA_CEPAT: 'KERETA CEPAT';
 
 export const PACKAGE_TYPES: ReadonlyArray<{ value: string; pattern: RegExp }>;
@@ -41,6 +42,14 @@ export function hasKeretaCepat(rawName: string | undefined | null): boolean;
 /** Musim dingin terdekat relatif `today` (UTC). */
 export function getMusimDinginWindow(today?: Date): MusimDinginWindow;
 export function isMusimDinginDeparture(iso: string | undefined | null, musimDinginWindow: MusimDinginWindow): boolean;
+
+/**
+ * Jendela Ramadhan berpadding (7 hari sebelum s/d 5 hari sesudah), batas
+ * inklusif, per tahun Hijriah yang terdaftar. Tidak bergeser menurut "hari ini",
+ * jadi tidak ada parameter window seperti musim dingin.
+ */
+export const RAMADHAN_WINDOWS: ReadonlyArray<{ tahunHijriah: number; mulai: string; akhir: string }>;
+export function isRamadhanDeparture(iso: string | undefined | null): boolean;
 
 export function matchesPackageType(
   subject: PackageTypeSubject | null | undefined,

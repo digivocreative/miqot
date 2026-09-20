@@ -6,12 +6,14 @@ import {
   PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
   PACKAGE_TYPE_UMROH_PROMO,
   PACKAGE_TYPE_UMROH_RAHMAH,
+  PACKAGE_TYPE_UMROH_RAMADHAN,
   PACKAGE_TYPE_UMROH_SAJA,
   brochureTypeSubject,
   derivePackageType,
   getMusimDinginWindow,
   hasKeretaCepat,
   isMusimDinginDeparture,
+  isRamadhanDeparture,
   listPackageTypeOptions,
   matchesPackageType,
   packageTypeFromSlug,
@@ -123,6 +125,65 @@ test('Kereta Cepat itu fasilitas: satu paket bisa sekaligus Plus Turki', () => {
   assert.equal(PACKAGE_TYPES.some(t => t.value === PACKAGE_TYPE_KERETA_CEPAT), false);
 });
 
+test('isRamadhanDeparture: jendela Ramadhan 1448 H, 7 hari sebelum s/d 5 hari sesudah', () => {
+  // Ramadhan 1448 H (Umm al-Qura) = 8 Feb 2027 s/d 8 Mar 2027, jadi jendela
+  // berpaddingnya 1 Feb 2027 s/d 13 Mar 2027. Batasnya INKLUSIF di dua sisi.
+  assert.equal(isRamadhanDeparture('2027-01-31'), false);
+  assert.equal(isRamadhanDeparture('2027-02-01'), true);
+  assert.equal(isRamadhanDeparture('2027-02-08'), true);  // 1 Ramadhan
+  assert.equal(isRamadhanDeparture('2027-03-08'), true);  // 29 Ramadhan (hari terakhir)
+  assert.equal(isRamadhanDeparture('2027-03-13'), true);
+  assert.equal(isRamadhanDeparture('2027-03-14'), false);
+
+  // Tabel jendelanya hanya memuat 1448 H. Ramadhan 1449 (~28 Jan 2028) belum
+  // terdaftar, jadi paket 2028 TIDAK ikut — sengaja, supaya tidak ada tahun yang
+  // masuk diam-diam tanpa tanggalnya diperiksa manusia.
+  assert.equal(isRamadhanDeparture('2028-02-01'), false);
+
+  // Guard yang sama dengan isMusimDinginDeparture: format salah & tanggal meluap.
+  assert.equal(isRamadhanDeparture('2027-02-30'), false);
+  assert.equal(isRamadhanDeparture('08-02-2027'), false);
+  assert.equal(isRamadhanDeparture(''), false);
+  assert.equal(isRamadhanDeparture(null), false);
+});
+
+test('Umroh Ramadhan itu jendela tanggal, bukan nama paket', () => {
+  // Empat nama NYATA dari jadwal 1448. "HEMAT SYABAN" tidak menyebut Ramadhan
+  // sama sekali tapi berangkat 3 Feb & pulang 11 Feb — itulah gunanya padding
+  // 7 hari di depan. Sebaliknya paket bernama Ramadhan di luar jendela (tidak
+  // ada di 1448, tapi aturannya harus jelas) TIDAK ikut.
+  const ramadhan = type => s => matchesPackageType(s, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026) === type;
+
+  assert.ok(ramadhan(true)(subject("UMRAH JUM'ATAIN RAMADHAN PLUS BADAR 12HR (KERETA CEPAT)", { departureIso: '2027-02-02' })));
+  assert.ok(ramadhan(true)(subject('UMRAH HEMAT SYABAN 9HR ( KERETA CEPAT)', { departureIso: '2027-02-03' })));
+  assert.ok(ramadhan(true)(subject('UMRAH LAILATUL QADR 17HR ( KERETA CEPAT)', { departureIso: '2027-02-22' })));
+  assert.ok(ramadhan(false)(subject("UMRAH JUM'ATAIN RAMADHAN 12HR", { departureIso: '2026-10-01' })));
+});
+
+test('Umroh Ramadhan tidak eksklusif: satu paket bisa sekaligus Plus Badar', () => {
+  // Pola yang sama dengan Kereta Cepat & Musim Dingin — karena itu ia tidak
+  // boleh lewat derivePackageType yang memilih SATU tipe per paket.
+  const both = subject("UMRAH JUM'ATAIN RAMADHAN PLUS BADAR 12HR (KERETA CEPAT)", { departureIso: '2027-02-02' });
+  assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), true);
+  assert.equal(matchesPackageType(both, 'PLUS BADAR', WIN_2026), true);
+  assert.equal(matchesPackageType(both, PACKAGE_TYPE_KERETA_CEPAT, WIN_2026), true);
+  assert.equal(PACKAGE_TYPES.some(t => t.value === PACKAGE_TYPE_UMROH_RAMADHAN), false);
+});
+
+test('Umroh Ramadhan duduk tepat setelah Umroh Musim Dingin di roster', () => {
+  const subjects = [
+    subject('REGULER 9HR'),                                                        // Umroh Saja
+    subject('UMRAH HEMAT 9HR', { isPromo: true, departureIso: '2026-12-27' }),      // Promo + Musim Dingin
+    subject('UMRAH LAILATUL QADR 17HR', { departureIso: '2027-02-22' }),            // Ramadhan
+  ];
+  assert.deepEqual(listPackageTypeOptions(subjects, WIN_2026), [
+    { value: 'UMROH SAJA', label: 'Umroh Saja' },
+    { value: 'UMROH MUSIM DINGIN', label: 'Umroh Musim Dingin' },
+    { value: 'UMROH RAMADHAN', label: 'Umroh Ramadhan' },
+    { value: 'UMROH PROMO', label: 'Umroh Promo' },
+  ]);
+});
+
 test('listPackageTypeOptions: urutan kanonik, hanya tipe yang punya paket', () => {
   const subjects = [
     subject('REGULER 9HR'),                                                        // Umroh Saja
@@ -150,10 +211,11 @@ test('packageTypeLabel: PLUS hanya menurunkan kata pertama (sama seperti Brosur)
   assert.equal(packageTypeLabel('PLUS AL ULA'), 'Plus AL ULA');
   assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_MUSIM_DINGIN), 'Umroh Musim Dingin');
   assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_SAJA), 'Umroh Saja');
+  assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_RAMADHAN), 'Umroh Ramadhan');
 });
 
 test('slug tipe paket: bolak-balik, dan slug ngawur ditolak', () => {
-  for (const type of ['UMROH RAHMAH', 'KERETA CEPAT', 'PLUS AL ULA', PACKAGE_TYPE_UMROH_SAJA]) {
+  for (const type of ['UMROH RAHMAH', 'KERETA CEPAT', 'PLUS AL ULA', PACKAGE_TYPE_UMROH_SAJA, PACKAGE_TYPE_UMROH_RAMADHAN]) {
     assert.equal(packageTypeFromSlug(packageTypeSlug(type)), type);
   }
   assert.equal(packageTypeSlug('UMROH RAHMAH'), 'umroh-rahmah');
