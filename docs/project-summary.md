@@ -139,6 +139,8 @@ Frontend routing is custom path parsing in `src/main.tsx`, not React Router. Das
 
 PWA is enabled only on `alhijaz.co`, `localhost`, and `127.0.0.1`. Custom domains intentionally unregister service workers and clear caches because SW-precache would otherwise overwrite host-specific `window.__AGENT_CONTEXT__`.
 
+Tarik-untuk-segarkan (pull to refresh) hidup HANYA di app terpasang (`display-mode: standalone` / `navigator.standalone`) dengan pointer kasar — di tab browser, Chrome/Safari sudah punya gesturnya sendiri. Tahap 1 (Sep 2026) memasangnya di halaman jadwal publik saja: `src/components/pwa/PullToRefresh.tsx` (indikator + listener) di atas `src/lib/pwa/pull-to-refresh.js` (ambang, redaman, kelayakan titik mulai). Gesturnya memanggil revalidasi data yang sama dengan interval 30 menit, BUKAN `location.reload()`. Selama aktif, `<html>` memakai kelas `pull-refresh-host` (`overscroll-behavior-y: contain`) supaya PTR bawaan Chrome Android tidak ikut menyala dan rubber-band iOS tidak berkelahi dengan indikator. Uji: `node --test tests/pull-to-refresh.test.js tests/jadwal-pull-to-refresh.browser.test.js` (WebKit, `navigator.standalone` dipalsukan).
+
 ## Source Inventory
 
 Snapshot audit 2026-07-19:

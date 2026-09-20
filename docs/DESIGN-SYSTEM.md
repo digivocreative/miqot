@@ -539,6 +539,17 @@ Flight route animation:
 - `delayed`: red marching dashes; `landed`: garis emerald dan check pop; `cancelled`: garis dashed statis.
 - Warna, label, dan normalisasi status berasal dari `src/lib/flightStatusPresentation.ts` agar state visual selalu konsisten di semua surface.
 
+## Pull to Refresh (app terpasang)
+
+Gestur tarik-untuk-segarkan hanya ada di app terpasang bersentuhan (standalone + `pointer: coarse`); di tab browser gestur bawaan yang dipakai. Spesifikasinya satu tempat: `src/lib/pwa/pull-to-refresh.js`.
+
+- Ambang: tarikan mentah ±111px (`PULL_TRIGGER` 62px setelah redaman hiperbolik `PULL_MAX` 140). Jangan dikecilkan — di bawah itu gulir ke atas yang biasa mulai memicu refresh.
+- Indikator: lingkaran 36px, `bg-white` / `dark:bg-slate-800`, ikon emerald, `shadow-lg` + ring tipis. Panah menunjuk ke bawah saat ditarik dan berputar 180° saat siap dilepas; selama menyegarkan ikonnya `Loader2` berputar. Ia digambar DI ATAS header (z-55, di bawah modal z-9999) — sama seperti PTR native yang menimpa toolbar.
+- Putaran minimal 450ms supaya refresh yang selesai dalam 80ms tidak terbaca seperti kedipan.
+- Gerakan indikator ditulis imperatif ke `style` elemen, bukan lewat state React: halaman jadwal merender ratusan kartu dan setState tiap `touchmove` akan merender ulang semuanya 60x per detik.
+- Gestur dibatalkan sendiri kalau dimulai di dalam overlay `fixed`, di dalam scroller lain, saat halaman tidak di puncak, saat mengetik, atau kalau gerakannya lebih mendatar daripada menurun (carousel kartu yang menang).
+- `prefers-reduced-motion`: putaran dan transisi ikon mati (`motion-reduce:`), statusnya tetap terbaca.
+
 ## Image Export & Native Share
 
 Export strategy:

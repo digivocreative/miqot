@@ -36,6 +36,7 @@ import { trackPublicEvent } from '@/utils/analytics';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
+import PullToRefresh from '@/components/pwa/PullToRefresh';
 import { hasInAppHistory } from './lib/appHistory';
 
 function getLocalStorageItem(key: string): string | null {
@@ -1197,6 +1198,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         availableOnly={availableOnly}
         onToggleAvailableOnly={handleToggleAvailableOnly}
       />
+
+      {/* ============================================ */}
+      {/* TARIK-UNTUK-SEGARKAN (app terpasang) */}
+      {/* ============================================ */}
+      {/* Refresh yang sama dengan interval 30 menit & tombol "Coba lagi": tarik data
+          segar tanpa mengosongkan daftar. SENGAJA bukan location.reload() — muat ulang
+          membuang posisi gulir dan jauh lebih lambat daripada satu fetch.
+          Dimatikan selama muat pertama; sesudahnya tetap hidup di layar galat, jadi
+          tarikan juga jalan keluar dari "Gagal Memuat Data". */}
+      <PullToRefresh enabled={!loading} onRefresh={() => revalidatePackages(selectedYear)} />
 
       {/* ============================================ */}
       {/* MAIN CONTENT */}

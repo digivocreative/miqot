@@ -239,6 +239,16 @@ body {
   min-height: 100dvh;
 }
 
+/* Dipasang src/components/pwa/PullToRefresh.tsx selama app terpasang menampilkan
+   halaman jadwal. Dua gunanya: memadamkan pull-to-refresh BAWAAN Chrome Android
+   (kalau tidak, gestur yang sama memicu dua refresh — satu milik browser, satu
+   milik kita), dan menghentikan pantulan rubber-band iOS di ujung atas supaya
+   indikator tidak berkelahi dengan halaman yang ikut melenting.
+   Sengaja di <html>, bukan <body>: hanya elemen akar yang menggulirkan dokumen. */
+html.pull-refresh-host {
+  overscroll-behavior-y: contain;
+}
+
 /* Area sentuh minimal 44×44 CSS px (WCAG 2.5.8, HIG) tanpa mengubah ukuran visual
    tombol ikon 32–36px. Elemen WAJIB sudah positioned (relative/absolute/fixed) —
    utilitas ini sengaja tidak menyetel `position` agar tidak merusak tombol absolut.
