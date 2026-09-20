@@ -45,9 +45,21 @@ test('tanpa agent: sufiks jatuh ke nama perusahaan, og path tanpa slug', () => {
 
 test('deskripsi menyebut filter + agent dan menutup dengan ajakan WhatsApp', () => {
   const meta = buildFilterShareMeta({ filterSlug: 'umroh-ramadhan', ...nikita });
-  assert.match(meta.description, /Umroh Ramadhan/i);
   assert.match(meta.description, /Nikita Sari/);
   assert.match(meta.description, /WhatsApp/);
+});
+
+test('frasa deskripsi wajar per dimensi, bukan titleHead yang di-lowercase', () => {
+  // Teks ini yang dibaca jamaah di preview WhatsApp. "paket umroh ramadhan"
+  // mematikan huruf besarnya, dan "paket keberangkatan november 2026" bukan
+  // bahasa Indonesia yang wajar.
+  const desc = slug => buildFilterShareMeta({ filterSlug: slug, ...nikita }).description;
+  assert.match(desc('umroh-ramadhan'), /paket Umroh Ramadhan dari/);
+  assert.match(desc('landing-madinah'), /paket umroh yang mendarat di Madinah/);
+  assert.match(desc('9-hari'), /paket umroh 9 hari dari/);
+  assert.match(desc('november-2026'), /paket umroh keberangkatan November 2026/);
+  assert.match(desc('tipe-paket'), /paket umroh dari semua jenis/);
+  assert.match(desc('data-per-bulan'), /paket umroh menurut bulan keberangkatan/);
 });
 
 test('slug bukan-filter → null (bukan kartu kosong)', () => {
