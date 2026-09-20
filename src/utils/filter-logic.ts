@@ -5,18 +5,69 @@
 
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
-import { airportCityName, getLandingAirportCode, getLandingCityName } from './journey';
+import { getLandingAirportCode, getLandingCityName } from './journey';
+// airportCityName, packageTypeSlug/FromSlug, dan konstanta PACKAGE_TYPE_* tidak
+// lagi diimpor di sini: pemakainya ikut pindah ke lib/filter-slug.js.
 import {
   getMusimDinginWindow,
   matchesPackageType,
-  packageTypeFromSlug,
-  packageTypeSlug,
   umrohTypeSubject,
-  PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
-  PACKAGE_TYPE_UMROH_PROMO,
-  PACKAGE_TYPE_UMROH_RAHMAH,
-  PACKAGE_TYPE_UMROH_SAJA,
 } from '@/lib/packageType';
+import {
+  FILTER_MODE_LABELS as FILTER_MODE_LABELS_SHARED,
+  FILTER_MODE_SLUGS as FILTER_MODE_SLUGS_SHARED,
+  LANDING_FILTER_CODES as LANDING_FILTER_CODES_SHARED,
+  LEGACY_FILTER_SLUGS as LEGACY_FILTER_SLUGS_SHARED,
+  MONTH_NAMES_ID as MONTH_NAMES_ID_SHARED,
+  SLUG_TO_FILTER_MODE as SLUG_TO_FILTER_MODE_SHARED,
+  buildFilterSlug as buildFilterSlugShared,
+  filterModeLabel as filterModeLabelShared,
+  getFilterSlug as getFilterSlugShared,
+  resolveFilterSlug as resolveFilterSlugShared,
+} from '../../lib/filter-slug.js';
+
+// ============================================
+// Kodek slug: re-export bertipe
+// ============================================
+//
+// Kodeknya hidup di lib/filter-slug.js (JS murni) karena server.js memakainya
+// untuk meta & kartu OG per filter — berkas ini TypeScript ber-alias '@' dan
+// tidak bisa diimpor Node. Di sini ia dipakaikan kembali tipe FilterMode supaya
+// 15 pemanggil resolveFilterSlug, barrel src/utils/index.ts, dan gerbang negatif
+// di src/main.tsx tidak ada yang perlu berubah.
+//
+// JANGAN menyalin logikanya balik ke sini. Dua salinan berarti slug filter baru
+// bisa hidup di halaman tapi kehilangan kartu OG-nya, tanpa satu tes pun merah.
+
+export const FILTER_MODE_SLUGS = FILTER_MODE_SLUGS_SHARED as Record<FilterMode, string>;
+export const FILTER_MODE_LABELS = FILTER_MODE_LABELS_SHARED as Record<FilterMode, string>;
+export const SLUG_TO_FILTER_MODE = SLUG_TO_FILTER_MODE_SHARED as Record<string, FilterMode>;
+export const LEGACY_FILTER_SLUGS = LEGACY_FILTER_SLUGS_SHARED as Record<string, { mode: FilterMode; secondaryValue?: string }>;
+
+/** Label tampilan sebuah mode; mode tak dikenal jatuh ke teksnya sendiri. */
+export function filterModeLabel(mode: FilterMode | string): string {
+  return filterModeLabelShared(String(mode));
+}
+
+/** Get URL slug for a FilterMode */
+export function getFilterSlug(mode: FilterMode): string {
+  return getFilterSlugShared(mode);
+}
+
+/** Segmen filter untuk URL: mode + sub-nilai kalau ada. */
+export function buildFilterSlug(mode: FilterMode, secondaryValue?: string): string {
+  return buildFilterSlugShared(mode, secondaryValue);
+}
+
+/** Slug URL → mode + sub-nilainya (slug gabungan baru maupun slug lama). */
+export function resolveFilterSlug(slug: string): { mode: FilterMode; secondaryValue?: string } | null {
+  return resolveFilterSlugShared(slug) as { mode: FilterMode; secondaryValue?: string } | null;
+}
+
+/** Get FilterMode from a URL slug. Returns null if not a valid filter slug. */
+export function getFilterModeFromSlug(slug: string): FilterMode | null {
+  return resolveFilterSlug(slug)?.mode ?? null;
+}
 
 // ============================================
 // Types
@@ -101,11 +152,8 @@ export interface LandingCity {
 // Constants
 // ============================================
 
-/** Indonesian month names */
-const MONTH_NAMES_ID = [
-  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-];
+/** Nama bulan Indonesia — dari kodek slug bersama (dipakai server.js juga). */
+const MONTH_NAMES_ID = MONTH_NAMES_ID_SHARED;
 
 /** Hijri month names */
 const HIJRI_MONTH_NAMES = [
@@ -113,72 +161,6 @@ const HIJRI_MONTH_NAMES = [
   'Jumadil Awal', 'Jumadil Akhir', 'Rajab', 'Syaban',
   'Ramadhan', 'Syawal', 'Dzulqaidah', 'Dzulhijjah'
 ];
-
-// ============================================
-// Filter Slug Mapping (for URL routing)
-// ============================================
-
-/** Map FilterMode to URL slug. AVAILABLE (default) has empty slug. */
-export const FILTER_MODE_SLUGS: Record<FilterMode, string> = {
-  'AVAILABLE': '',
-  'LANDING DI': 'landing-di',
-  'LIBURAN_SEKOLAH': 'liburan-sekolah',
-  'UMROH CUTI 5 HARI': 'cuti-5-hari',
-  'TIPE PAKET': 'tipe-paket',
-  'DURASI PERJALANAN': 'durasi-perjalanan',
-  'DATA PER-BULAN': 'data-per-bulan',
-  'SEMUA DATA': 'semua-data',
-};
-
-/**
- * Label yang DILIHAT pengunjung untuk tiap mode.
- *
- * Sengaja dipisah dari nilai FilterMode: nilainya sudah terikat ke slug URL
- * (/tipe-paket), ke LEGACY_FILTER_SLUGS, dan ke logika filterPackages — jadi
- * "TIPE PAKET" tetap nilai internal walau di layar tertulis "JENIS PAKET".
- * Dipakai dropdown utama (FilterHeader) DAN pesan kosong di App, supaya kedua
- * teks tidak pernah menyebut mode yang sama dengan dua nama berbeda.
- */
-export const FILTER_MODE_LABELS: Record<FilterMode, string> = {
-  'AVAILABLE': 'SEAT TERSEDIA',
-  'TIPE PAKET': 'JENIS PAKET',
-  'LANDING DI': 'LANDING DI',
-  'LIBURAN_SEKOLAH': 'LIBURAN SEKOLAH',
-  'UMROH CUTI 5 HARI': 'UMROH CUTI 5 HARI',
-  'DURASI PERJALANAN': 'DURASI PERJALANAN',
-  'DATA PER-BULAN': 'DATA PER-BULAN',
-  'SEMUA DATA': 'SEMUA DATA',
-};
-
-/** Label tampilan sebuah mode; mode tak dikenal jatuh ke teksnya sendiri. */
-export function filterModeLabel(mode: FilterMode | string): string {
-  return FILTER_MODE_LABELS[mode as FilterMode] ?? String(mode).replace(/_/g, ' ');
-}
-
-/** Reverse map: slug → FilterMode */
-export const SLUG_TO_FILTER_MODE: Record<string, FilterMode> = Object.fromEntries(
-  Object.entries(FILTER_MODE_SLUGS)
-    .filter(([, slug]) => slug !== '')
-    .map(([mode, slug]) => [slug, mode as FilterMode])
-) as Record<string, FilterMode>;
-
-/**
- * Slug mode yang sudah dihapus → tipe paket terdekat di roster baru.
- *
- * JANGAN dihapus. Tautan `/umroh-promo`, `/{agent}/bintang-5`, dst. sudah
- * tersebar, dan src/main.tsx:417,424 memakai getFilterModeFromSlug sebagai
- * gerbang negatif: slug yang tak dikenal jatuh ke cabang detail paket dan
- * merender "Paket tidak ditemukan" dengan HTTP 200 — bukan 404, bukan redirect.
- *
- * 'bintang-5' → Umroh Rahmah karena RAHMAH itulah tier hotel bintang 5 di
- * kosakata Alhijaz (pill brosur "Hotel Bintang 5" dipicu token RAHMAH).
- */
-export const LEGACY_FILTER_SLUGS: Record<string, { mode: FilterMode; secondaryValue?: string }> = {
-  'umroh-promo': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_PROMO },
-  'umroh-musim-dingin': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_MUSIM_DINGIN },
-  'umroh-reguler': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_SAJA },
-  'bintang-5': { mode: 'TIPE PAKET', secondaryValue: PACKAGE_TYPE_UMROH_RAHMAH },
-};
 
 /** Mode yang memunculkan dropdown "Urutkan" — satu daftar untuk App & FilterHeader. */
 export const MODES_WITH_SORT: readonly FilterMode[] = [
@@ -203,135 +185,6 @@ export const MODES_WITH_AVAILABILITY_TOGGLE: readonly FilterMode[] = [
   'DURASI PERJALANAN',
   'DATA PER-BULAN',
 ];
-
-/** Get URL slug for a FilterMode */
-export function getFilterSlug(mode: FilterMode): string {
-  return FILTER_MODE_SLUGS[mode] || '';
-}
-
-// ============================================
-// Slug gabungan: mode + sub-nilai jadi SATU segmen
-// ============================================
-//
-// `/nikita/landing-madinah`, bukan `/nikita/landing-di?landing=med`. Bentuk ini
-// dipilih karena link jadwal hidupnya di WhatsApp: agent menyalin dan sering
-// membacakannya, jadi satu segmen yang bisa dibaca manusia lebih berguna
-// daripada pasangan param yang mengulang nama modenya.
-//
-// Slug lama TETAP dikenali (SLUG_TO_FILTER_MODE + LEGACY_FILTER_SLUGS + alias
-// query di src/utils/filter-url.ts) — tidak ada link tersebar yang mati.
-//
-// HATI-HATI: src/main.tsx memakai getFilterModeFromSlug sebagai gerbang NEGATIF
-// (slug tak dikenal = ID paket). Setiap pola di bawah karena itu wajib sempit
-// dan tertutup; pola yang terlalu longgar akan menelan `/nikita/JBU1574` dan
-// mengubah halaman detail paket jadi daftar jadwal.
-
-const LANDING_SLUG_PREFIX = 'landing-';
-const DURATION_SLUG_SUFFIX = '-hari';
-
-function slugifyCity(name: string): string {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-/** 'MED' → 'landing-madinah' (nama kota, bukan kode — kode tak terbaca jamaah). */
-function landingSlug(code: string): string | null {
-  const key = String(code || '').trim().toUpperCase();
-  if (!LANDING_FILTER_CODES.includes(key)) return null;
-  const city = slugifyCity(airportCityName(key));
-  return city ? `${LANDING_SLUG_PREFIX}${city}` : null;
-}
-
-function landingFromSlug(slug: string): string | null {
-  if (!slug.startsWith(LANDING_SLUG_PREFIX)) return null;
-  const city = slug.slice(LANDING_SLUG_PREFIX.length);
-  if (!city) return null;
-  return LANDING_FILTER_CODES.find(code => slugifyCity(airportCityName(code)) === city) ?? null;
-}
-
-/** '2026-11' → 'november-2026' */
-function monthSlug(monthKey: string): string | null {
-  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || '').trim());
-  if (!match) return null;
-  const name = MONTH_NAMES_ID[parseInt(match[2], 10) - 1];
-  return name ? `${name.toLowerCase()}-${match[1]}` : null;
-}
-
-function monthFromSlug(slug: string): string | null {
-  const match = /^([a-z]+)-(\d{4})$/.exec(slug);
-  if (!match) return null;
-  const index = MONTH_NAMES_ID.findIndex(name => name.toLowerCase() === match[1]);
-  if (index < 0) return null;
-  return `${match[2]}-${String(index + 1).padStart(2, '0')}`;
-}
-
-/** '9' → '9-hari' */
-function durationSlug(days: string): string | null {
-  return /^\d{1,2}$/.test(String(days || '').trim()) ? `${parseInt(days, 10)}${DURATION_SLUG_SUFFIX}` : null;
-}
-
-function durationFromSlug(slug: string): string | null {
-  const match = new RegExp(`^(\\d{1,2})${DURATION_SLUG_SUFFIX}$`).exec(slug);
-  return match ? String(parseInt(match[1], 10)) : null;
-}
-
-/**
- * Segmen filter untuk URL: mode + sub-nilai kalau ada, kalau tidak slug mode.
- * Mengembalikan '' untuk mode bawaan (AVAILABLE) — pemanggil menyusun path-nya.
- */
-export function buildFilterSlug(mode: FilterMode, secondaryValue?: string): string {
-  const base = getFilterSlug(mode);
-  const value = String(secondaryValue || '').trim();
-  if (!value) return base;
-
-  switch (mode) {
-    case 'LANDING DI':
-      return landingSlug(value) || base;
-    case 'DATA PER-BULAN':
-      return monthSlug(value) || base;
-    case 'DURASI PERJALANAN':
-      return durationSlug(value) || base;
-    case 'TIPE PAKET':
-      return packageTypeSlug(value) || base;
-    default:
-      return base;
-  }
-}
-
-/** Slug URL → mode + sub-nilainya (slug gabungan baru maupun slug lama). */
-export function resolveFilterSlug(slug: string): { mode: FilterMode; secondaryValue?: string } | null {
-  const key = String(slug || '').toLowerCase();
-  if (!key) return null;
-
-  const mode = SLUG_TO_FILTER_MODE[key];
-  if (mode) return { mode };
-
-  const legacy = LEGACY_FILTER_SLUGS[key];
-  if (legacy) return legacy;
-
-  const landing = landingFromSlug(key);
-  if (landing) return { mode: 'LANDING DI', secondaryValue: landing };
-
-  const month = monthFromSlug(key);
-  if (month) return { mode: 'DATA PER-BULAN', secondaryValue: month };
-
-  const days = durationFromSlug(key);
-  if (days) return { mode: 'DURASI PERJALANAN', secondaryValue: days };
-
-  // Roster tipe paket itu tertutup (PACKAGE_TYPE_ORDER), jadi aman sebagai
-  // penutup: slug asing tetap jatuh ke null → dibaca sebagai ID paket.
-  const type = packageTypeFromSlug(key);
-  if (type) return { mode: 'TIPE PAKET', secondaryValue: type };
-
-  return null;
-}
-
-/** Get FilterMode from a URL slug. Returns null if not a valid filter slug. */
-export function getFilterModeFromSlug(slug: string): FilterMode | null {
-  return resolveFilterSlug(slug)?.mode ?? null;
-}
 
 // ============================================
 // Helper Functions
@@ -421,17 +274,8 @@ function approximateHijriMonth(dateStr: string): string {
 // Main Export Functions
 // ============================================
 
-/**
- * Kota landing yang boleh jadi pilihan filter "LANDING DI" — hanya dua pintu
- * masuk Saudi.
- *
- * getLandingAirportCode punya fallback ke kedatangan TERAKHIR rute berangkat
- * saat rantainya tidak pernah menyentuh Saudi (salah entri, atau paket yang
- * rutenya berhenti di kota tur seperti DXB/IST/CAI). Kode itu bukan kota
- * landing, dan dulu ikut muncul sebagai opsi — pilihan yang tak berarti buat
- * jamaah. Di sini ia disaring keluar; paketnya tetap tampil di mode lain.
- */
-export const LANDING_FILTER_CODES: readonly string[] = ['JED', 'MED'];
+/** Kota landing yang boleh jadi pilihan filter (dua pintu masuk Saudi). */
+export const LANDING_FILTER_CODES: readonly string[] = LANDING_FILTER_CODES_SHARED;
 
 /**
  * Extract unique landing cities from all packages.

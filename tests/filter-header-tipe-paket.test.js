@@ -17,6 +17,8 @@ const app = read('src/App.tsx');
 const brochurePage = read('src/components/BrochureSchedulePage.tsx');
 const brochureTemplate = read('src/components/BrochureScheduleTemplate.tsx');
 const filterDropdown = read('src/components/FilterDropdown.tsx');
+// Kodek slug + label mode pindah ke lib/filter-slug.js (dipakai server.js juga).
+const filterSlug = read('lib/filter-slug.js');
 
 test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus', () => {
   const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
@@ -25,7 +27,9 @@ test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus'
   // Mode 'TIPE PAKET' tampil sebagai "JENIS PAKET"; nilainya tetap karena
   // terikat slug /tipe-paket, LEGACY_FILTER_SLUGS, dan filterPackages.
   assert.match(optionsBlock, /value: 'TIPE PAKET', label: filterModeLabel\('TIPE PAKET'\)/);
-  assert.match(filterLogic, /'TIPE PAKET': 'JENIS PAKET'/);
+  // Peta labelnya ikut pindah ke kodek slug bersama; perilakunya diuji langsung
+  // di tests/filter-slug.test.js.
+  assert.match(filterSlug, /'TIPE PAKET': 'JENIS PAKET'/);
   // Urutan dropdown: Jenis Paket mendahului Landing Di.
   assert.ok(
     optionsBlock.indexOf("value: 'TIPE PAKET'") < optionsBlock.indexOf("value: 'LANDING DI'"),
