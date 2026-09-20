@@ -19,6 +19,8 @@ import {
 } from '@/utils';
 import { getLandingAirportCode, getLandingCityName } from '@/utils/journey';
 import { packageTypeLabel } from '@/lib/packageType';
+import { buildFilterShareMeta } from '../lib/filter-share-meta.js';
+import { customDomainSlugFrom, isViaCustomDomain, readAgentContext } from '@/lib/agent-context';
 import type { UmrohPackage } from '@/types';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
@@ -217,10 +219,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   });
 
   // Custom-domain context injected by the server into window.__AGENT_CONTEXT__.
-  // When set, the agent is determined by the host (custom domain), not the path.
-  const serverAgentContext = typeof window !== 'undefined' ? window.__AGENT_CONTEXT__ : undefined;
-  const isCustomDomain = !!serverAgentContext?.customDomain;
-  const customDomainSlug = serverAgentContext?.slug || null;
+  // Kesimpulan "disajikan lewat custom domain" WAJIB lewat helper bersama — ia
+  // memakai flag eksplisit dari server, bukan ada/tidaknya field `customDomain`
+  // (yang terisi juga di alhijaz.co). Lihat src/lib/agent-context.js.
+  const serverAgentContext = readAgentContext();
+  const isCustomDomain = isViaCustomDomain(serverAgentContext);
+  const customDomainSlug = customDomainSlugFrom(serverAgentContext);
 
   // Load agents from Supabase on mount.
   // On custom domain, agent slug comes from server context; on alhijaz.co, from URL.
@@ -314,20 +318,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     // Mulai sekarang URL boleh ditulis ulang dari state (lihat efek sinkron URL).
     urlSyncReadyRef.current = true;
 
-    // Dynamic SEO: Update title & description
-    if (agent) {
-      document.title = `Jadwal Umroh Alhijaz | ${agent.name}`;
-      const metaDesc = document.querySelector('meta[name="description"]');
-      if (metaDesc) {
-        metaDesc.setAttribute('content', `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`);
-      }
-    } else {
-      document.title = 'Jadwal Umroh - Alhijaz Indowisata';
-      const metaDesc = document.querySelector('meta[name="description"]');
-      if (metaDesc) {
-        metaDesc.setAttribute('content', 'Cek jadwal dan harga paket Umroh Alhijaz Indowisata');
-      }
-    }
   }, []);
 
   // ── CAPI: get agent slug string ──
@@ -994,6 +984,35 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setAvailableOnly(false);
   };
 
+
+  // Dynamic SEO — judul tab & description mengikuti filter yang sedang aktif.
+  //
+  // Server sudah menulis meta yang benar untuk muat pertama (SPA fallback di
+  // server.js), termasuk kartu OG-nya. Efek ini menangani apa yang SSR TIDAK
+  // bisa jangkau: pengguna berpindah filter tanpa reload. Ia memakai modul yang
+  // SAMA dengan server supaya judul tab dan kartu WhatsApp tidak pernah
+  // menyebut filter yang sama dengan dua nama berbeda.
+  //
+  // Dulu blok ini duduk di dalam efek pembaca URL — jalan SEKALI saat mount,
+  // jadi judulnya selalu judul agent generik dan menimpa judul filter dari SSR
+  // sedetik setelah halaman tampil.
+  //
+  // Paket tunggal punya efeknya sendiri yang lebih spesifik; digerbang di sini
+  // supaya keduanya tidak berebut document.title.
+  useEffect(() => {
+    if (singlePackageId) return;
+    const agentName = currentAgent?.name || '';
+    const filterSlug = buildFilterSlug(filterMode, filterSecondaryValue);
+    const meta = buildFilterShareMeta({ filterSlug, agentName });
+
+    document.title = meta?.title
+      || (agentName ? `Jadwal Umroh Alhijaz | ${agentName}` : 'Jadwal Umroh - Alhijaz Indowisata');
+    const description = meta?.description
+      || (agentName
+        ? `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agentName}. Klik untuk konsultasi via WhatsApp.`
+        : 'Cek jadwal dan harga paket Umroh Alhijaz Indowisata');
+    document.querySelector('meta[name="description"]')?.setAttribute('content', description);
+  }, [singlePackageId, currentAgent, filterMode, filterSecondaryValue]);
 
   // Set document title & meta tags for single-package view.
   // Hanya CADANGAN: server sudah menulis judul, deskripsi, dan kartu OG paket
