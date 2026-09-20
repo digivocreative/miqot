@@ -24472,6 +24472,25 @@ app.get('{*path}', async (req, res) => {
       }
     }
 
+    // Segmen filter: /:slug/:filterSlug di alhijaz.co, atau segmen PERTAMA di
+    // custom domain (host sudah mengidentifikasi agent, jadi path tidak memuat
+    // slug). Slug yang bukan filter berdimensi mengembalikan null → cabangnya
+    // dilewati dan kartu agent yang dipakai. Fail-open: lebih baik kartu
+    // generik daripada kartu kosong, dan /:slug/:jadwalId TIDAK boleh tertelan.
+    //
+    // Portal jamaah dicek lebih dulu dan menang: path-nya tidak akan pernah
+    // cocok dengan slug filter, tapi urutan yang eksplisit mencegah pertanyaan
+    // itu muncul lagi nanti.
+    const spaPathSegments = req.path.replace(/^\/+/, '').split('/').filter(Boolean);
+    const filterSegment = req.customDomain ? spaPathSegments[0] : spaPathSegments[1];
+    const filterMeta = portalMeta
+      ? null
+      : buildFilterShareMeta({
+          filterSlug: filterSegment,
+          agentName: agent.name,
+          agentSlug: agent.slug,
+        });
+
     let newTitle;
     let newDescription;
     let ogImageUrl;
@@ -24483,6 +24502,12 @@ app.get('{*path}', async (req, res) => {
       if (agent.name) descParts.push(`bersama ${agent.name}`);
       newDescription = `${descParts.join(' — ')}.`;
       ogImageUrl = `${ogImageOrigin}/og/jamaah/${agent.slug}/${portalCode}.png`;
+    } else if (filterMeta) {
+      // URL filter (mis. /nikita/umroh-ramadhan): kartunya menyebut filternya,
+      // bukan profil agent yang sama untuk semua filter.
+      newTitle = filterMeta.title;
+      newDescription = filterMeta.description;
+      ogImageUrl = `${ogImageOrigin}${filterMeta.ogImagePath}`;
     } else {
       newTitle = `Jadwal Umroh Alhijaz | ${agent.name}`;
       newDescription = `Dapatkan info lengkap paket umrah Alhijaz Indowisata bersama ${agent.name}. Klik untuk konsultasi via WhatsApp.`;
