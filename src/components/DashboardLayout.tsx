@@ -24,6 +24,9 @@ import TerasNotificationSettings from './TerasNotificationSettings';
 import { useTerasNotificationPrefs } from '../hooks/useTerasNotificationPrefs';
 import { backOr, canGoBackInApp, pushAppState, replaceAppState } from '../lib/appHistory';
 import InstallAppCard from './pwa/InstallAppCard';
+import PullToRefreshHost from './pwa/PullToRefreshHost';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
+import { hasUnsavedChanges } from '../lib/unsavedChanges';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -596,8 +599,10 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const [showShareKurs, setShowShareKurs] = useState(false);
   const [selectedBirthday, setSelectedBirthday] = useState<Birthday | null>(null);
 
-  useEffect(() => {
-    fetch('/api/kurs')
+  // Dipanggil saat mount DAN oleh gestur tarik-untuk-segarkan di Home; karena itu
+  // ia fungsi tersendiri, bukan badan efek.
+  const loadKurs = useCallback(() => {
+    return fetch('/api/kurs')
       .then(r => r.json())
       .then(d => {
         if (d.success && d.data) {
@@ -638,6 +643,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       })
       .catch(() => setKursFailed(true));
   }, []);
+
+  useEffect(() => { void loadKurs(); }, [loadKurs]);
 
   const formatKurs = (rate: number): string => {
     return new Intl.NumberFormat('id-ID', {
@@ -816,6 +823,35 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     if (activeTab === 'hotel' && !hotelEnabled) navigateTab('home', true);
   }, [activeTab, hotelEnabled, navigateTab]);
   const notifPrefs = useTerasNotificationPrefs(terasEnabled);
+
+  // ── Tarik-untuk-segarkan (app terpasang) ──
+  // Dashboard bukan satu halaman: tiap tab memuat datanya sendiri, jadi yang
+  // mendaftarkan cara menyegarkan adalah halaman yang sedang tampil (lihat
+  // src/lib/pwa/refresh-registry.js). Tab yang belum mendaftar sengaja tidak
+  // punya gestur ini — di sana PTR bawaan Android masih hidup, dan itu jauh
+  // lebih baik daripada gestur yang ditarik lalu tidak melakukan apa-apa.
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0);
+  const refreshHome = useCallback(async () => {
+    // Kartu Home (penerbangan, ultah, jadwal terdekat, cuaca, Jendela Teras)
+    // masing-masing memuat datanya saat dipasang; satu key inilah yang
+    // memasang ulang semuanya sekaligus. Agent & kurs hidup di state layout
+    // ini, jadi keduanya ditarik ulang terpisah.
+    setHomeRefreshKey(key => key + 1);
+    await Promise.all([refreshAgent(), loadKurs()]);
+  }, [refreshAgent, loadKurs]);
+  usePullRefreshHandler(refreshHome, activeTab === 'home');
+
+  // Daftar Jamaah memakai jalur muat-ulang yang SUDAH ada — key remount yang
+  // dipakai tiap kali kembali dari sub-halaman jamaah. Gestur ini cuma pemicu
+  // baru untuk jalur itu, bukan perilaku baru. Sub-halaman daftar/edit tidak
+  // ikut: di sana ada isian yang belum tersimpan.
+  const jamaahSubForRefresh = activeTab === 'jamaah' ? getSubTabFromPath() : null;
+  const jamaahListVisible = jamaahSubForRefresh === 'umroh' || jamaahSubForRefresh === 'haji';
+  const refreshJamaahList = useCallback(() => {
+    if (hasUnsavedChanges()) return;
+    setJamaahRefreshKey(key => key + 1);
+  }, []);
+  usePullRefreshHandler(refreshJamaahList, jamaahListVisible);
   const openNotificationPost = (postId: string) => {
     navigatePath(`/dashboard/teras/post/${encodeURIComponent(postId)}`);
   };
@@ -1290,6 +1326,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           })()}
           </Suspense>
         </main>
+        <PullToRefreshHost />
       </div>
     );
   }
@@ -1428,7 +1465,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 pt-5 pb-8">
+      {/* key: tarik-untuk-segarkan memasang ulang seluruh isi Home supaya tiap
+          widget menarik datanya sendiri lagi (lihat refreshHome di atas). */}
+      <main key={homeRefreshKey} className="max-w-lg mx-auto px-4 pt-5 pb-8">
 
         {/* ── Ajakan pasang aplikasi (hilang sendiri di app terpasang / setelah ditutup) ── */}
         <InstallAppCard />
@@ -1650,6 +1689,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           }
         `}</style>
       </main>
+      <PullToRefreshHost />
     </div>
   );
 }

@@ -104,15 +104,18 @@ export default function PullToRefresh({ enabled, onRefresh }: Props) {
    * `overscroll-behavior-y: contain` di <html> menyelesaikan dua hal sekaligus:
    * memadamkan PTR bawaan Chrome Android (supaya tidak dobel dengan yang ini) dan
    * menghentikan pantulan rubber-band iOS yang akan berkelahi dengan indikator.
-   * Dipasang selama app terpasang — BUKAN mengikuti `enabled` — karena saat gestur
-   * ini mati sementara (modal, muat pertama) PTR bawaan juga tidak boleh menyelinap.
+   *
+   * Mengikuti `enabled`, bukan sekadar `active`: di dashboard ada halaman yang
+   * belum punya penyegar sendiri (lihat PullToRefreshHost). Kalau kelas ini tetap
+   * terpasang di sana, PTR bawaan Android ikut padam dan halaman itu kehilangan
+   * SEMUA cara menyegarkan — gestur kita mati, gestur browser juga mati.
    */
   useEffect(() => {
-    if (!active) return;
+    if (!active || !enabled) return;
     const root = document.documentElement;
     root.classList.add('pull-refresh-host');
     return () => root.classList.remove('pull-refresh-host');
-  }, [active]);
+  }, [active, enabled]);
 
   useEffect(() => {
     mountedRef.current = true;

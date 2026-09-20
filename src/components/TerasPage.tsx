@@ -76,6 +76,7 @@ import CommentThread from './teras/CommentThread';
 import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } from './teras/PollBlock';
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import { shareLinkCopyText } from '../utils/share';
 import {
@@ -2421,11 +2422,19 @@ export default function TerasPage({
     replyExpansionControllersRef.current.forEach(c => c.abort());
     replyExpansionControllersRef.current.clear();
     setReplyExpansions({});
-    void fetchFeed(null, false, controller.signal);
+    // Promise-nya dikembalikan (bukan `void`) supaya pemanggil yang perlu tahu
+    // kapan feed selesai dimuat bisa menunggu — gestur tarik-untuk-segarkan
+    // memutar indikatornya tepat selama pemuatan ini.
+    return fetchFeed(null, false, controller.signal);
   }, [fetchFeed]);
 
+  // Tarik-untuk-segarkan (app terpasang): hanya di feed dan profil. Di tampilan
+  // detail utas, memuat ulang feed di belakang layar bukan yang diminta
+  // pengguna — di sana gestur ini sengaja tidak mendaftar sama sekali.
+  usePullRefreshHandler(refreshFeed, !detailPostId);
+
   useEffect(() => {
-    refreshFeed();
+    void refreshFeed();
     return () => feedControllerRef.current?.abort();
   }, [refreshFeed]);
 

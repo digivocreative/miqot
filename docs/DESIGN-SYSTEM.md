@@ -550,6 +550,12 @@ Gestur tarik-untuk-segarkan hanya ada di app terpasang bersentuhan (standalone +
 - Gestur dibatalkan sendiri kalau dimulai di dalam overlay `fixed`, di dalam scroller lain, saat halaman tidak di puncak, saat mengetik, atau kalau gerakannya lebih mendatar daripada menurun (carousel kartu yang menang).
 - `prefers-reduced-motion`: putaran dan transisi ikon mati (`motion-reduce:`), statusnya tetap terbaca.
 
+Di dashboard, gestur ini milik HALAMAN yang sedang tampil, bukan milik shell:
+
+- Shell memasang `<PullToRefreshHost>`; halaman mendaftarkan penyegarnya dengan `usePullRefreshHandler(fn, syaratAktif)`.
+- Halaman yang tidak mendaftar TIDAK boleh menampilkan gestur ini. Jangan memberi penyegar tiruan hanya supaya indikatornya muncul — tarikan yang berputar tanpa memuat apa pun lebih buruk daripada tidak ada gestur, dan di sana PTR bawaan Android masih hidup.
+- Penyegar harus memuat ulang DATA halaman, bukan me-reload dokumen, dan tidak boleh membuang isian yang belum disimpan (`hasUnsavedChanges()`).
+
 ## Image Export & Native Share
 
 Export strategy:
