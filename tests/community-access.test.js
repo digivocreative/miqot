@@ -307,10 +307,19 @@ test('dashboard registers the gated Jendela Teras card and read tracking', () =>
   const terasCardRenderCount = layoutSource.split('<TerasCard').length - 1;
   assert.equal(terasCardRenderCount, 1, 'kartu Teras harus punya tepat satu titik render');
   const terasCardIndex = layoutSource.indexOf('<TerasCard');
-  assert.match(
-    layoutSource.slice(0, terasCardIndex).split('\n').slice(-4).join('\n'),
-    /\{terasEnabled && \(/,
-    'render <TerasCard> harus dibungkus langsung oleh gerbang {terasEnabled && (...)}',
+  // Dulu pin ini membaca 4 baris terakhir sebelum <TerasCard> dan menuntut
+  // gerbangnya ada di situ — lalu pembungkus <Suspense> mendarat di antaranya
+  // (2408ba8) dan pin-nya merah tanpa ada yang rusak. Yang benar-benar dijaga
+  // bukan JARAK, melainkan bahwa gerbangnya MASIH TERBUKA saat kartunya
+  // dirender: cari gerbang terdekat ke belakang, lalu pastikan belum ditutup.
+  const terasGateIndex = layoutSource.lastIndexOf('{terasEnabled && (', terasCardIndex);
+  assert.ok(
+    terasGateIndex >= 0,
+    'render <TerasCard> harus berada di dalam gerbang {terasEnabled && (...)}',
+  );
+  assert.ok(
+    !layoutSource.slice(terasGateIndex, terasCardIndex).includes(')}'),
+    'gerbang terasEnabled sudah ditutup sebelum <TerasCard> — kartunya tidak lagi digerbangi',
   );
   assert.match(
     layoutSource.slice(terasCardIndex, terasCardIndex + 200),

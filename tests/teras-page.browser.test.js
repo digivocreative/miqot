@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +18,14 @@ const TINY_WEBM_BASE64 = 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZw
 // Accessible name of the feed "buat kiriman" trigger (the visible rotating
 // TypingPrompt is aria-hidden, so the sr-only label is the stable name).
 const COMPOSER_TRIGGER = 'Buat kiriman baru';
+// Awalan teks salin link, dibaca dari sumbernya (src/utils/share.ts) — bukan
+// ditulis ulang di sini. `node --test` tidak bisa mengimpor .ts tanpa loader,
+// dan nilai yang disalin manual persis itulah yang membuat pin salin-link basi
+// diam-diam saat awalan "👉 " dipasang (5ab15a9).
+const SHARE_LINK_COPY_PREFIX = (
+  readFileSync(new URL('../src/utils/share.ts', import.meta.url), 'utf8')
+    .match(/SHARE_LINK_COPY_PREFIX = '([^']*)'/)?.[1] ?? ''
+);
 // Placeholder of the composer textarea.
 const COMPOSER_PLACEHOLDER = 'Apa yang ingin dibagikan?';
 
@@ -3139,7 +3148,15 @@ describe('Teras frontend browser contracts', { concurrency: false }, () => {
       await dialog.getByRole('button', { name: 'Salin link' }).click();
       await app.page.getByText('Link disalin', { exact: true }).waitFor();
       const copied = await app.page.evaluate(() => window.__copied);
-      assert.deepEqual(copied, [shownLink], 'tombol Salin menyalin link yang tampil');
+      // Yang disalin adalah teks share, bukan URL telanjang: sejak 5ab15a9 semua
+      // tombol salin link memakai awalan "👉 " (shareLinkCopyText). Dibandingkan
+      // lewat konstanta yang sama, bukan string yang ditulis ulang di sini,
+      // supaya pin ini tidak basi lagi kalau awalannya berubah.
+      assert.deepEqual(
+        copied,
+        [`${SHARE_LINK_COPY_PREFIX}${shownLink}`],
+        'tombol Salin menyalin link yang tampil, lengkap dengan awalan teks share',
+      );
       await dialog.getByRole('button', { name: 'Tersalin' }).waitFor();
 
       // Sharing is client-only — it must not mutate anything server-side.
