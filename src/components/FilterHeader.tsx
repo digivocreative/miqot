@@ -25,7 +25,7 @@ import logoAlhijazColored from '@/new-logo/new-logo-alhijaz-colored.png';
 import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home, Eye, EyeOff } from 'lucide-react';
 import { AGENTS_DATA } from '@/data/agents';
-import FilterDropdown from './FilterDropdown';
+import FilterDropdown, { type FilterDropdownHandle } from './FilterDropdown';
 import AvailabilityCoachMark from './AvailabilityCoachMark';
 import { shouldShowAvailabilityHint, markAvailabilityHintSeen } from '@/lib/availability-hint';
 
@@ -421,6 +421,52 @@ export function FilterHeader({
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
   const showLandingDropdown = filterMode === 'LANDING DI';
 
+  // ── Sub-filter langsung menyembul setelah modenya dipilih ──────────────────
+  //
+  // Keempat mode berdimensi BELUM menampilkan apa pun sampai nilainya dipilih,
+  // jadi memilih mode lalu harus menyentuh dropdown kedua itu dua ketukan untuk
+  // satu niat. Dropdown Urutkan sengaja TIDAK ikut: mode-nya sudah menampilkan
+  // hasil dengan urutan bawaan, jadi panel yang menyembul di sana cuma menutupi
+  // daftar yang sebetulnya sudah siap dibaca.
+  //
+  // Satu ref cukup: keempat sub-dropdown saling eksklusif, tak pernah ada dua
+  // yang terpasang sekaligus.
+  const subFilterRef = useRef<FilterDropdownHandle | null>(null);
+
+  // Pemicunya penghitung yang HANYA dinaikkan di dalam onChange dropdown mode,
+  // bukan perbandingan `filterMode`. Dua alasan, keduanya sudah terbukti:
+  //   1. Mode yang datang dari URL (link WhatsApp /nikita/landing-madinah), dari
+  //      tombol Back, atau dari slug lama TIDAK boleh memuntahkan dropdown
+  //      terbuka begitu halaman dimuat.
+  //   2. Memilih ulang mode yang SUDAH aktif tetap harus membuka sub-filternya.
+  //      Versi pertama memakai flag + efek ber-dep `filterMode`: di kasus ini
+  //      modenya tidak berubah, jadi efeknya tak pernah jalan DAN flag-nya
+  //      tertinggal menyala — lalu ikut meledak di perpindahan berikutnya,
+  //      termasuk yang lewat tombol Back. Penghitung tidak bisa tertinggal:
+  //      tiap kenaikan dikonsumsi tepat sekali.
+  const [autoOpenNonce, setAutoOpenNonce] = useState(0);
+
+  // Jumlah opsi per mode dipakai sebagai gerbang kedua: membuka dropdown yang
+  // cuma berisi placeholder '- Pilih … -' itu jalan buntu yang menutupi hasil.
+  const subFilterOptionCount =
+    showTypeDropdown ? packageTypeOptions.length
+    : showLandingDropdown ? landingOptions.length
+    : showMonthDropdown ? monthGroups.length
+    : showDurationDropdown ? durationOptions.length
+    : 0;
+
+  useEffect(() => {
+    if (autoOpenNonce === 0) return; // 0 = belum ada pilihan dari tangan pengguna
+    if (subFilterOptionCount === 0) return;
+    subFilterRef.current?.open();
+    // Sengaja HANYA bergantung pada nonce. `subFilterOptionCount` dibaca dari
+    // closure render ini — penaikan nonce dan pergantian mode lahir dari event
+    // yang sama, jadi React membatchnya jadi satu render dan nilainya sudah
+    // yang terbaru. Memasukkannya ke deps justru membuat dropdown menyembul
+    // lagi tiap kali jumlah opsi bergeser (mis. tombol "hanya seat tersedia").
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenNonce]);
+
   // pt safe-area di <header> sendiri, BUKAN di padBox: app terpasang di iOS digambar
   // di bawah status bar, dan tinggi yang diukur publish() dari elemen ini ikut
   // membawanya ke --filter-header-h — offset <main> & rail tak perlu tahu apa-apa.
@@ -543,6 +589,10 @@ export function FilterHeader({
             value={filterMode}
             onChange={(v) => {
               const newMode = v as FilterMode;
+              // Penanda "pilihan ini dari tangan pengguna" — dibaca efek
+              // auto-open sub-filter di atas. Hanya di sini, jangan ditiru di
+              // jalur URL/Back.
+              setAutoOpenNonce(n => n + 1);
               onFilterModeChange(newMode);
               // Reset secondary value and sort when mode changes
               onSecondaryValueChange('');
@@ -557,6 +607,7 @@ export function FilterHeader({
           {/* Secondary Dropdown: Package Type — roster identik halaman Brosur */}
           {showTypeDropdown && (
             <FilterDropdown
+              ref={subFilterRef}
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
@@ -593,6 +644,7 @@ export function FilterHeader({
           {/* Secondary Dropdown: Landing City */}
           {showLandingDropdown && (
             <FilterDropdown
+              ref={subFilterRef}
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
@@ -610,6 +662,7 @@ export function FilterHeader({
           {/* Secondary Dropdown: Months */}
           {showMonthDropdown && (
             <FilterDropdown
+              ref={subFilterRef}
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
@@ -631,6 +684,7 @@ export function FilterHeader({
           {/* Secondary Dropdown: Duration */}
           {showDurationDropdown && (
             <FilterDropdown
+              ref={subFilterRef}
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
@@ -642,8 +696,9 @@ export function FilterHeader({
               ]}
               // Daftar durasi lewat 8 opsi, jadi FilterDropdown otomatis
               // memunculkan kotak Cari — dan kotak itu MEREBUT FOKUS saat panel
-              // dibuka. Untuk menyaring daftar sependek ini, di HP itu cuma
-              // berarti keyboard naik menutupi opsinya. Alasan yang sama dengan
+              // dibuka. Sejak sub-filter menyembul sendiri setelah modenya
+              // dipilih, itu berarti keyboard HP ikut naik menutupi opsinya,
+              // untuk menyaring daftar sependek ini. Alasan yang sama dengan
               // Jenis Paket & Bulan.
               searchable={false}
               ariaLabel="Pilih Durasi"

@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search, X } from 'lucide-react';
 
@@ -19,6 +19,16 @@ function OptionSwatch({ background }: { background: string }) {
       style={{ background }}
     />
   );
+}
+
+/**
+ * Pegangan imperatif untuk induk yang perlu MEMBUKA dropdown tanpa klik — mis.
+ * FilterHeader yang langsung menyodorkan sub-filter begitu modenya dipilih.
+ * Sengaja hanya `open`: menutup sudah ditangani outside-click/Escape/pilih opsi,
+ * dan induk yang bisa memaksa tutup akan berebut dengan ketiganya.
+ */
+export interface FilterDropdownHandle {
+  open: () => void;
 }
 
 export interface FilterDropdownProps {
@@ -73,7 +83,7 @@ export interface FilterDropdownProps {
  * (animate-in/fade-in/zoom-in/slide-in) is NOT installed in this project and those
  * classes generate no CSS.
  */
-export default function FilterDropdown({
+const FilterDropdown = forwardRef<FilterDropdownHandle, FilterDropdownProps>(function FilterDropdown({
   value,
   onChange,
   options,
@@ -88,7 +98,7 @@ export default function FilterDropdown({
   portalZClass = 'z-50',
   showAllOptions = false,
   searchable = true,
-}: FilterDropdownProps) {
+}, ref) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -172,9 +182,23 @@ export default function FilterDropdown({
     });
   }, []);
 
+  /**
+   * SATU-SATUNYA jalan membuka panel — dipakai trigger-nya sendiri DAN pegangan
+   * imperatif di bawah. Sengaja satu: pengukuran sinkron sebelum `setOpen` itu
+   * yang mencegah kedip di pojok kiri-atas saat buka pertama (lihat catatan
+   * portal di bawah), jadi jalur kedua yang lupa mengukur akan berkedip.
+   */
+  const openNow = useCallback(() => {
+    if (disabled) return;
+    if (portal) measure();
+    setOpen(true);
+  }, [disabled, portal, measure]);
+
+  useImperativeHandle(ref, () => ({ open: openNow }), [openNow]);
+
   // Portal mode: the panel is fixed-positioned in <body>, so follow the trigger on
-  // scroll/resize. The initial position is measured synchronously in the trigger's
-  // onClick (before opening) to avoid a first-open flash at the top-left corner.
+  // scroll/resize. The initial position is measured synchronously in `openNow`
+  // (before opening) to avoid a first-open flash at the top-left corner.
   useLayoutEffect(() => {
     if (!portal || !open) return;
     measure();
@@ -367,7 +391,7 @@ export default function FilterDropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => { if (portal && !open) measure(); setOpen(o => !o); }}
+        onClick={() => { if (open) setOpen(false); else openNow(); }}
         className={triggerClass}
       >
         <span className="flex min-w-0 items-center gap-1.5">
@@ -382,4 +406,6 @@ export default function FilterDropdown({
       {portal ? createPortal(panel, document.body) : panel}
     </div>
   );
-}
+});
+
+export default FilterDropdown;

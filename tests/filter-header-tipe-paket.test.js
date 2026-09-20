@@ -16,6 +16,7 @@ const filterLogic = read('src/utils/filter-logic.ts');
 const app = read('src/App.tsx');
 const brochurePage = read('src/components/BrochureSchedulePage.tsx');
 const brochureTemplate = read('src/components/BrochureScheduleTemplate.tsx');
+const filterDropdown = read('src/components/FilterDropdown.tsx');
 
 test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus', () => {
   const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
@@ -131,6 +132,56 @@ test('Brosur memakai roster bersama, bukan daftar tipe inline lagi', () => {
   assert.doesNotMatch(brochureTemplate, /export function derivePackageType\b/);
   // Pill "Kereta Cepat" tetap satu pola dengan filternya.
   assert.match(brochureTemplate, /import \{ KERETA_CEPAT_PATTERN \} from '@\/lib\/packageType'/);
+});
+
+test('sub-filter menyembul sendiri setelah modenya dipilih — pemicunya nonce, bukan filterMode', () => {
+  // Nonce dinaikkan di TEPAT SATU tempat: onChange dropdown mode. Kalau ada
+  // penaik kedua (mis. ikut dipasang di efek sinkronisasi URL), mode yang datang
+  // dari link WhatsApp atau tombol Back akan memuntahkan dropdown terbuka begitu
+  // halaman dimuat.
+  const bumps = [...filterHeader.matchAll(/setAutoOpenNonce\(/g)];
+  assert.equal(bumps.length, 1, 'penaik autoOpenNonce harus tepat satu');
+
+  const modeDropdown = filterHeader.match(
+    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Filter paket"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
+  )?.[0] ?? '';
+  assert.notEqual(modeDropdown, '', 'dropdown mode tidak ditemukan');
+  assert.match(modeDropdown, /setAutoOpenNonce\(n => n \+ 1\)/, 'nonce harus dinaikkan di onChange dropdown mode');
+
+  // Efeknya bergantung HANYA pada nonce. Versi pertama memakai [filterMode] dan
+  // gagal dua arah: memilih ulang mode yang sudah aktif tidak membuka apa pun,
+  // dan flag-nya tertinggal menyala lalu meledak di perpindahan berikutnya.
+  const effect = filterHeader.match(/useEffect\(\(\) => \{\s*if \(autoOpenNonce === 0\)[\s\S]*?\}, \[autoOpenNonce\]\);/)?.[0] ?? '';
+  assert.notEqual(effect, '', 'efek auto-open harus ber-dep [autoOpenNonce] saja');
+  assert.match(effect, /if \(subFilterOptionCount === 0\) return;/, 'jangan membuka dropdown tanpa opsi (jalan buntu)');
+  assert.match(effect, /subFilterRef\.current\?\.open\(\)/);
+});
+
+test('ref auto-open menempel di keempat sub-filter nilai, TIDAK di dropdown Urutkan', () => {
+  const withRef = [...filterHeader.matchAll(/ref=\{subFilterRef\}/g)];
+  assert.equal(withRef.length, 4, 'tepat 4 sub-filter nilai: Jenis Paket, Landing, Bulan, Durasi');
+
+  // Urutkan sengaja di luar: modenya sudah menampilkan hasil dengan urutan
+  // bawaan, jadi panel yang menyembul di sana cuma menutupi daftar.
+  const sortDropdown = filterHeader.match(
+    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Urutkan"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
+  )?.[0] ?? '';
+  assert.notEqual(sortDropdown, '', 'dropdown Urutkan tidak ditemukan');
+  assert.ok(!sortDropdown.includes('subFilterRef'), 'dropdown Urutkan tidak boleh ikut dibuka otomatis');
+});
+
+test('FilterDropdown: satu-satunya jalan membuka panel, dan selalu mengukur dulu', () => {
+  // Pengukuran sinkron SEBELUM setOpen itu yang mencegah panel ber-portal
+  // berkedip di pojok kiri-atas saat buka pertama. Jalur kedua yang lupa
+  // mengukur akan berkedip — jadi `setOpen(true)` wajib tunggal.
+  const opens = [...filterDropdown.matchAll(/setOpen\(true\)/g)];
+  assert.equal(opens.length, 1, 'setOpen(true) harus tepat satu, di dalam openNow');
+  const openNow = filterDropdown.match(/const openNow = useCallback\(\(\) => \{[\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
+  assert.notEqual(openNow, '', 'openNow tidak ditemukan');
+  assert.match(openNow, /if \(disabled\) return;/);
+  assert.match(openNow, /if \(portal\) measure\(\);/);
+  assert.match(filterDropdown, /useImperativeHandle\(ref, \(\) => \(\{ open: openNow \}\)/);
+  assert.match(filterDropdown, /onClick=\{\(\) => \{ if \(open\) setOpen\(false\); else openNow\(\); \}\}/);
 });
 
 test('sub-filter pendek tidak memakai kotak Cari — ia merebut fokus & menaikkan keyboard', () => {
