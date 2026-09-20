@@ -6,6 +6,7 @@ import {
   Trash2, AlertTriangle, Link as LinkIcon, AlertCircle,
 } from 'lucide-react';
 import { getAuthHeaders } from './LoginPage';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
 import FilterDropdown from './FilterDropdown';
@@ -119,6 +120,11 @@ export default function AgentManagementPage() {
   }, []);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+  // Tarik-untuk-segarkan (app terpasang): daftar agent ditarik ulang. Ini
+  // halaman yang paling sering dibuka justru untuk menunggu sesuatu berubah
+  // (pendaftar baru menunggu persetujuan).
+  usePullRefreshHandler(fetchAgents);
 
   // ── Approve / Reject handlers ──
   const [approving, setApproving] = useState<string | null>(null);

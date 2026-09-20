@@ -15,6 +15,7 @@ import { agentWatermarkText } from './PhotoWatermark';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
 import { describeLoadError } from '../lib/loadError';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import {
   HOTEL_SHEET_CLASS, HOTEL_SHEET_MIN_HEIGHT,
   HotelSkeletonKategori, HotelSkeletonList, HotelSkeletonDetail,
@@ -534,6 +535,13 @@ export default function HotelPage({ onNavigate, agentSlug }: {
     }
   }, []);
 
+  // Tarik-untuk-segarkan (app terpasang). Halaman ini memuat datanya di dalam
+  // efek (dengan cache modul + pembatalan per-run), jadi yang dinaikkan adalah
+  // satu penghitung yang masuk ke dependensi efek — bukan memecah efeknya jadi
+  // fungsi terpisah yang harus menduplikasi semua penjaga pembatalannya.
+  const [refreshTick, setRefreshTick] = useState(0);
+  usePullRefreshHandler(() => setRefreshTick(tick => tick + 1));
+
   useEffect(() => {
     let cancelled = false;
     fetchHotelJson<HotelListItem[]>('/api/hotels')
@@ -549,7 +557,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
       .catch(() => { if (!cancelled) setBanners(prev => prev || {}); })
       .finally(() => clearTimeout(bannerGiveUp));
     return () => { cancelled = true; clearTimeout(bannerGiveUp); };
-  }, []);
+  }, [refreshTick]);
 
   // Kunci primitif, bukan objek view — readHotelView membuat objek baru tiap render.
   // Halaman media ikut memakai detail yang sama; karena slug-nya identik,
@@ -585,7 +593,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
       .catch(err => { if (!cancelled) setDetailError(err.message); });
     trackEvent('action', 'hotel_view', { slug: detailSlug });
     return () => { cancelled = true; };
-  }, [detailSlug]);
+  }, [detailSlug, refreshTick]);
 
   const countsByCity = useMemo(() => {
     const counts: Record<string, number> = {};

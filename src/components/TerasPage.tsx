@@ -1861,6 +1861,8 @@ export default function TerasPage({
   // penanda ini respons yang TIDAK membawa `thread` (kolom utas belum
   // dimigrasi, atau utas dihapus) akan memicu pengambilan tanpa henti.
   const detailFetchStateRef = useRef<{ key: string; done: boolean } | null>(null);
+  /** Tick terakhir yang sudah ditangani efek detail — pembeda "muat ulang diminta" dari render biasa. */
+  const lastDetailTickRef = useRef(0);
   const previousDetailIdRef = useRef<string | null>(postId);
   const feedScrollYRef = useRef(0);
   const restoreComposerPageState = useCallback((restoreFocus = true) => {
@@ -2432,6 +2434,10 @@ export default function TerasPage({
   // detail utas, memuat ulang feed di belakang layar bukan yang diminta
   // pengguna — di sana gestur ini sengaja tidak mendaftar sama sekali.
   usePullRefreshHandler(refreshFeed, !detailPostId);
+
+  // Di tampilan detail utas yang disegarkan adalah UTAS ITU, bukan feed di
+  // belakangnya. Jalurnya sama persis dengan tombol "Coba lagi" milik detail.
+  usePullRefreshHandler(() => setDetailFetchTick(tick => tick + 1), !!detailPostId);
 
   useEffect(() => {
     void refreshFeed();
@@ -3877,7 +3883,15 @@ export default function TerasPage({
     const needsThread = !!cached
       && (cached.thread_count || 0) > 1
       && !(cached.thread && cached.thread.length > 1);
-    if (cached && !needsThread) return;
+    // Permintaan muat-ulang EKSPLISIT (tombol Coba lagi, gestur tarik-untuk-
+    // segarkan) menaikkan detailFetchTick. Tanpa pengecualian ini, permintaan
+    // itu ditelan oleh jalan pintas "sudah ada di cache" di bawah — persis
+    // kasus yang paling sering: utas yang dibuka dari feed SELALU sudah ada
+    // salinannya. Hanya berlaku sekali per kenaikan tick; jalan pintasnya
+    // kembali berlaku pada run-run berikutnya.
+    const forced = detailFetchTick !== lastDetailTickRef.current;
+    lastDetailTickRef.current = detailFetchTick;
+    if (cached && !needsThread && !forced) return;
     const fetchKey = `${detailPostId}|${detailFetchTick}`;
     const fetchState = detailFetchStateRef.current;
     // Percobaan yang sudah selesai tidak diulang. Yang belum selesai boleh

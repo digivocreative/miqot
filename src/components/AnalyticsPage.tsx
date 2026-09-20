@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { getAuthHeaders } from './LoginPage';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import AgentDrillDownModal from './AgentDrillDownModal';
 import { handleAgentPhotoError } from '../lib/agent-photo';
@@ -216,6 +217,11 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   useEffect(() => {
     fetchData(selectedMonth, selectedYear);
   }, [selectedMonth, selectedYear, fetchData]);
+
+  // Tarik-untuk-segarkan (app terpasang): bulan & tahun yang SEDANG dipilih di
+  // header tetap dipakai — gestur ini menarik ulang datanya, bukan mengembalikan
+  // pilihan ke bulan berjalan.
+  usePullRefreshHandler(() => fetchData(selectedMonth, selectedYear));
 
   // Month picker in header
   useEffect(() => {

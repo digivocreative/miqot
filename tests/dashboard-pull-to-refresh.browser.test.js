@@ -59,10 +59,57 @@ function makePost(id = 'post-1') {
 }
 
 /**
+ * Muatan /api/laporan/stats yang LENGKAP. StatistikPage menyebar beberapa field
+ * array langsung (`[...data.availableYears]`), jadi muatan seadanya membuat
+ * halamannya melempar dan tertangkap error boundary — tesnya lalu gagal dengan
+ * alasan yang salah ("gestur tidak terdaftar") padahal yang rusak fixture-nya.
+ */
+function makeStats() {
+  const comparison = { current: 0, previous: 0, delta: 0, percent: 0 };
+  return {
+    totalJamaah: 0, lunas: 0, belumLunas: 0, totalOutstanding: 0,
+    berangkatSegera: 0, berangkatBulan: null, jamaahBaru: 0, lunasPercent: 0,
+    comparison: {
+      totalJamaah: comparison, komisiCair: null,
+      berangkatSegera: comparison, jamaahBaru: comparison,
+    },
+    trend: [],
+    berangkatBulanIni: [],
+    outstandingList: [],
+    availableYears: ['1448'],
+    komisi: {
+      totalKomisi: 0, sudahCair: 0, sudahCairCount: 0, belumCair: 0,
+      belumCairCount: 0, potensi: 0, potensiCount: 0,
+      breakdown: {
+        hemat: { count: 0, rate: 1300000, total: 0 },
+        reguler: { count: 0, rate: 1800000, total: 0 },
+      },
+      chartBulanan: [],
+    },
+    hijriahYear: '1448',
+    lastSync: '2026-09-20T03:00:00.000Z',
+  };
+}
+
+/** Muatan /api/analytics/summary yang lengkap — lihat catatan di makeStats(). */
+function makeAnalytics() {
+  return {
+    period: '2026-09',
+    overview: { totalLogins: 0, activeAgents: 0, totalAgents: 0, totalPageViews: 0, totalWAClicks: 0 },
+    dailyActivity: [],
+    agentActivity: [],
+    featureUsage: [],
+    actionTracking: [],
+    publicTracking: [],
+    recentActivity: [],
+  };
+}
+
+/**
  * Buka dashboard di app terpasang. Mengembalikan pencatat permintaan supaya tes
  * bisa menghitung "berapa kali endpoint X dipanggil" sebelum dan sesudah gestur.
  */
-async function openDashboard({ path = '/dashboard' } = {}) {
+async function openDashboard({ path = '/dashboard', agent = AGENT } = {}) {
   const context = await browser.newContext({
     serviceWorkers: 'block',
     viewport: VIEWPORT,
@@ -80,7 +127,7 @@ async function openDashboard({ path = '/dashboard' } = {}) {
       window.localStorage.setItem('auth_session', JSON.stringify({ token: 'browser-test-token', user: agent }));
       window.localStorage.setItem('darkMode', 'false');
       window.sessionStorage.setItem('agentation-session-toolbar-hidden', '1');
-    }, { agent: AGENT });
+    }, { agent });
 
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -92,7 +139,12 @@ async function openDashboard({ path = '/dashboard' } = {}) {
 
       if (url.pathname.startsWith('/api/')) {
         calls.push(url.pathname);
-        if (url.pathname === '/api/auth/me') return json(AGENT);
+        if (url.pathname === '/api/auth/me') return json(agent);
+        if (url.pathname === '/api/laporan/stats') return json({ success: true, data: makeStats() });
+        if (url.pathname === '/api/hotels') return json({ success: true, data: [] });
+        if (url.pathname === '/api/hotels/banners') return json({ success: true, data: {} });
+        if (url.pathname === '/api/admin/agents') return json([]);
+        if (url.pathname === '/api/analytics/summary') return json({ success: true, data: makeAnalytics() });
         if (url.pathname === '/api/community/feed') {
           return json({ success: true, data: [makePost()], next_cursor: null });
         }
@@ -119,6 +171,25 @@ async function openDashboard({ path = '/dashboard' } = {}) {
 
   const countOf = pathname => calls.filter(item => item === pathname).length;
 
+  /**
+   * Tunggu halaman tujuan benar-benar hidup, ditandai permintaan PERTAMA
+   * miliknya sendiri.
+   *
+   * Menunggu <main> saja tidak cukup: sub-halaman dashboard di-lazy-load, dan
+   * <main> milik shell sudah ada jauh sebelum chunk halamannya selesai. Di suite
+   * yang sibuk, celah itu membuat `settle()` di bawah menyimpulkan "sudah reda"
+   * padahal halamannya belum mount — belum mendaftarkan penyegar — dan tesnya
+   * gagal seolah gesturnya tidak terpasang.
+   */
+  async function waitForCall(pathname, { timeout = 30_000 } = {}) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (countOf(pathname) > 0) return;
+      await page.waitForTimeout(100);
+    }
+    throw new Error(`Halaman tidak pernah memanggil ${pathname} dalam ${timeout}ms`);
+  }
+
   /** Tunggu sampai gelombang permintaan saat mount benar-benar reda. */
   async function settle() {
     let quiet = 0;
@@ -130,7 +201,7 @@ async function openDashboard({ path = '/dashboard' } = {}) {
     }
   }
 
-  return { page, calls, countOf, settle, close: () => context.close() };
+  return { page, calls, countOf, settle, waitForCall, close: () => context.close() };
 }
 
 /** Gestur satu jari; `dy` positif = menarik ke bawah. */
@@ -178,6 +249,7 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
     const session = await openDashboard({ path: '/dashboard' });
     try {
       const { page } = session;
+      await session.waitForCall('/api/jamaah/birthdays');
       await session.settle();
       assert.equal(await hasHostClass(page), true, 'Home punya penyegar, jadi overscroll-behavior diambil alih');
 
@@ -211,6 +283,7 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
     const session = await openDashboard({ path: '/dashboard/teras' });
     try {
       const { page } = session;
+      await session.waitForCall('/api/community/feed');
       await session.settle();
       assert.equal(await hasHostClass(page), true);
 
@@ -240,6 +313,7 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
     const session = await openDashboard({ path: '/dashboard/jamaah' });
     try {
       const { page } = session;
+      await session.waitForCall('/api/laporan/status');
       await session.settle();
       assert.equal(await hasHostClass(page), true);
 
@@ -258,23 +332,126 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
     }
   });
 
-  test('detail utas Teras tidak mendaftar — gestur mati DAN overscroll dikembalikan', { timeout: 90_000 }, async () => {
+  test('detail utas Teras menyegarkan UTASNYA, bukan feed di belakangnya', { timeout: 90_000 }, async () => {
     const session = await openDashboard({ path: '/dashboard/teras/post/post-1' });
     try {
       const { page } = session;
+      await session.waitForCall('/api/community/feed');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+
+      const postBefore = session.countOf('/api/community/posts/post-1');
+      const feedBefore = session.countOf('/api/community/feed');
+
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(
+        session.countOf('/api/community/posts/post-1'),
+        postBefore + 1,
+        'utas yang sedang dibuka ditarik ulang — jalan pintas cache tidak boleh menelannya',
+      );
+      assert.equal(session.countOf('/api/community/feed'), feedBefore, 'feed di belakang layar tidak ikut dimuat ulang');
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Statistik: tarikan menarik ulang statistik, bukan memasang ulang halaman', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/statistik' });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/laporan/stats');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+
+      const before = session.countOf('/api/laporan/stats');
+      assert.ok(before > 0, 'statistik harus sudah dimuat sekali');
+
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(session.countOf('/api/laporan/stats'), before + 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Direktori Hotel: tarikan menarik ulang daftar hotel', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/hotel' });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/hotels');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+
+      const before = session.countOf('/api/hotels');
+      assert.ok(before > 0, 'daftar hotel harus sudah dimuat sekali');
+
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(session.countOf('/api/hotels'), before + 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Kelola Agent (admin): tarikan menarik ulang daftar pendaftar', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/agents', agent: { ...AGENT, role: 'admin' } });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/admin/agents');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+
+      const before = session.countOf('/api/admin/agents');
+      assert.ok(before > 0, 'daftar agent harus sudah dimuat sekali');
+
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(session.countOf('/api/admin/agents'), before + 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Analytics (admin): tarikan menarik ulang bulan yang sedang dipilih', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/analytics', agent: { ...AGENT, role: 'admin' } });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/analytics/summary');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+
+      const before = session.calls.filter(item => item === '/api/analytics/summary').length;
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(session.calls.filter(item => item === '/api/analytics/summary').length, before + 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('halaman tanpa penyegar (Pengaturan) melepas overscroll supaya PTR bawaan Android tetap hidup', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/settings' });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/laporan/status');
       await session.settle();
 
       assert.equal(
         await hasHostClass(page),
         false,
-        'tanpa penyegar, overscroll-behavior harus dilepas supaya PTR bawaan Android tetap hidup',
+        'halaman berisi isian sengaja tidak punya gestur ini; overscroll harus dikembalikan ke browser',
       );
 
-      const feedBefore = session.countOf('/api/community/feed');
+      const callsBefore = session.calls.length;
       await swipe(page, { dy: PULL_ARMED });
       await page.waitForTimeout(1_200);
-
-      assert.equal(session.countOf('/api/community/feed'), feedBefore, 'tidak ada yang disegarkan di halaman ini');
+      assert.equal(session.calls.length, callsBefore, 'tidak ada apa pun yang dimuat ulang di sini');
       assert.equal(
         await page.evaluate(() => document.querySelector('[data-pull-refresh]')?.dataset.phase ?? 'idle'),
         'idle',

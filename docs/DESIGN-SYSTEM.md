@@ -555,6 +555,7 @@ Di dashboard, gestur ini milik HALAMAN yang sedang tampil, bukan milik shell:
 - Shell memasang `<PullToRefreshHost>`; halaman mendaftarkan penyegarnya dengan `usePullRefreshHandler(fn, syaratAktif)`.
 - Halaman yang tidak mendaftar TIDAK boleh menampilkan gestur ini. Jangan memberi penyegar tiruan hanya supaya indikatornya muncul — tarikan yang berputar tanpa memuat apa pun lebih buruk daripada tidak ada gestur, dan di sana PTR bawaan Android masih hidup.
 - Penyegar harus memuat ulang DATA halaman, bukan me-reload dokumen, dan tidak boleh membuang isian yang belum disimpan (`hasUnsavedChanges()`).
+- Utamakan memanggil ulang fungsi muat halaman itu (mis. `fetchStats(tahunTerpilih)`) daripada memasang ulang halamannya. Remount ikut mengembalikan pilihan tahun/bulan/filter ke bawaan — pengguna menarik untuk mendapat angka terbaru, bukan untuk kehilangan pilihannya. Remount hanya untuk halaman yang memang tidak punya pilihan seperti itu (mis. kumpulan widget di Home).
 
 ## Image Export & Native Share
 

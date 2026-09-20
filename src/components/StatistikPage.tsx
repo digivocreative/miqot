@@ -9,6 +9,7 @@ import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET, dashboardViewportBelowHeader } from '../constants/dashboard-chrome';
 import { backOr, pushAppState, replaceAppState } from '../lib/appHistory';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
 import {
@@ -734,6 +735,12 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const outstandingPreview = data ? data.outstandingList.slice(0, 3) : [];
 
   const pinGateActive = pinRequired && !pinUnlocked && !pinChecking;
+
+  // Tarik-untuk-segarkan (app terpasang): tarik ulang statistik TAHUN YANG
+  // SEDANG DIPILIH — bukan memasang ulang halaman, supaya pilihan tahun di
+  // header tidak ikut kembali ke bawaan. Mati selama gerbang PIN: di sana belum
+  // ada data yang boleh ditarik.
+  usePullRefreshHandler(() => fetchStats(selectedYear), !pinGateActive);
 
   return (
     <div className="max-w-lg mx-auto">
