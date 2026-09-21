@@ -5,7 +5,7 @@ import {
   Shield, Building2, Eye, EyeOff, Loader2, ChevronRight, Check,
   Trash2, AlertTriangle, Link as LinkIcon, AlertCircle,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';

@@ -13,7 +13,7 @@ import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError } from '../lib/loadError';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 
 export interface ShareKursModalProps {
   open: boolean;

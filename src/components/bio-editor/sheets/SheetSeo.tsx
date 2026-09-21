@@ -3,7 +3,7 @@ import { Loader2, Upload, RotateCcw, Image as ImageIcon, Save } from 'lucide-rea
 import SheetBase from './SheetBase';
 import PhotoCropModal from '../../PhotoCropModal';
 import type { BioAgentPublic, BioConfig } from '../../bio/types';
-import { getAuthHeaders } from '../../LoginPage';
+import { getAuthHeaders } from '../../../lib/authSession';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;

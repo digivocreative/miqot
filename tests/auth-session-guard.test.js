@@ -10,7 +10,7 @@ function read(path) {
 }
 
 test('stored auth session must include a valid user before auto-login', () => {
-  const login = read('src/components/LoginPage.tsx');
+  const login = read('src/lib/authSession.ts');
   const auth = read('src/utils/authUtils.ts');
 
   assert.match(login, /function isStoredAuthSession\(value: unknown\): value is AuthSession/);

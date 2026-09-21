@@ -7,7 +7,7 @@ import {
   SlidersHorizontal, X, Check, Plane, Landmark, PenLine, UserPlus, Plus,
   FileText, Download, Share2, WifiOff, AlertCircle,
 } from 'lucide-react';
-import { getAuthHeaders, getStoredSession } from './LoginPage';
+import { getAuthHeaders, getStoredSession } from '../lib/authSession';
 import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';

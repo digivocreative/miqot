@@ -51,7 +51,7 @@ import { terasShareUrl, isTerasShortCode } from '../../lib/teras-share.js';
 import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
 import { firstUrl, stripUrlFromBody } from '../../lib/teras-linkify.js';
 import PlyrVideo from './PlyrVideo';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import {
   clearDraft,
   feedDraftKey,

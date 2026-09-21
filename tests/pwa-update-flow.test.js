@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decideVersionAction } from '../src/lib/pwa/versionCheck.ts';
+import { whenWorkerInstalled } from '../src/lib/pwa/installingWorker.ts';
 import { getUpdateState, subscribeUpdate, markUpdateReady, dismissUpdate, applyUpdate } from '../src/lib/pwa/updateStore.ts';
 import { shouldResumeSessionOnLogin } from '../src/lib/pwa/launch.ts';
 
@@ -30,6 +31,52 @@ test('build berbeda tapi tak ada SW baru sama sekali → SW macet, perbaiki seka
   assert.equal(decideVersionAction({ ...base, repairedFor: 'index-b.js' }), 'prompt');
   // Perbaikan untuk build LAMA tidak menghalangi perbaikan build baru.
   assert.equal(decideVersionAction({ ...base, repairedFor: 'index-old.js' }), 'repair');
+});
+
+// Registrasi SW ditunda sampai load+idle (main.tsx), sedangkan checkBuildVersion memanggil
+// registration.update() ±4 dtk setelah eksekusi. Bila update() menang, SW baru sudah
+// `installing` saat workbox register() — workbox tidak pernah melacaknya (register() hanya
+// menangani `.waiting` + listener `updatefound` yang dipasang sesudahnya), jadi onNeedRefresh
+// tak pernah dipanggil. Alur 'wait' memantau sendiri lewat `statechange`.
+function fakeWorker(state = 'installing') {
+  const sw = new EventTarget();
+  sw.state = state;
+  // Peramban memicu statechange di setiap transisi (installing → installed → activating → …).
+  sw.setState = (next) => { sw.state = next; sw.dispatchEvent(new Event('statechange')); };
+  return sw;
+}
+
+test("alur 'wait': SW yang sedang installing ditawarkan SEKALI begitu terpasang (menunggu)", () => {
+  const sw = fakeWorker('installing');
+  let offered = 0;
+  whenWorkerInstalled(sw, () => { offered += 1; });
+  assert.equal(offered, 0, 'belum terpasang → belum ditawarkan');
+  sw.setState('installed');
+  assert.equal(offered, 1);
+  // Transisi berikutnya (setelah SKIP_WAITING) tidak menawarkan lagi.
+  sw.setState('activating');
+  sw.setState('activated');
+  assert.equal(offered, 1);
+});
+
+test("alur 'wait': install yang gagal (redundant) tidak menawarkan muat ulang", () => {
+  const sw = fakeWorker('installing');
+  let offered = 0;
+  whenWorkerInstalled(sw, () => { offered += 1; });
+  sw.setState('redundant');
+  assert.equal(offered, 0);
+  // Listener sudah dilepas: transisi palsu sesudahnya pun tidak memicu.
+  sw.setState('installed');
+  assert.equal(offered, 0);
+});
+
+test("alur 'wait': SW yang sudah installed ditawarkan langsung; yang sudah lewat diabaikan", () => {
+  let offered = 0;
+  whenWorkerInstalled(fakeWorker('installed'), () => { offered += 1; });
+  assert.equal(offered, 1);
+  whenWorkerInstalled(fakeWorker('activated'), () => { offered += 1; });
+  whenWorkerInstalled(fakeWorker('redundant'), () => { offered += 1; });
+  assert.equal(offered, 1);
 });
 
 test('store update: pelanggan diberi tahu, abaikan menyembunyikan, apply memanggil aksi terakhir', () => {

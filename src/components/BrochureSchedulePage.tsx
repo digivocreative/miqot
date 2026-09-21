@@ -42,7 +42,7 @@ import { BrochurePromptModal } from './BrochurePromptModal';
 import BrochurePaketGrid, { BrochurePaketGridSkeleton } from './BrochurePaketGrid';
 import SegmentedControl from './common/SegmentedControl';
 import { formatBrochurePrice, type BrochurePromptSchedule } from './brochure-prompt/buildBrochurePrompt';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { CatalogLoadingModal } from './CatalogLoadingModal';

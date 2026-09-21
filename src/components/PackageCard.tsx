@@ -6,9 +6,7 @@ import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun,
 import { isViaCustomDomain, readAgentContext } from '@/lib/agent-context';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
-import { BrochureModal } from './BrochureModal';
 import { BrosurBlurPlaceholder } from './BrosurBlurPlaceholder';
-import { StickerStudio } from './StickerStudio';
 import { StickerPromoRow } from './StickerPromoRow';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 
@@ -16,6 +14,14 @@ import { useStampedBrochure } from '../hooks/useStampedBrochure';
 const loadItineraryModal = () => import('./ItineraryModal');
 const ItineraryModal = lazy(() => loadItineraryModal().then(m => ({ default: m.ItineraryModal })));
 const AskAIModal = lazy(() => import('./AskAIModal'));
+// Alat agent (brosur layar penuh, sticker, caption, nilai plus, prompt brosur)
+// juga chunk terpisah: baru dibutuhkan setelah agent membukanya, sedangkan kartu
+// ini tampil di halaman publik untuk setiap pengunjung.
+const BrochureModal = lazy(() => import('./BrochureModal').then(m => ({ default: m.BrochureModal })));
+const StickerStudio = lazy(() => import('./StickerStudio').then(m => ({ default: m.StickerStudio })));
+const CaptionAIModal = lazy(() => import('./CaptionAIModal').then(m => ({ default: m.CaptionAIModal })));
+const PackageValueModal = lazy(() => import('./PackageValueModal').then(m => ({ default: m.PackageValueModal })));
+const BrochurePromptModal = lazy(() => import('./BrochurePromptModal').then(m => ({ default: m.BrochurePromptModal })));
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
 import AgentProfile from './AgentProfile';
@@ -28,9 +34,6 @@ import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
 import { shareLinkCopyText } from '@/utils/share';
-import { CaptionAIModal } from './CaptionAIModal';
-import { PackageValueModal } from './PackageValueModal';
-import { BrochurePromptModal } from './BrochurePromptModal';
 import { formatBrochurePrice, type BrochurePromptPkg } from './brochure-prompt/buildBrochurePrompt';
 
 // Cache for base64-encoded Inter font CSS (populated on first screenshot)
@@ -39,6 +42,10 @@ let cachedInterFontCSS: string | null = null;
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
+// Watermark bendera: prioritas unduh rendah. Huruf kecil lewat spread — React 18 belum
+// mengenal prop camelCase `fetchPriority` (peringatan di konsol dev); pola sama dengan
+// BANNER_IMG_PRIORITY di HotelPage.tsx.
+const WATERMARK_IMG_PRIORITY = { fetchpriority: 'low' } as Record<string, string>;
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -166,8 +173,15 @@ function PackageCardImpl({
   // isOpen={false}> / <AskAIModal isOpen={false}> saja sudah memicu import chunk-nya
   // (ItineraryModal menarik vendor PDF ±630 KB) di SETIAP kartu halaman agent.
   // Tetap ter-mount setelah dibuka pertama kali supaya animasi tutupnya jalan.
+  // Pola yang sama untuk modal brosur/sticker/caption/nilai plus/prompt (flag
+  // di-set true saat pertama dibuka, tidak pernah kembali false).
   const [itineraryMounted, setItineraryMounted] = useState(false);
   const [askAIMounted, setAskAIMounted] = useState(false);
+  const [brochureMounted, setBrochureMounted] = useState(false);
+  const [stickerMounted, setStickerMounted] = useState(false);
+  const [captionMounted, setCaptionMounted] = useState(false);
+  const [packageValueMounted, setPackageValueMounted] = useState(false);
+  const [promptMounted, setPromptMounted] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedGradient, setSelectedGradient] = useState(0);
@@ -633,6 +647,8 @@ _________________________
   // sebaliknya akan merusak pemindaian kotak kontak milik stampAgentOnBrochure.
   const handleOpenStickerStudio = async () => {
     fireViewContent();
+    // Chunk studio mulai diunduh sekarang, paralel dengan fetch blob brosur.
+    setStickerMounted(true);
     try {
       setStickerBase(stampedBrosur.blob ?? await (await fetch(brosurImageUrl)).blob());
     } catch (err) {
@@ -681,6 +697,10 @@ _________________________
       document.body.appendChild(clone);
 
       // 2. SANITASI GAMBAR (Promise.allSettled)
+      // Watermark bendera memakai <picture> (WebP + fallback PNG). Di klon, buang
+      // <source> supaya <img src> (PNG → base64 di bawah) yang dirender snapdom —
+      // hasil screenshot identik dengan sebelum WebP dipakai.
+      clone.querySelectorAll('picture > source').forEach((source) => source.remove());
       const images = Array.from(clone.querySelectorAll('img'));
       
       const imagePromises = images.map(async (img) => {
@@ -1662,21 +1682,30 @@ _________________________
     >
 
 
-      {/* Flag overlay — keep it mounted so expand/collapse does not flash while repainting. */}
+      {/* Flag overlay — keep it mounted so expand/collapse does not flash while repainting.
+          WebP 250 px (±7 KB, scripts/generate-flag-webp.mjs) lewat <picture>; PNG 600×401
+          (65–120 KB) tetap fallback & dipakai react-pdf (CompareDocument/itinerary). Watermark
+          opacity 0.12 jangan jadi elemen LCP: decoding async + fetchpriority low. */}
       {(() => {
         const flags = getCountryFlags(hotelInfo);
         return (
           <div className={`absolute -right-2.5 -bottom-2.5 z-0 pointer-events-none -rotate-[8deg] transition-opacity duration-200 ${isExpanded ? 'opacity-0' : 'opacity-100'}`}>
             {flags.length === 1 ? (
               <div className="relative w-[125px] h-[88px]">
-                <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
+                <picture>
+                  <source type="image/webp" srcSet={flags[0].replace(/\.png$/, '.webp')} />
+                  <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" {...WATERMARK_IMG_PRIORITY} />
+                </picture>
                 <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
               </div>
             ) : (
               <div className="flex gap-1">
                 {flags.map((flag) => (
                   <div key={flag} className="relative w-[100px] h-[70px]">
-                    <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" />
+                    <picture>
+                      <source type="image/webp" srcSet={flag.replace(/\.png$/, '.webp')} />
+                      <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" {...WATERMARK_IMG_PRIORITY} />
+                    </picture>
                     <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
                   </div>
                 ))}
@@ -1981,7 +2010,7 @@ _________________________
                   className="cursor-pointer relative"
                   // stopPropagation: tanpa ini klik preview ikut men-toggle kartu
                   // (handleCardClick di root) sehingga kartu tertutup di balik popup
-                  onClick={(e) => { e.stopPropagation(); fireViewContent(); setIsBrochureOpen(true); }}
+                  onClick={(e) => { e.stopPropagation(); fireViewContent(); setBrochureMounted(true); setIsBrochureOpen(true); }}
                 >
                   <div className={brosurSiap ? undefined : 'relative overflow-hidden aspect-[3/4] brosur-skeleton'}>
                     {/* Kerangka berkilau + bayangan kabur brosurnya. Keduanya
@@ -2145,6 +2174,7 @@ _________________________
                   e.stopPropagation();
                   fireViewContent();
                   trackEvent('action', 'download_brosur', { paket: pkg.nama });
+                  setBrochureMounted(true);
                   setIsBrochureOpen(true);
                 }}
                 className="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition-all border-gray-200 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/30 dark:border-slate-700 dark:hover:border-orange-500"
@@ -2507,39 +2537,50 @@ _________________________
       )}
 
       {/* Brochure Modal */}
-      {pkg.brosurUrl && (
-        <BrochureModal
-          isOpen={isBrochureOpen}
-          onClose={() => setIsBrochureOpen(false)}
-          // Kalau kartu sudah selesai menggubah, modal memakai hasilnya apa
-          // adanya — tidak perlu menggubah ulang gambar yang sama. Kalau belum,
-          // modal menggubah sendiri dengan identitas yang sama.
-          imageUrl={stampedBrosur.blob ? stampedBrosur.url : pkg.brosurUrl}
-          thumbUrl={brosurThumbUrl}
-          title={pkg.nama}
-          agent={stampedBrosur.blob ? null : brosurAgent}
-          onCaption={isSessionValid() ? () => {
-            setIsBrochureOpen(false);
-            setIsAiCopyOpen(true);
-          } : undefined}
-          onPackageValue={isSessionValid() ? () => {
-            setIsBrochureOpen(false);
-            setIsPackageValueOpen(true);
-          } : undefined}
-          onPrompt={isSessionValid() ? () => setIsPromptOpen(true) : undefined}
-          allowSticker={isSessionValid()}
-        />
+      {pkg.brosurUrl && brochureMounted && (
+        <Suspense fallback={null}>
+          <BrochureModal
+            isOpen={isBrochureOpen}
+            onClose={() => setIsBrochureOpen(false)}
+            // Kalau kartu sudah selesai menggubah, modal memakai hasilnya apa
+            // adanya — tidak perlu menggubah ulang gambar yang sama. Kalau belum,
+            // modal menggubah sendiri dengan identitas yang sama.
+            imageUrl={stampedBrosur.blob ? stampedBrosur.url : pkg.brosurUrl}
+            thumbUrl={brosurThumbUrl}
+            title={pkg.nama}
+            agent={stampedBrosur.blob ? null : brosurAgent}
+            onCaption={isSessionValid() ? () => {
+              setIsBrochureOpen(false);
+              setCaptionMounted(true);
+              setIsAiCopyOpen(true);
+            } : undefined}
+            onPackageValue={isSessionValid() ? () => {
+              setIsBrochureOpen(false);
+              setPackageValueMounted(true);
+              setIsPackageValueOpen(true);
+            } : undefined}
+            onPrompt={isSessionValid() ? () => {
+              setPromptMounted(true);
+              setIsPromptOpen(true);
+            } : undefined}
+            allowSticker={isSessionValid()}
+          />
+        </Suspense>
       )}
 
       {/* Studio sticker — dipanggil dari footer pratinjau brosur di dalam kartu.
           BrochureModal punya tombolnya sendiri, jadi agent tidak perlu membuka
           layar penuh dulu hanya untuk menempel. */}
-      <StickerStudio
-        isOpen={isSessionValid() && stickerBase !== null}
-        onClose={() => setStickerBase(null)}
-        baseBlob={stickerBase}
-        fileNameBase={`Brosur - ${pkg.nama || 'Paket'}`}
-      />
+      {stickerMounted && (
+        <Suspense fallback={null}>
+          <StickerStudio
+            isOpen={isSessionValid() && stickerBase !== null}
+            onClose={() => setStickerBase(null)}
+            baseBlob={stickerBase}
+            fileNameBase={`Brosur - ${pkg.nama || 'Paket'}`}
+          />
+        </Suspense>
+      )}
 
       {/* Itinerary Modal */}
       {pkg.itineraryUrl && itineraryMounted && (
@@ -2584,37 +2625,49 @@ _________________________
 
 
       {/* Caption AI Modal */}
-      <CaptionAIModal
-        isOpen={isAiCopyOpen}
-        onClose={() => setIsAiCopyOpen(false)}
-        subject={pkg.nama}
-        buildPayload={buildAiCopyPayload}
-        buildFallbackText={buildAiCopyFallback}
-      />
+      {captionMounted && (
+        <Suspense fallback={null}>
+          <CaptionAIModal
+            isOpen={isAiCopyOpen}
+            onClose={() => setIsAiCopyOpen(false)}
+            subject={pkg.nama}
+            buildPayload={buildAiCopyPayload}
+            buildFallbackText={buildAiCopyFallback}
+          />
+        </Suspense>
+      )}
 
       {/* Grounded package advantages from canonical brochure data + cached itinerary. */}
-      <PackageValueModal
-        isOpen={isPackageValueOpen}
-        onClose={() => setIsPackageValueOpen(false)}
-        subject={pkg.nama}
-        jadwalId={pkg.jadwalId}
-        tier={activeTier}
-        agent={currentAgent ? {
-          name: currentAgent.name,
-          phone: currentAgent.phone,
-          photo: currentAgent.photo,
-        } : null}
-      />
+      {packageValueMounted && (
+        <Suspense fallback={null}>
+          <PackageValueModal
+            isOpen={isPackageValueOpen}
+            onClose={() => setIsPackageValueOpen(false)}
+            subject={pkg.nama}
+            jadwalId={pkg.jadwalId}
+            tier={activeTier}
+            agent={currentAgent ? {
+              name: currentAgent.name,
+              phone: currentAgent.phone,
+              photo: currentAgent.photo,
+            } : null}
+          />
+        </Suspense>
+      )}
 
       {/* Brochure Prompt Generator (agent-only) — bikin prompt ChatGPT re-create brosur */}
-      <BrochurePromptModal
-        isOpen={isPromptOpen}
-        onClose={() => setIsPromptOpen(false)}
-        agent={{ name: currentAgent?.name || '', phone: currentAgent?.phone || '', website: currentAgent?.website || '' }}
-        referenceImageUrl={brosurImageUrl || pkg.brosurUrl || null}
-        pkg={isPromptOpen ? buildBrochurePromptData() : null}
-        title={pkg.nama}
-      />
+      {promptMounted && (
+        <Suspense fallback={null}>
+          <BrochurePromptModal
+            isOpen={isPromptOpen}
+            onClose={() => setIsPromptOpen(false)}
+            agent={{ name: currentAgent?.name || '', phone: currentAgent?.phone || '', website: currentAgent?.website || '' }}
+            referenceImageUrl={brosurImageUrl || pkg.brosurUrl || null}
+            pkg={isPromptOpen ? buildBrochurePromptData() : null}
+            title={pkg.nama}
+          />
+        </Suspense>
+      )}
 
       {/* Full Screen Screenshot Preview Overlay */}
       {createPortal(

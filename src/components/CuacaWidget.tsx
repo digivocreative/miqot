@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { cityTemperatureData } from '../data/temperatureData';
 
 // ─── Types ───────────────────────────────────────────────────────

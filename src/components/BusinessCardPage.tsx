@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Download, Loader2, Share2, Check, Maximize2, Minimize2, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
 import { trackEvent } from '../utils/analytics';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import {
   DESIGNS, CARD_SIZE, RENDERERS, getInitials,
   type CardProps, type DesignId, type CardFormat,

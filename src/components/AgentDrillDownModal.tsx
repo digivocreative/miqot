@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, TrendingUp, Calendar, Zap, UserCheck, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 
 interface DrillDownData {
   agent: { slug: string; name: string; photo: string };

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { getAuthHeaders } from '../components/LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import type { TerasNotification } from '../lib/communityNotifications';
 
 const HEAD_POLL_INTERVAL_MS = 30_000;

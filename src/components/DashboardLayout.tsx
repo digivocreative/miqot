@@ -7,8 +7,8 @@ import {
   CalendarRange, TrendingUp, Mic, CreditCard,
   DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare, Building2,
 } from 'lucide-react';
-import type { AuthSession } from './LoginPage';
-import { clearSession, getAuthHeaders } from './LoginPage';
+import type { AuthSession } from '../lib/authSession';
+import { clearSession, getAuthHeaders } from '../lib/authSession';
 import type { Birthday } from './BirthdayWidget';
 import { trackEvent } from '../utils/analytics';
 import JamaahEditSkeleton from './JamaahEditSkeleton';

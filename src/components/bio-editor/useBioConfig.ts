@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAuthHeaders } from '../LoginPage';
+import { getAuthHeaders } from '../../lib/authSession';
 import type { BioConfig, BioTile, BioTheme } from '../bio/types';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
 import { describeLoadError } from '../../lib/loadError';

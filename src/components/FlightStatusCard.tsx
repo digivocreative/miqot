@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } from '../lib/flightCardDate';

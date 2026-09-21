@@ -4,7 +4,7 @@ import {
   Plus, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
   Loader2, Play, ChevronDown, Search, CheckCircle2, FileText,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import SegmentedControl from './common/SegmentedControl';
 import {
   HOTEL_CITIES, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, HotelViewShell,

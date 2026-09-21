@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X, ChevronDown, Pencil, Save, Wand2, Loader2 } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioConfig } from '../../bio/types';
-import { getAuthHeaders } from '../../LoginPage';
+import { getAuthHeaders } from '../../../lib/authSession';
 
 const BADGE_PRESETS: string[] = [
   '⭐ Partner Resmi Alhijaz',

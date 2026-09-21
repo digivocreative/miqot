@@ -3,7 +3,7 @@ import {
   Loader2, Users, Plane, UserPlus, Wallet,
   ChevronDown, X, RefreshCw, BarChart3, TrendingUp, Lock, ArrowLeft,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import PinInput from './PinInput';
 import FilterDropdown from './FilterDropdown';
 import { normalizeWaNumber } from '../utils/phone';

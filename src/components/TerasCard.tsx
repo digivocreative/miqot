@@ -9,7 +9,7 @@ import {
   type TeaserAvatar as TeaserAvatarData,
   type TerasTeaserData,
 } from '../lib/terasTeaser';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 
 const TICKER_INTERVAL_MS = 4500;
 

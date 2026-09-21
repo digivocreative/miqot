@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TrendingUp, Users, Activity, Eye, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import AgentDrillDownModal from './AgentDrillDownModal';

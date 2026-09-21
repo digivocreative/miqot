@@ -1,10 +1,17 @@
-import { supabase } from '../lib/supabase';
-
 export interface AgentData {
   name: string;
   website: string;
   phone: string; // Format: 628...
   photo: string; // Path ke folder public
+}
+
+/** Satu baris GET /api/agents/public — proyeksi lima kolom publik (lib/public-agents.js). */
+interface PublicAgentRow {
+  slug: string;
+  name: string;
+  website: string;
+  phone: string;
+  photo: string;
 }
 
 // ── localStorage cache key ──
@@ -21,27 +28,34 @@ function loadCachedAgents(): Record<string, AgentData> {
   return {};
 }
 
-// Live data — dimulai dari localStorage cache, lalu di-refresh oleh Supabase
+// Live data — dimulai dari localStorage cache, lalu di-refresh dari /api/agents/public
 export let AGENTS_DATA: Record<string, AgentData> = loadCachedAgents();
 
 let _loaded = false;
 
 /**
- * Fetch agent data dari Supabase dan update AGENTS_DATA in-place.
+ * Fetch agent data dari GET /api/agents/public dan update AGENTS_DATA in-place.
  * Dipanggil sekali saat App mount. Kalau gagal, fallback/cache tetap aktif.
+ *
+ * Dulu membaca tabel agents langsung lewat anon key Supabase — @supabase/* 172 KB
+ * ikut di chunk entry hanya untuk select 5 kolom (audit 21 Sep 2026). Filter
+ * status (active/null) & kolom kini di server; nama fungsi dipertahankan untuk
+ * importer (main.tsx, App.tsx, BioPage, SharePage, portal-jamaah).
  */
 export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData>> {
   if (_loaded) return AGENTS_DATA;
   try {
-    const { data, error } = await supabase
-      .from('agents')
-      .select('slug, name, website, phone, photo')
-      .or('status.eq.active,status.is.null');
+    const response = await fetch('/api/agents/public', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) throw new Error('Respons /api/agents/public bukan array');
 
-    if (error) throw error;
-    if (data && data.length > 0) {
+    if (data.length > 0) {
       const fresh: Record<string, AgentData> = {};
-      for (const row of data) {
+      for (const row of data as PublicAgentRow[]) {
+        if (!row || typeof row.slug !== 'string') continue;
         fresh[row.slug] = {
           name: row.name,
           website: row.website,
@@ -58,7 +72,7 @@ export async function loadAgentsFromSupabase(): Promise<Record<string, AgentData
       try { localStorage.setItem(LS_KEY, JSON.stringify(fresh)); } catch { /* quota exceeded */ }
     }
   } catch (err) {
-    console.warn('[Supabase] Failed to load agents, using fallback/cache:', err);
+    console.warn('[agents] Gagal memuat daftar agent, pakai fallback/cache:', err);
   }
   return AGENTS_DATA;
 }

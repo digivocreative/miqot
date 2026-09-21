@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Upload, X, CheckCircle2, AlertCircle, Camera, Sparkles, Search, ChevronDown, Check, Mars, Venus, Save, XCircle, Wand2, UserPlus } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import {
   MARKETING_DISCOUNT_MAX,

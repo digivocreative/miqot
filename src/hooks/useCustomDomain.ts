@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAuthHeaders } from '../components/LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import type { CustomDomainConfig } from '../types/customDomain';
 
 const POLL_INTERVAL_MS = 30_000;

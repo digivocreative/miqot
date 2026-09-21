@@ -3,7 +3,7 @@ import {
   Plane, Compass, Save, Upload, RotateCcw,
   Loader2, AlertCircle, CheckCircle2, ImageIcon, UserCircle, Globe, X,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import PhotoCropModal from './PhotoCropModal';
 import BioEditorPage from './bio-editor/BioEditorPage';

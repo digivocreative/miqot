@@ -277,6 +277,8 @@ import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from '.
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
 import { buildJamaahSearchNeedle, matchesUmrohJamaahSearch, buildJamaahSearchOrFilter } from './lib/jamaah-search.js';
+import { createScheduleResponseCache } from './lib/schedule-response-cache.js';
+import { listPublicAgents } from './lib/public-agents.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import dnsCallback from 'dns';
@@ -21319,6 +21321,32 @@ async function buildPortalPersiapanResponse(session) {
   };
 }
 
+// Daftar agent publik untuk routing /:slug & kartu agent di frontend
+// (src/data/agents.ts). Dulu browser membaca tabel agents langsung lewat anon
+// key Supabase — @supabase/* 172 KB di chunk entry hanya untuk select 5 kolom
+// (audit 21 Sep 2026). Sumber = cache getAgents() 5 menit; hanya kolom
+// daftar-putih lib/public-agents.js karena tabel agents memuat PII & kunci.
+// WAJIB terdaftar sebelum '/api/agents/:slug/public' — walau jumlah segmennya
+// beda, jangan beri kesempatan :slug='public' menangkapnya.
+app.get('/api/agents/public', async (req, res) => {
+  try {
+    const agents = await getAgents();
+    const list = listPublicAgents(agents);
+    if (list.length === 0) {
+      // getAgents() mengembalikan {} saat query gagal pada cache dingin — jangan
+      // biarkan daftar kosong ter-cache 60 dtk di browser/edge; klien memakai
+      // cache localStorage-nya sendiri sampai server pulih.
+      res.set('Cache-Control', 'no-store');
+      return res.status(503).json({ error: 'Daftar agent belum tersedia' });
+    }
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json(list);
+  } catch (err) {
+    console.error('[Agents] public list error:', err.message);
+    res.status(500).json({ error: 'Gagal mengambil daftar agent' });
+  }
+});
+
 app.get('/api/agents/:slug/public', async (req, res) => {
   try {
     const slug = normalizePortalSlug(req.params.slug);
@@ -21980,6 +22008,9 @@ async function syncUmrohSchedules() {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[ScheduleSync] Complete: ${totalSynced} packages in ${elapsed}s`);
+  // Baris umroh_schedules baru saja ditulis — payload /api/schedules yang
+  // sudah dibangun tidak boleh dilayani lagi.
+  invalidateScheduleResponseCache();
 }
 
 // ──────────────────────────────────────────────
@@ -22491,6 +22522,9 @@ async function syncFilesToBunny({ kinds = ['brosur', 'itinerary'] } = {}) {
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[BunnySync] Complete: ${uploaded} uploaded, ${thumbsUploaded} thumbs, ${thumbsCleared} stale thumbs cleared, ${metadataUpdated} metadata updated, ${skipped} skipped, ${errors} errors, ${thumbErrors} thumb errors in ${elapsed}s`);
+  // Kolom brosur_cdn/itinerary_cdn/brosur_thumb_cdn ikut dalam payload
+  // /api/schedules — buang cache respons agar URL CDN baru langsung tampil.
+  invalidateScheduleResponseCache();
 }
 
 // Schedule and daily timers may land on the same minute. Serialize file scans so
@@ -22565,6 +22599,17 @@ const warnedContradictoryJourneyOrder = new Set();
 const warnedSuspectRouteJourneyOrder = new Set();
 const warnedForeignItineraryContent = new Set();
 
+// Cache in-memory payload sukses per yearCode (TTL 60 dtk, lib/schedule-response-cache.js).
+// Endpoint ini dipanggil ~830×/hari dan tiap request = 2 query PostgREST berurutan +
+// inferensi itinerary (~160–180 ms) padahal datanya hanya berubah saat sync menulis.
+// Invalidasi eksplisit di akhir syncUmrohSchedules() dan syncFilesToBunny(); penulis
+// lain (ItinerarySync, cleanup) cukup ditutup TTL pendek. Keduanya dijalankan lewat
+// timer setelah startup, jadi const ini sudah terinisialisasi saat dipanggil.
+const scheduleResponseCache = createScheduleResponseCache();
+function invalidateScheduleResponseCache() {
+  scheduleResponseCache.invalidate();
+}
+
 app.get('/api/schedules/:yearCode', async (req, res) => {
   const yearCode = req.params.yearCode;
 
@@ -22577,6 +22622,12 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
   // hand their frozen prices to a caller. The dashboard only ever requests active years.
   if (!SCHEDULE_YEAR_CODES.includes(yearCode)) {
     return res.status(404).json({ status: 'error', error: 'Year not active' });
+  }
+
+  // Payload identik dengan yang dibangun di bawah; hanya respons sukses yang disimpan.
+  const cachedBody = scheduleResponseCache.get(yearCode);
+  if (cachedBody) {
+    return res.json(cachedBody);
   }
 
   let cachedRows = [];
@@ -22607,6 +22658,9 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
     const scheduleRows = buildScheduleRows(cachedRows, null, yearCode);
 
     let journeyOrderById = new Map();
+    // Payload yang dibangun tanpa urutan itinerary (lookup/inferensi gagal sesaat)
+    // tetap dikirim, tapi JANGAN di-cache 60 dtk — request berikutnya coba lagi.
+    let journeyDegraded = false;
     try {
       const jadwalIds = scheduleRows.map(row => row.jadwal_id).filter(Boolean);
       if (jadwalIds.length) {
@@ -22616,6 +22670,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
           .in('jadwal_id', jadwalIds);
 
         if (itineraryError) {
+          journeyDegraded = true;
           console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
         } else {
           const scheduleById = new Map(scheduleRows.map(row => [row.jadwal_id, row]));
@@ -22659,16 +22714,19 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
         }
       }
     } catch (journeyErr) {
+      journeyDegraded = true;
       console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
     }
 
     const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
 
-    res.json({
+    const body = {
       status: 'ok',
       iTotalDisplayRecords: aaData.length,
       aaData,
-    });
+    };
+    if (!journeyDegraded) scheduleResponseCache.set(yearCode, body);
+    res.json(body);
   } catch (err) {
     console.error(`[Schedules] Response build error for ${yearCode}: ${err.message}`);
     res.status(500).json({

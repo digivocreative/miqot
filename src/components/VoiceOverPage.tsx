@@ -4,7 +4,7 @@ import {
   Mic, Play, Pause, Download, Loader2, CirclePlay, ChevronDown, Search,
 } from 'lucide-react';
 import { getPackages } from '../services/data-service';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { canShareFiles } from '../utils/share';
 

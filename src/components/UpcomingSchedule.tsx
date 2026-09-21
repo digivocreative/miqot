@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } fro
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import KaabaIcon from './bio/KaabaIcon';
 import { AnimatePresence, motion } from 'framer-motion';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
 import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/calendarPeople';
 import { buildBerangkatGroups, fmtTglLong } from '../../lib/berangkat-groups.js';

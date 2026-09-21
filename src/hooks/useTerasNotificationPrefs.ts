@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { getAuthHeaders } from '../components/LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 
 export type TerasPrefKey =

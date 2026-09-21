@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories, HOTEL_RATING_PLATFORMS, HOTEL_MAX_FAQ_ITEMS } from '../../lib/hotel-directory.js';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
 import HotelFilterSheet from './HotelFilterSheet';

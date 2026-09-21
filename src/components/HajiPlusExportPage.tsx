@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Download, Loader2, Share2 } from 'lucide-react';
 import { BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { downloadBlob } from '../utils/share';
 import FilterDropdown from './FilterDropdown';

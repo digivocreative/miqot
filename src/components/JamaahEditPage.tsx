@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react';
 import { AlertCircle, Loader2, Save, XCircle } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 import FilterDropdown from './FilterDropdown';

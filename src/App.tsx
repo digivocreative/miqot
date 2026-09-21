@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { PackageCard, CompactCard, FilterHeader, FilterModal, type QuickFilterType, type TimeRange } from '@/components';
 import { getPackages, refreshPackages, isPackagesCacheFresh, type GetPackagesResult } from '@/services';
@@ -37,9 +37,12 @@ import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
-import PortalJamaahRouter from '@/components/portal-jamaah/PortalJamaahRouter';
 import PullToRefresh from '@/components/pwa/PullToRefresh';
 import { hasInAppHistory } from './lib/appHistory';
+
+// Portal Jamaah (±35 KB) hanya untuk rute /:slug/jamaah — chunk terpisah supaya
+// pengunjung daftar jadwal tidak ikut mengunduhnya di entry.
+const PortalJamaahRouter = lazy(() => import('@/components/portal-jamaah/PortalJamaahRouter'));
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -118,7 +121,15 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   if (isPortalJamaah) {
     if (portalSlug && AGENTS_DATA[portalSlug]) {
-      return <PortalJamaahRouter slug={portalSlug} subPath={pathSegments.slice(2)} />;
+      return (
+        <Suspense fallback={
+          <div className="flex min-h-screen items-center justify-center bg-slate-50">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+          </div>
+        }>
+          <PortalJamaahRouter slug={portalSlug} subPath={pathSegments.slice(2)} />
+        </Suspense>
+      );
     }
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-8 font-sans">
@@ -526,11 +537,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     });
   }, [updateRefreshFailure]);
 
-  /** Tarik data segar di latar tanpa mengosongkan daftar (revalidasi cache, "Coba lagi"). */
-  const revalidatePackages = useCallback(async (yearCode: string) => {
+  /**
+   * Tarik data segar di latar tanpa mengosongkan daftar (revalidasi cache, "Coba lagi").
+   * `preferPrefetch` hanya dari revalidasi saat mount: skrip inline index.html sudah
+   * menembak /api/schedules saat HTML diurai — pakai responsnya, jangan fetch identik
+   * kedua. Pull-to-refresh / "Coba lagi" / interval tetap fetch baru.
+   */
+  const revalidatePackages = useCallback(async (yearCode: string, preferPrefetch = false) => {
     setRevalidating(true);
     try {
-      const fresh = await refreshPackages({ yearCode, silent: true });
+      const fresh = await refreshPackages({ yearCode, silent: true, preferPrefetch });
       if (fresh.success) {
         applyPackages(fresh.packages, /* preserveScroll */ true);
         console.log('[App] Background revalidation complete');
@@ -564,8 +580,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       noteRefreshResult(yearCode, result);
 
       // If data came from cache, revalidate against the API in the background
+      // (memakai prefetch index.html bila ada — satu request, bukan dua).
       if (result.fromCache && !silent) {
-        void revalidatePackages(yearCode);
+        void revalidatePackages(yearCode, /* preferPrefetch */ true);
       }
     } else if (!silent) {
       // Only show error on non-silent fetches

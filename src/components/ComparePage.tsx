@@ -22,7 +22,7 @@ import {
 import { getPackages, filterAvailable, sortByDepartureDate } from '@/services';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import type { UmrohPackage } from '@/types';
 import {
   listPackageTiers,

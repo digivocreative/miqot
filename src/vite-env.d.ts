@@ -25,4 +25,15 @@ interface Window {
     /** Request INI benar-benar lewat custom domain. Satu-satunya yang boleh dipercaya. */
     viaCustomDomain?: boolean;
   };
+  /**
+   * Prefetch GET /api/schedules/:yearCode yang dimulai skrip inline index.html
+   * sebelum bundle dieksekusi. Kunci = yearCode; data-service (fetchFromApi)
+   * memakainya SEKALI lalu menghapus entrinya.
+   */
+  __schedulesPrefetch?: Record<string, Promise<Response> | undefined>;
+  /**
+   * Stempel Date.now() saat prefetch di atas dimulai, per yearCode. data-service
+   * membuang entri yang berumur lebih dari SCHEDULES_PREFETCH_MAX_AGE_MS.
+   */
+  __schedulesPrefetchAt?: Record<string, number | undefined>;
 }

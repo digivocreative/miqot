@@ -1,4 +1,4 @@
-import { getAuthHeaders } from '../components/LoginPage';
+import { getAuthHeaders } from './authSession';
 
 export interface PortalMagicLinkResponse {
   url: string;

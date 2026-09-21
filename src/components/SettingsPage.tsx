@@ -4,7 +4,7 @@ import DashboardProfile from './DashboardProfile';
 import { TelegramSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
 import { replaceAppState } from '../lib/appHistory';

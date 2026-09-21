@@ -62,13 +62,22 @@ test('precache hanya memuat shell aplikasi', () => {
     'icon-maskable-512x512.png',
     'apple-touch-icon.png',
     'favicon.svg',
-    'fonts/brochure/Inter-Regular.woff2',
-    'fonts/brochure/Inter-SemiBold.woff2',
-    'fonts/brochure/Inter-Bold.woff2',
+    'fonts/brochure/Inter-Regular-latin.woff2',
+    'fonts/brochure/Inter-SemiBold-latin.woff2',
+    'fonts/brochure/Inter-Bold-latin.woff2',
+    'fonts/brochure/Inter-ExtraBold-latin.woff2',
   ]) {
     assert.equal(precached(path), true, `${path} harus di-precache`);
   }
   for (const path of [
+    // Berkas Inter penuh (±110 KB, semua skrip), latin-ext, dan berat 900 hanya untuk
+    // glyph non-Latin / brosur — bukan shell.
+    'fonts/brochure/Inter-Regular.woff2',
+    'fonts/brochure/Inter-SemiBold.woff2',
+    'fonts/brochure/Inter-Bold.woff2',
+    'fonts/brochure/Inter-ExtraBold.woff2',
+    'fonts/brochure/Inter-Regular-latin-ext.woff2',
+    'fonts/brochure/Inter-Black-latin.woff2',
     'assets/vendor-pdf-renderer-9b5318e3.js',
     'assets/vendor-pdf-viewer-17fd9023.js',
     'assets/vendor-pdf-viewer-201afb46.css',

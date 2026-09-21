@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { Gift } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import type { Sebutan } from '../utils/sebutan';
 
 const BirthdayListSheet = lazy(() => import('./BirthdayListSheet'));

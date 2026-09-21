@@ -41,23 +41,41 @@
 
     <title>Jadwal Umroh - Alhijaz Indowisata</title>
     <!-- Preload ONLY the Inter weights used above-the-fold in the app UI (Tailwind
-         font-sans = Inter: body 400, labels/titles 600, headings 700). The display
-         fonts (Bebas/Oswald/Montserrat/Roboto Condensed) and heavy Inter weights are
+         font-sans = Inter: body 400, labels/titles 600, headings 700, PackageCard
+         font-extrabold 800) — and only the subset LATIN (±21 KB/berat, hasil
+         scripts/subset-fonts.mjs) bukan berkas penuh (±110 KB, semua skrip). The display
+         fonts (Bebas/Oswald/Montserrat/Roboto Condensed) and Inter 900 are
          brochure/snapdom-only: BrochureSchedulePage loads them on demand via
          document.fonts.load() and awaits document.fonts.ready before capture, so they
          must NOT block (and steal bandwidth on) every page load. They remain available
          through the @font-face rules below (font-display: swap). `crossorigin="anonymous"`
          is required by spec for `as=font` preloads even same-origin. -->
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Regular.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-SemiBold.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Bold.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Regular-latin.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-SemiBold-latin.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-Bold-latin.woff2">
+    <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="/fonts/brochure/Inter-ExtraBold-latin.woff2">
     <style>
       @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/BebasNeue-Regular.woff2') format('woff2'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.woff2') format('woff2'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold.woff2') format('woff2'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold.woff2') format('woff2'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold.woff2') format('woff2'); }
-      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black.woff2') format('woff2'); }
+      /* Inter per berat, urutan WAJIB: (1) berkas penuh dengan unicode-range U+0000-FFFF (fallback
+         glyph non-Latin di BMP — Cyrillic, Yunani, dst. — hanya diunduh bila dipakai; emoji 🕌 🕋
+         bendera di luar BMP tidak memicunya, Inter memang tak punya emoji), (2) subset latin-ext,
+         (3) subset latin — aturan terakhir menang untuk Latin. Daftar unicode-range =
+         scripts/subset-fonts.mjs (latin + simbol UI ★ ☆ ← → ✓ agar berkas penuh tak terunduh). */
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular.woff2') format('woff2'); unicode-range: U+0000-FFFF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Inter-Regular-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+2190, U+2192, U+2605-2606, U+2713; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold.woff2') format('woff2'); unicode-range: U+0000-FFFF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/brochure/Inter-SemiBold-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+2190, U+2192, U+2605-2606, U+2713; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold.woff2') format('woff2'); unicode-range: U+0000-FFFF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Inter-Bold-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+2190, U+2192, U+2605-2606, U+2713; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold.woff2') format('woff2'); unicode-range: U+0000-FFFF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/brochure/Inter-ExtraBold-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+2190, U+2192, U+2605-2606, U+2713; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black.woff2') format('woff2'); unicode-range: U+0000-FFFF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/brochure/Inter-Black-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD, U+2190, U+2192, U+2605-2606, U+2713; }
       @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/brochure/Oswald-Regular.woff2') format('woff2'); }
       @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/brochure/Oswald-Medium.woff2') format('woff2'); }
       @font-face { font-family: 'Oswald'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/brochure/Oswald-Bold.woff2') format('woff2'); }
@@ -107,6 +125,53 @@
             location.reload();
           }
         }
+      })();
+    </script>
+    <script>
+      // Prefetch awal /api/schedules: mulai saat HTML diurai, bukan setelah chunk entry
+      // selesai dieksekusi (~1,3 dtk di 4G + CPU 4×, audit 21 Sep 2026). data-service.ts
+      // (fetchFromApi) memakai promise ini SEKALI lalu menghapusnya dari map — termasuk
+      // revalidasi latar saat mount untuk cache basi (App.tsx preferPrefetch); pull-to-refresh
+      // & interval tidak memakainya. Entri berumur > SCHEDULES_PREFETCH_MAX_AGE_MS (stempel
+      // __schedulesPrefetchAt) dibuang oleh data-service. YEAR WAJIB sama dengan DEFAULT_YEAR_CODE,
+      // kunci & TTL sama dengan PACKAGES_CACHE_PREFIX/PACKAGES_CACHE_TTL_MS di data-service.ts
+      // (dijaga tests/schedules-prefetch-year.test.js). Tidak boleh pernah throw.
+      (function () {
+        try {
+          var YEAR = '1448';
+          var p = location.pathname;
+          if (/^\/(login|register|reset-password|dashboard|admin|f|j|brosur|itinerary|top-partner|compare|teras|api|assets)(\/|$)/.test(p)) return;
+          if (/\/(umroh|haji|bio|jamaah|kalkulasi)(\/|$)/.test(p)) return;
+          // Agent yang sudah login membuka "/" di host PWA: main.tsx merender dashboard
+          // langsung (shouldAutoRedirect && isPwaHost), App tidak pernah mount → prefetch
+          // cuma menyaingi chunk dashboard + /api/auth/me lalu menggantung tanpa pemakai.
+          if (p.replace(/\/+$/, '') === '' && /^(alhijaz\.co|localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+            try {
+              if (localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session')) return;
+            } catch (e) {}
+          }
+          try {
+            // Cache segar (< 30 menit): daftar tampil dari cache, revalidasi latarnya tidak
+            // di jalur kritis — tidak perlu prefetch.
+            var raw = localStorage.getItem('umroh_packages_cache_v2_' + YEAR);
+            if (raw) {
+              var head = /^\{"timestamp":(\d+)/.exec(raw);
+              var ts = head ? Number(head[1]) : JSON.parse(raw).timestamp;
+              if (typeof ts === 'number' && Date.now() - ts < 30 * 60 * 1000) return;
+            }
+          } catch (e) {}
+          var req = fetch('/api/schedules/' + YEAR, { headers: { Accept: 'application/json' } });
+          // Cabang catch tambahan supaya penolakan tidak jadi unhandled rejection;
+          // promise asli (dengan penolakannya) tetap yang disimpan agar consumer bisa fallback.
+          req.catch(function () {});
+          window.__schedulesPrefetch = {};
+          window.__schedulesPrefetch[YEAR] = req;
+          // Stempel mulai per tahun: data-service membuang prefetch yang berumur lebih dari
+          // batasnya supaya respons yang menggantung lama (tanpa pemakai) tidak pernah tampil —
+          // apalagi tersimpan ke cache dengan stempel baru — sebagai kursi/harga segar.
+          window.__schedulesPrefetchAt = {};
+          window.__schedulesPrefetchAt[YEAR] = Date.now();
+        } catch (e) {}
       })();
     </script>
     <div id="root"></div>

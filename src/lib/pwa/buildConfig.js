@@ -49,7 +49,9 @@ export const PRECACHE_GLOB_PATTERNS = [
   'icon-*.png',
   'apple-touch-icon.png',
   'favicon.svg',
-  'fonts/brochure/Inter-{Regular,SemiBold,Bold}.woff2',
+  // Hanya subset Latin yang di-preload index.html; berkas penuh & latin-ext diambil
+  // runtime cache bila ada glyph di luar Latin.
+  'fonts/brochure/Inter-{Regular,SemiBold,Bold,ExtraBold}-latin.woff2',
 ];
 
 export const PRECACHE_GLOB_IGNORES = [

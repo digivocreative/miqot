@@ -4,7 +4,7 @@ import {
   AlertCircle, Trash2, Info, Clock, Server, Lock, ArrowRight,
   Youtube, CirclePlay, X,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { useCustomDomain } from '../hooks/useCustomDomain';
 import { isCustomDomainEnabledForAgent } from '../lib/customDomainAccess';

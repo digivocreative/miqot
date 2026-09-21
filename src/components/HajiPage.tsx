@@ -7,7 +7,7 @@ import {
   FileText, MessageCircle, User, Lock, Eye, EyeOff, LogIn,
   KeyRound, Trash2, PenLine,
 } from 'lucide-react';
-import { getAuthHeaders, getStoredSession } from './LoginPage';
+import { getAuthHeaders, getStoredSession } from '../lib/authSession';
 import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { useBackToClose } from '../hooks/useBackToClose';

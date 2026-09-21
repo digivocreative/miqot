@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Download, RefreshCw, BarChart3 as BarChart3Icon, Calculator, Users, PlaneTakeoff, ExternalLink } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, LabelList } from 'recharts';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import SimulasiHajiPlus from './SimulasiHajiPlus';
 import { fetchHajiPlusStats, formatSyncedAt, type HajiPlusData, type HajiPlusSeries } from '../lib/fetchHajiPlusStats';

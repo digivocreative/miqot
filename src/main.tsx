@@ -2,6 +2,7 @@ import { StrictMode, lazy, Suspense, Component, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import { decideVersionAction, repairStuckServiceWorker } from './lib/pwa/versionCheck'
+import { whenWorkerInstalled } from './lib/pwa/installingWorker'
 import { markUpdateReady } from './lib/pwa/updateStore'
 import { isStandaloneDisplay, shouldResumeSessionOnLogin } from './lib/pwa/launch'
 import { suppressUnloadGuard } from './lib/unsavedChanges'
@@ -125,6 +126,15 @@ function RouteErrorFallback() {
   )
 }
 
+// Spinner rute: fallback Suspense chunk halaman & status 'checking' DashboardRouter.
+function RouteSpinner() {
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+    </div>
+  )
+}
+
 // Bar status Android / judul jendela desktop mengikuti mode terang-gelap header.
 startThemeColorSync()
 // beforeinstallprompt bisa datang sebelum React mount — tangkap sekarang (InstallAppCard).
@@ -157,32 +167,62 @@ if (isPwaHost) {
       window.location.reload()
     }
     navigator.serviceWorker?.addEventListener('controllerchange', reloadOnce, { once: true })
-    void updateSW(true)
+    // Registrasi SW ditunda (lihat di bawah). updateSW dari registerSW yang BARU dipanggil
+    // hanya menunggu import workbox-window — navigator.serviceWorker.register() belum
+    // selesai, jadi messageSkipWaiting-nya no-op (registration masih kosong) dan reload
+    // 4 dtk kemudian masih menyajikan shell lama → toast muncul lagi. Kirim SKIP_WAITING
+    // langsung ke worker yang menunggu (dist/sw.js: self.skipWaiting()); jalur workbox
+    // tetap dipanggil untuk registrasi yang sudah jalan (pesan ganda tidak masalah).
+    navigator.serviceWorker?.getRegistration()
+      .then((registration) => { registration?.waiting?.postMessage({ type: 'SKIP_WAITING' }) })
+      .catch(() => { /* tanpa registrasi — jalur workbox di bawah yang menangani */ })
+    void ensureSwRegistered()(true)
     window.setTimeout(reloadOnce, 4000)
   }
 
   // Mode "prompt": SW baru menunggu sampai pengguna memilih "Refresh" di UpdateToast
   // (atau semua jendela app ditutup). Dulu autoUpdate me-reload SEMUA tab tanpa peringatan
   // begitu SW baru aktif, membuang teks yang sedang diketik (audit 2026-09-17).
-  const updateSW = registerSW({
-    immediate: true,
-    onNeedRefresh() {
-      markUpdateReady(activateWaitingWorker)
-    },
-    onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
-      if (!registration) return
-      const checkForUpdate = () => {
-        registration.update().catch(() => { /* offline — ignore */ })
-      }
-      // Poll hourly — the visibilitychange handler below already catches updates
-      // whenever the user returns to the tab, so a tight 60s poll was redundant
-      // network chatter.
-      setInterval(checkForUpdate, 3_600_000)
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') checkForUpdate()
+  //
+  // Registrasi ditunda sampai window `load` + idle (maks 4 dtk setelah load):
+  // registerSW immediate memicu install SW + unduh precache (±4 MB) yang di
+  // kunjungan pertama bersaing bandwidth dengan API/gambar above-the-fold.
+  // Opsi & callback tidak berubah; ensureSwRegistered dipanggil lebih awal bila
+  // activateWaitingWorker membutuhkannya sebelum jadwal idle tiba.
+  let updateSW: ((reloadPage?: boolean) => Promise<void>) | undefined
+  const ensureSwRegistered = () => {
+    if (!updateSW) {
+      updateSW = registerSW({
+        immediate: true,
+        onNeedRefresh() {
+          markUpdateReady(activateWaitingWorker)
+        },
+        onRegisteredSW(_swUrl: string, registration: ServiceWorkerRegistration | undefined) {
+          if (!registration) return
+          const checkForUpdate = () => {
+            registration.update().catch(() => { /* offline — ignore */ })
+          }
+          // Poll hourly — the visibilitychange handler below already catches updates
+          // whenever the user returns to the tab, so a tight 60s poll was redundant
+          // network chatter.
+          setInterval(checkForUpdate, 3_600_000)
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') checkForUpdate()
+          })
+        },
       })
-    },
-  })
+    }
+    return updateSW
+  }
+  const scheduleSwRegistration = () => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => { ensureSwRegistered() }, { timeout: 4000 })
+    } else {
+      window.setTimeout(ensureSwRegistered, 3000)
+    }
+  }
+  if (document.readyState === 'complete') scheduleSwRegistration()
+  else window.addEventListener('load', scheduleSwRegistration, { once: true })
 
   // ── Stuck-SW check ─────────────────────────────────────────────────────────
   // /api/version (tidak pernah di-cache SW) melaporkan entry chunk build yang sedang
@@ -208,15 +248,24 @@ if (isPwaHost) {
         ? await navigator.serviceWorker.getRegistration()
         : undefined
       await registration?.update().catch(() => { /* offline — ignore */ })
+      const installingWorker = registration?.installing ?? null
       const action = decideVersionAction({
         runningEntry,
         deployedEntry: entry,
         swWaiting: !!registration?.waiting,
-        swInstalling: !!registration?.installing,
+        swInstalling: !!installingWorker,
         repairedFor: storageGet('session', REPAIRED_KEY),
       })
       if (action === 'prompt') {
         markUpdateReady(registration?.waiting ? activateWaitingWorker : reloadPage)
+      } else if (action === 'wait' && installingWorker) {
+        // Registrasi workbox ditunda (ensureSwRegistered) dan bisa datang SETELAH update()
+        // di atas memulai install SW baru — SW yang sudah `installing` saat register()
+        // tidak pernah dilacak workbox, onNeedRefresh tak pernah dipanggil (lihat
+        // lib/pwa/installingWorker.ts). Pantau sendiri: begitu terpasang (menunggu),
+        // tawarkan muat ulang — activateWaitingWorker mengirim SKIP_WAITING langsung.
+        // Tanpa balapan, workbox menawarkan hal yang sama ±200 ms kemudian: tanpa efek.
+        whenWorkerInstalled(installingWorker, () => markUpdateReady(activateWaitingWorker))
       } else if (action === 'repair') {
         storageSet('session', REPAIRED_KEY, entry)
         await repairStuckServiceWorker()
@@ -332,10 +381,19 @@ if (searchParams.has('transition')) {
 
 // ── Login/Dashboard wrapper component ──
 import { useState, useEffect } from 'react'
-import LoginPage, { getStoredSession, clearSession, type AuthSession } from './components/LoginPage.tsx'
-import DashboardLayout from './components/DashboardLayout.tsx'
-import ResetPasswordPage from './components/ResetPasswordPage.tsx'
-import RegisterPage from './components/RegisterPage.tsx'
+import { getStoredSession, clearSession, type AuthSession } from './lib/authSession'
+// Halaman login/dashboard/register/reset hanya dipakai agent — chunk-nya dipisah
+// supaya pengunjung publik tidak ikut mengunduh DashboardLayout (±52 KB) dkk.
+const loadDashboardLayout = () => import('./components/DashboardLayout.tsx')
+const LoginPage = lazy(() => import('./components/LoginPage.tsx'))
+const DashboardLayout = lazy(loadDashboardLayout)
+const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage.tsx'))
+const RegisterPage = lazy(() => import('./components/RegisterPage.tsx'))
+// Chunk dashboard diunduh paralel dengan verifikasi token (/api/auth/me), bukan
+// sesudahnya: DashboardRouter baru merender layout setelah cek selesai.
+if ((isDashboard || isTerasProfile || (shouldAutoRedirect && isPwaHost)) && getStoredSession()) {
+  loadDashboardLayout().catch(() => { /* lazy() melapor lewat Suspense + RenderErrorBoundary */ })
+}
 
 function LoginRouter() {
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -365,7 +423,11 @@ function LoginRouter() {
     window.location.href = next
     return null
   }
-  return <LoginPage onLogin={(s) => setSession(s)} />
+  return (
+    <Suspense fallback={<RouteSpinner />}>
+      <LoginPage onLogin={(s) => setSession(s)} />
+    </Suspense>
+  )
 }
 
 function DashboardRouter() {
@@ -414,13 +476,7 @@ function DashboardRouter() {
       })
   }, [session?.token])
 
-  if (checking) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-      </div>
-    )
-  }
+  if (checking) return <RouteSpinner />
 
   if (!session) {
     try {
@@ -432,18 +488,18 @@ function DashboardRouter() {
     return null
   }
 
-  return <DashboardLayout session={session} onLogout={() => {
-    clearSession()
-    window.location.href = '/login'
-  }} />
+  return (
+    <Suspense fallback={<RouteSpinner />}>
+      <DashboardLayout session={session} onLogout={() => {
+        clearSession()
+        window.location.href = '/login'
+      }} />
+    </Suspense>
+  )
 }
 
 if (isPwaHost && isSsrLandingPath) {
-  createRoot(document.getElementById('root')!).render(
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-    </div>
-  )
+  createRoot(document.getElementById('root')!).render(<RouteSpinner />)
   void (async () => {
     try {
       if ('serviceWorker' in navigator) {
@@ -514,8 +570,8 @@ if (isPwaHost && isSsrLandingPath) {
         return <DashboardRouter />
       }
       if (isLogin) return <LoginRouter />
-      if (isRegister) return <RegisterPage />
-      if (isResetPassword) return <ResetPasswordPage />
+      if (isRegister) return <Suspense fallback={<RouteSpinner />}><RegisterPage /></Suspense>
+      if (isResetPassword) return <Suspense fallback={<RouteSpinner />}><ResetPasswordPage /></Suspense>
       if (isFlightShare && flightShareCode) {
         return <FlightSharePage code={flightShareCode} />
       }
@@ -558,11 +614,7 @@ if (isPwaHost && isSsrLandingPath) {
     })()
 
     createRoot(document.getElementById('root')!).render(
-      <Suspense fallback={
-        <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-900 dark:to-slate-950 flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-        </div>
-      }>
+      <Suspense fallback={<RouteSpinner />}>
         <RenderErrorBoundary fallback={<RouteErrorFallback />}>
           {page}
         </RenderErrorBoundary>

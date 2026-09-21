@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { BookOpen, ExternalLink, FileText, Loader2, Plane, Share2 } from 'lucide-react';
 import { computeNightSegments, daysUntilDeparture } from '../../../lib/itinerary-view.js';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../../utils/share';
-import BrochureModal from '../BrochureModal';
 import { CITY_HEX, CITY_LABEL, type CityKey } from './cityTheme';
+
+// Strip ini ikut chunk entry lewat rail itinerary layar lebar; BrochureModal
+// (+ StickerStudio yang ditariknya) baru dimuat saat brosur pertama kali dibuka.
+const BrochureModal = lazy(() => import('../BrochureModal'));
 
 interface Props {
   days: Array<{ location?: string | null }>;
@@ -46,6 +49,8 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
   const [downloading, setDownloading] = useState(false);
   const [pending, setPending] = useState<PendingPdf | null>(null);
   const [brosurOpen, setBrosurOpen] = useState(false);
+  // Di-mount setelah pertama kali dibuka, tidak pernah kembali false (animasi tutup).
+  const [brosurMounted, setBrosurMounted] = useState(false);
   const timerRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -184,7 +189,7 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
                mengesampingkan D7 "burgundy = tombol penuh saja" untuk tombol ini. */
             <button
               type="button"
-              onClick={() => setBrosurOpen(true)}
+              onClick={() => { setBrosurMounted(true); setBrosurOpen(true); }}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border-[1.5px] border-burgundy-600 bg-white py-2.5 text-[13px] font-bold text-burgundy-700"
             >
               <BookOpen size={15} /> Brosur
@@ -242,14 +247,16 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
           )}
         </div>
       )}
-      {showBrosur && brosurUrl && (
-        <BrochureModal
-          isOpen={brosurOpen}
-          onClose={() => setBrosurOpen(false)}
-          imageUrl={brosurUrl}
-          title={paketNama || 'Paket Alhijaz'}
-          tone="burgundy"
-        />
+      {showBrosur && brosurUrl && brosurMounted && (
+        <Suspense fallback={null}>
+          <BrochureModal
+            isOpen={brosurOpen}
+            onClose={() => setBrosurOpen(false)}
+            imageUrl={brosurUrl}
+            title={paketNama || 'Paket Alhijaz'}
+            tone="burgundy"
+          />
+        </Suspense>
       )}
     </div>
   );

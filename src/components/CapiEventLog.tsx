@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ChevronLeft, ChevronRight, Inbox, AlertTriangle } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import FilterDropdown from './FilterDropdown';
 
 interface LogEntry {

@@ -27,6 +27,13 @@ const DEFAULT_YEAR_CODE = '1448'; // Hijri year code
 
 const PACKAGES_CACHE_PREFIX = 'umroh_packages_cache_v2_';
 const PACKAGES_CACHE_TTL_MS = 30 * 60 * 1000; // 30 menit
+// Umur maksimal respons prefetch index.html (window.__schedulesPrefetch) yang masih boleh
+// dipakai. Prefetch dimulai saat HTML diurai dan normalnya dikonsumsi beberapa detik
+// kemudian. Bila tidak ada yang memakainya (mis. agent login membuka "/" → dashboard
+// dirender tanpa App), promise itu menggantung; tanpa batas ini getPackages() berjam-jam
+// kemudian bisa menampilkan kursi/harga basi sebagai data segar DAN menyimpannya ke cache
+// dengan stempel baru (KalkulasiPage/ComparePage lalu mempercayainya 30 menit).
+const SCHEDULES_PREFETCH_MAX_AGE_MS = 30 * 1000;
 
 // ============================================
 // Cache Types & Helpers
@@ -279,6 +286,17 @@ export interface GetPackagesOptions {
    * Only opt in from mounted, re-rendering consumers that handle `fromCache`.
    */
   nonBlockingStale?: boolean;
+
+  /**
+   * Boleh memakai respons prefetch index.html (window.__schedulesPrefetch) walau
+   * `forceRefresh` (default: false). HANYA untuk revalidasi latar saat mount
+   * (App.tsx, cabang `fromCache` setelah nonBlockingStale): skrip inline sudah
+   * menembak request yang sama saat HTML diurai, jadi fetch kedua yang identik
+   * cuma membuang bandwidth dan menggandakan beban server. Pull-to-refresh &
+   * interval tetap tanpa opsi ini — entrinya pun sekali pakai, jadi refresh
+   * berikutnya selalu meminta data baru.
+   */
+  preferPrefetch?: boolean;
 }
 
 export interface GetPackagesResult {
@@ -322,7 +340,11 @@ export async function getPackages(
     forceRefresh = false,
     silent = false,
     nonBlockingStale = false,
+    preferPrefetch = false,
   } = options;
+  // Prefetch index.html dipakai saat bukan refresh paksa, atau saat revalidasi
+  // latar mount memintanya (preferPrefetch) — lihat GetPackagesOptions.
+  const allowPrefetch = !forceRefresh || preferPrefetch;
 
   // ── Step 1: Try cache first (unless forceRefresh) ──
   if (!forceRefresh) {
@@ -363,7 +385,7 @@ export async function getPackages(
       // fresh too. Fall back to the stale snapshot only when the network fetch fails
       // (stale-while-error) so the page never breaks offline.
       console.log(`[data-service] ⏳ Cache STALE (${Math.round(cached.age / 60000)}min old) — revalidating`);
-      const revalidated = await fetchFromApi(yearCode, timeout, fetchOptions, silent);
+      const revalidated = await fetchFromApi(yearCode, timeout, fetchOptions, silent, allowPrefetch);
       if (revalidated.success) {
         return revalidated;
       }
@@ -380,7 +402,7 @@ export async function getPackages(
   }
 
   // ── Step 2: Fetch from API ──
-  return fetchFromApi(yearCode, timeout, fetchOptions, silent);
+  return fetchFromApi(yearCode, timeout, fetchOptions, silent, allowPrefetch);
 }
 
 /**
@@ -393,33 +415,108 @@ export async function refreshPackages(
 }
 
 /**
- * Internal: fetch data from the real API and update cache
+ * Ambil promise prefetch /api/schedules yang dimulai skrip inline index.html
+ * (berjalan saat HTML diurai, jauh sebelum chunk entry dieksekusi). Sekali
+ * pakai: entrinya dihapus dari map supaya fetch berikutnya (refresh paksa,
+ * revalidasi) selalu meminta data baru, bukan respons lama. Entri yang berumur
+ * lebih dari SCHEDULES_PREFETCH_MAX_AGE_MS — atau tanpa stempel mulai
+ * (window.__schedulesPrefetchAt) — dibuang: null, pemanggil fetch normal.
+ */
+function takeSchedulesPrefetch(yearCode: string): Promise<Response> | null {
+  if (typeof window === 'undefined') return null;
+  const map = window.__schedulesPrefetch;
+  const promise = map?.[yearCode];
+  if (!map || !promise) return null;
+  delete map[yearCode];
+  const stamps = window.__schedulesPrefetchAt;
+  const startedAt = stamps?.[yearCode];
+  if (stamps) delete stamps[yearCode];
+  const age = typeof startedAt === 'number' ? Date.now() - startedAt : NaN;
+  if (!(age >= 0 && age <= SCHEDULES_PREFETCH_MAX_AGE_MS)) {
+    const label = Number.isNaN(age) ? 'tanpa stempel' : `umur ${Math.round(age / 1000)} dtk`;
+    console.log(`[data-service] Prefetch index.html dibuang (${label}) — fetch normal`);
+    return null;
+  }
+  return promise;
+}
+
+/**
+ * Tunggu respons prefetch paling lama `timeout` ms. null bila ditolak (galat
+ * jaringan) atau kehabisan waktu — pemanggil jatuh ke fetch normal seperti biasa.
+ * Respons yang sampai (ok maupun !ok) dikembalikan apa adanya.
+ */
+async function awaitPrefetchedResponse(
+  prefetched: Promise<Response>,
+  timeout: number,
+): Promise<Response | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeout);
+  });
+  try {
+    const response = await Promise.race([prefetched, expired]);
+    if (!response) {
+      console.warn('[data-service] Prefetch kehabisan waktu — fallback ke fetch normal');
+      return null;
+    }
+    // Respons !ok (mis. 503) DIPAKAI apa adanya → galat HTTP seperti fetch normal,
+    // BUKAN fetch ulang: request identik ke server yang sedang sakit hanya
+    // menggandakan bebannya (kontrak "revalidasi menembak sekali",
+    // tests/jadwal-offline-states.browser.test.js). "Coba lagi" tetap fetch baru.
+    return response;
+  } catch (error) {
+    console.warn(
+      '[data-service] Prefetch gagal — fallback ke fetch normal:',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Internal: fetch data from the real API and update cache.
+ * `allowPrefetch` = boleh memakai respons prefetch index.html (false saat forceRefresh,
+ * kecuali GetPackagesOptions.preferPrefetch — revalidasi latar saat mount).
  */
 async function fetchFromApi(
   yearCode: string,
   timeout: number,
   fetchOptions: RequestInit,
   silent: boolean,
+  allowPrefetch = false,
 ): Promise<GetPackagesResult> {
   const url = `${API_BASE_URL}/${yearCode}`;
 
   try {
-    // Create abort controller for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    // Prefetch dari index.html (bila ada) dipakai lebih dulu; gagal/timeout →
+    // fetch normal di bawah, semantik lain (cache, transform, log) tidak berubah.
+    const prefetched = allowPrefetch ? takeSchedulesPrefetch(yearCode) : null;
+    let response: Response | null = prefetched
+      ? await awaitPrefetchedResponse(prefetched, timeout)
+      : null;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...fetchOptions.headers,
-      },
-      signal: controller.signal,
-      ...fetchOptions,
-    });
+    if (response) {
+      console.log('[data-service] ⚡ Memakai respons prefetch index.html');
+    } else {
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    clearTimeout(timeoutId);
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...fetchOptions.headers,
+        },
+        signal: controller.signal,
+        ...fetchOptions,
+      });
+
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

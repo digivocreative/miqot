@@ -3,7 +3,7 @@ import {
   TrendingDown, Clock,
   CheckCircle, Package, ChevronDown, ChevronUp,
 } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { pickNearestMasehiYear } from './StatistikPage';
 import FilterDropdown from './FilterDropdown';
 import {

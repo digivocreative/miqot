@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import PhotoCropModal from './PhotoCropModal';
 import PinInput from './PinInput';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';

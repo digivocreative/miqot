@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, X, Loader2, Trash2, Play, ImageOff } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import MediaViewerModal from './MediaViewerModal';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';

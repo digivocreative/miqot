@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Send, ArrowRight } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 
 interface TelegramStatus {
   connected: boolean;

@@ -1,4 +1,4 @@
-import { getStoredSession } from '../components/LoginPage';
+import { getStoredSession } from '../lib/authSession';
 
 export async function trackEvent(eventType: string, eventName: string, metadata: Record<string, any> = {}) {
   try {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, Clock, Copy, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
-import { getAuthHeaders } from './LoginPage';
+import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 
 interface KeyStatus {

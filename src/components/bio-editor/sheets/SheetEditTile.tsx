@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Trash2, AlertTriangle, Save, Loader2 } from 'lucide-react';
 import SheetBase from './SheetBase';
 import type { BioAgentPublic, BioTile, FeaturedPaketPreview } from '../../bio/types';
-import { getAuthHeaders } from '../../LoginPage';
+import { getAuthHeaders } from '../../../lib/authSession';
 import PaketPicker from './PaketPicker';
 import PhotoUploadField from './PhotoUploadField';
 import LinkIconPicker from './LinkIconPicker';
