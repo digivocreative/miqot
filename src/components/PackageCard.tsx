@@ -42,10 +42,6 @@ let cachedInterFontCSS: string | null = null;
 const LINK_COPY_LOADING_MS = 500;
 const LINK_COPY_CHECK_MS = 1200;
 const LINK_COPY_TOAST_MS = 2200;
-// Watermark bendera: prioritas unduh rendah. Huruf kecil lewat spread — React 18 belum
-// mengenal prop camelCase `fetchPriority` (peringatan di konsol dev); pola sama dengan
-// BANNER_IMG_PRIORITY di HotelPage.tsx.
-const WATERMARK_IMG_PRIORITY = { fetchpriority: 'low' } as Record<string, string>;
 
 interface PackageCardProps {
   package: UmrohPackage;
@@ -1685,7 +1681,9 @@ _________________________
       {/* Flag overlay — keep it mounted so expand/collapse does not flash while repainting.
           WebP 250 px (±7 KB, scripts/generate-flag-webp.mjs) lewat <picture>; PNG 600×401
           (65–120 KB) tetap fallback & dipakai react-pdf (CompareDocument/itinerary). Watermark
-          opacity 0.12 jangan jadi elemen LCP: decoding async + fetchpriority low. */}
+          opacity 0.12 dipilih Chrome sebagai elemen LCP; prioritas unduh JANGAN diturunkan
+          (fetchpriority=low menahannya sampai event load di jaringan lambat → LCP mundur),
+          cukup decoding async karena berkasnya kini ±7 KB. */}
       {(() => {
         const flags = getCountryFlags(hotelInfo);
         return (
@@ -1694,7 +1692,7 @@ _________________________
               <div className="relative w-[125px] h-[88px]">
                 <picture>
                   <source type="image/webp" srcSet={flags[0].replace(/\.png$/, '.webp')} />
-                  <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" {...WATERMARK_IMG_PRIORITY} />
+                  <img src={flags[0]} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" />
                 </picture>
                 <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
               </div>
@@ -1704,7 +1702,7 @@ _________________________
                   <div key={flag} className="relative w-[100px] h-[70px]">
                     <picture>
                       <source type="image/webp" srcSet={flag.replace(/\.png$/, '.webp')} />
-                      <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" {...WATERMARK_IMG_PRIORITY} />
+                      <img src={flag} alt="" className="w-full h-full object-cover opacity-[0.12] rounded" decoding="async" />
                     </picture>
                     <div className="absolute inset-0 bg-gradient-to-l from-white dark:from-slate-900 to-transparent to-40%" />
                   </div>
