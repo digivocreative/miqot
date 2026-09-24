@@ -200,9 +200,8 @@ test('gelembung berjangkar ke tombol matanya sendiri', () => {
 test('gelembung ikut sembunyi saat tombolnya sendiri tidak ada', () => {
   // Kalau `open` lepas dari showAvailabilityToggle, gelembung bisa melayang
   // menunjuk tombol yang sudah tidak dirender.
-  const open = filterHeader.match(/open=\{[^}]*\}/)?.[0] ?? '';
-  assert.notEqual(open, '', 'prop open tidak ditemukan');
-  assert.match(open, /showAvailabilityToggle/);
+  assert.match(filterHeader, /open=\{hintVisible\}/);
+  assert.match(filterHeader, /const hintVisible = [^;]*showAvailabilityToggle[^;]*;/);
 });
 
 test('pemicunya tombol mata MUNCUL, bukan sekali per kunjungan', () => {
@@ -216,11 +215,23 @@ test('pemicunya tombol mata MUNCUL, bukan sekali per kunjungan', () => {
   // lagi dalam 4 jam tidak menayangkannya ulang.
   assert.match(effect, /setHintOpen\(false\)/);
   assert.match(effect, /shouldShowAvailabilityHint\(\)/);
-  // Jam 4 jam mulai saat gelembung BENAR-BENAR tampil (di dalam timer), jadi
-  // pindah filter lagi sebelum 600 ms tidak menghabiskan jatahnya.
   const timer = effect.match(/setTimeout\(\(\) => \{[\s\S]*?\}, \d+\)/)?.[0] ?? '';
-  assert.match(timer, /markAvailabilityHintShown\(\)/);
   assert.match(timer, /setHintOpen\(true\)/);
+  // Timer hanya MENGANTREKAN gelembung. Jatah 4 jam baru dipakai saat ia
+  // benar-benar TERLIHAT — dulu dicatat di sini, dan gelembung yang masih
+  // tertahan (panel dropdown terbuka, header menciut) lalu dibatalkan karena
+  // pengunjung balik ke Seat Tersedia menghabiskan jatahnya tanpa pernah
+  // terlihat.
+  assert.doesNotMatch(timer, /markAvailabilityHintShown/);
+  assert.equal([...filterHeader.matchAll(/markAvailabilityHintShown\(\)/g)].length, 1, 'pencatat jatah harus tepat satu');
+  assert.match(
+    filterHeader,
+    /const hintVisible = hintOpen && showAvailabilityToggle && isVisible && openMenuCount === 0;/,
+  );
+  assert.match(
+    filterHeader,
+    /useEffect\(\(\) => \{\s*if \(hintVisible\) markAvailabilityHintShown\(\);\s*\}, \[hintVisible\]\);/,
+  );
   // Menutup gelembung tidak lagi membisukan selamanya.
   assert.doesNotMatch(filterHeader, /markAvailabilityHintSeen/);
 });
@@ -229,8 +240,8 @@ test('gelembung menunggu selama dropdown header terbuka, tidak menimpanya', () =
   // Memilih mode dari dropdown utama langsung menyembulkan sub-filternya, dan
   // 600 ms kemudian gelembung terbit — tanpa gerbang ini ia menutupi opsi
   // panel yang baru terbuka (terlihat di "9 HARI / 10 HARI").
-  const open = filterHeader.match(/open=\{[^}]*\}/)?.[0] ?? '';
-  assert.match(open, /openMenuCount === 0/);
+  assert.match(filterHeader, /open=\{hintVisible\}/);
+  assert.match(filterHeader, /const hintVisible = [^;]*openMenuCount === 0;/);
 
   // Setiap FilterDropdown di header melapor buka/tutup — satu yang lupa berarti
   // gelembung menimpa panel itu.

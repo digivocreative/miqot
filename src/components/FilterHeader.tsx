@@ -349,7 +349,7 @@ export function FilterHeader({
   }, []);
 
   // Menutup (× atau tombol matanya) hanya menutup. Jatah 4 jamnya sudah
-  // terpakai saat gelembung tampil, jadi tak ada yang perlu dicatat di sini.
+  // terpakai saat gelembung terlihat, jadi tak ada yang perlu dicatat di sini.
   const dismissAvailabilityHint = useCallback(() => {
     setHintOpen(false);
   }, []);
@@ -364,15 +364,24 @@ export function FilterHeader({
     }
     if (!shouldShowAvailabilityHint()) return;
     // Jeda supaya gelembung tidak berebut frame dengan animasi buka header dan
-    // paint pertama daftar paket — diukur setelah semuanya duduk. Jatah 4 jam
-    // baru dicatat di sini, jadi pindah filter lagi sebelum 600 ms (timer
-    // dibatalkan) tidak menghabiskannya.
+    // paint pertama daftar paket — diukur setelah semuanya duduk. Timer ini
+    // hanya MENGANTREKAN gelembung; jatah 4 jam dicatat di efek hintVisible.
     const timer = setTimeout(() => {
-      markAvailabilityHintShown();
       setHintOpen(true);
     }, 600);
     return () => clearTimeout(timer);
   }, [showAvailabilityToggle]);
+
+  // Gelembung benar-benar TERLIHAT: antreannya menyala, tombolnya ada, header
+  // tidak menciut, dan tak ada panel dropdown yang terbuka. Jatah 4 jam baru
+  // dipakai di sini — kalau dicatat saat antre, gelembung yang tertahan lalu
+  // batal (pengunjung balik ke Seat Tersedia sebelum menutup panel) menghabiskan
+  // jatahnya tanpa pernah terlihat. Muncul lagi sesudah header digulir
+  // mengembang hanya menggeser stempelnya beberapa detik; tidak mengubah aturan.
+  const hintVisible = hintOpen && showAvailabilityToggle && isVisible && openMenuCount === 0;
+  useEffect(() => {
+    if (hintVisible) markAvailabilityHintShown();
+  }, [hintVisible]);
 
   // Roster sub-filter memakai gerbang yang SAMA dengan hasilnya (filterPackages),
   // jadi angka di label selalu sama dengan jumlah kartu — kalau lepas, "Jeddah
@@ -867,13 +876,13 @@ export function FilterHeader({
 
       </div>
 
-      {/* Petunjuk untuk tombol mata. `open` ikut showAvailabilityToggle DAN
-          isVisible: kalau lepas, gelembungnya bisa melayang menunjuk tombol yang
-          sudah tidak dirender atau header yang sudah menciut. openMenuCount
+      {/* Petunjuk untuk tombol mata. `hintVisible` ikut showAvailabilityToggle
+          DAN isVisible: kalau lepas, gelembungnya bisa melayang menunjuk tombol
+          yang sudah tidak dirender atau header yang sudah menciut. openMenuCount
           menahannya selama panel dropdown terbuka supaya tidak menimpa opsinya. */}
       <AvailabilityCoachMark
         anchorRef={availabilityBtnRef}
-        open={hintOpen && showAvailabilityToggle && isVisible && openMenuCount === 0}
+        open={hintVisible}
         onDismiss={dismissAvailabilityHint}
       />
 
