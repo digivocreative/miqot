@@ -66,10 +66,14 @@ export const RETURN_RANGE_PARAM = 'pulang';
 export const SORT_PARAM = 'urut';
 
 /**
- * Tombol "hanya seat tersedia". Flag tanpa nilai (sebentuk dengan `?promo`):
- * bawaannya mati, jadi selama toggle tidak disentuh link tetap pendek.
+ * Tombol mata MATI (paket habis ikut tampil). Flag tanpa nilai, sebentuk dengan
+ * `?promo`. Bawaannya AKTIF sejak 2026-09-24, jadi yang ditulis justru keadaan
+ * matinya — selama tombol tidak disentuh, link tetap pendek.
+ *
+ * `?tersedia` (flag lama, ditulis saat bawaannya masih mati) sengaja tidak
+ * dibaca lagi: artinya "aktif", dan aktif sekarang memang bawaan.
  */
-export const AVAILABILITY_PARAM = 'tersedia';
+export const SHOW_SOLD_OUT_PARAM = 'habis';
 
 const SORT_SLUGS: Record<SortOrder, string> = {
   'TANGGAL_TERDEKAT': 'terdekat',
@@ -105,6 +109,7 @@ const LEGACY_SECONDARY_PARAM: Partial<Record<FilterMode, string>> = {
 const LEGACY_QUICK_FILTER_PARAM = 'cepat';
 
 export interface FilterUrlState {
+  /** Tombol mata; kosong = bawaan (aktif). Hanya `false` yang ditulis ke URL. */
   availableOnly?: boolean;
   quickFilter?: QuickFilterType | null;
   departureRanges?: readonly TimeRange[];
@@ -172,7 +177,7 @@ export function buildFilterSearch(state: FilterUrlState): string {
 
   // Paling depan: ini saringan paling kasar (memangkas separuh daftar), jadi
   // paling terbaca di awal link.
-  if (state.availableOnly) parts.push(AVAILABILITY_PARAM);
+  if (state.availableOnly === false) parts.push(SHOW_SOLD_OUT_PARAM);
 
   if (state.quickFilter && QUICK_FILTER_VALUES.includes(state.quickFilter)) {
     // Flag tanpa nilai: modenya sudah jelas dari namanya sendiri.
@@ -211,7 +216,7 @@ export function parseFilterSearch(search: string | URLSearchParams): ParsedFilte
 
   return {
     secondary,
-    availableOnly: params.has(AVAILABILITY_PARAM),
+    availableOnly: !params.has(SHOW_SOLD_OUT_PARAM),
     quickFilter,
     departureRanges: decodeRanges(params.get(DEPARTURE_RANGE_PARAM)),
     returnRanges: decodeRanges(params.get(RETURN_RANGE_PARAM)),

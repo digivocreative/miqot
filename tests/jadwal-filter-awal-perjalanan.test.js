@@ -45,7 +45,6 @@ const {
   getPackageJourneyStart,
   filterPackages,
   extractJourneyStarts,
-  MODES_WITH_AVAILABILITY_TOGGLE,
 } = await bundle('src/utils/filter-logic.ts', 'filter-logic-awal');
 const { INTERNATIONAL_TOUR_LABELS } = await bundle('src/utils/journey.ts', 'journey-awal');
 const { filterDimension } = await bundle('src/utils/filter-url.ts', 'filter-url-awal');
@@ -134,7 +133,6 @@ test('filterPackages: tiap sub-nilai hanya memuat awal perjalanannya', () => {
 });
 
 test('mode berdimensi: paket habis ikut tampil, tombol mata menyembunyikannya', () => {
-  assert.ok(MODES_WITH_AVAILABILITY_TOGGLE.includes('AWAL PERJALANAN'));
   const on = filterPackages(DATA, { mode: 'AWAL PERJALANAN', secondaryValue: 'UMROH', availableOnly: true });
   assert.deepEqual(names(on), ['REGULER 9HR']);
 });

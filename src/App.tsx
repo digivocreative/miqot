@@ -13,7 +13,6 @@ import {
   parseFilterSearch,
   URGENT_SEAT_THRESHOLD,
   DEFAULT_SORT,
-  MODES_WITH_AVAILABILITY_TOGGLE,
   type FilterMode,
   type SortOrder,
 } from '@/utils';
@@ -167,9 +166,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // bawaan dan menghapus ?landing=/?cepat= dari link yang baru saja dibuka.
   const urlSyncReadyRef = useRef(false);
   const [filterSecondaryValue, setFilterSecondaryValue] = useState('');
-  // Tombol "hanya seat tersedia" (baris Cari). Bawaannya mati: mode berdimensi
-  // memuat paket habis, dan tombol ini jalan keluar buat menyempitkannya.
-  const [availableOnly, setAvailableOnly] = useState(false);
+  // Tombol mata (baris Cari): true = paket habis disembunyikan. Ada di SEMUA
+  // filter dan bawaannya AKTIF (permintaan user 2026-09-24) — satu-satunya
+  // gerbang kursi, jadi tidak direset saat ganti mode.
+  const [availableOnly, setAvailableOnly] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
@@ -302,13 +302,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     // LEGACY_FILTER_SLUGS di src/utils/filter-logic.ts.
     const resolvedFromSlug = filterSlugFromUrl ? resolveFilterSlug(filterSlugFromUrl) : null;
 
-    // Flag ?tersedia hanya sah di mode yang benar-benar merender tombolnya.
-    // Tanpa gerbang ini link `/nikita?tersedia` menghidupkan state saringan yang
-    // tombolnya tidak ada di layar — tak ada cara mematikannya.
-    setAvailableOnly(
-      parsedUrl.availableOnly &&
-      MODES_WITH_AVAILABILITY_TOGGLE.includes(resolvedFromSlug?.mode ?? 'AVAILABLE'),
-    );
+    // Tombolnya ada di semua mode, jadi flag URL (`?habis` = mati) berlaku apa
+    // pun modenya.
+    setAvailableOnly(parsedUrl.availableOnly);
 
     if (filterSlugFromUrl) {
       if (resolvedFromSlug) {
@@ -772,7 +768,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setSortOrder(DEFAULT_SORT);
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
-    setAvailableOnly(false);
+    setAvailableOnly(true);
     // URL menyusul lewat efek sinkron di atas.
   };
 
@@ -780,11 +776,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     filterModeRef.current = mode;
     setFilterMode(mode);
     setFilterSecondaryValue('');
-    // Toggle "hanya seat tersedia" hidup hanya selama tombolnya terlihat. Kalau
-    // nilainya disimpan diam-diam, user kembali ke mode berdimensi dan mendapati
-    // daftarnya pendek karena saringan yang tombolnya sempat hilang dari layar.
-    // Pindah antar mode yang SAMA-SAMA punya tombol tidak mereset.
-    if (!MODES_WITH_AVAILABILITY_TOGGLE.includes(mode)) setAvailableOnly(false);
+    // Tombol mata TIDAK direset: ia ada di semua mode, jadi keadaannya selalu
+    // terlihat — tidak ada saringan siluman.
     trackFilterChange('mode', mode);
   };
 
@@ -988,7 +981,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setQuickFilter(null);
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
-    setAvailableOnly(false);
+    setAvailableOnly(true);
   };
 
 

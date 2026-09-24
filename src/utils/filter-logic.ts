@@ -123,13 +123,9 @@ export interface FilterParams {
    */
   today?: Date;
   /**
-   * Tombol "hanya seat tersedia" di baris Cari. MENYEMPITKAN, bukan
-   * melebarkan: bawaannya mati (mode berdimensi memuat paket habis), dan nyala
-   * berarti yang habis disembunyikan.
-   *
-   * Hanya berlaku untuk MODES_WITH_AVAILABILITY_TOGGLE. Di luar itu tombolnya
-   * tidak dirender, jadi flag yang nyasar dari URL diabaikan — kalau tidak,
-   * daftar menyusut karena saringan yang tombolnya tak terlihat.
+   * Tombol mata di baris Cari: true = paket habis disembunyikan. Satu-satunya
+   * gerbang kursi, di SEMUA mode. Bawaan halamannya AKTIF (state App); di sini
+   * kosong = mati, supaya fungsi ini tetap murni.
    */
   availableOnly?: boolean;
 }
@@ -180,37 +176,24 @@ const HIJRI_MONTH_NAMES = [
   'Ramadhan', 'Syawal', 'Dzulqaidah', 'Dzulhijjah'
 ];
 
-/**
- * Mode yang memunculkan tombol "hanya seat tersedia".
- *
- * Sengaja TANPA 'AVAILABLE' dan 'SEMUA DATA': keduanya sudah menyatakan
- * gerbang kursinya lewat namanya sendiri, jadi tombol di sana cuma bikin dua
- * kontrol yang bisa saling bertentangan. Satu daftar untuk App (gerbang state
- * + reset), FilterHeader (render tombol), dan filterPackages (fail-closed).
- */
-export const MODES_WITH_AVAILABILITY_TOGGLE: readonly FilterMode[] = [
-  'LANDING DI',
-  'AWAL PERJALANAN',
-  'LIBURAN_SEKOLAH',
-  'UMROH CUTI 5 HARI',
-  'TIPE PAKET',
-  'DURASI PERJALANAN',
-  'DATA PER-BULAN',
-];
-
 // ============================================
-// "Seat Tersedia" sebagai opsi Jenis Paket
+// "Semua Jenis" sebagai opsi Jenis Paket
 // ============================================
 //
-// Dropdown utama tidak lagi menawarkan SEAT TERSEDIA; pilihannya turun jadi
-// opsi PERTAMA dropdown Jenis Paket, tepat di atas "Umroh Saja". Di balik layar
-// ia tetap mode 'AVAILABLE' — itulah yang menjaga halaman bawaan tetap di URL
+// Mode bawaan 'AVAILABLE' tidak punya tempat di dropdown utama; ia tampil
+// sebagai opsi PERTAMA dropdown Jenis Paket, tepat di atas "Umroh Saja". Tetap
+// mode 'AVAILABLE' di balik layar — itulah yang menjaga halaman bawaan di URL
 // telanjang (/nikita), kartu OG & judul tab bawaan, dan telemetri mode yang
-// sama. Yang berubah hanya cara ia TAMPIL, dan terjemahannya hidup di empat
-// fungsi di bawah supaya FilterHeader tidak merakitnya sendiri.
+// sama. Terjemahannya hidup di empat fungsi di bawah supaya FilterHeader tidak
+// merakitnya sendiri.
+//
+// Namanya "Seat Tersedia" sampai 2026-09-24. Sejak tombol mata ada di semua
+// filter dan bawaannya aktif, kursi murni urusan tombol itu — dua kontrol untuk
+// hal yang sama ditolak, jadi opsinya jadi "Semua Jenis" dan mode ini tidak
+// lagi menyaring kursi sendiri.
 
-/** Nilai opsi "Seat Tersedia" di dropdown Jenis Paket. Bukan tipe paket di roster. */
-export const SEAT_TERSEDIA_TYPE_VALUE = 'SEAT TERSEDIA';
+/** Nilai opsi "Semua Jenis" di dropdown Jenis Paket. Bukan tipe paket di roster. */
+export const SEMUA_JENIS_TYPE_VALUE = 'SEMUA JENIS';
 
 /** Nilai yang ditampilkan dropdown utama untuk mode aktif. */
 export function modeMenuValue(mode: FilterMode): FilterMode {
@@ -218,9 +201,8 @@ export function modeMenuValue(mode: FilterMode): FilterMode {
 }
 
 /**
- * Pilihan di dropdown utama → mode sungguhan. JENIS PAKET mendarat di Seat
- * Tersedia (sub-nilai bawaannya), bukan '- Pilih Jenis -' yang dulu memuat
- * SEMUA paket termasuk yang habis.
+ * Pilihan di dropdown utama → mode sungguhan. JENIS PAKET mendarat di Semua
+ * Jenis (sub-nilai bawaannya = halaman bawaan), bukan '- Pilih Jenis -'.
  */
 export function resolveModeMenuChoice(choice: FilterMode): FilterMode {
   return choice === 'TIPE PAKET' ? 'AVAILABLE' : choice;
@@ -228,12 +210,12 @@ export function resolveModeMenuChoice(choice: FilterMode): FilterMode {
 
 /** Nilai yang ditampilkan dropdown Jenis Paket. */
 export function typeMenuValue(mode: FilterMode, secondaryValue: string): string {
-  return mode === 'AVAILABLE' ? SEAT_TERSEDIA_TYPE_VALUE : secondaryValue;
+  return mode === 'AVAILABLE' ? SEMUA_JENIS_TYPE_VALUE : secondaryValue;
 }
 
 /** Pilihan di dropdown Jenis Paket → mode + sub-nilai sungguhan. */
 export function resolveTypeMenuChoice(choice: string): { mode: FilterMode; secondaryValue: string } {
-  if (choice === SEAT_TERSEDIA_TYPE_VALUE) return { mode: 'AVAILABLE', secondaryValue: '' };
+  if (choice === SEMUA_JENIS_TYPE_VALUE) return { mode: 'AVAILABLE', secondaryValue: '' };
   return { mode: 'TIPE PAKET', secondaryValue: choice };
 }
 
@@ -485,19 +467,11 @@ export function filterPackages(
 ): UmrohPackage[] {
   const { mode, secondaryValue, today, availableOnly } = params;
 
-  // Gerbang kursi tidak lagi otomatis. Mode 'AVAILABLE' memang berarti "seat
-  // tersedia"; mode lain menjawab pertanyaan berbeda ("bulan Oktober ada apa?",
-  // "yang landing Madinah mana?") dan paket habis tetap jawaban yang sah —
-  // kartunya dicoret merah, jadi pengunjung tahu itu sudah penuh. Dulu SEMUA
-  // mode menyaring kursi, dan akibatnya bulan/landing yang habis total tidak
-  // pernah bisa ditampilkan sama sekali.
-  //
-  // `availableOnly` (tombol di baris Cari) memasang kembali gerbang itu atas
-  // permintaan user — hanya di mode yang benar-benar merender tombolnya.
-  const seatGated =
-    mode === 'AVAILABLE' ||
-    (!!availableOnly && MODES_WITH_AVAILABILITY_TOGGLE.includes(mode));
-  const base = seatGated ? data.filter(pkg => pkg.seatSisa > 0) : data;
+  // Gerbang kursi = tombol mata, di SEMUA mode, tanpa pengecualian. Tidak ada
+  // mode yang menyaring kursi sendiri lagi (AVAILABLE dulu "Seat Tersedia");
+  // dua kontrol untuk hal yang sama bisa saling bertentangan. Dimatikan,
+  // paket habis tetap jawaban yang sah — kartunya dicoret merah.
+  const base = availableOnly ? data.filter(pkg => pkg.seatSisa > 0) : data;
 
   switch (mode) {
     case 'AVAILABLE':

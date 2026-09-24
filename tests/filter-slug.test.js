@@ -67,7 +67,8 @@ test('label mode: "TIPE PAKET" tampil sebagai "JENIS PAKET"', () => {
   // teks-sumber di tests/filter-header-tipe-paket.test.js.
   assert.equal(filterModeLabel('TIPE PAKET'), 'JENIS PAKET');
   assert.equal(FILTER_MODE_LABELS['TIPE PAKET'], 'JENIS PAKET');
-  assert.equal(filterModeLabel('AVAILABLE'), 'SEAT TERSEDIA');
+  // Dulu 'SEAT TERSEDIA'; kursi kini milik tombol mata (2026-09-24).
+  assert.equal(filterModeLabel('AVAILABLE'), 'SEMUA JENIS');
   // Mode tak dikenal jatuh ke teksnya sendiri, underscore jadi spasi.
   assert.equal(filterModeLabel('LIBURAN_SEKOLAH'), 'LIBURAN SEKOLAH');
   assert.equal(filterModeLabel('NGAWUR_MODE'), 'NGAWUR MODE');

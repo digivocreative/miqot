@@ -7,12 +7,12 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
-// Tombol "hanya seat tersedia" di baris Cari halaman jadwal publik.
+// Tombol mata ("sembunyikan paket habis") di baris Cari halaman jadwal publik.
 //
-// KENAPA ADA: gerbang kursi cuma hidup di mode SEAT TERSEDIA, jadi mode
-// berdimensi (Landing/Jenis/Durasi/Bulan) selalu memperlihatkan paket habis.
-// Tombol ini jalan keluarnya — MENYEMPITKAN, bukan melebarkan: mati = semua
-// jadwal (bawaan), nyala = paket habis disembunyikan.
+// Sejak 2026-09-24 (permintaan user): tombolnya ada di SEMUA filter & sub-filter,
+// BAWAANNYA AKTIF (paket habis disembunyikan), dan ia SATU-SATUNYA gerbang
+// kursi — sub-filter "Seat Tersedia" diganti "Semua Jenis" supaya tidak ada dua
+// kontrol untuk hal yang sama.
 //
 // TypeScript ber-alias '@' → dibundel dulu (pola tests/jadwal-filter-url.test.js).
 
@@ -33,9 +33,9 @@ async function bundle(entry, name) {
   return import(pathToFileURL(outfile).href);
 }
 
-const { filterPackages, MODES_WITH_AVAILABILITY_TOGGLE } =
-  await bundle('src/utils/filter-logic.ts', 'filter-logic-tersedia');
-const { buildFilterSearch, parseFilterSearch, AVAILABILITY_PARAM } =
+const filterLogic = await bundle('src/utils/filter-logic.ts', 'filter-logic-tersedia');
+const { filterPackages } = filterLogic;
+const { buildFilterSearch, parseFilterSearch, SHOW_SOLD_OUT_PARAM } =
   await bundle('src/utils/filter-url.ts', 'filter-url-tersedia');
 
 const read = rel => readFileSync(join(root, rel), 'utf8');
@@ -61,24 +61,28 @@ function pkg(nama, over = {}) {
 const DATA = [pkg('ADA'), pkg('HABIS', { seatSisa: 0 })];
 const names = list => list.map(p => p.nama).sort();
 
+const ALL_MODES = [
+  'AVAILABLE', 'TIPE PAKET', 'AWAL PERJALANAN', 'DURASI PERJALANAN',
+  'DATA PER-BULAN', 'SEMUA DATA', 'LANDING DI',
+];
+
 // ── Perilaku gerbang ──
 
-test('toggle mati = bawaan: mode berdimensi tetap memuat paket habis', () => {
-  for (const mode of MODES_WITH_AVAILABILITY_TOGGLE) {
-    if (mode === 'LIBURAN_SEKOLAH' || mode === 'UMROH CUTI 5 HARI') continue; // punya predikat tanggal sendiri
-    assert.deepEqual(names(filterPackages(DATA, { mode })), ['ADA', 'HABIS'], mode);
-    assert.deepEqual(names(filterPackages(DATA, { mode, availableOnly: false })), ['ADA', 'HABIS'], mode);
-  }
-});
-
-test('toggle nyala menyembunyikan paket habis di tiap mode berdimensi', () => {
-  for (const mode of MODES_WITH_AVAILABILITY_TOGGLE) {
-    if (mode === 'LIBURAN_SEKOLAH' || mode === 'UMROH CUTI 5 HARI') continue;
+test('tombol aktif menyembunyikan paket habis di SEMUA mode, termasuk Semua Jenis & Semua Data', () => {
+  for (const mode of ALL_MODES) {
     assert.deepEqual(names(filterPackages(DATA, { mode, availableOnly: true })), ['ADA'], mode);
   }
 });
 
-test('toggle nyala tetap menghormati sub-nilai, bukan menggantikannya', () => {
+test('tombol mati memuat paket habis di SEMUA mode — tak ada lagi mode yang bergerbang sendiri', () => {
+  // Dulu AVAILABLE ("Seat Tersedia") menyaring kursi sendiri. Kini ia "Semua
+  // Jenis", dan kursi murni urusan tombol mata.
+  for (const mode of ALL_MODES) {
+    assert.deepEqual(names(filterPackages(DATA, { mode, availableOnly: false })), ['ADA', 'HABIS'], mode);
+  }
+});
+
+test('tombol aktif tetap menghormati sub-nilai, bukan menggantikannya', () => {
   const data = [
     pkg('JED ADA'),
     pkg('JED HABIS', { seatSisa: 0 }),
@@ -88,7 +92,7 @@ test('toggle nyala tetap menghormati sub-nilai, bukan menggantikannya', () => {
   assert.deepEqual(names(filterPackages(data, params)), ['JED ADA']);
 });
 
-test('mode URL-saja ikut patuh pada toggle', () => {
+test('mode URL-saja ikut patuh pada tombol', () => {
   const libur = { keberangkatan: { tgl: '2026-06-20', jam: '08.00' } };
   const data = [pkg('LIBUR ADA', libur), pkg('LIBUR HABIS', { ...libur, seatSisa: 0 })];
   assert.deepEqual(names(filterPackages(data, { mode: 'LIBURAN_SEKOLAH' })), ['LIBUR ADA', 'LIBUR HABIS']);
@@ -98,59 +102,49 @@ test('mode URL-saja ikut patuh pada toggle', () => {
   );
 });
 
-test('fail-closed: availableOnly diabaikan di mode di luar cakupan tombol', () => {
-  // Tombolnya tidak dirender di dua mode ini, jadi flag yang nyasar dari URL
-  // tidak boleh diam-diam menyaring daftar yang tombolnya tak terlihat.
-  assert.deepEqual(names(filterPackages(DATA, { mode: 'SEMUA DATA', availableOnly: true })), ['ADA', 'HABIS']);
-  // SEAT TERSEDIA memang sudah bergerbang; flag tidak mengubah apa pun.
-  assert.deepEqual(names(filterPackages(DATA, { mode: 'AVAILABLE', availableOnly: true })), ['ADA']);
-  assert.deepEqual(names(filterPackages(DATA, { mode: 'AVAILABLE', availableOnly: false })), ['ADA']);
-});
-
-test('cakupan tombol: 7 mode berdimensi, TANPA dua mode yang sudah menyatakan gerbangnya', () => {
-  assert.deepEqual([...MODES_WITH_AVAILABILITY_TOGGLE].sort(), [
-    'AWAL PERJALANAN',
-    'DATA PER-BULAN',
-    'DURASI PERJALANAN',
-    'LANDING DI',
-    'LIBURAN_SEKOLAH',
-    'TIPE PAKET',
-    'UMROH CUTI 5 HARI',
-  ]);
-  for (const gone of ['AVAILABLE', 'SEMUA DATA']) {
-    assert.ok(!MODES_WITH_AVAILABILITY_TOGGLE.includes(gone), gone);
-  }
+test('tidak ada lagi daftar mode bercakupan tombol', () => {
+  // Pengecualiannya habis, jadi daftarnya ikut dicabut (seperti MODES_WITH_SORT).
+  assert.equal('MODES_WITH_AVAILABILITY_TOGGLE' in filterLogic, false);
 });
 
 // ── URL ──
 
-test('toggle ikut ke URL sebagai flag, dan bawaannya tidak menulis apa pun', () => {
-  assert.equal(AVAILABILITY_PARAM, 'tersedia');
-  assert.equal(buildFilterSearch({ availableOnly: true }), '?tersedia');
-  // Link tetap pendek selama toggle di posisi bawaan.
-  assert.equal(buildFilterSearch({ availableOnly: false }), '');
+test('bawaan AKTIF tidak menulis apa pun; hanya keadaan mati yang masuk URL sebagai ?habis', () => {
+  assert.equal(SHOW_SOLD_OUT_PARAM, 'habis');
+  assert.equal(buildFilterSearch({ availableOnly: true }), '');
   assert.equal(buildFilterSearch({}), '');
+  assert.equal(buildFilterSearch({ availableOnly: false }), '?habis');
 });
 
-test('toggle selamat bolak-balik lewat URL, berdampingan dengan filter lain', () => {
-  const search = buildFilterSearch({ availableOnly: true, quickFilter: 'promo', sortOrder: 'HARGA_TERMURAH' });
+test('keadaan tombol selamat bolak-balik lewat URL; link lama ?tersedia jatuh ke bawaan', () => {
+  const search = buildFilterSearch({ availableOnly: false, quickFilter: 'promo', sortOrder: 'HARGA_TERMURAH' });
   const parsed = parseFilterSearch(search);
-  assert.equal(parsed.availableOnly, true);
+  assert.equal(parsed.availableOnly, false);
   assert.equal(parsed.quickFilter, 'promo');
   assert.equal(parsed.sortOrder, 'HARGA_TERMURAH');
-  assert.equal(parseFilterSearch('').availableOnly, false);
+  assert.equal(parseFilterSearch('').availableOnly, true);
+  // `?tersedia` (flag lama saat bawaannya mati) = aktif = sama dengan bawaan baru.
+  assert.equal(parseFilterSearch('?tersedia').availableOnly, true);
 });
 
 // ── Sambungan UI (source guard) ──
 
-test('tombol hanya dirender di mode yang punya cakupan', () => {
-  assert.match(filterHeader, /MODES_WITH_AVAILABILITY_TOGGLE\.includes\(filterMode\)/);
-  // Daftarnya milik filter-logic, bukan salinan rantai === di komponen.
-  assert.doesNotMatch(filterHeader, /filterMode === 'LANDING DI' \|\|/);
+test('tombol dirender tanpa syarat mode', () => {
+  assert.doesNotMatch(filterHeader, /showAvailabilityToggle/);
+  assert.doesNotMatch(filterHeader, /MODES_WITH_AVAILABILITY_TOGGLE/);
+  assert.match(filterHeader, /aria-label=\{availableOnly \? 'Tampilkan juga paket habis' : 'Sembunyikan paket habis'\}/);
+});
+
+test('tampilan aktif netral, bukan hijau — keadaan dibaca dari ikon', () => {
+  const btn = filterHeader.match(/<button\s+ref=\{availabilityBtnRef\}[\s\S]*?<\/button>/)?.[0] ?? '';
+  assert.notEqual(btn, '', 'tombol mata tidak ditemukan');
+  assert.doesNotMatch(btn, /emerald/);
+  assert.match(btn, /aria-pressed=\{availableOnly\}/);
+  assert.match(btn, /<EyeOff/);
 });
 
 test('roster sub-filter memakai gerbang yang SAMA dengan hasilnya', () => {
-  // Kalau roster lepas dari toggle, angka di label berbohong: "Jeddah (59 paket)"
+  // Kalau roster lepas dari tombol, angka di label berbohong: "Jeddah (59 paket)"
   // di atas 29 kartu. Dikunci juga oleh tests/filter-header-tipe-paket.test.js.
   const memo = filterHeader.match(/const rosterPackages = useMemo\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
   assert.notEqual(memo, '', 'memo rosterPackages tidak ditemukan');
@@ -158,20 +152,20 @@ test('roster sub-filter memakai gerbang yang SAMA dengan hasilnya', () => {
   assert.match(memo, /seatSisa > 0/);
 });
 
-test('App membuang state toggle saat modenya keluar cakupan', () => {
-  // Kalau disimpan, user kembali ke Landing dan daftarnya pendek karena saringan
-  // yang tombolnya sempat tak terlihat — filter siluman.
-  const handler = app.match(/const handleFilterModeChange = [\s\S]*?\n  \};/)?.[0] ?? '';
-  assert.notEqual(handler, '', 'handleFilterModeChange tidak ditemukan');
-  assert.match(handler, /MODES_WITH_AVAILABILITY_TOGGLE\.includes\(mode\)/);
-  assert.match(handler, /setAvailableOnly\(false\)/);
+test('App: bawaan aktif, tidak direset saat ganti mode, dikembalikan ke aktif saat reset', () => {
+  assert.match(app, /const \[availableOnly, setAvailableOnly\] = useState\(true\);/);
+  const modeHandler = app.match(/const handleFilterModeChange = [\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(modeHandler, '', 'handleFilterModeChange tidak ditemukan');
+  assert.doesNotMatch(modeHandler, /setAvailableOnly/);
+  for (const name of ['handleResetFilters', 'handleYearChange']) {
+    const handler = app.match(new RegExp(`const ${name} = [\\s\\S]*?\\n  \\};`))?.[0] ?? '';
+    assert.match(handler, /setAvailableOnly\(true\)/, name);
+  }
+  assert.match(app, /setAvailableOnly\(parsedUrl\.availableOnly\);/);
 });
 
-test('App menyalurkan toggle ke hasil, ke URL, dan ke telemetri', () => {
+test('App menyalurkan tombol ke hasil, ke URL, dan ke telemetri', () => {
   assert.match(app, /availableOnly,?\n?\s*\}\);/);            // masuk ke filterPackages
   assert.match(app, /buildFilterSearch\(\{[\s\S]*?availableOnly[\s\S]*?\}\)/);
   assert.match(app, /trackFilterChange\('tersedia'/);
-  // Reset filter mengembalikan toggle ke bawaan juga.
-  const reset = app.match(/const handleResetFilters = [\s\S]*?\n  \};/)?.[0] ?? '';
-  assert.match(reset, /setAvailableOnly\(false\)/);
 });

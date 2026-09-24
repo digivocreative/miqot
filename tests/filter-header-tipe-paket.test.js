@@ -31,7 +31,7 @@ test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus'
   // Peta labelnya ikut pindah ke kodek slug bersama; perilakunya diuji langsung
   // di tests/filter-slug.test.js.
   assert.match(filterSlug, /'TIPE PAKET': 'JENIS PAKET'/);
-  // SEAT TERSEDIA turun jadi opsi pertama Jenis Paket (lihat tes di bawah),
+  // AVAILABLE tampil sebagai opsi pertama Jenis Paket (lihat tes di bawah),
   // jadi Jenis Paket kini opsi PERTAMA dropdown utama.
   assert.doesNotMatch(optionsBlock, /'AVAILABLE'/);
   assert.match(optionsBlock, /\[\s*\{ value: 'TIPE PAKET'/);
@@ -61,7 +61,7 @@ test('mode URL-saja tetap punya label di trigger dropdown utama', () => {
   assert.match(filterHeader, /options=\{filterModeOptions\}/);
 });
 
-test('sub-filter Jenis Paket: Seat Tersedia di atas Umroh Saja, tanpa showAllOptions', () => {
+test('sub-filter Jenis Paket: Semua Jenis di atas Umroh Saja, tanpa showAllOptions', () => {
   // Tidak boleh melewati `<FilterDropdown` lain, kalau tidak blok-nya menelan
   // dropdown utama (yang memang memakai showAllOptions).
   const block = filterHeader.match(
@@ -77,18 +77,19 @@ test('sub-filter Jenis Paket: Seat Tersedia di atas Umroh Saja, tanpa showAllOpt
 
   const memo = filterHeader.match(/const typeMenuOptions = useMemo\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
   assert.notEqual(memo, '', 'memo typeMenuOptions tidak ditemukan');
-  // Seat Tersedia SEBELUM roster tipe (yang dibuka Umroh Saja).
-  const seatAt = memo.indexOf("{ value: SEAT_TERSEDIA_TYPE_VALUE, label: 'Seat Tersedia' }");
+  // Semua Jenis SEBELUM roster tipe (yang dibuka Umroh Saja).
+  const semuaAt = memo.indexOf("{ value: SEMUA_JENIS_TYPE_VALUE, label: 'Semua Jenis' }");
   const rosterAt = memo.indexOf('...packageTypeOptions');
-  assert.ok(seatAt >= 0, 'opsi Seat Tersedia tidak ditemukan');
-  assert.ok(rosterAt > seatAt, 'Seat Tersedia harus di atas Umroh Saja');
+  assert.ok(semuaAt >= 0, 'opsi Semua Jenis tidak ditemukan');
+  assert.ok(rosterAt > semuaAt, 'Semua Jenis harus di atas Umroh Saja');
+  assert.doesNotMatch(filterHeader, /SEAT_TERSEDIA|'Seat Tersedia'/);
   // Placeholder hanya untuk tautan lama /tipe-paket tanpa sub-nilai.
   assert.match(memo, /filterMode === 'TIPE PAKET' && !secondaryValue/);
   assert.match(memo, /value: '', label: '- Pilih Jenis -'/);
   // Tampil huruf besar — di tampilan saja, roster bersama tetap 'Umroh Saja'.
   assert.match(memo, /return upperLabels\(options\);/);
 
-  // Dropdown Jenis Paket juga tampil di mode AVAILABLE (= Seat Tersedia).
+  // Dropdown Jenis Paket juga tampil di mode AVAILABLE (= Semua Jenis).
   assert.match(filterHeader, /const showTypeDropdown = filterMode === 'TIPE PAKET' \|\| filterMode === 'AVAILABLE'/);
   // Terjemahan tampilan ⇄ mode lewat helper ber-tes di filter-logic.ts, bukan inline.
   assert.match(filterHeader, /value=\{modeMenu\}/);

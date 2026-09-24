@@ -68,7 +68,9 @@ export interface AvailabilityCoachMarkProps {
 }
 
 /**
- * Gelembung sekali-tampil yang menerangkan tombol "hanya seat tersedia".
+ * Gelembung yang menerangkan tombol mata: paket habis sedang disembunyikan
+ * (bawaan), tap untuk menampilkannya. Kapan ia muncul diputuskan FilterHeader
+ * + src/lib/availability-hint.ts (saat ganti filter, maks. 1x per 4 jam).
  *
  * KENAPA PORTAL: baris filter hidup di dalam pembungkus `overflow-hidden` yang
  * menciut saat halaman digulir (grid 1fr/0fr di FilterHeader). Sebagai anak
@@ -212,7 +214,7 @@ export default function AvailabilityCoachMark({ anchorRef, open, onDismiss }: Av
         "
       >
         <p className="text-[12px] leading-snug">
-          Tap untuk <span className="font-semibold">sembunyikan paket yang sudah habis</span>
+          <span className="font-semibold">Paket habis disembunyikan.</span> Tap untuk menampilkannya
         </p>
         <button
           onClick={onDismiss}

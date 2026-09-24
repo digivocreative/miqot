@@ -7,9 +7,10 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
-// Coach mark tombol "hanya seat tersedia": tampil tiap kali tombol matanya
-// MUNCUL (paling sering: pindah dari Jenis Paket → SEAT TERSEDIA ke filter
-// lain), paling sering sekali per 4 jam.
+// Coach mark tombol mata. Sejak 2026-09-24 tombolnya selalu ada dan bawaannya
+// AKTIF (paket habis disembunyikan), jadi petunjuknya berbunyi "Paket habis
+// disembunyikan. Tap untuk menampilkannya" dan muncul saat pengunjung MENGGANTI
+// filter (permintaan user), paling sering sekali per 4 jam.
 //
 // Keputusan tampil/tidak sengaja ditarik keluar jadi fungsi murni supaya bisa
 // diuji tanpa DOM; sisanya (posisi portal, jalur pembubaran) dijaga sebagai
@@ -197,42 +198,51 @@ test('gelembung berjangkar ke tombol matanya sendiri', () => {
   assert.match(filterHeader, /anchorRef=\{availabilityBtnRef\}/);
 });
 
-test('gelembung ikut sembunyi saat tombolnya sendiri tidak ada', () => {
-  // Kalau `open` lepas dari showAvailabilityToggle, gelembung bisa melayang
-  // menunjuk tombol yang sudah tidak dirender.
-  assert.match(filterHeader, /open=\{hintVisible\}/);
-  assert.match(filterHeader, /const hintVisible = [^;]*showAvailabilityToggle[^;]*;/);
+test('teks petunjuk mengikuti bawaan baru: paket habis sudah disembunyikan', () => {
+  assert.match(coachMark, /Paket habis disembunyikan\./);
+  assert.match(coachMark, /Tap untuk menampilkannya/);
+  assert.doesNotMatch(coachMark, /Tap untuk <span[^>]*>sembunyikan/);
 });
 
-test('pemicunya tombol mata MUNCUL, bukan sekali per kunjungan', () => {
-  // Efek ber-dep showAvailabilityToggle saja: tiap kali tombolnya muncul lagi
-  // (Seat Tersedia → Landing, dst.) keputusan 4 jam diperiksa ulang. Kunci
-  // sekali-per-mount yang lama (hintArmedRef) justru menahannya.
-  assert.doesNotMatch(filterHeader, /hintArmedRef/);
-  const effect = filterHeader.match(/useEffect\(\(\) => \{\s*if \(!showAvailabilityToggle\)[\s\S]*?\}, \[showAvailabilityToggle\]\);/)?.[0] ?? '';
-  assert.notEqual(effect, '', 'efek petunjuk ber-dep [showAvailabilityToggle] tidak ditemukan');
-  // Tombolnya hilang (balik ke Seat Tersedia) = tayangan itu selesai; muncul
-  // lagi dalam 4 jam tidak menayangkannya ulang.
-  assert.match(effect, /setHintOpen\(false\)/);
+test('pemicunya pengunjung MENGGANTI filter, bukan buka halaman', () => {
+  // Nonce khusus, dinaikkan HANYA dari tangan pengguna (dropdown mode, dropdown
+  // Jenis Paket, dan sub-filter lain) — bukan efek ber-dep filterMode, yang
+  // juga menyala saat filter datang dari URL/link WhatsApp waktu halaman dimuat.
+  assert.doesNotMatch(filterHeader, /hintArmedRef|showAvailabilityToggle/);
+  const bumps = [...filterHeader.matchAll(/setHintNonce\(n => n \+ 1\)/g)];
+  assert.equal(bumps.length, 1, 'penaik hintNonce harus tepat satu (bumpHint)');
+  for (const caller of ['handleTypeMenuChange', 'handleSubFilterChange']) {
+    const fn = filterHeader.match(new RegExp(`const ${caller} = [\\s\\S]*?\\n  \\};`))?.[0] ?? '';
+    assert.match(fn, /bumpHint\(\)/, caller);
+  }
+  const modeDropdown = filterHeader.match(
+    /<FilterDropdown\s(?:(?!<FilterDropdown\s)[\s\S])*?ariaLabel="Filter paket"(?:(?!<FilterDropdown\s)[\s\S])*?\/>/,
+  )?.[0] ?? '';
+  // Memilih ulang filter yang sama bukan "mengganti" — penaiknya SESUDAH penjaga.
+  assert.ok(modeDropdown.indexOf('if (v === modeMenu) return;') < modeDropdown.indexOf('bumpHint()'));
+  // Ketiga sub-filter lain lewat pembungkus yang menaikkan nonce.
+  for (const label of ['Pilih Landing', 'Pilih Awal Perjalanan', 'Pilih Bulan', 'Pilih Durasi']) {
+    const block = filterHeader.match(
+      new RegExp(`<FilterDropdown\\s(?:(?!<FilterDropdown\\s)[\\s\\S])*?ariaLabel="${label}"(?:(?!<FilterDropdown\\s)[\\s\\S])*?/>`),
+    )?.[0] ?? '';
+    assert.match(block, /onChange=\{handleSubFilterChange\}/, label);
+  }
+
+  const effect = filterHeader.match(/useEffect\(\(\) => \{\s*if \(hintNonce === 0\) return;[\s\S]*?\}, \[hintNonce\]\);/)?.[0] ?? '';
+  assert.notEqual(effect, '', 'efek petunjuk ber-dep [hintNonce] tidak ditemukan');
   assert.match(effect, /shouldShowAvailabilityHint\(\)/);
+  // Hanya saat paket habis memang sedang disembunyikan — kalau tidak, teksnya bohong.
+  assert.match(effect, /if \(!availableOnlyRef\.current\) return;/);
   const timer = effect.match(/setTimeout\(\(\) => \{[\s\S]*?\}, \d+\)/)?.[0] ?? '';
   assert.match(timer, /setHintOpen\(true\)/);
-  // Timer hanya MENGANTREKAN gelembung. Jatah 4 jam baru dipakai saat ia
-  // benar-benar TERLIHAT — dulu dicatat di sini, dan gelembung yang masih
-  // tertahan (panel dropdown terbuka, header menciut) lalu dibatalkan karena
-  // pengunjung balik ke Seat Tersedia menghabiskan jatahnya tanpa pernah
-  // terlihat.
+  // Timer hanya MENGANTREKAN. Jatah 4 jam baru dipakai saat gelembung TERLIHAT.
   assert.doesNotMatch(timer, /markAvailabilityHintShown/);
   assert.equal([...filterHeader.matchAll(/markAvailabilityHintShown\(\)/g)].length, 1, 'pencatat jatah harus tepat satu');
-  assert.match(
-    filterHeader,
-    /const hintVisible = hintOpen && showAvailabilityToggle && isVisible && openMenuCount === 0;/,
-  );
+  assert.match(filterHeader, /const hintVisible = hintOpen && isVisible && openMenuCount === 0;/);
   assert.match(
     filterHeader,
     /useEffect\(\(\) => \{\s*if \(hintVisible\) markAvailabilityHintShown\(\);\s*\}, \[hintVisible\]\);/,
   );
-  // Menutup gelembung tidak lagi membisukan selamanya.
   assert.doesNotMatch(filterHeader, /markAvailabilityHintSeen/);
 });
 
