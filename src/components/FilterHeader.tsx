@@ -16,6 +16,7 @@ import {
   groupByMonth,
   extractUniqueDurations,
   extractUniqueLandings,
+  monthOptionLabel,
   type MonthGroup,
 } from '@/utils';
 import {
@@ -678,10 +679,9 @@ export function FilterHeader({
               onChange={onSecondaryValueChange}
               options={upperLabels([
                 { value: '', label: '- Pilih Bulan -' },
-                // Nama bulan saja — hitungan kursi (sisa/total) sengaja tidak
-                // ikut: angkanya lebar, memaksa trigger terpotong di mobile,
-                // dan sisa seat sudah terbaca per kartu.
-                ...monthGroups.map((m) => ({ value: m.monthKey, label: m.monthName })),
+                // "JUN 2026 (350/400)" — sisa/total seat sebulan. Nama bulan
+                // disingkat 3 huruf supaya angkanya muat di trigger HP.
+                ...monthGroups.map((m) => ({ value: m.monthKey, label: monthOptionLabel(m) })),
               ])}
               searchable={false}
               ariaLabel="Pilih Bulan"

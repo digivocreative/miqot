@@ -155,6 +155,12 @@ export interface LandingCity {
 /** Nama bulan Indonesia — dari kodek slug bersama (dipakai server.js juga). */
 const MONTH_NAMES_ID = MONTH_NAMES_ID_SHARED;
 
+/**
+ * Singkatan 3 huruf untuk dropdown Bulan yang sempit. Ejaannya sama dengan
+ * tanggal di kartu paket halaman ini (toLocaleDateString id-ID: Mei, Agu, Okt).
+ */
+const MONTH_NAMES_ID_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
 /** Hijri month names */
 const HIJRI_MONTH_NAMES = [
   'Muharram', 'Safar', 'Rabiul Awal', 'Rabiul Akhir',
@@ -281,6 +287,21 @@ function formatMonthName(monthKey: string): string {
   const [year, month] = monthKey.split('-');
   const monthIndex = parseInt(month, 10) - 1;
   return `${MONTH_NAMES_ID[monthIndex]} ${year}`;
+}
+
+/**
+ * Label opsi dropdown "DATA PER-BULAN": "Jun 2026 (350/400)" = sisa seat /
+ * total seat seluruh paket di bulan itu. Nama bulan disingkat supaya angka
+ * kursinya muat di trigger selebar setengah baris di HP.
+ *
+ * Seat dari data-service lewat parseInt, jadi upstream yang kosong jadi NaN —
+ * lebih baik nama bulan saja daripada "(NaN/400)".
+ */
+export function monthOptionLabel(group: Pick<MonthGroup, 'monthKey' | 'availableSeat' | 'totalSeat'>): string {
+  const [year, month] = group.monthKey.split('-');
+  const name = `${MONTH_NAMES_ID_SHORT[parseInt(month, 10) - 1] ?? month} ${year}`;
+  if (!Number.isFinite(group.availableSeat) || !Number.isFinite(group.totalSeat)) return name;
+  return `${name} (${group.availableSeat}/${group.totalSeat})`;
 }
 
 /**
