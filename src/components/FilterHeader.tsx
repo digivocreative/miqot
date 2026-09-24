@@ -641,6 +641,10 @@ export function FilterHeader({
               // auto-open sub-filter di atas. Hanya di sini, jangan ditiru di
               // jalur URL/Back.
               setAutoOpenNonce(n => n + 1);
+              // Memilih ulang filter yang sedang tampil tidak mereset apa pun:
+              // sub-filternya (mis. UMROH RAMADHAN) tetap, hanya dropdown-nya
+              // yang menyembul lewat nonce di atas.
+              if (v === modeMenu) return;
               // JENIS PAKET mendarat di Seat Tersedia, lalu dropdown jenisnya
               // menyembul supaya tipe lain bisa langsung dipilih.
               onFilterModeChange(resolveModeMenuChoice(v as FilterMode));

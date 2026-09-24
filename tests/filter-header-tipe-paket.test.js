@@ -217,6 +217,26 @@ test('sub-filter menyembul sendiri setelah modenya dipilih — pemicunya nonce, 
   assert.match(effect, /subFilterRef\.current\?\.open\(\)/);
 });
 
+test('memilih ulang filter utama yang SAMA tidak mereset sub-filternya', () => {
+  // Sedang di JENIS PAKET → UMROH RAMADHAN, lalu memilih JENIS PAKET lagi:
+  // sub-filter tetap UMROH RAMADHAN (dulu direset — dan JENIS PAKET malah
+  // dipetakan ke Seat Tersedia). Pembandingnya nilai TAMPILAN (modeMenu), jadi
+  // Seat Tersedia (AVAILABLE, tampil sebagai JENIS PAKET) ikut tertangkap.
+  const modeDropdown = filterHeader.match(
+    /<FilterDropdown\s(?:(?!<FilterDropdown\s)[\s\S])*?ariaLabel="Filter paket"(?:(?!<FilterDropdown\s)[\s\S])*?\/>/,
+  )?.[0] ?? '';
+  assert.notEqual(modeDropdown, '', 'dropdown mode tidak ditemukan');
+  const nonce = modeDropdown.indexOf('setAutoOpenNonce(n => n + 1)');
+  const same = modeDropdown.indexOf('if (v === modeMenu) return;');
+  const change = modeDropdown.indexOf('onFilterModeChange(');
+  const reset = modeDropdown.indexOf("onSecondaryValueChange('')");
+  assert.ok(same > 0, 'penjaga pilihan-sama tidak ditemukan');
+  // Nonce SEBELUM penjaga: memilih ulang tetap menyembulkan sub-filternya
+  // (keputusan lama — lihat tes nonce di atas), hanya tidak mereset.
+  assert.ok(nonce >= 0 && nonce < same, 'nonce harus dinaikkan sebelum penjaga pilihan-sama');
+  assert.ok(same < change && same < reset, 'penjaga pilihan-sama harus mendahului pergantian mode & reset sub-nilai');
+});
+
 test('ref auto-open menempel di keempat sub-filter nilai', () => {
   const withRef = [...filterHeader.matchAll(/ref=\{subFilterRef\}/g)];
   assert.equal(withRef.length, 4, 'tepat 4 sub-filter nilai: Jenis Paket, Landing, Bulan, Durasi');
