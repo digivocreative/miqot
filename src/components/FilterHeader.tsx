@@ -880,9 +880,10 @@ export function FilterHeader({
             </button>
 
             {/* Tombol mata — ada di SEMUA filter, bawaannya aktif (paket habis
-                disembunyikan). Gaya aktif sengaja NETRAL (permintaan user):
-                keadaannya dibaca dari ikon — mata dicoret = paket habis
-                disembunyikan. */}
+                disembunyikan) dan tampil NETRAL. Keadaan "habis" (paket habis
+                ikut tampil, ?habis) HIJAU dengan ikon mata dicoret, sepola tombol
+                Compact: warna menandai keadaan yang bukan bawaan. Mata dicoret
+                sengaja TIDAK di keadaan bawaan — pilihan user dari 5 ikon. */}
             <button
               ref={availabilityBtnRef}
               onClick={() => {
@@ -896,16 +897,21 @@ export function FilterHeader({
                 rounded-xl
                 transition-all duration-200
                 active:scale-95
-                bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80
+                ${!availableOnly
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
+                  : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/80 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-700/80'
+                }
                 ${hintVisible ? 'ring-2 ring-slate-400/70 ring-offset-2 ring-offset-white dark:ring-slate-500/70 dark:ring-offset-slate-900 animate-pulse' : ''}
               `}
-              aria-pressed={availableOnly}
-              aria-label={availableOnly ? 'Tampilkan juga paket habis' : 'Sembunyikan paket habis'}
-              title={availableOnly ? 'Paket habis disembunyikan' : 'Semua jadwal tampil'}
+              // Hijau = "nyala": labelnya stabil dan aria-pressed mengikuti
+              // keadaan yang hijau (paket habis ditampilkan).
+              aria-pressed={!availableOnly}
+              aria-label="Tampilkan paket habis"
+              title={availableOnly ? 'Paket habis disembunyikan' : 'Paket habis ditampilkan'}
             >
               {availableOnly
-                ? <EyeOff className={ROW_ICON_SIZE} />
-                : <Eye className={ROW_ICON_SIZE} />}
+                ? <Eye className={ROW_ICON_SIZE} />
+                : <EyeOff className={ROW_ICON_SIZE} />}
             </button>
           </div>
         </div>

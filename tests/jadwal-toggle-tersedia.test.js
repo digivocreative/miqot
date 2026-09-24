@@ -132,15 +132,26 @@ test('keadaan tombol selamat bolak-balik lewat URL; link lama ?tersedia jatuh ke
 test('tombol dirender tanpa syarat mode', () => {
   assert.doesNotMatch(filterHeader, /showAvailabilityToggle/);
   assert.doesNotMatch(filterHeader, /MODES_WITH_AVAILABILITY_TOGGLE/);
-  assert.match(filterHeader, /aria-label=\{availableOnly \? 'Tampilkan juga paket habis' : 'Sembunyikan paket habis'\}/);
 });
 
-test('tampilan aktif netral, bukan hijau — keadaan dibaca dari ikon', () => {
+test('bawaan: mata biasa netral; keadaan habis: mata dicoret HIJAU', () => {
+  // Keputusan user 2026-09-24 (dari 5 pilihan ikon): mata dicoret tidak boleh
+  // tampil di keadaan bawaan, tapi justru menandai keadaan "habis" (?habis,
+  // paket habis ikut tampil) bersama warna hijau gaya lama.
   const btn = filterHeader.match(/<button\s+ref=\{availabilityBtnRef\}[\s\S]*?<\/button>/)?.[0] ?? '';
   assert.notEqual(btn, '', 'tombol mata tidak ditemukan');
-  assert.doesNotMatch(btn, /emerald/);
-  assert.match(btn, /aria-pressed=\{availableOnly\}/);
-  assert.match(btn, /<EyeOff/);
+  const icon = btn.match(/\{availableOnly\s*\?\s*<(\w+)\b[^>]*\/>\s*:\s*<(\w+)\b[^>]*\/>\}/);
+  assert.ok(icon, 'ikon harus bercabang pada availableOnly');
+  assert.equal(icon[1], 'Eye', 'bawaan (paket habis disembunyikan) = mata biasa');
+  assert.equal(icon[2], 'EyeOff', 'keadaan habis = mata dicoret');
+  const green = btn.match(/\$\{!availableOnly\s*\?\s*'([^']*)'\s*:\s*'([^']*)'/);
+  assert.ok(green, 'kelas warna harus bercabang pada !availableOnly');
+  assert.match(green[1], /emerald/, 'keadaan habis = hijau');
+  assert.doesNotMatch(green[2], /emerald/, 'bawaan = netral');
+  // Hijau = "nyala": label stabil + aria-pressed ikut keadaan yang hijau,
+  // bukan label-aksi yang bergonta-ganti (anti-pola untuk tombol toggle).
+  assert.match(btn, /aria-label="Tampilkan paket habis"/);
+  assert.match(btn, /aria-pressed=\{!availableOnly\}/);
 });
 
 test('roster sub-filter memakai gerbang yang SAMA dengan hasilnya', () => {
