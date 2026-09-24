@@ -203,7 +203,7 @@ function cleanExpired() {
 }
 
 // Run cleanup every 10 minutes
-setInterval(cleanExpired, 10 * 60 * 1000);
+setInterval(cleanExpired, 10 * 60 * 1000).unref(); // unref: importing this module (tests) must not keep the process alive
 
 // ── Check if session exists and is active ──
 export function isSessionActive(username) {
@@ -907,11 +907,60 @@ function parseBirthDateDMY(str) {
   return date;
 }
 
+// Local functions that forward a url argument to jQuery AJAX, e.g.
+//   function loadAjaxData(url, data, targetSelector) { $.ajax({ url: url, type: 'POST', data: data, ... }) }
+// Returns { fnName: 'POST' | 'GET' } so call sites like loadAjaxData('..._otb.php', {...}) can be matched.
+function findAjaxWrapperFunctions(scriptFunctions) {
+  const wrappers = {};
+  for (const [name, body] of Object.entries(scriptFunctions)) {
+    if (/\$\.ajax\s*\(/.test(body) && /\burl\s*:\s*[A-Za-z_$][\w$]*\s*[,}\n]/.test(body)) {
+      const typeM = body.match(/\b(?:type|method)\s*:\s*['"]([A-Za-z]+)['"]/i);
+      wrappers[name] = typeM?.[1]?.toUpperCase() || 'GET'; // jQuery default
+    } else if (/\$\.post\s*\(\s*[A-Za-z_$][\w$]*\s*[,)]/.test(body)) {
+      wrappers[name] = 'POST';
+    } else if (/\$\.get\s*\(\s*[A-Za-z_$][\w$]*\s*[,)]/.test(body)) {
+      wrappers[name] = 'GET';
+    }
+  }
+  return wrappers;
+}
+
+// fnName('url', { data }) — group 1 = url, group 2 = data object literal (optional)
+function ajaxWrapperCallRegex(name, flags = '') {
+  return new RegExp(`(?<![\\w$.])${name}\\s*\\(\\s*['"]([^'"]+)['"](?:\\s*,\\s*(\\{[^}]*\\}))?`, flags);
+}
+
+// First AJAX call inside a function body → { url, method, dataHint } or null
+function findAjaxCallInFunction(funcBody, ajaxWrappers = {}) {
+  // Look for $.post('url', {data}) or $.get('url', {data}) or $.ajax({url, data, type})
+  const postMatch = funcBody.match(/\$\.post\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
+  if (postMatch) return { url: postMatch[1], method: 'POST', dataHint: postMatch[2] };
+  const getMatch = funcBody.match(/\$\.get\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
+  if (getMatch) return { url: getMatch[1], method: 'GET', dataHint: getMatch[2] };
+  const loadMatch = funcBody.match(/\.load\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
+  if (loadMatch) return { url: loadMatch[1], method: 'GET', dataHint: loadMatch[2] };
+  const ajaxMatch = funcBody.match(/\$\.ajax\s*\(\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}/);
+  if (ajaxMatch) {
+    const body = ajaxMatch[1];
+    const urlM = body.match(/url\s*:\s*['"]([^'"]+)['"]/);
+    if (urlM) {
+      const typeM = body.match(/(?:type|method)\s*:\s*['"]([^'"]+)['"]/i);
+      const dataM = body.match(/data\s*:\s*\{([^}]*)\}/);
+      return { url: urlM[1], method: typeM?.[1]?.toUpperCase() || 'GET', dataHint: dataM?.[1] };
+    }
+  }
+  for (const [name, method] of Object.entries(ajaxWrappers)) {
+    const m = funcBody.match(ajaxWrapperCallRegex(name));
+    if (m) return { url: m[1], method, dataHint: m[2] };
+  }
+  return null;
+}
+
 // ── Extract JS Handlers from legacy HTML ──
 // Parses <script> tags and onchange attributes to find AJAX calls that populate
 // dependent dropdowns (e.g., paket when jadwal changes). This is critical because
 // paket options are client-side rendered via AJAX, not server-side templating.
-function extractJsHandlers($, html) {
+export function extractJsHandlers($, html) {
   const result = {
     jadwalOnchange: null,
     scriptFunctions: {},   // { funcName: funcBody }
@@ -925,7 +974,7 @@ function extractJsHandlers($, html) {
   $('select, input').each((_, el) => {
     const name = $(el).attr('name');
     const onchange = $(el).attr('onchange');
-    if (name === 'jadwal' && onchange) {
+    if ((name === 'jadwal' || name === 'vjadwal') && onchange) {
       result.jadwalOnchange = onchange;
     }
   });
@@ -1000,6 +1049,16 @@ function extractJsHandlers($, html) {
     },
   ];
 
+  // Calls through a local AJAX helper, e.g. loadAjaxData('url', { jadwal: val }, '#otb')
+  // (legacy switched every jadwal/paket call to this wrapper around 22 Sep 2026).
+  const ajaxWrappers = findAjaxWrapperFunctions(result.scriptFunctions);
+  for (const [name, method] of Object.entries(ajaxWrappers)) {
+    ajaxPatterns.push({
+      regex: ajaxWrapperCallRegex(name, 'g'),
+      parse: (_, url, data) => ({ url, method, dataHint: data || null }),
+    });
+  }
+
   for (const { regex, parse } of ajaxPatterns) {
     let match;
     while ((match = regex.exec(allScripts)) !== null) {
@@ -1021,39 +1080,22 @@ function extractJsHandlers($, html) {
 
   // 5. PRIORITY 1: If we have `jadwal onchange="fnName(this.value)"`, find the AJAX call
   //    inside that function body. This is the MOST RELIABLE source.
+  const setPaketAjax = (call, source) => {
+    result.paketAjaxUrl = call.url;
+    result.paketAjaxMethod = call.method;
+    // Parameter name from dataHint (e.g. "jadwal: val" → "jadwal")
+    const paramMatch = (call.dataHint || '').match(/(\w+)\s*:/);
+    result.paketAjaxParam = paramMatch?.[1] || 'jadwal';
+    result.paketAjaxSource = source;
+  };
+
   if (result.jadwalOnchange) {
     const funcCallMatch = result.jadwalOnchange.match(/(\w+)\s*\(/);
     if (funcCallMatch) {
       const funcName = funcCallMatch[1];
       const funcBody = result.scriptFunctions[funcName];
-      if (funcBody) {
-        // Look for $.post('url', {data}) or $.get('url', {data}) or $.ajax({url, data, type})
-        const postMatch = funcBody.match(/\$\.post\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
-        const getMatch = funcBody.match(/\$\.get\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
-        const ajaxMatch = funcBody.match(/\$\.ajax\s*\(\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}/);
-        const loadMatch = funcBody.match(/\.load\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
-
-        let url = null, method = null, dataHint = null;
-        if (postMatch) { url = postMatch[1]; method = 'POST'; dataHint = postMatch[2]; }
-        else if (getMatch) { url = getMatch[1]; method = 'GET'; dataHint = getMatch[2]; }
-        else if (loadMatch) { url = loadMatch[1]; method = 'GET'; dataHint = loadMatch[2]; }
-        else if (ajaxMatch) {
-          const body = ajaxMatch[1];
-          const urlM = body.match(/url\s*:\s*['"]([^'"]+)['"]/);
-          const typeM = body.match(/(?:type|method)\s*:\s*['"]([^'"]+)['"]/i);
-          const dataM = body.match(/data\s*:\s*\{([^}]*)\}/);
-          url = urlM?.[1]; method = typeM?.[1]?.toUpperCase() || 'GET'; dataHint = dataM?.[1];
-        }
-
-        if (url) {
-          result.paketAjaxUrl = url;
-          result.paketAjaxMethod = method;
-          // Parameter name from dataHint (e.g. "jadwal: val" → "jadwal")
-          const paramMatch = (dataHint || '').match(/(\w+)\s*:/);
-          result.paketAjaxParam = paramMatch?.[1] || 'jadwal';
-          result.paketAjaxSource = `jadwal onchange → ${funcName}()`;
-        }
-      }
+      const call = funcBody && findAjaxCallInFunction(funcBody, ajaxWrappers);
+      if (call) setPaketAjax(call, `jadwal onchange → ${funcName}()`);
     }
   }
 
@@ -1061,19 +1103,8 @@ function extractJsHandlers($, html) {
   //     strips the jadwal select's onchange attribute, Priority 1 fails — but otb()
   //     is still defined in the script, and it holds the correct jadwal→paket AJAX call.
   if (!result.paketAjaxUrl && result.scriptFunctions.otb) {
-    const funcBody = result.scriptFunctions.otb;
-    const postMatch = funcBody.match(/\$\.post\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
-    const getMatch = funcBody.match(/\$\.get\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*\{([^}]*)\})?/);
-    let url = null, method = null, dataHint = null;
-    if (postMatch) { url = postMatch[1]; method = 'POST'; dataHint = postMatch[2]; }
-    else if (getMatch) { url = getMatch[1]; method = 'GET'; dataHint = getMatch[2]; }
-    if (url) {
-      result.paketAjaxUrl = url;
-      result.paketAjaxMethod = method;
-      const paramMatch = (dataHint || '').match(/(\w+)\s*:/);
-      result.paketAjaxParam = paramMatch?.[1] || 'jadwal';
-      result.paketAjaxSource = 'otb() function body';
-    }
+    const call = findAjaxCallInFunction(result.scriptFunctions.otb, ajaxWrappers);
+    if (call) setPaketAjax(call, 'otb() function body');
   }
 
   // 6. FALLBACK: Identify AJAX call whose URL/context mentions "paket" (less reliable;
