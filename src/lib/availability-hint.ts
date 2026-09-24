@@ -1,23 +1,37 @@
 /**
- * Ingatan "sudah pernah lihat" untuk coach mark tombol "hanya seat tersedia".
+ * Kapan coach mark tombol "hanya seat tersedia" boleh tampil lagi.
+ *
+ * Aturannya: tiap kali tombol matanya MUNCUL (paling sering: pindah dari Jenis
+ * Paket → SEAT TERSEDIA ke filter lain), tapi paling sering sekali per 4 jam.
+ * Jamnya mulai saat gelembung benar-benar tampil, bukan saat ditutup — jadi
+ * yang mengabaikannya pun tidak dikejar di tiap perpindahan filter.
  *
  * Dipisah dari komponennya supaya keputusannya bisa diuji tanpa DOM — lihat
- * tests/jadwal-availability-hint.test.js. Pola kuncinya mengikuti
- * src/components/bio-editor/HintBanner.tsx (satu kunci, bersufiks versi).
+ * tests/jadwal-availability-hint.test.js. Aturan jam masa depan meniru callout
+ * stiker Brosur (src/lib/stickerPromoGate.js).
  */
 
 /**
- * Sufiks `-v1` bukan hiasan: kalau teks hint-nya diperbarui nanti, naikkan ke
- * `-v2` dan semua orang melihat versi barunya sekali lagi tanpa perlu tahu
- * apa pun soal nilai lama.
+ * v1 menyimpan '1' = "sudah lihat, jangan tampil lagi selamanya". Aturan 4 jam
+ * wajib menjangkau pengunjung lama juga, jadi kuncinya diganti (bukan nilai v1
+ * yang ditafsir ulang). Isinya kini stempel waktu tampil terakhir (ms).
  */
-export const AVAILABILITY_HINT_KEY = 'jadwal-availability-hint-v1';
+export const AVAILABILITY_HINT_KEY = 'jadwal-availability-hint-v2';
+
+export const AVAILABILITY_HINT_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /** Bagian localStorage yang dipakai di sini — cukup segini buat diuji. */
 interface HintStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
+
+/**
+ * Cadangan saat localStorage menolak (Safari private, iframe pihak ketiga).
+ * Tanpa ini gelembung menyembul di SETIAP perpindahan filter; dengan ini jeda
+ * 4 jam tetap berlaku selama halaman hidup.
+ */
+let memoryShownAt: number | null = null;
 
 function resolveStorage(storage?: HintStorage | null): HintStorage | null {
   if (storage) return storage;
@@ -30,30 +44,41 @@ function resolveStorage(storage?: HintStorage | null): HintStorage | null {
   }
 }
 
-/**
- * Boleh tampil? Hanya kalau browser ini belum pernah melihatnya.
- *
- * Gagal baca dijawab `true` (tampil), bukan `false`. Di Safari private mode
- * localStorage melempar, dan hint yang muncul dua kali jauh lebih murah
- * daripada pengunjung yang tidak pernah tahu tombolnya berfungsi apa.
- */
-export function shouldShowAvailabilityHint(storage?: HintStorage | null): boolean {
+function readShownAt(storage?: HintStorage | null): number | null {
   const store = resolveStorage(storage);
-  if (!store) return true;
+  if (!store) return memoryShownAt;
   try {
-    return store.getItem(AVAILABILITY_HINT_KEY) !== '1';
+    const raw = store.getItem(AVAILABILITY_HINT_KEY);
+    const at = raw === null ? NaN : Number(raw);
+    return Number.isFinite(at) ? at : null;
   } catch {
-    return true;
+    return memoryShownAt;
   }
 }
 
-/** Tandai sudah pernah dilihat. Gagal tulis diabaikan — ini bukan data penting. */
-export function markAvailabilityHintSeen(storage?: HintStorage | null): void {
+/**
+ * Boleh tampil? Belum pernah tampil, atau tampil terakhir ≥ 4 jam lalu.
+ *
+ * Stempel di masa depan (jam perangkat sempat maju lalu dibetulkan) dianggap
+ * basi — kalau tidak, gelembungnya tersandera sampai jam itu lewat.
+ */
+export function shouldShowAvailabilityHint(storage?: HintStorage | null, now: number = Date.now()): boolean {
+  const shownAt = readShownAt(storage);
+  if (shownAt === null) return true;
+  const elapsed = now - shownAt;
+  return elapsed < 0 || elapsed >= AVAILABILITY_HINT_INTERVAL_MS;
+}
+
+/** Catat saat gelembung tampil. Gagal tulis → cadangan memori. */
+export function markAvailabilityHintShown(storage?: HintStorage | null, now: number = Date.now()): void {
   const store = resolveStorage(storage);
-  if (!store) return;
+  if (!store) {
+    memoryShownAt = now;
+    return;
+  }
   try {
-    store.setItem(AVAILABILITY_HINT_KEY, '1');
+    store.setItem(AVAILABILITY_HINT_KEY, String(now));
   } catch {
-    /* storage ditolak — biarkan, hint muncul lagi lain kali */
+    memoryShownAt = now;
   }
 }

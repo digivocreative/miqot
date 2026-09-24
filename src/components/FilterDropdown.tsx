@@ -69,6 +69,12 @@ export interface FilterDropdownProps {
   showAllOptions?: boolean;
   /** Show the search field for long option lists. Defaults to true. */
   searchable?: boolean;
+  /**
+   * Dipanggil `true` saat panel terbuka dan `false` saat tertutup — ATAU saat
+   * komponennya unmount selagi terbuka, jadi pasangannya selalu lengkap. Dipakai
+   * FilterHeader untuk menahan coach mark selama ada panel yang terbuka.
+   */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -98,8 +104,13 @@ const FilterDropdown = forwardRef<FilterDropdownHandle, FilterDropdownProps>(fun
   portalZClass = 'z-50',
   showAllOptions = false,
   searchable = true,
+  onOpenChange,
 }, ref) {
   const [open, setOpen] = useState(false);
+  // Lewat ref: pemanggil boleh mengoper fungsi baru tiap render tanpa memicu
+  // laporan buka/tutup palsu.
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +158,14 @@ const FilterDropdown = forwardRef<FilterDropdownHandle, FilterDropdownProps>(fun
       document.removeEventListener('pointerdown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
+  }, [open]);
+
+  // Lapor buka/tutup berpasangan: cleanup jalan saat panel ditutup MAUPUN saat
+  // unmount selagi terbuka (sub-filter FilterHeader hilang begitu mode berganti).
+  useEffect(() => {
+    if (!open) return;
+    onOpenChangeRef.current?.(true);
+    return () => onOpenChangeRef.current?.(false);
   }, [open]);
 
   // Focus the search field on open (preventScroll so a sticky filter row stays put).

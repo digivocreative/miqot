@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
-// Coach mark sekali-tampil untuk tombol "hanya seat tersedia".
+// Coach mark tombol "hanya seat tersedia": tampil tiap kali tombol matanya
+// MUNCUL (paling sering: pindah dari Jenis Paket → SEAT TERSEDIA ke filter
+// lain), paling sering sekali per 4 jam.
 //
 // Keputusan tampil/tidak sengaja ditarik keluar jadi fungsi murni supaya bisa
 // diuji tanpa DOM; sisanya (posisi portal, jalur pembubaran) dijaga sebagai
@@ -30,12 +32,20 @@ async function bundle(entry, name) {
   return import(pathToFileURL(outfile).href);
 }
 
-const { AVAILABILITY_HINT_KEY, shouldShowAvailabilityHint, markAvailabilityHintSeen } =
-  await bundle('src/lib/availability-hint.ts', 'availability-hint');
+const {
+  AVAILABILITY_HINT_KEY,
+  AVAILABILITY_HINT_INTERVAL_MS,
+  shouldShowAvailabilityHint,
+  markAvailabilityHintShown,
+} = await bundle('src/lib/availability-hint.ts', 'availability-hint');
+
+const T0 = Date.UTC(2026, 8, 24, 3, 0, 0);
+const JAM = 60 * 60 * 1000;
 
 const read = rel => readFileSync(join(root, rel), 'utf8');
 const filterHeader = read('src/components/FilterHeader.tsx');
 const coachMark = read('src/components/AvailabilityCoachMark.tsx');
+const filterDropdown = read('src/components/FilterDropdown.tsx');
 
 function fakeStorage(initial = {}) {
   const data = { ...initial };
@@ -51,36 +61,59 @@ const throwingStorage = {
   setItem() { throw new Error('storage ditolak'); },
 };
 
-// ── Keputusan sekali-tampil ──
+// ── Keputusan tampil: sekali per 4 jam ──
+
+test('jedanya 4 jam', () => {
+  assert.equal(AVAILABILITY_HINT_INTERVAL_MS, 4 * JAM);
+});
 
 test('browser yang belum pernah melihat: tampil', () => {
-  assert.equal(shouldShowAvailabilityHint(fakeStorage()), true);
+  assert.equal(shouldShowAvailabilityHint(fakeStorage(), T0), true);
 });
 
-test('sesudah ditandai: tidak pernah tampil lagi', () => {
+test('sesudah tampil: diam 4 jam, lalu boleh tampil lagi', () => {
   const s = fakeStorage();
-  markAvailabilityHintSeen(s);
-  assert.equal(shouldShowAvailabilityHint(s), false);
+  markAvailabilityHintShown(s, T0);
+  assert.equal(shouldShowAvailabilityHint(s, T0 + 1), false);
+  assert.equal(shouldShowAvailabilityHint(s, T0 + 4 * JAM - 1), false);
+  assert.equal(shouldShowAvailabilityHint(s, T0 + 4 * JAM), true);
+  assert.equal(shouldShowAvailabilityHint(s, T0 + 30 * JAM), true);
 });
 
-test('kunci bersufiks versi supaya teks baru bisa ditayangkan ulang', () => {
-  // Naikkan ke -v2 = semua orang melihat versi barunya sekali lagi.
-  assert.equal(AVAILABILITY_HINT_KEY, 'jadwal-availability-hint-v1');
+test('stempel di masa depan (jam perangkat sempat maju) dianggap basi', () => {
+  // Kalau tidak, gelembungnya tersandera sampai jam itu benar-benar lewat —
+  // aturan yang sama dengan callout stiker Brosur (src/lib/stickerPromoGate.js).
   const s = fakeStorage();
-  markAvailabilityHintSeen(s);
+  markAvailabilityHintShown(s, T0 + 10 * JAM);
+  assert.equal(shouldShowAvailabilityHint(s, T0), true);
+});
+
+test('isi kunci rusak = belum pernah tampil', () => {
+  assert.equal(shouldShowAvailabilityHint(fakeStorage({ [AVAILABILITY_HINT_KEY]: 'ngawur' }), T0), true);
+});
+
+test('kunci naik ke -v2: penanda "sudah lihat selamanya" dari v1 tidak membisukan lagi', () => {
+  // v1 menyimpan '1' = tak pernah tampil lagi. Aturan baru wajib menjangkau
+  // pengunjung lama juga, jadi kuncinya diganti, bukan ditafsir ulang.
+  assert.equal(AVAILABILITY_HINT_KEY, 'jadwal-availability-hint-v2');
+  assert.equal(shouldShowAvailabilityHint(fakeStorage({ 'jadwal-availability-hint-v1': '1' }), T0), true);
+  const s = fakeStorage();
+  markAvailabilityHintShown(s, T0);
   assert.deepEqual(Object.keys(s.data), [AVAILABILITY_HINT_KEY]);
+  assert.equal(s.data[AVAILABILITY_HINT_KEY], String(T0));
 });
 
-test('storage yang menolak (Safari private) tidak menjatuhkan halaman', () => {
-  // Gagal baca → tetap tampil: hint yang muncul dua kali jauh lebih murah
-  // daripada halaman jadwal yang blank karena localStorage melempar.
-  assert.equal(shouldShowAvailabilityHint(throwingStorage), true);
-  assert.doesNotThrow(() => markAvailabilityHintSeen(throwingStorage));
+test('storage yang menolak (Safari private): tidak melempar, jeda 4 jam tetap berlaku di memori', () => {
+  // Tanpa cadangan memori, gelembung menyembul di SETIAP perpindahan filter.
+  assert.equal(shouldShowAvailabilityHint(throwingStorage, T0), true);
+  assert.doesNotThrow(() => markAvailabilityHintShown(throwingStorage, T0));
+  assert.equal(shouldShowAvailabilityHint(throwingStorage, T0 + JAM), false);
+  assert.equal(shouldShowAvailabilityHint(throwingStorage, T0 + 4 * JAM), true);
 });
 
 test('tanpa storage sama sekali (SSR/prerender) tidak melempar', () => {
   assert.doesNotThrow(() => shouldShowAvailabilityHint(null));
-  assert.doesNotThrow(() => markAvailabilityHintSeen(null));
+  assert.doesNotThrow(() => markAvailabilityHintShown(null));
 });
 
 // ── Gelembung: posisi & pembubaran ──
@@ -170,6 +203,52 @@ test('gelembung ikut sembunyi saat tombolnya sendiri tidak ada', () => {
   const open = filterHeader.match(/open=\{[^}]*\}/)?.[0] ?? '';
   assert.notEqual(open, '', 'prop open tidak ditemukan');
   assert.match(open, /showAvailabilityToggle/);
+});
+
+test('pemicunya tombol mata MUNCUL, bukan sekali per kunjungan', () => {
+  // Efek ber-dep showAvailabilityToggle saja: tiap kali tombolnya muncul lagi
+  // (Seat Tersedia → Landing, dst.) keputusan 4 jam diperiksa ulang. Kunci
+  // sekali-per-mount yang lama (hintArmedRef) justru menahannya.
+  assert.doesNotMatch(filterHeader, /hintArmedRef/);
+  const effect = filterHeader.match(/useEffect\(\(\) => \{\s*if \(!showAvailabilityToggle\)[\s\S]*?\}, \[showAvailabilityToggle\]\);/)?.[0] ?? '';
+  assert.notEqual(effect, '', 'efek petunjuk ber-dep [showAvailabilityToggle] tidak ditemukan');
+  // Tombolnya hilang (balik ke Seat Tersedia) = tayangan itu selesai; muncul
+  // lagi dalam 4 jam tidak menayangkannya ulang.
+  assert.match(effect, /setHintOpen\(false\)/);
+  assert.match(effect, /shouldShowAvailabilityHint\(\)/);
+  // Jam 4 jam mulai saat gelembung BENAR-BENAR tampil (di dalam timer), jadi
+  // pindah filter lagi sebelum 600 ms tidak menghabiskan jatahnya.
+  const timer = effect.match(/setTimeout\(\(\) => \{[\s\S]*?\}, \d+\)/)?.[0] ?? '';
+  assert.match(timer, /markAvailabilityHintShown\(\)/);
+  assert.match(timer, /setHintOpen\(true\)/);
+  // Menutup gelembung tidak lagi membisukan selamanya.
+  assert.doesNotMatch(filterHeader, /markAvailabilityHintSeen/);
+});
+
+test('gelembung menunggu selama dropdown header terbuka, tidak menimpanya', () => {
+  // Memilih mode dari dropdown utama langsung menyembulkan sub-filternya, dan
+  // 600 ms kemudian gelembung terbit — tanpa gerbang ini ia menutupi opsi
+  // panel yang baru terbuka (terlihat di "9 HARI / 10 HARI").
+  const open = filterHeader.match(/open=\{[^}]*\}/)?.[0] ?? '';
+  assert.match(open, /openMenuCount === 0/);
+
+  // Setiap FilterDropdown di header melapor buka/tutup — satu yang lupa berarti
+  // gelembung menimpa panel itu.
+  // `\s` sesudah nama: jangan tertukar dengan `useRef<FilterDropdownHandle`.
+  const dropdowns = [...filterHeader.matchAll(/<FilterDropdown\s(?:(?!<FilterDropdown\s)[\s\S])*?\/>/g)].map(m => m[0]);
+  assert.ok(dropdowns.length >= 5, 'dropdown header tidak ditemukan');
+  for (const block of dropdowns) {
+    assert.match(block, /onOpenChange=\{handleMenuOpenChange\}/, block.match(/ariaLabel="[^"]*"/)?.[0]);
+  }
+
+  // Laporannya berpasangan: `true` saat buka, `false` saat tutup ATAU unmount
+  // selagi terbuka (sub-filter hilang saat mode berganti). Tanpa cleanup itu
+  // hitungannya tersangkut > 0 dan gelembung tak pernah tampil lagi.
+  const effect = filterDropdown.match(/useEffect\(\(\) => \{\s*if \(!open\) return;\s*onOpenChangeRef\.current\?\.\(true\);[\s\S]*?\}, \[open\]\);/)?.[0] ?? '';
+  assert.notEqual(effect, '', 'efek onOpenChange berpasangan tidak ditemukan');
+  assert.match(effect, /return \(\) => onOpenChangeRef\.current\?\.\(false\);/);
+  // Hitungan tidak boleh turun di bawah nol.
+  assert.match(filterHeader, /Math\.max\(0, c \+ \(isOpen \? 1 : -1\)\)/);
 });
 
 test('menekan tombol matanya ikut membubarkan gelembung', () => {

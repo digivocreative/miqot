@@ -31,7 +31,7 @@ import { Sun, Moon, Search, X, SlidersHorizontal, LayoutList, LogIn, Home, Eye, 
 import { AGENTS_DATA } from '@/data/agents';
 import FilterDropdown, { type FilterDropdownHandle } from './FilterDropdown';
 import AvailabilityCoachMark from './AvailabilityCoachMark';
-import { shouldShowAvailabilityHint, markAvailabilityHintSeen } from '@/lib/availability-hint';
+import { shouldShowAvailabilityHint, markAvailabilityHintShown } from '@/lib/availability-hint';
 
 // ============================================
 // Types
@@ -332,31 +332,45 @@ export function FilterHeader({
   // kursinya lewat namanya sendiri, jadi tombolnya tidak ikut dirender di sana.
   const showAvailabilityToggle = MODES_WITH_AVAILABILITY_TOGGLE.includes(filterMode);
 
-  // Coach mark sekali-tampil untuk tombol itu. Dipicu saat tombolnya PERTAMA
-  // KALI terlihat — bukan cuma saat ganti mode dari SEAT TERSEDIA, tapi juga
-  // saat pengunjung membuka /{agent}/landing-jeddah langsung dari WhatsApp.
-  // Justru yang kedua ini yang paling tidak tahu tombol itu untuk apa.
+  // Coach mark untuk tombol itu. Dipicu tiap kali tombolnya MUNCUL — paling
+  // sering saat pindah dari Jenis Paket → SEAT TERSEDIA ke filter lain, tapi
+  // juga saat pengunjung membuka /{agent}/landing-jeddah langsung dari
+  // WhatsApp. Paling sering sekali per 4 jam (src/lib/availability-hint.ts).
   const availabilityBtnRef = useRef<HTMLButtonElement>(null);
   const [hintOpen, setHintOpen] = useState(false);
-  // Sekali per mount, di atas ingatan localStorage: mencegah gelembung terbit
-  // lagi kalau tombolnya sempat hilang lalu muncul kembali dalam satu kunjungan.
-  const hintArmedRef = useRef(true);
 
+  // Berapa dropdown header yang panelnya sedang terbuka. Selama > 0 gelembung
+  // ditahan: memilih mode dari dropdown utama langsung menyembulkan
+  // sub-filternya, dan gelembung yang terbit 600 ms kemudian akan menutupi opsi
+  // panel itu. Ia muncul begitu panelnya ditutup.
+  const [openMenuCount, setOpenMenuCount] = useState(0);
+  const handleMenuOpenChange = useCallback((isOpen: boolean) => {
+    setOpenMenuCount(c => Math.max(0, c + (isOpen ? 1 : -1)));
+  }, []);
+
+  // Menutup (× atau tombol matanya) hanya menutup. Jatah 4 jamnya sudah
+  // terpakai saat gelembung tampil, jadi tak ada yang perlu dicatat di sini.
   const dismissAvailabilityHint = useCallback(() => {
-    hintArmedRef.current = false;
-    markAvailabilityHintSeen();
     setHintOpen(false);
   }, []);
 
   useEffect(() => {
-    if (!showAvailabilityToggle || !hintArmedRef.current) return;
-    if (!shouldShowAvailabilityHint()) {
-      hintArmedRef.current = false;
+    if (!showAvailabilityToggle) {
+      // Tombolnya hilang (balik ke Seat Tersedia) = tayangan ini selesai.
+      // Kalau dibiarkan menyala, ia muncul lagi di perpindahan berikutnya
+      // tanpa melewati jeda 4 jam.
+      setHintOpen(false);
       return;
     }
+    if (!shouldShowAvailabilityHint()) return;
     // Jeda supaya gelembung tidak berebut frame dengan animasi buka header dan
-    // paint pertama daftar paket — diukur setelah semuanya duduk.
-    const timer = setTimeout(() => setHintOpen(true), 600);
+    // paint pertama daftar paket — diukur setelah semuanya duduk. Jatah 4 jam
+    // baru dicatat di sini, jadi pindah filter lagi sebelum 600 ms (timer
+    // dibatalkan) tidak menghabiskannya.
+    const timer = setTimeout(() => {
+      markAvailabilityHintShown();
+      setHintOpen(true);
+    }, 600);
     return () => clearTimeout(timer);
   }, [showAvailabilityToggle]);
 
@@ -611,6 +625,7 @@ export function FilterHeader({
             variant="default"
             triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
             portal
+            onOpenChange={handleMenuOpenChange}
             value={modeMenu}
             onChange={(v) => {
               // Penanda "pilihan ini dari tangan pengguna" — dibaca efek
@@ -637,6 +652,7 @@ export function FilterHeader({
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
+              onOpenChange={handleMenuOpenChange}
               value={typeMenuValue(filterMode, secondaryValue || '')}
               onChange={handleTypeMenuChange}
               options={typeMenuOptions}
@@ -657,6 +673,7 @@ export function FilterHeader({
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
+              onOpenChange={handleMenuOpenChange}
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={upperLabels([
@@ -675,6 +692,7 @@ export function FilterHeader({
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
+              onOpenChange={handleMenuOpenChange}
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={upperLabels([
@@ -696,6 +714,7 @@ export function FilterHeader({
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
+              onOpenChange={handleMenuOpenChange}
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
               options={upperLabels([
@@ -848,13 +867,13 @@ export function FilterHeader({
 
       </div>
 
-      {/* Petunjuk sekali-tampil untuk tombol mata. `open` ikut
-          showAvailabilityToggle DAN isVisible: kalau lepas, gelembungnya bisa
-          melayang menunjuk tombol yang sudah tidak dirender atau header yang
-          sudah menciut. */}
+      {/* Petunjuk untuk tombol mata. `open` ikut showAvailabilityToggle DAN
+          isVisible: kalau lepas, gelembungnya bisa melayang menunjuk tombol yang
+          sudah tidak dirender atau header yang sudah menciut. openMenuCount
+          menahannya selama panel dropdown terbuka supaya tidak menimpa opsinya. */}
       <AvailabilityCoachMark
         anchorRef={availabilityBtnRef}
-        open={hintOpen && showAvailabilityToggle && isVisible}
+        open={hintOpen && showAvailabilityToggle && isVisible && openMenuCount === 0}
         onDismiss={dismissAvailabilityHint}
       />
 
