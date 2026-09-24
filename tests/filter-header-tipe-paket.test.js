@@ -19,6 +19,7 @@ const brochureTemplate = read('src/components/BrochureScheduleTemplate.tsx');
 const filterDropdown = read('src/components/FilterDropdown.tsx');
 // Kodek slug + label mode pindah ke lib/filter-slug.js (dipakai server.js juga).
 const filterSlug = read('lib/filter-slug.js');
+const filterModal = read('src/components/FilterModal.tsx');
 
 test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus', () => {
   const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
@@ -30,6 +31,10 @@ test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus'
   // Peta labelnya ikut pindah ke kodek slug bersama; perilakunya diuji langsung
   // di tests/filter-slug.test.js.
   assert.match(filterSlug, /'TIPE PAKET': 'JENIS PAKET'/);
+  // SEAT TERSEDIA turun jadi opsi pertama Jenis Paket (lihat tes di bawah),
+  // jadi Jenis Paket kini opsi PERTAMA dropdown utama.
+  assert.doesNotMatch(optionsBlock, /'AVAILABLE'/);
+  assert.match(optionsBlock, /\[\s*\{ value: 'TIPE PAKET'/);
   // Urutan dropdown: Jenis Paket mendahului Landing Di.
   assert.ok(
     optionsBlock.indexOf("value: 'TIPE PAKET'") < optionsBlock.indexOf("value: 'LANDING DI'"),
@@ -52,23 +57,50 @@ test('mode URL-saja tetap punya label di trigger dropdown utama', () => {
   // FILTER_MODE_OPTIONS; tanpa entri sintetis FilterDropdown menampilkan '—'.
   const memo = filterHeader.match(/const filterModeOptions = useMemo\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
   assert.notEqual(memo, '', 'memo filterModeOptions tidak ditemukan');
-  assert.match(memo, /options\.some\(o => o\.value === filterMode\)/);
+  // Dibandingkan dengan nilai TAMPILAN (AVAILABLE tampil sebagai TIPE PAKET) —
+  // kalau dengan filterMode mentah, AVAILABLE ikut disuntik balik sebagai opsi.
+  assert.match(memo, /options\.some\(o => o\.value === modeMenu\)/);
   assert.match(filterHeader, /options=\{filterModeOptions\}/);
 });
 
-test('sub-filter tipe paket: placeholder ala Jadwal, tanpa showAllOptions', () => {
+test('sub-filter Jenis Paket: Seat Tersedia di atas Umroh Saja, tanpa showAllOptions', () => {
   // Tidak boleh melewati `<FilterDropdown` lain, kalau tidak blok-nya menelan
   // dropdown utama (yang memang memakai showAllOptions).
   const block = filterHeader.match(
     /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Pilih Jenis Paket"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
   )?.[0] ?? '';
   assert.notEqual(block, '', 'dropdown Jenis Paket tidak ditemukan');
-  assert.match(block, /value: '', label: '- Pilih Jenis -'/);
-  assert.match(block, /\.\.\.packageTypeOptions/);
+  assert.match(block, /options=\{typeMenuOptions\}/);
+  assert.match(block, /value=\{typeMenuValue\(filterMode, secondaryValue \|\| ''\)\}/);
+  assert.match(block, /onChange=\{handleTypeMenuChange\}/);
   // Scroll cap hanya dilepas untuk dropdown utama — dikunci juga oleh
   // tests/filter-header-main-dropdown-full-list.test.js.
   assert.ok(!block.includes('showAllOptions'));
-  assert.match(filterHeader, /const showTypeDropdown = filterMode === 'TIPE PAKET'/);
+
+  const memo = filterHeader.match(/const typeMenuOptions = useMemo\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? '';
+  assert.notEqual(memo, '', 'memo typeMenuOptions tidak ditemukan');
+  // Seat Tersedia SEBELUM roster tipe (yang dibuka Umroh Saja).
+  const seatAt = memo.indexOf("{ value: SEAT_TERSEDIA_TYPE_VALUE, label: 'Seat Tersedia' }");
+  const rosterAt = memo.indexOf('...packageTypeOptions');
+  assert.ok(seatAt >= 0, 'opsi Seat Tersedia tidak ditemukan');
+  assert.ok(rosterAt > seatAt, 'Seat Tersedia harus di atas Umroh Saja');
+  // Placeholder hanya untuk tautan lama /tipe-paket tanpa sub-nilai.
+  assert.match(memo, /filterMode === 'TIPE PAKET' && !secondaryValue/);
+  assert.match(memo, /value: '', label: '- Pilih Jenis -'/);
+  // Tampil huruf besar — di tampilan saja, roster bersama tetap 'Umroh Saja'.
+  assert.match(memo, /return upperLabels\(options\);/);
+
+  // Dropdown Jenis Paket juga tampil di mode AVAILABLE (= Seat Tersedia).
+  assert.match(filterHeader, /const showTypeDropdown = filterMode === 'TIPE PAKET' \|\| filterMode === 'AVAILABLE'/);
+  // Terjemahan tampilan ⇄ mode lewat helper ber-tes di filter-logic.ts, bukan inline.
+  assert.match(filterHeader, /value=\{modeMenu\}/);
+  assert.match(filterHeader, /onFilterModeChange\(resolveModeMenuChoice\(v as FilterMode\)\)/);
+  const handler = filterHeader.match(/const handleTypeMenuChange = [\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(handler, '', 'handleTypeMenuChange tidak ditemukan');
+  assert.match(handler, /resolveTypeMenuChoice\(/);
+  // Mode dulu, baru sub-nilai: handleSecondaryValueChange di App membaca
+  // filterModeRef yang baru diperbarui oleh onFilterModeChange.
+  assert.ok(handler.indexOf('onFilterModeChange(') < handler.indexOf('onSecondaryValueChange('));
 });
 
 test('opsi tipe dibangun dari roster yang sama dengan hasilnya', () => {
@@ -87,13 +119,37 @@ test('opsi tipe dibangun dari roster yang sama dengan hasilnya', () => {
   assert.equal(rogue.length, 1, 'gerbang kursi di FilterHeader harus tepat satu, di rosterPackages');
 });
 
-test('daftar mode ber-sort hidup di satu tempat saja', () => {
-  assert.match(filterHeader, /const showSortDropdown = MODES_WITH_SORT\.includes\(filterMode\)/);
-  assert.match(app, /MODES_WITH_SORT\.includes\(/);
-  // Dulu array literalnya ditulis dua kali di App.tsx dan sekali lagi sebagai
-  // rantai === di FilterHeader — cukup satu yang lupa diperbarui untuk membuat
-  // "masuk lewat URL" dan "ganti dropdown" berbeda perilaku.
-  assert.doesNotMatch(app, /const modesWithSort/);
+test('Urutkan tinggal di sheet Filter, berlaku untuk semua mode', () => {
+  // Dropdown Urutkan dulu menumpang di kolom kedua mode SEAT TERSEDIA. Mode itu
+  // kini opsi Jenis Paket, jadi kolomnya dipakai dropdown jenis — urutan pindah
+  // ke sheet Filter.
+  assert.doesNotMatch(filterHeader, /ariaLabel="Urutkan"/);
+  assert.doesNotMatch(filterHeader, /MODES_WITH_SORT|onSortOrderChange|SORT_OPTIONS/);
+  assert.doesNotMatch(app, /MODES_WITH_SORT/);
+  assert.doesNotMatch(filterLogic, /MODES_WITH_SORT/);
+
+  assert.match(filterModal, /const SORT_OPTIONS/);
+  for (const label of ['Tanggal Terdekat', 'Tanggal Terjauh', 'Harga Termurah', 'Harga Tertinggi']) {
+    assert.ok(filterModal.includes(`'${label}'`), `opsi ${label} hilang dari sheet`);
+  }
+  // Pilihan tunggal: tombolnya radio, bukan toggle bebas.
+  assert.match(filterModal, /role="radiogroup"/);
+  assert.match(filterModal, /role="radio"/);
+  // Reset sheet ikut mengembalikan urutan bawaan.
+  assert.match(filterModal, /onSortOrderChange\(DEFAULT_SORT\)/);
+
+  const modal = app.match(/<FilterModal[\s\S]*?\/>/)?.[0] ?? '';
+  assert.match(modal, /sortOrder=\{sortOrder\}/);
+  assert.match(modal, /onSortOrderChange=\{handleSortOrderChange\}/);
+
+  // Urutan kini lintas mode: ganti mode TIDAK mereset urutan (seperti filter
+  // lain di sheet), dan URL membaca ?urut= apa pun modenya.
+  const modeHandler = app.match(/const handleFilterModeChange = [\s\S]*?\n  \};/)?.[0] ?? '';
+  assert.notEqual(modeHandler, '', 'handleFilterModeChange tidak ditemukan');
+  assert.doesNotMatch(modeHandler, /setSortOrder/);
+  assert.match(app, /setSortOrder\(parsedUrl\.sortOrder \?\? DEFAULT_SORT\)/);
+  // Titik hijau tombol Filter menyala juga saat urutan bukan bawaan.
+  assert.match(app, /isFilterActive=\{[^}]*sortOrder !== DEFAULT_SORT/);
 });
 
 test('filter ikut ke URL lewat SATU penulis, bukan tiap handler', () => {
@@ -161,17 +217,12 @@ test('sub-filter menyembul sendiri setelah modenya dipilih — pemicunya nonce, 
   assert.match(effect, /subFilterRef\.current\?\.open\(\)/);
 });
 
-test('ref auto-open menempel di keempat sub-filter nilai, TIDAK di dropdown Urutkan', () => {
+test('ref auto-open menempel di keempat sub-filter nilai', () => {
   const withRef = [...filterHeader.matchAll(/ref=\{subFilterRef\}/g)];
   assert.equal(withRef.length, 4, 'tepat 4 sub-filter nilai: Jenis Paket, Landing, Bulan, Durasi');
-
-  // Urutkan sengaja di luar: modenya sudah menampilkan hasil dengan urutan
-  // bawaan, jadi panel yang menyembul di sana cuma menutupi daftar.
-  const sortDropdown = filterHeader.match(
-    /<FilterDropdown(?:(?!<FilterDropdown)[\s\S])*?ariaLabel="Urutkan"(?:(?!<FilterDropdown)[\s\S])*?\/>/,
-  )?.[0] ?? '';
-  assert.notEqual(sortDropdown, '', 'dropdown Urutkan tidak ditemukan');
-  assert.ok(!sortDropdown.includes('subFilterRef'), 'dropdown Urutkan tidak boleh ikut dibuka otomatis');
+  // Jumlah opsi Jenis Paket = daftar yang BENAR-BENAR dirender (termasuk Seat
+  // Tersedia), bukan roster tipe saja.
+  assert.match(filterHeader, /showTypeDropdown \? typeMenuOptions\.length/);
 });
 
 test('FilterDropdown: satu-satunya jalan membuka panel, dan selalu mengukur dulu', () => {
@@ -197,6 +248,13 @@ test('sub-filter pendek tidak memakai kotak Cari — ia merebut fokus & menaikka
     )?.[0] ?? '';
     assert.notEqual(block, '', `dropdown ${label} tidak ditemukan`);
     assert.match(block, /searchable=\{false\}/, `${label} masih memunculkan kotak Cari`);
+  }
+  // Keempat sub-filter nilai tampil huruf besar, senada dropdown utama.
+  for (const label of ['Pilih Landing', 'Pilih Bulan', 'Pilih Durasi']) {
+    const block = filterHeader.match(
+      new RegExp(`<FilterDropdown(?:(?!<FilterDropdown)[\\s\\S])*?ariaLabel="${label}"(?:(?!<FilterDropdown)[\\s\\S])*?/>`),
+    )?.[0] ?? '';
+    assert.match(block, /options=\{upperLabels\(\[/, `${label} belum huruf besar`);
   }
   // Brosur: satu kontrol yang isinya berganti ikut dimensi, jadi Cari dimatikan
   // untuk SEMUA dimensi — kalau tidak, kotaknya muncul-hilang sendiri.

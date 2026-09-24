@@ -2,7 +2,7 @@
 
 import { X, TicketPercent, Siren } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { type QuickFilterType, type TimeRange } from '@/utils';
+import { DEFAULT_SORT, type QuickFilterType, type SortOrder, type TimeRange } from '@/utils';
 import { useBackToClose } from '@/hooks/useBackToClose';
 
 // ============================================
@@ -26,6 +26,16 @@ const TIME_RANGES: TimeRangeOption[] = [
   { value: '18-24', label: '18:00 - 24:00' },
 ];
 
+// Urutkan pindah ke sini dari kolom kedua dropdown SEAT TERSEDIA — mode itu kini
+// opsi "Seat Tersedia" di dropdown Jenis Paket, jadi kolomnya dipakai dropdown
+// jenis. Di sheet ini urutan berlaku untuk SEMUA mode.
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: 'TANGGAL_TERDEKAT', label: 'Tanggal Terdekat' },
+  { value: 'TANGGAL_TERJAUH', label: 'Tanggal Terjauh' },
+  { value: 'HARGA_TERMURAH', label: 'Harga Termurah' },
+  { value: 'HARGA_TERTINGGI', label: 'Harga Tertinggi' },
+];
+
 export interface FilterModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -36,6 +46,9 @@ export interface FilterModalProps {
   onDepartureRangeChange: (ranges: TimeRange[]) => void;
   returnRanges: TimeRange[];
   onReturnRangeChange: (ranges: TimeRange[]) => void;
+  /** null = bawaan (Tanggal Terdekat). */
+  sortOrder: SortOrder | null;
+  onSortOrderChange: (order: SortOrder) => void;
 }
 
 // ============================================
@@ -80,7 +93,9 @@ export function FilterModal({
   departureRanges,
   onDepartureRangeChange,
   returnRanges,
-  onReturnRangeChange
+  onReturnRangeChange,
+  sortOrder,
+  onSortOrderChange,
 }: FilterModalProps) {
   // Back Android / gestur iOS menutup sheet, bukan meninggalkan halaman jadwal.
   // Filter yang diubah di dalam sheet ditulis App ke URL selagi entri riwayat
@@ -104,8 +119,11 @@ export function FilterModal({
     }
   };
 
+  const activeSort = sortOrder ?? DEFAULT_SORT;
+
   // Helper to check if any filter is active
-  const isAnyFilterActive = selectedFilter || departureRanges.length > 0 || returnRanges.length > 0;
+  const isAnyFilterActive =
+    selectedFilter || departureRanges.length > 0 || returnRanges.length > 0 || activeSort !== DEFAULT_SORT;
 
   return (
     <AnimatePresence>
@@ -185,6 +203,33 @@ export function FilterModal({
                 </div>
               </div>
 
+              {/* Section 0b: Sort — pilihan tunggal, selalu ada yang aktif */}
+              <div>
+                <h4 id="filter-sort-heading" className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Urutkan</h4>
+                <div role="radiogroup" aria-labelledby="filter-sort-heading" className="grid grid-cols-2 gap-2">
+                  {SORT_OPTIONS.map((option) => {
+                    const isActive = activeSort === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        role="radio"
+                        aria-checked={isActive}
+                        onClick={() => { if (!isActive) onSortOrderChange(option.value); }}
+                        className={`
+                          px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors text-center
+                          ${isActive
+                            ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-500'
+                          }
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Section 1: Departure Time */}
               <div>
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Waktu Keberangkatan</h4>
@@ -253,6 +298,7 @@ export function FilterModal({
                       onSelectFilter(null);
                       onDepartureRangeChange([]);
                       onReturnRangeChange([]);
+                      if (activeSort !== DEFAULT_SORT) onSortOrderChange(DEFAULT_SORT);
                     }}
                     className="px-4 py-3 text-sm font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-xl transition-colors"
                   >

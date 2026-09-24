@@ -6,9 +6,12 @@ import { isProgrammaticScrollActive } from '@/lib/programmatic-scroll';
 import type { UmrohPackage } from '@/types';
 import {
   FilterMode,
-  SortOrder,
-  MODES_WITH_SORT,
   MODES_WITH_AVAILABILITY_TOGGLE,
+  SEAT_TERSEDIA_TYPE_VALUE,
+  modeMenuValue,
+  resolveModeMenuChoice,
+  typeMenuValue,
+  resolveTypeMenuChoice,
   filterModeLabel,
   groupByMonth,
   extractUniqueDurations,
@@ -44,13 +47,10 @@ export interface FilterHeaderProps {
   filterMode: FilterMode;
   /** Secondary filter value (month key, durasi, kode landing, atau tipe paket) */
   secondaryValue?: string;
-  /** Current sort order — hanya untuk mode tanpa sub-nilai sendiri (MODES_WITH_SORT) */
-  sortOrder?: SortOrder | null;
   /** Callbacks */
   onYearChange: (year: string) => void;
   onFilterModeChange: (mode: FilterMode) => void;
   onSecondaryValueChange: (value: string) => void;
-  onSortOrderChange?: (order: SortOrder | null) => void;
   /** Dark mode state */
   isDarkMode: boolean;
   /** Toggle dark mode callback */
@@ -84,6 +84,13 @@ export interface FilterHeaderProps {
 const FILTER_ROW_TRIGGER_SIZE =
   'h-9 gap-1.5 px-2.5 text-xs sm:h-auto sm:gap-2 sm:px-3 sm:py-2.5 sm:text-sm font-medium rounded-xl';
 
+// Sub-filter tampil HURUF BESAR, senada dropdown utama (JENIS PAKET, LANDING DI…).
+// Diubah di tampilan ini, BUKAN di sumber labelnya: label roster tipe paket
+// ('Umroh Ramadhan') juga dipakai Brosur, kartu OG, dan judul tab.
+function upperLabels<T extends { label: string }>(options: T[]): T[] {
+  return options.map(o => ({ ...o, label: o.label.toUpperCase() }));
+}
+
 // Search icon + the two square action buttons shrink with the row on mobile.
 // lucide's `size` prop writes width/height attributes, which CSS beats — so the
 // responsive sizing has to come from classes, not the prop.
@@ -94,20 +101,14 @@ const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
 // (lihat FilterMode di src/utils/filter-logic.ts).
 // Label datang dari FILTER_MODE_LABELS: nilai mode terikat slug URL & logika
 // filter, teksnya tidak — mis. 'TIPE PAKET' tampil sebagai "JENIS PAKET".
+// 'AVAILABLE' sengaja tidak di sini: ia tampil sebagai opsi "Seat Tersedia" di
+// dropdown Jenis Paket (lihat modeMenuValue di src/utils/filter-logic.ts).
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
-  { value: 'AVAILABLE', label: filterModeLabel('AVAILABLE') },
   { value: 'TIPE PAKET', label: filterModeLabel('TIPE PAKET') },
   { value: 'LANDING DI', label: filterModeLabel('LANDING DI') },
   { value: 'DURASI PERJALANAN', label: filterModeLabel('DURASI PERJALANAN') },
   { value: 'DATA PER-BULAN', label: filterModeLabel('DATA PER-BULAN') },
   { value: 'SEMUA DATA', label: filterModeLabel('SEMUA DATA') },
-];
-
-const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
-  { value: 'TANGGAL_TERDEKAT', label: 'Tanggal Terdekat' },
-  { value: 'TANGGAL_TERJAUH', label: 'Tanggal Terjauh' },
-  { value: 'HARGA_TERMURAH', label: 'Harga Termurah' },
-  { value: 'HARGA_TERTINGGI', label: 'Harga Tertinggi' },
 ];
 
 // ============================================
@@ -120,11 +121,9 @@ export function FilterHeader({
   availableYears = ['1448', '1449'],
   filterMode,
   secondaryValue,
-  sortOrder,
   onYearChange,
   onFilterModeChange,
   onSecondaryValueChange,
-  onSortOrderChange,
   isDarkMode,
   onToggleDarkMode,
   searchQuery,
@@ -402,21 +401,48 @@ export function FilterHeader({
     return options;
   }, [rosterPackages, musimDinginWindow, secondaryValue]);
 
+  // Dropdown Jenis Paket: "Seat Tersedia" (= mode AVAILABLE, halaman bawaan)
+  // duduk di atas roster tipe, jadi tepat di atas "Umroh Saja".
+  const typeMenuOptions = useMemo(() => {
+    const options = [
+      { value: SEAT_TERSEDIA_TYPE_VALUE, label: 'Seat Tersedia' },
+      ...packageTypeOptions,
+    ];
+    // Tautan lama /{agent}/tipe-paket tanpa sub-nilai: tanpa entri ini trigger
+    // jatuh ke '—'. Hanya di keadaan itu — memilih JENIS PAKET dari dropdown
+    // utama kini mendarat di Seat Tersedia (resolveModeMenuChoice).
+    if (filterMode === 'TIPE PAKET' && !secondaryValue) {
+      options.unshift({ value: '', label: '- Pilih Jenis -' });
+    }
+    return upperLabels(options);
+  }, [packageTypeOptions, filterMode, secondaryValue]);
+
+  const handleTypeMenuChange = (v: string) => {
+    const next = resolveTypeMenuChoice(v);
+    // Mode dulu, baru sub-nilai: handleSecondaryValueChange di App membaca
+    // filterModeRef yang baru saja diperbarui onFilterModeChange (state closure
+    // di event yang sama masih mode lama).
+    if (next.mode !== filterMode) onFilterModeChange(next.mode);
+    onSecondaryValueChange(next.secondaryValue);
+  };
+
+  // Nilai yang TAMPIL di dropdown utama: AVAILABLE tampil sebagai JENIS PAKET.
+  const modeMenu = modeMenuValue(filterMode);
+
   // Mode URL-saja (mis. /cuti-5-hari, /liburan-sekolah) tidak ada di roster
   // dropdown. Tanpa entri sintetis, FilterDropdown tidak menemukan labelnya dan
   // trigger jatuh ke placeholder '—' — pengunjung yang datang dari tautan lama
   // tidak tahu filter apa yang sedang aktif.
   const filterModeOptions = useMemo(() => {
     const options = FILTER_MODE_OPTIONS.map(o => ({ value: o.value as string, label: o.label }));
-    if (!options.some(o => o.value === filterMode)) {
-      options.push({ value: filterMode, label: filterModeLabel(filterMode) });
+    if (!options.some(o => o.value === modeMenu)) {
+      options.push({ value: modeMenu, label: filterModeLabel(modeMenu) });
     }
     return options;
-  }, [filterMode]);
+  }, [modeMenu]);
 
   // Check if secondary dropdown should be shown
-  const showSortDropdown = MODES_WITH_SORT.includes(filterMode);
-  const showTypeDropdown = filterMode === 'TIPE PAKET';
+  const showTypeDropdown = filterMode === 'TIPE PAKET' || filterMode === 'AVAILABLE';
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
   const showLandingDropdown = filterMode === 'LANDING DI';
@@ -425,9 +451,7 @@ export function FilterHeader({
   //
   // Keempat mode berdimensi BELUM menampilkan apa pun sampai nilainya dipilih,
   // jadi memilih mode lalu harus menyentuh dropdown kedua itu dua ketukan untuk
-  // satu niat. Dropdown Urutkan sengaja TIDAK ikut: mode-nya sudah menampilkan
-  // hasil dengan urutan bawaan, jadi panel yang menyembul di sana cuma menutupi
-  // daftar yang sebetulnya sudah siap dibaca.
+  // satu niat.
   //
   // Satu ref cukup: keempat sub-dropdown saling eksklusif, tak pernah ada dua
   // yang terpasang sekaligus.
@@ -449,7 +473,7 @@ export function FilterHeader({
   // Jumlah opsi per mode dipakai sebagai gerbang kedua: membuka dropdown yang
   // cuma berisi placeholder '- Pilih … -' itu jalan buntu yang menutupi hasil.
   const subFilterOptionCount =
-    showTypeDropdown ? packageTypeOptions.length
+    showTypeDropdown ? typeMenuOptions.length
     : showLandingDropdown ? landingOptions.length
     : showMonthDropdown ? monthGroups.length
     : showDurationDropdown ? durationOptions.length
@@ -586,17 +610,18 @@ export function FilterHeader({
             variant="default"
             triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
             portal
-            value={filterMode}
+            value={modeMenu}
             onChange={(v) => {
-              const newMode = v as FilterMode;
               // Penanda "pilihan ini dari tangan pengguna" — dibaca efek
               // auto-open sub-filter di atas. Hanya di sini, jangan ditiru di
               // jalur URL/Back.
               setAutoOpenNonce(n => n + 1);
-              onFilterModeChange(newMode);
-              // Reset secondary value and sort when mode changes
+              // JENIS PAKET mendarat di Seat Tersedia, lalu dropdown jenisnya
+              // menyembul supaya tipe lain bisa langsung dipilih.
+              onFilterModeChange(resolveModeMenuChoice(v as FilterMode));
+              // Reset secondary value when mode changes. Urutan TIDAK ikut
+              // direset: ia tinggal di sheet Filter dan berlaku lintas mode.
               onSecondaryValueChange('');
-              onSortOrderChange?.(null);
             }}
             options={filterModeOptions}
             ariaLabel="Filter paket"
@@ -604,39 +629,22 @@ export function FilterHeader({
             showAllOptions
           />
 
-          {/* Secondary Dropdown: Package Type — roster identik halaman Brosur */}
+          {/* Secondary Dropdown: Package Type — "Seat Tersedia" + roster identik halaman Brosur */}
           {showTypeDropdown && (
             <FilterDropdown
               ref={subFilterRef}
               variant="default"
               triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
               portal
-              value={secondaryValue || ''}
-              onChange={onSecondaryValueChange}
-              options={[
-                { value: '', label: '- Pilih Jenis -' },
-                ...packageTypeOptions,
-              ]}
+              value={typeMenuValue(filterMode, secondaryValue || '')}
+              onChange={handleTypeMenuChange}
+              options={typeMenuOptions}
               // Roster jenis paket lewat 8 opsi, jadi FilterDropdown otomatis
               // memunculkan kotak Cari — tidak berguna di sini: daftarnya pendek,
               // muat satu layar, dan halaman ini sudah punya kotak Cari sendiri
               // tepat di bawahnya.
               searchable={false}
               ariaLabel="Pilih Jenis Paket"
-              widthClass="flex-1"
-            />
-          )}
-
-          {/* Secondary Dropdown: Sort Order (mode tanpa sub-nilai sendiri) */}
-          {showSortDropdown && (
-            <FilterDropdown
-              variant="default"
-              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
-              portal
-              value={sortOrder || ''}
-              onChange={(v) => onSortOrderChange?.((v as SortOrder) || null)}
-              options={[{ value: '', label: '- Urutkan -' }, ...SORT_OPTIONS]}
-              ariaLabel="Urutkan"
               widthClass="flex-1"
             />
           )}
@@ -650,10 +658,10 @@ export function FilterHeader({
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
-              options={[
+              options={upperLabels([
                 { value: '', label: '- Pilih Landing -' },
                 ...landingOptions.map((l) => ({ value: l.code, label: `${l.name} (${l.packageCount} paket)` })),
-              ]}
+              ])}
               ariaLabel="Pilih Landing"
               widthClass="flex-1"
             />
@@ -668,13 +676,13 @@ export function FilterHeader({
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
-              options={[
+              options={upperLabels([
                 { value: '', label: '- Pilih Bulan -' },
                 // Nama bulan saja — hitungan kursi (sisa/total) sengaja tidak
                 // ikut: angkanya lebar, memaksa trigger terpotong di mobile,
                 // dan sisa seat sudah terbaca per kartu.
                 ...monthGroups.map((m) => ({ value: m.monthKey, label: m.monthName })),
-              ]}
+              ])}
               searchable={false}
               ariaLabel="Pilih Bulan"
               widthClass="flex-1"
@@ -690,10 +698,10 @@ export function FilterHeader({
               portal
               value={secondaryValue || ''}
               onChange={onSecondaryValueChange}
-              options={[
+              options={upperLabels([
                 { value: '', label: '- Pilih Durasi -' },
                 ...durationOptions.map((d) => ({ value: d.days.toString(), label: `${d.label} (${d.count} paket)` })),
-              ]}
+              ])}
               // Daftar durasi lewat 8 opsi, jadi FilterDropdown otomatis
               // memunculkan kotak Cari — dan kotak itu MEREBUT FOKUS saat panel
               // dibuka. Sejak sub-filter menyembul sendiri setelah modenya

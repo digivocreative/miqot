@@ -35,7 +35,11 @@ const {
   resolveFilterSlug,
   FILTER_MODE_SLUGS,
   LEGACY_FILTER_SLUGS,
-  MODES_WITH_SORT,
+  SEAT_TERSEDIA_TYPE_VALUE,
+  modeMenuValue,
+  resolveModeMenuChoice,
+  typeMenuValue,
+  resolveTypeMenuChoice,
 } = mod;
 
 function pkg(nama, over = {}) {
@@ -181,10 +185,44 @@ test('/cuti-5-hari tetap menyaring: hilang dari dropdown, tidak dari URL', () =>
   assert.deepEqual(names(filterPackages(data, { mode: 'UMROH CUTI 5 HARI' })), ['CUTI']);
 });
 
-test('MODES_WITH_SORT: hanya mode tanpa sub-nilai sendiri', () => {
-  assert.deepEqual([...MODES_WITH_SORT], ['AVAILABLE', 'LIBURAN_SEKOLAH', 'UMROH CUTI 5 HARI']);
-  // Mode bersub-nilai memakai kolom kedua untuk nilainya, bukan untuk sort.
-  for (const mode of ['TIPE PAKET', 'LANDING DI', 'DATA PER-BULAN', 'DURASI PERJALANAN']) {
-    assert.equal(MODES_WITH_SORT.includes(mode), false, mode);
-  }
+test('Urutkan pindah ke sheet Filter: tidak ada lagi daftar mode ber-sort', () => {
+  // Dulu dropdown Urutkan menumpang di kolom kedua mode SEAT TERSEDIA; sejak
+  // mode itu turun jadi opsi Jenis Paket, urutan hidup di sheet Filter dan
+  // berlaku untuk SEMUA mode — jadi daftar pengecualiannya tidak boleh hidup lagi.
+  assert.equal('MODES_WITH_SORT' in mod, false);
+});
+
+test('Seat Tersedia = mode AVAILABLE yang tampil sebagai opsi pertama Jenis Paket', () => {
+  // Dropdown utama tidak punya SEAT TERSEDIA lagi; AVAILABLE tampil sebagai
+  // JENIS PAKET dengan sub-nilai "Seat Tersedia". Mode lain tampil apa adanya.
+  assert.equal(modeMenuValue('AVAILABLE'), 'TIPE PAKET');
+  assert.equal(modeMenuValue('TIPE PAKET'), 'TIPE PAKET');
+  assert.equal(modeMenuValue('LANDING DI'), 'LANDING DI');
+  assert.equal(modeMenuValue('SEMUA DATA'), 'SEMUA DATA');
+
+  assert.equal(typeMenuValue('AVAILABLE', ''), SEAT_TERSEDIA_TYPE_VALUE);
+  assert.equal(typeMenuValue('TIPE PAKET', 'UMROH SAJA'), 'UMROH SAJA');
+  // Tautan lama /{agent}/tipe-paket (tanpa sub-nilai) tetap terbaca apa adanya.
+  assert.equal(typeMenuValue('TIPE PAKET', ''), '');
+});
+
+test('memilih JENIS PAKET di dropdown utama mendarat di Seat Tersedia', () => {
+  // Sub-nilai bawaan Jenis Paket kini Seat Tersedia — bukan '- Pilih Jenis -'
+  // yang dulu memuntahkan SEMUA paket termasuk yang habis.
+  assert.equal(resolveModeMenuChoice('TIPE PAKET'), 'AVAILABLE');
+  assert.equal(resolveModeMenuChoice('LANDING DI'), 'LANDING DI');
+  assert.equal(resolveModeMenuChoice('SEMUA DATA'), 'SEMUA DATA');
+});
+
+test('pilihan di dropdown Jenis Paket diterjemahkan ke mode + sub-nilai', () => {
+  assert.deepEqual(resolveTypeMenuChoice(SEAT_TERSEDIA_TYPE_VALUE), { mode: 'AVAILABLE', secondaryValue: '' });
+  assert.deepEqual(resolveTypeMenuChoice('UMROH SAJA'), { mode: 'TIPE PAKET', secondaryValue: 'UMROH SAJA' });
+  assert.deepEqual(resolveTypeMenuChoice('PLUS TURKI'), { mode: 'TIPE PAKET', secondaryValue: 'PLUS TURKI' });
+  // Nilai sentinel tidak boleh bertabrakan dengan tipe paket mana pun di roster.
+  assert.equal(getFilterModeFromSlug(SEAT_TERSEDIA_TYPE_VALUE), null);
+
+  // Hasilnya identik dengan halaman bawaan: hanya paket berkursi.
+  const seat = filterPackages(DATA, { ...resolveTypeMenuChoice(SEAT_TERSEDIA_TYPE_VALUE), today: TODAY });
+  assert.equal(seat.every(p => p.seatSisa > 0), true);
+  assert.equal(seat.length, DATA.filter(p => p.seatSisa > 0).length);
 });

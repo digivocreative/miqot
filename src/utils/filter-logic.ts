@@ -162,13 +162,6 @@ const HIJRI_MONTH_NAMES = [
   'Ramadhan', 'Syawal', 'Dzulqaidah', 'Dzulhijjah'
 ];
 
-/** Mode yang memunculkan dropdown "Urutkan" — satu daftar untuk App & FilterHeader. */
-export const MODES_WITH_SORT: readonly FilterMode[] = [
-  'AVAILABLE',
-  'LIBURAN_SEKOLAH',
-  'UMROH CUTI 5 HARI',
-];
-
 /**
  * Mode yang memunculkan tombol "hanya seat tersedia".
  *
@@ -185,6 +178,45 @@ export const MODES_WITH_AVAILABILITY_TOGGLE: readonly FilterMode[] = [
   'DURASI PERJALANAN',
   'DATA PER-BULAN',
 ];
+
+// ============================================
+// "Seat Tersedia" sebagai opsi Jenis Paket
+// ============================================
+//
+// Dropdown utama tidak lagi menawarkan SEAT TERSEDIA; pilihannya turun jadi
+// opsi PERTAMA dropdown Jenis Paket, tepat di atas "Umroh Saja". Di balik layar
+// ia tetap mode 'AVAILABLE' — itulah yang menjaga halaman bawaan tetap di URL
+// telanjang (/nikita), kartu OG & judul tab bawaan, dan telemetri mode yang
+// sama. Yang berubah hanya cara ia TAMPIL, dan terjemahannya hidup di empat
+// fungsi di bawah supaya FilterHeader tidak merakitnya sendiri.
+
+/** Nilai opsi "Seat Tersedia" di dropdown Jenis Paket. Bukan tipe paket di roster. */
+export const SEAT_TERSEDIA_TYPE_VALUE = 'SEAT TERSEDIA';
+
+/** Nilai yang ditampilkan dropdown utama untuk mode aktif. */
+export function modeMenuValue(mode: FilterMode): FilterMode {
+  return mode === 'AVAILABLE' ? 'TIPE PAKET' : mode;
+}
+
+/**
+ * Pilihan di dropdown utama → mode sungguhan. JENIS PAKET mendarat di Seat
+ * Tersedia (sub-nilai bawaannya), bukan '- Pilih Jenis -' yang dulu memuat
+ * SEMUA paket termasuk yang habis.
+ */
+export function resolveModeMenuChoice(choice: FilterMode): FilterMode {
+  return choice === 'TIPE PAKET' ? 'AVAILABLE' : choice;
+}
+
+/** Nilai yang ditampilkan dropdown Jenis Paket. */
+export function typeMenuValue(mode: FilterMode, secondaryValue: string): string {
+  return mode === 'AVAILABLE' ? SEAT_TERSEDIA_TYPE_VALUE : secondaryValue;
+}
+
+/** Pilihan di dropdown Jenis Paket → mode + sub-nilai sungguhan. */
+export function resolveTypeMenuChoice(choice: string): { mode: FilterMode; secondaryValue: string } {
+  if (choice === SEAT_TERSEDIA_TYPE_VALUE) return { mode: 'AVAILABLE', secondaryValue: '' };
+  return { mode: 'TIPE PAKET', secondaryValue: choice };
+}
 
 // ============================================
 // Helper Functions

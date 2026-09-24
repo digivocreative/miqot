@@ -87,8 +87,8 @@ const SLUG_TO_SORT: Record<string, SortOrder> = {
   'harga-tertinggi': 'HARGA_TERTINGGI',
 };
 
-/** Urutan bawaan mode ber-sort; tidak ditulis ke URL supaya link tetap pendek. */
-const DEFAULT_SORT: SortOrder = 'TANGGAL_TERDEKAT';
+/** Urutan bawaan (semua mode); tidak ditulis ke URL supaya link tetap pendek. */
+export const DEFAULT_SORT: SortOrder = 'TANGGAL_TERDEKAT';
 
 /**
  * Param sub-nilai LAMA. Tidak pernah ditulis lagi (sub-nilai sekarang menyatu

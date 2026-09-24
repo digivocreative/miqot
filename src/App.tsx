@@ -12,7 +12,7 @@ import {
   buildFilterSearch,
   parseFilterSearch,
   URGENT_SEAT_THRESHOLD,
-  MODES_WITH_SORT,
+  DEFAULT_SORT,
   MODES_WITH_AVAILABILITY_TOGGLE,
   type FilterMode,
   type SortOrder,
@@ -174,7 +174,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
-  const [sortOrder, setSortOrder] = useState<SortOrder | null>('TANGGAL_TERDEKAT');
+  // Urutan hidup di sheet Filter dan berlaku lintas mode — tak pernah null.
+  const [sortOrder, setSortOrder] = useState<SortOrder>(DEFAULT_SORT);
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
   const [isCompactView, setIsCompactView] = useState(() => {
@@ -318,13 +319,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         // user memilih sendiri, jadi URL yang di-share tidak pernah berbohong.
         const secondary = parsedUrl.secondary[resolved.mode] || resolved.secondaryValue;
         if (secondary) setFilterSecondaryValue(secondary);
-        setSortOrder(
-          parsedUrl.sortOrder ?? (MODES_WITH_SORT.includes(resolved.mode) ? 'TANGGAL_TERDEKAT' : null),
-        );
       }
-    } else if (parsedUrl.sortOrder) {
-      setSortOrder(parsedUrl.sortOrder);
     }
+    // Urutan tidak terikat mode: ?urut= berlaku di path mana pun.
+    setSortOrder(parsedUrl.sortOrder ?? DEFAULT_SORT);
 
     // Mulai sekarang URL boleh ditulis ulang dari state (lihat efek sinkron URL).
     urlSyncReadyRef.current = true;
@@ -754,15 +752,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       });
     }
 
-    // Urutan: dropdown Urutkan kalau ada, selain itu tanggal berangkat terdekat.
-    // Filter cepat tidak lagi ikut mengurutkan, jadi tidak ada pengecualian.
-    if (sortOrder) {
-      result = sortPackages(result, sortOrder);
-    } else {
-      result = [...result].sort((a, b) =>
-        new Date(a.keberangkatan.tgl).getTime() - new Date(b.keberangkatan.tgl).getTime()
-      );
-    }
+    // Urutan dari sheet Filter (bawaan: tanggal berangkat terdekat). Filter
+    // cepat tidak ikut mengurutkan, jadi tidak ada pengecualian.
+    result = sortPackages(result, sortOrder);
     
     return result;
   }, [packages, filterMode, filterSecondaryValue, availableOnly, searchQuery, quickFilter, departureTimeRanges, returnTimeRanges, sortOrder]);
@@ -777,7 +769,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     setFilterSecondaryValue('');
     setSearchQuery('');
     setQuickFilter(null);
-    setSortOrder('TANGGAL_TERDEKAT');
+    setSortOrder(DEFAULT_SORT);
     setDepartureTimeRanges([]);
     setReturnTimeRanges([]);
     setAvailableOnly(false);
@@ -788,8 +780,6 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     filterModeRef.current = mode;
     setFilterMode(mode);
     setFilterSecondaryValue('');
-    // Set default sort for modes with sort sub-dropdown
-    setSortOrder(MODES_WITH_SORT.includes(mode) ? 'TANGGAL_TERDEKAT' : null);
     // Toggle "hanya seat tersedia" hidup hanya selama tombolnya terlihat. Kalau
     // nilainya disimpan diam-diam, user kembali ke mode berdimensi dan mendapati
     // daftarnya pendek karena saringan yang tombolnya sempat hilang dari layar.
@@ -828,9 +818,9 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     trackFilterChange('pulang', ranges.join(','));
   };
 
-  const handleSortOrderChange = (order: SortOrder | null) => {
+  const handleSortOrderChange = (order: SortOrder) => {
     setSortOrder(order);
-    trackFilterChange('urut', order || '');
+    trackFilterChange('urut', order);
   };
 
   // Saat pindah kartu (A terbuka → tap B), panel A ditutup INSTAN (prop
@@ -1213,21 +1203,20 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         availableYears={['1448', '1449']}
         filterMode={filterMode}
         secondaryValue={filterSecondaryValue}
-        sortOrder={sortOrder}
         onYearChange={handleYearChange}
         onFilterModeChange={handleFilterModeChange}
         onSecondaryValueChange={handleSecondaryValueChange}
-        onSortOrderChange={handleSortOrderChange}
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onToggleFilter={() => setIsFilterModalOpen(true)}
-        isFilterActive={!!quickFilter || departureTimeRanges.length > 0 || returnTimeRanges.length > 0}
+        isFilterActive={!!quickFilter || departureTimeRanges.length > 0 || returnTimeRanges.length > 0 || sortOrder !== DEFAULT_SORT}
         onClearFilter={() => {
           setQuickFilter(null);
           setDepartureTimeRanges([]);
           setReturnTimeRanges([]);
+          setSortOrder(DEFAULT_SORT);
         }}
         isCompactView={isCompactView}
         onToggleCompact={toggleCompactView}
@@ -1415,6 +1404,8 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
         onDepartureRangeChange={handleDepartureRangeChange}
         returnRanges={returnTimeRanges}
         onReturnRangeChange={handleReturnRangeChange}
+        sortOrder={sortOrder}
+        onSortOrderChange={handleSortOrderChange}
       />
 
       {/* ============================================ */}
