@@ -19,6 +19,7 @@ import { airportCityName } from './fixtures/journey-city.js';
 test('bolak-balik: tiap bentuk slug kembali ke mode + nilainya', () => {
   const cases = [
     ['TIPE PAKET', 'UMROH RAMADHAN', 'umroh-ramadhan'],
+    ['TIPE PAKET', 'UMROH JUMATAIN', 'umroh-jumatain'],
     ['TIPE PAKET', 'PLUS AL ULA', 'plus-al-ula'],
     ['LANDING DI', 'MED', 'landing-madinah'],
     ['LANDING DI', 'JED', 'landing-jeddah'],

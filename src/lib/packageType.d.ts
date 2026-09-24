@@ -29,6 +29,7 @@ export const PACKAGE_TYPE_UMROH_RAHMAH: 'UMROH RAHMAH';
 export const PACKAGE_TYPE_UMROH_PROMO: 'UMROH PROMO';
 export const PACKAGE_TYPE_UMROH_MUSIM_DINGIN: 'UMROH MUSIM DINGIN';
 export const PACKAGE_TYPE_UMROH_RAMADHAN: 'UMROH RAMADHAN';
+export const PACKAGE_TYPE_UMROH_JUMATAIN: 'UMROH JUMATAIN';
 export const PACKAGE_TYPE_KERETA_CEPAT: 'KERETA CEPAT';
 
 export const PACKAGE_TYPES: ReadonlyArray<{ value: string; pattern: RegExp }>;
@@ -38,6 +39,8 @@ export const TIER_FOR_PACKAGE_TYPE: Record<string, string>;
 /** Satu tipe destinasi per paket (first-match-wins); default 'UMROH SAJA'. */
 export function derivePackageType(rawName: string | undefined | null): string;
 export function hasKeretaCepat(rawName: string | undefined | null): boolean;
+export const JUMATAIN_PATTERN: RegExp;
+export function hasJumatain(rawName: string | undefined | null): boolean;
 
 /** Musim dingin terdekat relatif `today` (UTC). */
 export function getMusimDinginWindow(today?: Date): MusimDinginWindow;

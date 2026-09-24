@@ -28,6 +28,7 @@ export const PACKAGE_TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
 export const PACKAGE_TYPE_UMROH_PROMO = 'UMROH PROMO';
 export const PACKAGE_TYPE_UMROH_MUSIM_DINGIN = 'UMROH MUSIM DINGIN';
 export const PACKAGE_TYPE_UMROH_RAMADHAN = 'UMROH RAMADHAN';
+export const PACKAGE_TYPE_UMROH_JUMATAIN = 'UMROH JUMATAIN';
 export const PACKAGE_TYPE_KERETA_CEPAT = 'KERETA CEPAT';
 
 // Order matters: the first matching pattern wins. Foreign extensions are
@@ -69,6 +70,16 @@ export const KERETA_CEPAT_PATTERN = /\bKERETA\s+CEPAT\b/i;
 
 export function hasKeretaCepat(rawName) {
   return KERETA_CEPAT_PATTERN.test(String(rawName || ''));
+}
+
+// Program "dua Jumat" di Tanah Suci. AWAPI selalu menulis JUM'ATAIN (apostrof
+// lurus) di data 1448; tanpa apostrof dan apostrof keriting ikut diterima supaya
+// paket tidak lenyap dari filter hanya karena gaya ketik. Sengaja tidak menerima
+// "JUMAT" saja — itu hari berangkat, bukan programnya.
+export const JUMATAIN_PATTERN = /\bJUM\s*['’‘`]?\s*ATAIN\b/i;
+
+export function hasJumatain(rawName) {
+  return JUMATAIN_PATTERN.test(String(rawName || ''));
 }
 
 /**
@@ -212,10 +223,11 @@ function isPromoSubject(subject) {
 }
 
 /**
- * Keanggotaan satu paket pada satu tipe. Urutannya penting: empat tipe pertama
+ * Keanggotaan satu paket pada satu tipe. Urutannya penting: lima tipe pertama
  * BUKAN kategori eksklusif (sebuah paket bisa sekaligus "Plus Turki" dan
- * "Kereta Cepat", atau promo dan musim dingin, atau Ramadhan dan Plus Badar),
- * jadi mereka tidak lewat derivePackageType yang memilih SATU tipe per paket.
+ * "Kereta Cepat", atau promo dan musim dingin, atau Ramadhan dan Plus Badar,
+ * atau Jum'atain dan Plus Taif), jadi mereka tidak lewat derivePackageType yang
+ * memilih SATU tipe per paket.
  */
 export function matchesPackageType(subject, type, musimDinginWindow) {
   if (!subject || !type) return false;
@@ -227,16 +239,18 @@ export function matchesPackageType(subject, type, musimDinginWindow) {
   }
   if (type === PACKAGE_TYPE_UMROH_PROMO) return isPromoSubject(subject);
   if (type === PACKAGE_TYPE_KERETA_CEPAT) return hasKeretaCepat(subject.nama);
+  if (type === PACKAGE_TYPE_UMROH_JUMATAIN) return hasJumatain(subject.nama);
   const tier = TIER_FOR_PACKAGE_TYPE[type];
   if (tier) return sellsTier(subject, tier);
   return derivePackageType(subject.nama) === type;
 }
 
-/** Urutan kanonik roster: 6 tipe non-destinasi dulu, lalu PLUS * sesuai PACKAGE_TYPES. */
+/** Urutan kanonik roster: 7 tipe non-destinasi dulu, lalu PLUS * sesuai PACKAGE_TYPES. */
 const PACKAGE_TYPE_ORDER = [
   PACKAGE_TYPE_UMROH_SAJA,
   PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
   PACKAGE_TYPE_UMROH_RAMADHAN,
+  PACKAGE_TYPE_UMROH_JUMATAIN,
   PACKAGE_TYPE_UMROH_RAHMAH,
   PACKAGE_TYPE_UMROH_PROMO,
   PACKAGE_TYPE_KERETA_CEPAT,
@@ -247,6 +261,7 @@ const PACKAGE_TYPE_LABELS = {
   [PACKAGE_TYPE_UMROH_SAJA]: 'Umroh Saja',
   [PACKAGE_TYPE_UMROH_MUSIM_DINGIN]: 'Umroh Musim Dingin',
   [PACKAGE_TYPE_UMROH_RAMADHAN]: 'Umroh Ramadhan',
+  [PACKAGE_TYPE_UMROH_JUMATAIN]: 'Umroh Jumatain',
   [PACKAGE_TYPE_UMROH_RAHMAH]: 'Umroh Rahmah',
   [PACKAGE_TYPE_UMROH_PROMO]: 'Umroh Promo',
   [PACKAGE_TYPE_KERETA_CEPAT]: 'Kereta Cepat',

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PACKAGE_TYPES,
   PACKAGE_TYPE_KERETA_CEPAT,
+  PACKAGE_TYPE_UMROH_JUMATAIN,
   PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
   PACKAGE_TYPE_UMROH_PROMO,
   PACKAGE_TYPE_UMROH_RAHMAH,
@@ -11,6 +12,7 @@ import {
   brochureTypeSubject,
   derivePackageType,
   getMusimDinginWindow,
+  hasJumatain,
   hasKeretaCepat,
   isMusimDinginDeparture,
   isRamadhanDeparture,
@@ -184,6 +186,50 @@ test('Umroh Ramadhan duduk tepat setelah Umroh Musim Dingin di roster', () => {
   ]);
 });
 
+test('hasJumatain: semua ejaan Jum\'atain di data, tapi bukan sekadar "Jumat"', () => {
+  // Ejaan NYATA di jadwal 1448 selalu JUM'ATAIN (apostrof lurus). Tanpa
+  // apostrof dan apostrof keriting (hasil salin dari WhatsApp/Word) ikut
+  // diterima supaya paketnya tidak lenyap dari filter hanya karena gaya ketik.
+  assert.equal(hasJumatain("PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)"), true);
+  assert.equal(hasJumatain("UMRAH HEMAT RAMADHAN JUM'ATAIN PLUS REDSEA 12HR"), true);
+  assert.equal(hasJumatain('UMROH JUMATAIN HEMAT 16 HARI'), true);
+  assert.equal(hasJumatain('UMRAH JUM’ATAIN PLUS TAIF'), true);
+  assert.equal(hasJumatain("umrah jum'atain plus taif"), true);
+  // "Jumat" saja bukan program dua Jumat.
+  assert.equal(hasJumatain('UMRAH BERANGKAT JUMAT 9HR'), false);
+  assert.equal(hasJumatain('REGULER 9HR'), false);
+  assert.equal(hasJumatain(undefined), false);
+});
+
+test('Umroh Jumatain tidak eksklusif: satu paket bisa sekaligus Plus Taif, Promo, Kereta Cepat', () => {
+  // Hampir semua Jum'atain di data ber-ekstensi (PLUS TAIF/BADAR/DUBAI/REDSEA),
+  // jadi kalau ia lewat derivePackageType (yang memilih SATU tipe) paketnya akan
+  // hilang dari opsi Plus-nya — atau sebaliknya.
+  const both = subject("PROMO JUM'ATAIN PLUS TAIF +BADAR 15HR (KERETA CEPAT)");
+  assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_JUMATAIN, WIN_2026), true);
+  assert.equal(matchesPackageType(both, 'PLUS TAIF', WIN_2026), true);
+  assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_PROMO, WIN_2026), true);
+  assert.equal(matchesPackageType(both, PACKAGE_TYPE_KERETA_CEPAT, WIN_2026), true);
+  assert.equal(PACKAGE_TYPES.some(t => t.value === PACKAGE_TYPE_UMROH_JUMATAIN), false);
+  assert.equal(matchesPackageType(subject('REGULER 9HR'), PACKAGE_TYPE_UMROH_JUMATAIN, WIN_2026), false);
+});
+
+test('Umroh Jumatain duduk tepat setelah Umroh Ramadhan di roster', () => {
+  const subjects = [
+    subject('REGULER 9HR'),                                                        // Umroh Saja
+    subject('UMRAH LAILATUL QADR 17HR', { departureIso: '2027-02-22' }),            // Ramadhan
+    subject("UMRAH EKONOMIS JUM'ATAIN PLUS TAIF 10HR"),                             // Jumatain + Plus TAIF
+    subject('MIX 12HR', { tiers: ['UHUD', 'RAHMAH'] }),                            // Rahmah
+  ];
+  assert.deepEqual(listPackageTypeOptions(subjects, WIN_2026), [
+    { value: 'UMROH SAJA', label: 'Umroh Saja' },
+    { value: 'UMROH RAMADHAN', label: 'Umroh Ramadhan' },
+    { value: 'UMROH JUMATAIN', label: 'Umroh Jumatain' },
+    { value: 'UMROH RAHMAH', label: 'Umroh Rahmah' },
+    { value: 'PLUS TAIF', label: 'Plus TAIF' },
+  ]);
+});
+
 test('listPackageTypeOptions: urutan kanonik, hanya tipe yang punya paket', () => {
   const subjects = [
     subject('REGULER 9HR'),                                                        // Umroh Saja
@@ -212,13 +258,15 @@ test('packageTypeLabel: PLUS hanya menurunkan kata pertama (sama seperti Brosur)
   assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_MUSIM_DINGIN), 'Umroh Musim Dingin');
   assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_SAJA), 'Umroh Saja');
   assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_RAMADHAN), 'Umroh Ramadhan');
+  assert.equal(packageTypeLabel(PACKAGE_TYPE_UMROH_JUMATAIN), 'Umroh Jumatain');
 });
 
 test('slug tipe paket: bolak-balik, dan slug ngawur ditolak', () => {
-  for (const type of ['UMROH RAHMAH', 'KERETA CEPAT', 'PLUS AL ULA', PACKAGE_TYPE_UMROH_SAJA, PACKAGE_TYPE_UMROH_RAMADHAN]) {
+  for (const type of ['UMROH RAHMAH', 'KERETA CEPAT', 'PLUS AL ULA', PACKAGE_TYPE_UMROH_SAJA, PACKAGE_TYPE_UMROH_RAMADHAN, PACKAGE_TYPE_UMROH_JUMATAIN]) {
     assert.equal(packageTypeFromSlug(packageTypeSlug(type)), type);
   }
   assert.equal(packageTypeSlug('UMROH RAHMAH'), 'umroh-rahmah');
+  assert.equal(packageTypeSlug(PACKAGE_TYPE_UMROH_JUMATAIN), 'umroh-jumatain');
   assert.equal(packageTypeFromSlug('ngawur'), null);
   assert.equal(packageTypeFromSlug(''), null);
 });
@@ -259,10 +307,12 @@ test('paritas Brosur↔Jadwal: nama ter-clean vs nama mentah memberi tipe yang s
     ['PLUS CAIRO + ALEXANDRIA 12HR MIX  PAKET RAHMAH & UHUD( KERETA CEPAT)', 'PLUS CAIRO + ALEXANDRIA (KERETA CEPAT)'],
     ['UMRAH EKONOMIS PLUS HAIKO 12HR', 'UMRAH EKONOMIS PLUS HAIKO'],
     ['PROMO MILAD PLUS BADAR+REDSEA 10HR', 'PROMO MILAD PLUS BADAR+REDSEA'],
+    ["JUM'ATAIN PLUS TAIF + BADAR MIX PAKET UHUD & RAHMAH 12HR (KERETA CEPAT)", "JUM'ATAIN PLUS TAIF + BADAR (KERETA CEPAT)"],
   ];
   for (const [raw, cleaned] of pairs) {
     assert.equal(derivePackageType(raw), derivePackageType(cleaned), raw);
     assert.equal(hasKeretaCepat(raw), hasKeretaCepat(cleaned), raw);
+    assert.equal(hasJumatain(raw), hasJumatain(cleaned), raw);
     assert.equal(/\bPROMO\b/i.test(raw), /\bPROMO\b/i.test(cleaned), raw);
   }
 });
