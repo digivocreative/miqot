@@ -219,7 +219,16 @@ export function parseFilterSearch(search: string | URLSearchParams): ParsedFilte
   };
 }
 
+/**
+ * Dimensi telemetri untuk mode yang lahir SESUDAH sub-nilai pindah ke path —
+ * sengaja tidak masuk LEGACY_SECONDARY_PARAM, yang juga membaca param query
+ * lama (`?awal=` tidak pernah ada).
+ */
+const TELEMETRY_ONLY_DIMENSION: Partial<Record<FilterMode, string>> = {
+  'AWAL PERJALANAN': 'awal',
+};
+
 /** Dimensi filter untuk telemetri. */
 export function filterDimension(mode: FilterMode): string {
-  return LEGACY_SECONDARY_PARAM[mode] || 'mode';
+  return LEGACY_SECONDARY_PARAM[mode] || TELEMETRY_ONLY_DIMENSION[mode] || 'mode';
 }

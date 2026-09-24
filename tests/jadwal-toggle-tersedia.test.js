@@ -107,8 +107,9 @@ test('fail-closed: availableOnly diabaikan di mode di luar cakupan tombol', () =
   assert.deepEqual(names(filterPackages(DATA, { mode: 'AVAILABLE', availableOnly: false })), ['ADA']);
 });
 
-test('cakupan tombol: 6 mode berdimensi, TANPA dua mode yang sudah menyatakan gerbangnya', () => {
+test('cakupan tombol: 7 mode berdimensi, TANPA dua mode yang sudah menyatakan gerbangnya', () => {
   assert.deepEqual([...MODES_WITH_AVAILABILITY_TOGGLE].sort(), [
+    'AWAL PERJALANAN',
     'DATA PER-BULAN',
     'DURASI PERJALANAN',
     'LANDING DI',

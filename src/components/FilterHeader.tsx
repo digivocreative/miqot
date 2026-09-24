@@ -16,6 +16,7 @@ import {
   groupByMonth,
   extractUniqueDurations,
   extractUniqueLandings,
+  extractJourneyStarts,
   monthOptionLabel,
   type MonthGroup,
 } from '@/utils';
@@ -107,6 +108,7 @@ const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'TIPE PAKET', label: filterModeLabel('TIPE PAKET') },
   { value: 'LANDING DI', label: filterModeLabel('LANDING DI') },
+  { value: 'AWAL PERJALANAN', label: filterModeLabel('AWAL PERJALANAN') },
   { value: 'DURASI PERJALANAN', label: filterModeLabel('DURASI PERJALANAN') },
   { value: 'DATA PER-BULAN', label: filterModeLabel('DATA PER-BULAN') },
   { value: 'SEMUA DATA', label: filterModeLabel('SEMUA DATA') },
@@ -408,6 +410,11 @@ export function FilterHeader({
     return extractUniqueLandings(rosterPackages);
   }, [rosterPackages]);
 
+  // Awal perjalanan (Umroh / Madinah / Tour) — simpul pertama Urutan Perjalanan
+  const journeyStartOptions = useMemo(() => {
+    return extractJourneyStarts(rosterPackages);
+  }, [rosterPackages]);
+
   // Jendela musim dingin dihitung sekali per sesi — sama seperti halaman Brosur;
   // window tidak bergeser mid-day untuk use case ini.
   const musimDinginWindow = useMemo(() => getMusimDinginWindow(new Date()), []);
@@ -470,6 +477,7 @@ export function FilterHeader({
   const showDurationDropdown = filterMode === 'DURASI PERJALANAN';
   const showMonthDropdown = filterMode === 'DATA PER-BULAN';
   const showLandingDropdown = filterMode === 'LANDING DI';
+  const showJourneyStartDropdown = filterMode === 'AWAL PERJALANAN';
 
   // ── Sub-filter langsung menyembul setelah modenya dipilih ──────────────────
   //
@@ -499,6 +507,7 @@ export function FilterHeader({
   const subFilterOptionCount =
     showTypeDropdown ? typeMenuOptions.length
     : showLandingDropdown ? landingOptions.length
+    : showJourneyStartDropdown ? journeyStartOptions.length
     : showMonthDropdown ? monthGroups.length
     : showDurationDropdown ? durationOptions.length
     : 0;
@@ -694,6 +703,25 @@ export function FilterHeader({
                 ...landingOptions.map((l) => ({ value: l.code, label: `${l.name} (${l.packageCount} paket)` })),
               ])}
               ariaLabel="Pilih Landing"
+              widthClass="flex-1"
+            />
+          )}
+
+          {/* Secondary Dropdown: Awal Perjalanan */}
+          {showJourneyStartDropdown && (
+            <FilterDropdown
+              ref={subFilterRef}
+              variant="default"
+              triggerSizeClass={FILTER_ROW_TRIGGER_SIZE}
+              portal
+              onOpenChange={handleMenuOpenChange}
+              value={secondaryValue || ''}
+              onChange={onSecondaryValueChange}
+              options={upperLabels([
+                { value: '', label: '- Pilih Awal -' },
+                ...journeyStartOptions.map((o) => ({ value: o.value, label: `${o.label} (${o.count} paket)` })),
+              ])}
+              ariaLabel="Pilih Awal Perjalanan"
               widthClass="flex-1"
             />
           )}

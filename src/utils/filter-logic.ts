@@ -5,7 +5,8 @@
 
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
-import { getLandingAirportCode, getLandingCityName } from './journey';
+import { getLandingAirportCode, getLandingCityName, getPackageJourneySteps, type JourneyStepTone } from './journey';
+import { extraHotelsOf } from '@/lib/packageDetail';
 // airportCityName, packageTypeSlug/FromSlug, dan konstanta PACKAGE_TYPE_* tidak
 // lagi diimpor di sini: pemakainya ikut pindah ke lib/filter-slug.js.
 import {
@@ -16,6 +17,7 @@ import {
 import {
   FILTER_MODE_LABELS as FILTER_MODE_LABELS_SHARED,
   FILTER_MODE_SLUGS as FILTER_MODE_SLUGS_SHARED,
+  JOURNEY_START_FILTER_VALUES as JOURNEY_START_FILTER_VALUES_SHARED,
   LANDING_FILTER_CODES as LANDING_FILTER_CODES_SHARED,
   LEGACY_FILTER_SLUGS as LEGACY_FILTER_SLUGS_SHARED,
   MONTH_NAMES_ID as MONTH_NAMES_ID_SHARED,
@@ -23,6 +25,7 @@ import {
   buildFilterSlug as buildFilterSlugShared,
   filterModeLabel as filterModeLabelShared,
   getFilterSlug as getFilterSlugShared,
+  journeyStartLabel as journeyStartLabelShared,
   resolveFilterSlug as resolveFilterSlugShared,
 } from '../../lib/filter-slug.js';
 
@@ -43,6 +46,14 @@ export const FILTER_MODE_SLUGS = FILTER_MODE_SLUGS_SHARED as Record<FilterMode, 
 export const FILTER_MODE_LABELS = FILTER_MODE_LABELS_SHARED as Record<FilterMode, string>;
 export const SLUG_TO_FILTER_MODE = SLUG_TO_FILTER_MODE_SHARED as Record<string, FilterMode>;
 export const LEGACY_FILTER_SLUGS = LEGACY_FILTER_SLUGS_SHARED as Record<string, { mode: FilterMode; secondaryValue?: string }>;
+
+/** Sub-nilai "AWAL PERJALANAN" (UMROH, MADINAH, TOUR), urutan tampilnya. */
+export const JOURNEY_START_FILTER_VALUES = JOURNEY_START_FILTER_VALUES_SHARED as readonly string[];
+
+/** 'MADINAH' → 'Madinah' */
+export function journeyStartLabel(value: string): string {
+  return journeyStartLabelShared(value);
+}
 
 /** Label tampilan sebuah mode; mode tak dikenal jatuh ke teksnya sendiri. */
 export function filterModeLabel(mode: FilterMode | string): string {
@@ -86,6 +97,7 @@ export function getFilterModeFromSlug(slug: string): FilterMode | null {
 export type FilterMode =
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
   | 'LANDING DI'     // Filter berdasarkan kota landing (Jeddah/Madinah/dll)
+  | 'AWAL PERJALANAN' // Simpul pertama Urutan Perjalanan: Umroh / Madinah / Tour
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026 (URL saja)
   | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari (URL saja)
   | 'TIPE PAKET'     // Filter berdasarkan tipe paket, roster sama dengan halaman Brosur
@@ -178,6 +190,7 @@ const HIJRI_MONTH_NAMES = [
  */
 export const MODES_WITH_AVAILABILITY_TOGGLE: readonly FilterMode[] = [
   'LANDING DI',
+  'AWAL PERJALANAN',
   'LIBURAN_SEKOLAH',
   'UMROH CUTI 5 HARI',
   'TIPE PAKET',
@@ -358,6 +371,44 @@ export function extractUniqueLandings(packages: UmrohPackage[]): LandingCity[] {
 }
 
 /**
+ * Awal perjalanan paket — tone simpul PERTAMA rantai Urutan Perjalanan
+ * (getPackageJourneySteps), atau null kalau urutannya tak bisa dipastikan (mis.
+ * pp Jeddah tanpa itinerary). Keanggotaan filter "AWAL PERJALANAN" jadi identik
+ * dengan rantai yang tampil di kartu.
+ *
+ * Kota hotel tambahan diambil dengan extraHotelsOf seperti PackageCard. Kartu
+ * mengoper blok tier AKTIF, di sini tier pertama yang ada — hasilnya sama,
+ * karena extraHotelsOf jatuh ke tier lain untuk kota yang kosong di tier itu,
+ * dan rantai hanya memakai NAMA kotanya.
+ *
+ * Sengaja di sini, bukan di journey.ts: berkas itu bebas impor non-tipe dan
+ * diuji dengan esbuild transform tanpa bundling (tests/package-journey.test.js).
+ */
+export function getPackageJourneyStart(pkg: UmrohPackage): JourneyStepTone | null {
+  const firstTier = Object.values(pkg.hotel || {}).find(Boolean);
+  const extraCities = extraHotelsOf(firstTier, pkg.hotel as Record<string, unknown>).map(hotel => hotel.city);
+  return getPackageJourneySteps(pkg, extraCities)[0]?.tone ?? null;
+}
+
+/**
+ * Opsi sub-filter "AWAL PERJALANAN": urutan tetap (UMROH, MADINAH, TOUR), hanya
+ * yang punya paket, dengan jumlahnya. Paket yang urutannya tak bisa dipastikan
+ * tidak masuk opsi mana pun — lebih jujur daripada dipaksa ke salah satunya.
+ */
+export function extractJourneyStarts(packages: UmrohPackage[]): Array<{ value: string; label: string; count: number }> {
+  const counts = new Map<string, number>();
+  packages.forEach(pkg => {
+    const tone = getPackageJourneyStart(pkg);
+    if (!tone) return;
+    const value = tone.toUpperCase();
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return JOURNEY_START_FILTER_VALUES
+    .filter(value => counts.has(value))
+    .map(value => ({ value, label: journeyStartLabel(value), count: counts.get(value) || 0 }));
+}
+
+/**
  * Group packages by departure month
  * Returns array of MonthGroup objects sorted by date
  */
@@ -455,6 +506,16 @@ export function filterPackages(
         return base;
       }
       return base.filter(pkg => getLandingAirportCode(pkg) === secondaryValue);
+
+    case 'AWAL PERJALANAN': {
+      // Simpul pertama rantai Urutan Perjalanan di kartu — BUKAN kota landing:
+      // banyak paket mendarat di Jeddah lalu ke Madinah dulu.
+      if (!secondaryValue) {
+        return base;
+      }
+      const wanted = secondaryValue.toLowerCase();
+      return base.filter(pkg => getPackageJourneyStart(pkg) === wanted);
+    }
 
     case 'LIBURAN_SEKOLAH':
       // Filter packages with departure in June or July 2026

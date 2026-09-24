@@ -237,9 +237,9 @@ test('memilih ulang filter utama yang SAMA tidak mereset sub-filternya', () => {
   assert.ok(same < change && same < reset, 'penjaga pilihan-sama harus mendahului pergantian mode & reset sub-nilai');
 });
 
-test('ref auto-open menempel di keempat sub-filter nilai', () => {
+test('ref auto-open menempel di kelima sub-filter nilai', () => {
   const withRef = [...filterHeader.matchAll(/ref=\{subFilterRef\}/g)];
-  assert.equal(withRef.length, 4, 'tepat 4 sub-filter nilai: Jenis Paket, Landing, Bulan, Durasi');
+  assert.equal(withRef.length, 5, 'tepat 5 sub-filter nilai: Jenis Paket, Landing, Awal Perjalanan, Bulan, Durasi');
   // Jumlah opsi Jenis Paket = daftar yang BENAR-BENAR dirender (termasuk Seat
   // Tersedia), bukan roster tipe saja.
   assert.match(filterHeader, /showTypeDropdown \? typeMenuOptions\.length/);
