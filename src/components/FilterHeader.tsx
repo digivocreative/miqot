@@ -410,7 +410,7 @@ export function FilterHeader({
     return extractUniqueLandings(rosterPackages);
   }, [rosterPackages]);
 
-  // Awal perjalanan (Umroh / Madinah / Tour) — simpul pertama Urutan Perjalanan
+  // Awal perjalanan (Umroh Dulu / Madinah Dulu / Tur <destinasi>) — simpul pertama Urutan Perjalanan
   const journeyStartOptions = useMemo(() => {
     return extractJourneyStarts(rosterPackages);
   }, [rosterPackages]);
@@ -719,8 +719,7 @@ export function FilterHeader({
               onChange={onSecondaryValueChange}
               options={upperLabels([
                 { value: '', label: '- Pilih Awal -' },
-                ...journeyStartOptions.map((o) => ({ value: o.value, label: `${o.label} (${o.count} paket)` })),
-              ])}
+                ...journeyStartOptions])}
               ariaLabel="Pilih Awal Perjalanan"
               widthClass="flex-1"
             />

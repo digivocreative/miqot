@@ -5,7 +5,7 @@
 
 import type { UmrohPackage } from '@/types';
 import { calculateDuration } from '@/services/data-service';
-import { getLandingAirportCode, getLandingCityName, getPackageJourneySteps, type JourneyStepTone } from './journey';
+import { getLandingAirportCode, getLandingCityName, getPackageJourneySteps } from './journey';
 import { extraHotelsOf } from '@/lib/packageDetail';
 // airportCityName, packageTypeSlug/FromSlug, dan konstanta PACKAGE_TYPE_* tidak
 // lagi diimpor di sini: pemakainya ikut pindah ke lib/filter-slug.js.
@@ -97,7 +97,7 @@ export function getFilterModeFromSlug(slug: string): FilterMode | null {
 export type FilterMode =
   | 'AVAILABLE'      // Filter paket dengan kursi tersedia
   | 'LANDING DI'     // Filter berdasarkan kota landing (Jeddah/Madinah/dll)
-  | 'AWAL PERJALANAN' // Simpul pertama Urutan Perjalanan: Umroh / Madinah / Tour
+  | 'AWAL PERJALANAN' // Simpul pertama Urutan Perjalanan: Umroh Dulu / Madinah Dulu / Tur <destinasi>
   | 'LIBURAN_SEKOLAH' // Filter keberangkatan Juni-Juli 2026 (URL saja)
   | 'UMROH CUTI 5 HARI' // Berangkat Jumat malam/Sabtu, pulang Sabtu/Minggu/Senin dini hari (URL saja)
   | 'TIPE PAKET'     // Filter berdasarkan tipe paket, roster sama dengan halaman Brosur
@@ -371,9 +371,11 @@ export function extractUniqueLandings(packages: UmrohPackage[]): LandingCity[] {
 }
 
 /**
- * Awal perjalanan paket — tone simpul PERTAMA rantai Urutan Perjalanan
- * (getPackageJourneySteps), atau null kalau urutannya tak bisa dipastikan (mis.
- * pp Jeddah tanpa itinerary). Keanggotaan filter "AWAL PERJALANAN" jadi identik
+ * Awal perjalanan paket sebagai nilai filter "AWAL PERJALANAN", dari simpul
+ * PERTAMA rantai Urutan Perjalanan (getPackageJourneySteps): 'UMROH',
+ * 'MADINAH', atau label turnya ('TUR DUBAI'). null kalau urutannya tak bisa
+ * dipastikan (mis. pp Jeddah tanpa itinerary) atau simpulnya di luar roster —
+ * fail-closed, tidak dipaksa masuk opsi lain. Keanggotaannya jadi identik
  * dengan rantai yang tampil di kartu.
  *
  * Kota hotel tambahan diambil dengan extraHotelsOf seperti PackageCard. Kartu
@@ -384,28 +386,30 @@ export function extractUniqueLandings(packages: UmrohPackage[]): LandingCity[] {
  * Sengaja di sini, bukan di journey.ts: berkas itu bebas impor non-tipe dan
  * diuji dengan esbuild transform tanpa bundling (tests/package-journey.test.js).
  */
-export function getPackageJourneyStart(pkg: UmrohPackage): JourneyStepTone | null {
+export function getPackageJourneyStart(pkg: UmrohPackage): string | null {
   const firstTier = Object.values(pkg.hotel || {}).find(Boolean);
   const extraCities = extraHotelsOf(firstTier, pkg.hotel as Record<string, unknown>).map(hotel => hotel.city);
-  return getPackageJourneySteps(pkg, extraCities)[0]?.tone ?? null;
+  const first = getPackageJourneySteps(pkg, extraCities)[0];
+  if (!first) return null;
+  const value = (first.tone === 'tour' ? first.label : first.tone).toUpperCase();
+  return JOURNEY_START_FILTER_VALUES.includes(value) ? value : null;
 }
 
 /**
- * Opsi sub-filter "AWAL PERJALANAN": urutan tetap (UMROH, MADINAH, TOUR), hanya
- * yang punya paket, dengan jumlahnya. Paket yang urutannya tak bisa dipastikan
- * tidak masuk opsi mana pun — lebih jujur daripada dipaksa ke salah satunya.
+ * Opsi sub-filter "AWAL PERJALANAN" dalam urutan roster (Umroh Dulu, Madinah
+ * Dulu, lalu tur per destinasi), hanya yang punya paket. Tanpa jumlah paket —
+ * permintaan user. Paket yang urutannya tak bisa dipastikan tidak masuk opsi
+ * mana pun: lebih jujur daripada dipaksa ke salah satunya.
  */
-export function extractJourneyStarts(packages: UmrohPackage[]): Array<{ value: string; label: string; count: number }> {
-  const counts = new Map<string, number>();
+export function extractJourneyStarts(packages: UmrohPackage[]): Array<{ value: string; label: string }> {
+  const present = new Set<string>();
   packages.forEach(pkg => {
-    const tone = getPackageJourneyStart(pkg);
-    if (!tone) return;
-    const value = tone.toUpperCase();
-    counts.set(value, (counts.get(value) || 0) + 1);
+    const value = getPackageJourneyStart(pkg);
+    if (value) present.add(value);
   });
   return JOURNEY_START_FILTER_VALUES
-    .filter(value => counts.has(value))
-    .map(value => ({ value, label: journeyStartLabel(value), count: counts.get(value) || 0 }));
+    .filter(value => present.has(value))
+    .map(value => ({ value, label: journeyStartLabel(value) }));
 }
 
 /**
@@ -513,7 +517,7 @@ export function filterPackages(
       if (!secondaryValue) {
         return base;
       }
-      const wanted = secondaryValue.toLowerCase();
+      const wanted = secondaryValue.toUpperCase();
       return base.filter(pkg => getPackageJourneyStart(pkg) === wanted);
     }
 

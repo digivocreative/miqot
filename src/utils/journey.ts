@@ -73,6 +73,15 @@ const TOUR_CONFIGS: TourConfig[] = [
   { label: 'Tur Red Sea', codes: [], cities: ['red sea', 'redsea'], pattern: /\b(RED\s*SEA|REDSEA|LAUT\s+MERAH)\b/i, imageSrc: '/flags/saudi.png', symbol: '🇸🇦', fallbackPlacement: 'post' },
 ];
 
+/**
+ * Tur di luar Saudi — satu-satunya tur yang bisa MEMBUKA rantai (Taif, Badar,
+ * Red Sea selalu ditambatkan ke kotanya atau di ekor). Roster filter "AWAL
+ * PERJALANAN" di lib/filter-slug.js wajib sama dengan ini; dikunci tes.
+ */
+export const INTERNATIONAL_TOUR_LABELS: readonly JourneyLabel[] = TOUR_CONFIGS
+  .filter(tour => tour.codes.length > 0)
+  .map(tour => tour.label);
+
 export const getRouteAirportCodes = (route?: string): string[] => {
   return (route || '').toUpperCase().match(/[A-Z]{3}/g) || [];
 };
