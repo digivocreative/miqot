@@ -87,8 +87,8 @@ export function getFilterModeFromSlug(slug: string): FilterMode | null {
 /**
  * Mode filter halaman jadwal publik.
  *
- * 'LIBURAN_SEKOLAH' dan 'UMROH CUTI 5 HARI' sengaja TIDAK ada di dropdown
- * (FILTER_MODE_OPTIONS) tapi tetap hidup di sini: slug-nya sudah tersebar di
+ * 'LIBURAN_SEKOLAH', 'UMROH CUTI 5 HARI', dan (sejak 2026-09-24) 'LANDING DI'
+ * sengaja TIDAK ada di dropdown (FILTER_MODE_OPTIONS) tapi tetap hidup di sini: slug-nya sudah tersebar di
  * WhatsApp/iklan dan masih menyaring paket nyata. Menghapus slug-nya bukan cuma
  * menghilangkan filter — src/main.tsx memakai getFilterModeFromSlug sebagai
  * gerbang negatif, jadi URL yang tak dikenali dibaca sebagai ID paket dan

@@ -35,12 +35,10 @@ test('dropdown utama menawarkan TIPE PAKET dan tidak lagi 5 filter yang dihapus'
   // jadi Jenis Paket kini opsi PERTAMA dropdown utama.
   assert.doesNotMatch(optionsBlock, /'AVAILABLE'/);
   assert.match(optionsBlock, /\[\s*\{ value: 'TIPE PAKET'/);
-  // Urutan dropdown: Jenis Paket mendahului Landing Di.
-  assert.ok(
-    optionsBlock.indexOf("value: 'TIPE PAKET'") < optionsBlock.indexOf("value: 'LANDING DI'"),
-    'TIPE PAKET harus di atas LANDING DI di dropdown utama',
-  );
   for (const gone of [
+    // LANDING DI keluar 2026-09-24: 1,6% pilihan mode dalam 15 hari telemetri,
+    // dan "Landing Madinah" sudah tercakup AWAL PERJALANAN → MADINAH DULU.
+    'LANDING DI',
     'UMROH CUTI 5 HARI',
     'UMROH PROMO',
     'UMROH REGULER',

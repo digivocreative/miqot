@@ -86,7 +86,7 @@ export interface FilterHeaderProps {
 const FILTER_ROW_TRIGGER_SIZE =
   'h-9 gap-1.5 px-2.5 text-xs sm:h-auto sm:gap-2 sm:px-3 sm:py-2.5 sm:text-sm font-medium rounded-xl';
 
-// Sub-filter tampil HURUF BESAR, senada dropdown utama (JENIS PAKET, LANDING DI…).
+// Sub-filter tampil HURUF BESAR, senada dropdown utama (JENIS PAKET, AWAL PERJALANAN…).
 // Diubah di tampilan ini, BUKAN di sumber labelnya: label roster tipe paket
 // ('Umroh Ramadhan') juga dipakai Brosur, kartu OG, dan judul tab.
 function upperLabels<T extends { label: string }>(options: T[]): T[] {
@@ -99,15 +99,17 @@ function upperLabels<T extends { label: string }>(options: T[]): T[] {
 const ROW_ICON_SIZE = 'w-4 h-4 sm:w-[18px] sm:h-[18px]';
 
 // Filter mode options for dropdown.
-// 'LIBURAN_SEKOLAH' & 'UMROH CUTI 5 HARI' sengaja tidak di sini — mode URL saja
-// (lihat FilterMode di src/utils/filter-logic.ts).
+// 'LIBURAN_SEKOLAH', 'UMROH CUTI 5 HARI', & 'LANDING DI' sengaja tidak di sini —
+// mode URL saja (lihat FilterMode di src/utils/filter-logic.ts). LANDING DI keluar
+// 2026-09-24: 1,6% pilihan mode dalam 15 hari telemetri, dan "Landing Madinah"
+// sudah tercakup AWAL PERJALANAN → MADINAH DULU. Link /landing-madinah tetap
+// hidup; datang lewat link, trigger & sub-filter kotanya tetap dirender.
 // Label datang dari FILTER_MODE_LABELS: nilai mode terikat slug URL & logika
 // filter, teksnya tidak — mis. 'TIPE PAKET' tampil sebagai "JENIS PAKET".
 // 'AVAILABLE' sengaja tidak di sini: ia tampil sebagai opsi "Seat Tersedia" di
 // dropdown Jenis Paket (lihat modeMenuValue di src/utils/filter-logic.ts).
 const FILTER_MODE_OPTIONS: { value: FilterMode; label: string }[] = [
   { value: 'TIPE PAKET', label: filterModeLabel('TIPE PAKET') },
-  { value: 'LANDING DI', label: filterModeLabel('LANDING DI') },
   { value: 'AWAL PERJALANAN', label: filterModeLabel('AWAL PERJALANAN') },
   { value: 'DURASI PERJALANAN', label: filterModeLabel('DURASI PERJALANAN') },
   { value: 'DATA PER-BULAN', label: filterModeLabel('DATA PER-BULAN') },

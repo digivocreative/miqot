@@ -212,14 +212,32 @@ test('kartu share & judul tab per awal perjalanan', () => {
 
 // ── Sambungan di FilterHeader ──
 
+test('LANDING DI keluar dari dropdown, tapi link lamanya tetap hidup (mode URL-saja)', () => {
+  // Pola LIBURAN SEKOLAH & CUTI 5 HARI: /nikita/landing-madinah sudah tersebar
+  // di WhatsApp, dan main.tsx membaca slug tak dikenal sebagai ID paket —
+  // mencabut slug-nya = "Paket tidak ditemukan".
+  const filterHeader = readFileSync(join(root, 'src/components/FilterHeader.tsx'), 'utf8');
+  const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
+  assert.doesNotMatch(optionsBlock, /value: 'LANDING DI'/);
+  for (const slug of ['landing-madinah', 'landing-jeddah', 'landing-di']) {
+    assert.equal(getFilterModeFromSlug(slug), 'LANDING DI', slug);
+  }
+  assert.equal(buildFilterShareMeta({ filterSlug: 'landing-madinah', agentName: 'Nikita Sari', agentSlug: 'nikita' })?.headline, 'Madinah');
+  // Datang lewat link: trigger tetap berlabel (entri sintetis) dan sub-filter
+  // kotanya tetap dirender, supaya pengunjung tahu filter apa yang aktif.
+  assert.match(filterHeader, /options\.push\(\{ value: modeMenu, label: filterModeLabel\(modeMenu\) \}\)/);
+  assert.match(filterHeader, /const showLandingDropdown = filterMode === 'LANDING DI';/);
+  assert.match(filterHeader, /ariaLabel="Pilih Landing"/);
+});
+
 test('dropdown utama & sub-filter AWAL PERJALANAN tersambung seperti Landing', () => {
   const filterHeader = readFileSync(join(root, 'src/components/FilterHeader.tsx'), 'utf8');
   const optionsBlock = filterHeader.match(/const FILTER_MODE_OPTIONS[\s\S]*?\n\];/)?.[0] ?? '';
   assert.match(optionsBlock, /value: 'AWAL PERJALANAN', label: filterModeLabel\('AWAL PERJALANAN'\)/);
   assert.ok(
-    optionsBlock.indexOf("value: 'LANDING DI'") < optionsBlock.indexOf("value: 'AWAL PERJALANAN'")
+    optionsBlock.indexOf("value: 'TIPE PAKET'") < optionsBlock.indexOf("value: 'AWAL PERJALANAN'")
       && optionsBlock.indexOf("value: 'AWAL PERJALANAN'") < optionsBlock.indexOf("value: 'DURASI PERJALANAN'"),
-    'AWAL PERJALANAN duduk di antara LANDING DI dan DURASI PERJALANAN',
+    'AWAL PERJALANAN duduk di antara JENIS PAKET dan DURASI PERJALANAN',
   );
 
   const block = filterHeader.match(
