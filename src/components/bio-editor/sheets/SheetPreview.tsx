@@ -11,6 +11,10 @@ interface Props {
 export default function SheetPreview({ open, onClose, slug }: Props) {
   const url = `/${slug}/bio`;
 
+  // Sengaja tetap overflow:hidden, bukan lockDocumentScroll: overlay layar penuh
+  // yang opak menutupi geseran scrollbar, sedangkan roda di dalam iframe tidak
+  // terlihat listener kunci event — gulir yang mentok di iframe bisa merambat
+  // ke halaman di belakang.
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;

@@ -5,6 +5,7 @@ import { X, ChevronLeft, ChevronRight, Download, Share2, Loader2 } from 'lucide-
 import PlyrVideo from './PlyrVideo';
 import PhotoWatermark from './PhotoWatermark';
 import { useBackToClose } from '../hooks/useBackToClose';
+import { lockDocumentScroll } from '../lib/scrollLock';
 import { canShareFiles, downloadBlob } from '../utils/share';
 import { stampWatermarkOnImage } from '../utils/stampWatermark';
 
@@ -269,14 +270,18 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     }
   }, [busy, index, label, media, prepareMedia]);
 
+  // Efek sendiri berdeps kosong: efek di bawah ikut jalan ulang tiap `onClose`
+  // berganti identitas (pemanggil memberi arrow inline), dan kunci gulir tidak
+  // boleh ikut dipasang-lepas setiap render induk. Kenapa tidak cukup
+  // `overflow: hidden` — lihat src/lib/scrollLock.ts.
+  useLayoutEffect(() => lockDocumentScroll(), []);
+
   useLayoutEffect(() => {
-    const previousOverflow = document.body.style.overflow;
     const appRoot = document.getElementById('root');
     const previousAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null;
     const previousInert = appRoot?.inert ?? false;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    document.body.style.overflow = 'hidden';
     appRoot?.setAttribute('aria-hidden', 'true');
     if (appRoot) appRoot.inert = true;
 
@@ -315,7 +320,6 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
       if (previousAriaHidden === null) appRoot?.removeAttribute('aria-hidden');
       else appRoot?.setAttribute('aria-hidden', previousAriaHidden);
       if (appRoot) appRoot.inert = previousInert;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { X, Star, Footprints, MapPin, ArrowDownAZ } from 'lucide-react';
 import { useBackToClose } from '../hooks/useBackToClose';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 interface HotelFilterSheetProps {
   landmark?: string;
@@ -44,12 +45,8 @@ export default function HotelFilterSheet({
   onReset,
   onClose,
 }: HotelFilterSheetProps) {
-  // Pola sheet mengikuti BirthdayListSheet: kunci scroll body + Escape menutup.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+  // Pola sheet mengikuti BirthdayListSheet: kunci gulir halaman + Escape menutup.
+  useEffect(() => lockDocumentScroll(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

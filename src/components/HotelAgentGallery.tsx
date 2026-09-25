@@ -6,6 +6,7 @@ import { getAuthHeaders } from '../lib/authSession';
 import MediaViewerModal from './MediaViewerModal';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 // Galeri hotel VERSI AGENT SENDIRI (permintaan user 2026-08-30) — terpisah
 // dari galeri resmi (HotelPage/HotelKelolaPage): satu baris per agent per
@@ -169,11 +170,7 @@ function EditSheet({
   // Back Android menutup sheet ini, bukan meninggalkan halaman detail hotel.
   useBackToClose(true, onClose);
 
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+  useEffect(() => lockDocumentScroll(), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);

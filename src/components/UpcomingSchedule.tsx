@@ -14,6 +14,7 @@ import { BERANGKAT_MENDATANG_WINDOW_DAYS } from '../../lib/laporan-stats.js';
 import { ManasikSessionSummaryRow, ManasikSessionDetail } from './berangkat/ManasikSessionViews';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError } from '../lib/loadError';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -297,14 +298,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   useBackToClose(daySheetOpen, closeDaySheet);
   useBackToClose(listSheetOpen, closeListSheet);
 
-  useEffect(() => {
-    if (anySheetOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [anySheetOpen]);
+  useEffect(() => (anySheetOpen ? lockDocumentScroll() : undefined), [anySheetOpen]);
 
   // Matikan kartu di belakang selama ada sheet terbuka. Overlay `fixed inset-0`
   // hanya memblokir klik, bukan urutan Tab: tanpa ini pengguna keyboard masih

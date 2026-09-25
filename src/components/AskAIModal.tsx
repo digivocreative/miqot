@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { trackPublicEvent } from '../utils/analytics';
 import { useBackToClose } from '../hooks/useBackToClose';
+import { documentScrollbarWidth, lockDocumentScroll } from '../lib/scrollLock';
 
 // Lazy-load the fullscreen viewers only when the user opens an attachment.
 const BrochureModal = lazy(() => import('./BrochureModal').then(m => ({ default: m.BrochureModal })));
@@ -516,19 +517,40 @@ export default function AskAIModal({
   //      as a belt-and-suspenders.
   //   3. Pinning the modal to vv.offsetTop / vv.height so it always
   //      tracks the visible rectangle.
+  // Langkah 1–2 hanya bila scrollbar halaman tidak memakan lebar (HP, iPad,
+  // scrollbar overlay). Scrollbar yang memakan lebar = desktop: tidak ada
+  // keyboard virtual iOS, dan position:fixed + overflow:hidden justru
+  // menghapus scrollbar sehingga halaman di belakang sheet bergeser 3px —
+  // di sana pakai kunci event, lihat src/lib/scrollLock.ts.
   useEffect(() => {
     if (!isOpen) return;
-    const html = document.documentElement;
-    const body = document.body;
-    const prevBody = { position: body.style.position, top: body.style.top, width: body.style.width, overflow: body.style.overflow };
-    const prevHtml = { overflow: html.style.overflow };
-    const scrollY = window.scrollY;
+    const pinPage = documentScrollbarWidth() <= 0;
+    let releaseScroll: () => void;
+    if (pinPage) {
+      const html = document.documentElement;
+      const body = document.body;
+      const prevBody = { position: body.style.position, top: body.style.top, width: body.style.width, overflow: body.style.overflow };
+      const prevHtml = { overflow: html.style.overflow };
+      const scrollY = window.scrollY;
 
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollY}px`;
-    body.style.width = '100%';
-    body.style.overflow = 'hidden';
-    html.style.overflow = 'hidden';
+      body.style.position = 'fixed';
+      body.style.top = `-${scrollY}px`;
+      body.style.width = '100%';
+      body.style.overflow = 'hidden';
+      html.style.overflow = 'hidden';
+
+      releaseScroll = () => {
+        body.style.position = prevBody.position;
+        body.style.top = prevBody.top;
+        body.style.width = prevBody.width;
+        body.style.overflow = prevBody.overflow;
+        html.style.overflow = prevHtml.overflow;
+        // Restore original scroll position
+        window.scrollTo(0, scrollY);
+      };
+    } else {
+      releaseScroll = lockDocumentScroll();
+    }
 
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
     const update = () => {
@@ -543,7 +565,7 @@ export default function AskAIModal({
         setViewportTop(0);
       }
       // Undo any Safari auto-scroll on input focus.
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      if (pinPage && window.scrollY !== 0) window.scrollTo(0, 0);
     };
     update();
     vv?.addEventListener('resize', update);
@@ -554,13 +576,7 @@ export default function AskAIModal({
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
-      body.style.position = prevBody.position;
-      body.style.top = prevBody.top;
-      body.style.width = prevBody.width;
-      body.style.overflow = prevBody.overflow;
-      html.style.overflow = prevHtml.overflow;
-      // Restore original scroll position
-      window.scrollTo(0, scrollY);
+      releaseScroll();
       setViewportHeight(null);
       setViewportTop(0);
       setKeyboardOpen(false);

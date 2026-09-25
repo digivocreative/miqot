@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { X, Check, Image as ImageIcon } from 'lucide-react';
 import { HOTEL_MEDIA_CATEGORY_PRESETS } from '../../lib/hotel-directory.js';
 import { useBackToClose } from '../hooks/useBackToClose';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 const SECTION_LABEL = 'text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:text-slate-500';
 const INPUT_CLASS = 'w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400 disabled:opacity-50';
@@ -46,11 +47,7 @@ export default function HotelMediaCategorySheet({
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [visibleHeight, setVisibleHeight] = useState<number | null>(null);
 
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+  useEffect(() => lockDocumentScroll(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

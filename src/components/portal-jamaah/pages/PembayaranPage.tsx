@@ -7,6 +7,7 @@ import JamaahPaymentCard from '../components/JamaahPaymentCard';
 import type { PortalMeData } from '../hooks/usePortalMe';
 import { addDays, formatLongDate } from '../utils/formatDate';
 import { formatRupiah, formatRupiahFull } from '../utils/formatRupiah';
+import { lockDocumentScroll } from '../../../lib/scrollLock';
 import { Button, Card, GradientText, InvertedPanel, PortalPageShell, SectionLabel } from '../ui';
 
 function safeMoney(value: unknown) {
@@ -62,14 +63,13 @@ Mohon dicek ya. Terima kasih 🙏`,
   useEffect(() => {
     if (!showTransfer) return;
 
-    const previousOverflow = document.body.style.overflow;
+    const releaseScroll = lockDocumentScroll();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setShowTransfer(false);
     };
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      releaseScroll();
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [showTransfer]);

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import logoWhite from '@/logo-alhijaz-white.png';
 import PriceLadder from './PriceLadder';
 import FilterDropdown from './FilterDropdown';
+import { lockDocumentScroll } from '../lib/scrollLock';
 import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
 
 // ── Constants ──
@@ -226,15 +227,8 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
   // ── Accent colors ──
   const isRahmah = selectedPkg === 'rahmah';
 
-  // ── Body scroll lock for modal ──
-  useEffect(() => {
-    if (previewOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [previewOpen]);
+  // ── Page scroll lock for modal ──
+  useEffect(() => (previewOpen ? lockDocumentScroll() : undefined), [previewOpen]);
 
   // ── Generate preview (Buat Penawaran) ──
   const handleGeneratePreview = async () => {

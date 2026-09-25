@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import type { Birthday } from './BirthdayWidget';
 import { useBackToClose } from '../hooks/useBackToClose';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 interface Props {
   birthdays: Birthday[];
@@ -30,11 +31,7 @@ export default function BirthdayListSheet({ birthdays, onClose, onSelectJamaah }
   // riwayat sendiri, jadi back dari detail kembali ke daftar ini dulu.
   useBackToClose(true, onClose);
 
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+  useEffect(() => lockDocumentScroll(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

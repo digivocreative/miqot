@@ -13,6 +13,7 @@ import { trackEvent } from '../utils/analytics';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError } from '../lib/loadError';
+import { lockDocumentScroll } from '../lib/scrollLock';
 import { getAuthHeaders } from '../lib/authSession';
 
 export interface ShareKursModalProps {
@@ -77,12 +78,7 @@ export default function ShareKursModal({ open, onClose, kurs, agent }: ShareKurs
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  useEffect(() => (open ? lockDocumentScroll() : undefined), [open]);
 
   const computeScale = useCallback(() => {
     if (!previewContainerRef.current) return;

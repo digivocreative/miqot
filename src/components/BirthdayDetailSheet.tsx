@@ -19,6 +19,7 @@ import FilterDropdown from './FilterDropdown';
 import type { Birthday } from './BirthdayWidget';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { canShareFiles } from '../utils/share';
+import { lockDocumentScroll } from '../lib/scrollLock';
 import {
   BirthdayCard,
   BirthdayCardThumb,
@@ -139,11 +140,7 @@ export default function BirthdayDetailSheet({
     setMessage(getBirthdayMessage(jamaah, agentName, formatSapaan(sebutan, next)));
   };
 
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+  useEffect(() => lockDocumentScroll(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

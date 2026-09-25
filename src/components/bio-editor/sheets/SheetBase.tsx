@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useBackToClose } from '../../../hooks/useBackToClose';
+import { lockDocumentScroll } from '../../../lib/scrollLock';
 
 interface Props {
   open: boolean;
@@ -50,13 +51,8 @@ export default function SheetBase({ open, onClose, title, children, footer }: Pr
     };
   }, [mounted, open]);
 
-  // Lock body scroll while a sheet is open
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  // Lock page scroll while a sheet is open
+  useEffect(() => (open ? lockDocumentScroll() : undefined), [open]);
 
   if (!mounted) return null;
 

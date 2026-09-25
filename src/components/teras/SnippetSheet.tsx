@@ -5,6 +5,7 @@ import { Check, ChevronLeft, Copy, Loader2 } from 'lucide-react';
 
 import { AgentAvatar } from './AgentAvatar';
 import { timeAgo } from '../../lib/communityNotifications';
+import { lockDocumentScroll } from '../../lib/scrollLock';
 
 /**
  * Pembaca lampiran teks — sheet fullscreen di atas feed.
@@ -158,12 +159,7 @@ export default function SnippetSheet({
 
   // Kunci scroll halaman selama sheet terbuka — tanpa ini badan feed ikut
   // bergulir di belakang teks panjang.
-  useEffect(() => {
-    if (!open) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previousOverflow; };
-  }, [open]);
+  useEffect(() => (open ? lockDocumentScroll() : undefined), [open]);
 
   if (typeof document === 'undefined') return null;
 

@@ -4,6 +4,7 @@ import { AlertCircle, Check, Copy, Loader2, Phone, Send, Ticket, X } from 'lucid
 import { portalJamaahAdmin, type PortalMagicLinkResponse } from '../../../lib/portalJamaahAdmin';
 import { trackEvent } from '../../../utils/analytics';
 import { normalizeWaNumber } from '../../../utils/phone';
+import { lockDocumentScroll } from '../../../lib/scrollLock';
 
 interface Props {
   jamaahId: number;
@@ -96,13 +97,7 @@ export default function MagicLinkModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentSlug, jamaahId]);
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
+  useEffect(() => lockDocumentScroll(), []);
 
   async function copyToClipboard(text: string, kind: 'link' | 'message') {
     await navigator.clipboard.writeText(text);

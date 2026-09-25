@@ -9,6 +9,7 @@ import { trackEvent } from '../utils/analytics';
 import { isCommunityEnabledForAgent } from '../lib/communityAccess';
 import { replaceAppState } from '../lib/appHistory';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 // Buka link t.me DI LUAR jendela app (setara target="_blank" rel="noopener noreferrer"):
 // navigasi same-window di app terpasang meninggalkan dashboard. Link baru didapat setelah
@@ -131,12 +132,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   }, [telegramStatus.connected]);
 
   // Scroll lock for disconnect dialog
-  useEffect(() => {
-    if (showDisconnect) {
-      document.body.style.overflow = 'hidden';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [showDisconnect]);
+  useEffect(() => (showDisconnect ? lockDocumentScroll() : undefined), [showDisconnect]);
 
   const handleToggle = async (key: string) => {
     const newValue = !prefs[key];
@@ -683,12 +679,7 @@ function PasswordModal({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClos
   const [closing, setClosing] = useState(false);
 
   // Scroll lock
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
+  useEffect(() => (isOpen ? lockDocumentScroll() : undefined), [isOpen]);
 
   const reset = () => {
     setPw(''); setConfirmPw(''); setShowPw(false); setShowConfirm(false);
@@ -929,10 +920,7 @@ function InternalSystemSection() {
     return `${Math.max(Math.floor(ms / 60000), 1)} menit lalu`;
   };
 
-  useEffect(() => {
-    if (showConfirm) document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, [showConfirm]);
+  useEffect(() => (showConfirm ? lockDocumentScroll() : undefined), [showConfirm]);
 
   const handleCloseConfirm = () => {
     setClosingConfirm(true);
@@ -1202,14 +1190,9 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
   }, []);
 
   // ── Scroll lock for PIN dialogs ──
-  useEffect(() => {
-    if (showPINSetup || showDisableDialog) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [showPINSetup, showDisableDialog]);
+  // Satu boolean: pindah langsung dari dialog satu ke yang lain tidak melepas-pasang kunci.
+  const pinDialogOpen = showPINSetup || showDisableDialog;
+  useEffect(() => (pinDialogOpen ? lockDocumentScroll() : undefined), [pinDialogOpen]);
 
   // ── Scroll to PIN section if hash is #pin-keamanan ──
   useEffect(() => {

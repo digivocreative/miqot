@@ -79,6 +79,7 @@ import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { trackEvent } from '../utils/analytics';
 import { shareLinkCopyText } from '../utils/share';
+import { lockDocumentScroll } from '../lib/scrollLock';
 import {
   extractMentionSlugs,
   detectMentionQuery,
@@ -1787,7 +1788,7 @@ export default function TerasPage({
   const composerSentIdsRef = useRef<Set<string>>(new Set());
   const closeComposerRef = useRef<() => void>(() => {});
   const composerPageStateRef = useRef<{
-    previousOverflow: string;
+    releaseScroll: () => void;
     trigger: HTMLElement | null;
     pageRoot: HTMLDivElement | null;
     previousPageAriaHidden: string | null;
@@ -1801,7 +1802,7 @@ export default function TerasPage({
   const replySheetTriggerRef = useRef<HTMLElement | null>(null);
   const closeReplySheetRef = useRef<() => void>(() => {});
   const replySheetPageStateRef = useRef<{
-    previousOverflow: string;
+    releaseScroll: () => void;
     trigger: HTMLElement | null;
     pageRoot: HTMLDivElement | null;
     previousPageAriaHidden: string | null;
@@ -1869,7 +1870,7 @@ export default function TerasPage({
     const state = composerPageStateRef.current;
     if (!state) return;
     composerPageStateRef.current = null;
-    document.body.style.overflow = state.previousOverflow;
+    state.releaseScroll();
     if (state.previousPageAriaHidden === null) state.pageRoot?.removeAttribute('aria-hidden');
     else state.pageRoot?.setAttribute('aria-hidden', state.previousPageAriaHidden);
     if (state.previousAppAriaHidden === null) state.appRoot?.removeAttribute('aria-hidden');
@@ -1887,7 +1888,7 @@ export default function TerasPage({
     const state = replySheetPageStateRef.current;
     if (!state) return;
     replySheetPageStateRef.current = null;
-    document.body.style.overflow = state.previousOverflow;
+    state.releaseScroll();
     if (state.previousPageAriaHidden === null) state.pageRoot?.removeAttribute('aria-hidden');
     else state.pageRoot?.setAttribute('aria-hidden', state.previousPageAriaHidden);
     if (state.previousAppAriaHidden === null) state.appRoot?.removeAttribute('aria-hidden');
@@ -2261,14 +2262,13 @@ export default function TerasPage({
 
   useLayoutEffect(() => {
     if (!mediaViewerOpen) return;
-    const previousOverflow = document.body.style.overflow;
+    const releaseScroll = lockDocumentScroll();
     const pageRoot = pageRootRef.current;
     const previousAriaHidden = pageRoot?.getAttribute('aria-hidden') ?? null;
     const appRoot = document.getElementById('root');
     const previousAppAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null;
     const previousAppInert = appRoot?.inert ?? false;
     const trigger = mediaViewerTriggerRef.current;
-    document.body.style.overflow = 'hidden';
     pageRoot?.setAttribute('aria-hidden', 'true');
     appRoot?.setAttribute('aria-hidden', 'true');
     if (appRoot) appRoot.inert = true;
@@ -2315,7 +2315,7 @@ export default function TerasPage({
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
+      releaseScroll();
       if (previousAriaHidden === null) pageRoot?.removeAttribute('aria-hidden');
       else pageRoot?.setAttribute('aria-hidden', previousAriaHidden);
       if (previousAppAriaHidden === null) appRoot?.removeAttribute('aria-hidden');
@@ -2706,7 +2706,7 @@ export default function TerasPage({
     const appRoot = document.getElementById('root');
     const pageRoot = pageRootRef.current;
     composerPageStateRef.current = {
-      previousOverflow: document.body.style.overflow,
+      releaseScroll: lockDocumentScroll(),
       trigger,
       pageRoot,
       previousPageAriaHidden: pageRoot?.getAttribute('aria-hidden') ?? null,
@@ -2715,7 +2715,6 @@ export default function TerasPage({
       previousAppInert: appRoot?.inert ?? false,
     };
 
-    document.body.style.overflow = 'hidden';
     pageRoot?.setAttribute('aria-hidden', 'true');
     appRoot?.setAttribute('aria-hidden', 'true');
     if (appRoot) appRoot.inert = true;
@@ -2753,7 +2752,7 @@ export default function TerasPage({
     document.addEventListener('keydown', handleComposerKeyDown);
     return () => {
       document.removeEventListener('keydown', handleComposerKeyDown);
-      // Lepas kunci halaman (inert/aria-hidden/overflow) langsung saat composer
+      // Lepas kunci halaman (inert/aria-hidden/gulir) langsung saat composer
       // ditutup — pakai cleanup effect yang dijamin React, JANGAN bergantung pada
       // AnimatePresence#onExitComplete yang bisa gagal terpanggil dan membuat
       // #root inert nyangkut → seluruh app tak bisa diklik. Sama seperti media
@@ -2773,7 +2772,7 @@ export default function TerasPage({
     const appRoot = document.getElementById('root');
     const pageRoot = pageRootRef.current;
     replySheetPageStateRef.current = {
-      previousOverflow: document.body.style.overflow,
+      releaseScroll: lockDocumentScroll(),
       trigger,
       pageRoot,
       previousPageAriaHidden: pageRoot?.getAttribute('aria-hidden') ?? null,
@@ -2782,7 +2781,6 @@ export default function TerasPage({
       previousAppInert: appRoot?.inert ?? false,
     };
 
-    document.body.style.overflow = 'hidden';
     pageRoot?.setAttribute('aria-hidden', 'true');
     appRoot?.setAttribute('aria-hidden', 'true');
     if (appRoot) appRoot.inert = true;

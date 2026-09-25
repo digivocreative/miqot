@@ -21,6 +21,7 @@ import {
 } from '../../lib/berangkat-groups.js';
 import type { BerangkatItem } from '../../lib/berangkat-groups.js';
 import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
@@ -165,11 +166,7 @@ function WaIcon({ size = 14 }: { size?: number }) {
 function StatListModal({ isOpen, onClose, title, subtitle, children }: {
   isOpen: boolean; onClose: () => void; title: string; subtitle: string; children: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
+  useEffect(() => (isOpen ? lockDocumentScroll() : undefined), [isOpen]);
   if (!isOpen) return null;
   return (
     <>
