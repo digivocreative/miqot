@@ -18,6 +18,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { trackEvent } from '@/utils/analytics';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import FilterDropdown from './FilterDropdown';
 import { buildImageAndPromptShareData, DESIGN_STYLES } from './brochure-prompt/buildBrochurePrompt';
 
@@ -167,13 +168,21 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
     setStyleLoading(false);
   }, [jadwalId, subject, tier]);
 
+  // Back menutup modal ini, bukan halaman di baliknya. Entrinya juga menandai
+  // modal terbuka bagi pintasan Escape halaman jadwal (App), yang mendengar di
+  // window SEBELUM listener Escape di bawah — tanpa entri, kartu di belakangnya
+  // ikut tertutup.
+  useBackToClose(isOpen, onClose);
+
   // Fokus awal + tutup via Escape; kembalikan fokus ke pemicu saat modal tutup.
   useEffect(() => {
     if (!isOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      // defaultPrevented: Escape sudah dipakai dropdown Gaya desain di dalam
+      // modal ini — cukup dropdown-nya yang tertutup, bukan modalnya sekalian.
+      if (event.key === 'Escape' && !event.defaultPrevented) onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {

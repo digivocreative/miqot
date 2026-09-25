@@ -6,6 +6,7 @@ import { X, Sparkles, Copy, ClipboardCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { shareCaption } from '@/utils/share';
+import { useBackToClose } from '@/hooks/useBackToClose';
 import WhatsAppIcon from './common/WhatsAppIcon';
 
 // Rate limiting: shared across every Caption AI entry point (15 generates per 2 hours per device)
@@ -57,6 +58,11 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
   const lastPayloadRef = useRef<string | null>(null);
 
   const text = versions[activeIdx]?.text ?? '';
+
+  // Back menutup modal ini, bukan halaman di baliknya. Entrinya juga menandai
+  // modal terbuka bagi pintasan Escape halaman jadwal (App): modal ini tidak
+  // bereaksi pada Escape, jadi tanpa entri kartu di belakangnya yang tertutup.
+  useBackToClose(isOpen, onClose);
 
   // Subject changed (e.g. brochure filter switched) → stale captions, back to idle
   useEffect(() => {

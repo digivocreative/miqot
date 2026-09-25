@@ -36,6 +36,7 @@ import { sendCapiEvent } from '@/lib/capi';
 import { trackPublicEvent } from '@/utils/analytics';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
+import { overlayStackSize } from '@/lib/overlayHistory';
 import PullToRefresh from '@/components/pwa/PullToRefresh';
 import { hasInAppHistory } from './lib/appHistory';
 
@@ -946,10 +947,22 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   // Escape membatalkan pilihan di layar lebar. Di bawah 1024px tombol ini tidak
   // dipasang sama sekali — menutup kartu di sana punya kompensasi gulirnya sendiri.
+  // Escape hanya milik lapisan teratas. Overlay di atas kartu/rail (galeri hotel,
+  // dropdown filter, sheet Filter, modal brosur) mendengar lebih dulu atau tidak
+  // menanganinya sama sekali; tanpa dua penjaga ini satu Escape ikut menutup
+  // paket yang sedang dijelaskan di belakangnya.
+  // - overlayStackSize: overlay ber-useBackToClose masih terbuka — baik yang
+  //   menutup diri pada Escape (galeri, entrinya baru dilepas setelah animasi
+  //   keluar; Nilai Plus Paket, listener window-nya jalan sesudah listener ini)
+  //   maupun yang tidak bereaksi (sheet Filter, brosur, itinerary, Tanya AI,
+  //   Caption AI).
+  // - defaultPrevented: overlay di luar tumpukan itu yang sudah memakai Escape-nya
+  //   (dropdown filter).
   useEffect(() => {
     if (!isWide || !expandedCardId) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setExpandedCardId(null);
+      if (e.key !== 'Escape' || e.defaultPrevented || overlayStackSize() > 0) return;
+      setExpandedCardId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

@@ -150,7 +150,11 @@ const FilterDropdown = forwardRef<FilterDropdownHandle, FilterDropdownProps>(fun
       if (!rootRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      // Tandai Escape ini sudah terpakai: pintasan Escape halaman jadwal (App,
+      // di window) tidak ikut menutup kartu yang sedang terbuka di layar lebar.
+      e.preventDefault();
+      setOpen(false);
     };
     document.addEventListener('pointerdown', onPointer);
     document.addEventListener('keydown', onKey);
