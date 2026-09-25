@@ -18,6 +18,16 @@
  *
  * Mesinnya WebKit: headless Chromium menyembunyikan scrollbar sama sekali
  * (clientWidth === innerWidth), jadi bug ini tidak pernah muncul di sana.
+ *
+ * Kedipan KEDUA, yang tersisa sesudah geseran itu hilang: fade galeri memakai
+ * WAAPI (framer-motion mempercepat opacity lewat element.animate, fill: both).
+ * Di motion-dom < 12.34.5 `onfinish` hanya MENJADWALKAN nilai akhir ke render
+ * framer berikutnya lalu langsung `cancel()` — satu frame compositor tampil
+ * dengan opacity inline lama: galeri lenyap total tepat di akhir fade-in, dan
+ * muncul penuh lagi tepat sesudah fade-out. Terekam lewat CDP screencast di
+ * Chrome 153 (intermiten, tergantung balapan frame). Tes kedua di bawah
+ * memeriksanya secara deterministik: saat animasi yang SUDAH selesai
+ * dibatalkan, opacity inline wajib sudah bernilai akhir.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
@@ -123,6 +133,34 @@ function installProbe() {
   };
 }
 
+/**
+ * Probe serah-terima WAAPI: tiap animasi opacity di dialog galeri yang
+ * dibatalkan SESUDAH selesai dicatat bersama opacity inline saat itu. Begitu
+ * animasi (fill: both) dibatalkan, nilai inline itulah yang digambar.
+ */
+function installWaapiProbe() {
+  window.__finishedCancels = [];
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function patchedAnimate(keyframes, options) {
+    const animation = animate.call(this, keyframes, options);
+    const el = this;
+    const values = keyframes && !Array.isArray(keyframes) ? keyframes.opacity : undefined;
+    if (el.getAttribute('role') === 'dialog' && Array.isArray(values)) {
+      const cancel = animation.cancel;
+      animation.cancel = function patchedCancel(...args) {
+        if (animation.playState === 'finished') {
+          window.__finishedCancels.push({
+            final: String(values[values.length - 1]),
+            inline: el.style.opacity,
+          });
+        }
+        return cancel.apply(this, args);
+      };
+    }
+    return animation;
+  };
+}
+
 async function openRail() {
   const context = await browser.newContext({ serviceWorkers: 'block', viewport: VIEWPORT });
   const page = await context.newPage();
@@ -147,6 +185,7 @@ async function openRail() {
       snapshot,
     });
     await page.addInitScript(installProbe);
+    await page.addInitScript(installWaapiProbe);
 
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
@@ -275,6 +314,39 @@ describe('Jadwal rail — galeri hotel tidak menggeser layout', { concurrency: f
 
       const jolts = await page.evaluate(() => window.__stopProbe());
       assert.deepEqual(jolts, [], `layout bergeser saat galeri dibuka/ditutup: ${JSON.stringify(jolts)}`);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('fade galeri selesai tanpa satu frame pun kembali ke opacity awal', { timeout: 90_000 }, async () => {
+    const session = await openRail();
+    try {
+      const { page } = session;
+      await page.click('.jadwal-rail--right button[aria-label^="Buka galeri"]');
+      await page.waitForFunction(() => {
+        const dlg = document.querySelector('[role="dialog"][aria-modal="true"]');
+        return dlg && getComputedStyle(dlg).opacity === '1';
+      }, undefined, { timeout: 10_000 });
+      await page.waitForTimeout(300);
+      await page.click('[data-media-viewer-close]');
+      await page.waitForFunction(
+        () => !document.querySelector('[role="dialog"][aria-modal="true"]'),
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      const cancels = await page.evaluate(() => window.__finishedCancels);
+      // Fade masuk + fade keluar. Kurang dari itu = framer tidak lewat WAAPI
+      // lagi (atau probe-nya tak terpasang) dan tes ini tidak menguji apa-apa.
+      assert.ok(cancels.length >= 2, `serah-terima WAAPI tak teramati: ${JSON.stringify(cancels)}`);
+      for (const c of cancels) {
+        assert.equal(
+          c.inline,
+          c.final,
+          `animasi dibatalkan saat opacity inline masih ${c.inline} (akhir ${c.final}) — satu frame galeri berkedip`,
+        );
+      }
     } finally {
       await session.close();
     }
