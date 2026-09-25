@@ -53,7 +53,6 @@ interface FormState {
   gmaps_url: string;
   description: string;
   facilities: string[];
-  agent_note: string;
   media: FormMedia[];
   // Disimpan sebagai teks supaya kotak isian boleh kosong/setengah diketik;
   // diubah ke angka saat simpan, di mana lib yang memvalidasinya.
@@ -65,7 +64,7 @@ function emptyForm(): FormState {
   return {
     name: '', city: 'mekkah', stars: null,
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
-    description: '', facilities: [], agent_note: '', media: [], ratings: {}, faq: [],
+    description: '', facilities: [], media: [], ratings: {}, faq: [],
   };
 }
 
@@ -87,7 +86,6 @@ function formFromDetail(detail: HotelDetail): FormState {
     gmaps_url: detail.gmaps_url || '',
     description: detail.description || '',
     facilities: detail.facilities || [],
-    agent_note: detail.agent_note || '',
     faq: (detail.faq || []).map(item => ({ q: item.q, a: item.a })),
     media: (detail.media || []).map((item, index) => ({
       key: `existing-${index}-${item.url}`,
@@ -542,7 +540,6 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       gmaps_url: form.gmaps_url,
       description: form.description,
       facilities: form.facilities,
-      agent_note: form.agent_note,
       media: form.media
         .filter((m): m is FormMedia & { url: string } => m.status === 'done' && !!m.url)
         // Kategori kosong TIDAK dikirim: lib membuang kunci kosong, jadi
@@ -994,19 +991,6 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                 )}
                 <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
                   Tampil sebagai accordion di bawah Fasilitas pada halaman detail.
-                </p>
-              </div>
-              <div>
-                <label className={LABEL_CLASS}>Catatan Agent</label>
-                <textarea
-                  value={form.agent_note}
-                  onChange={e => setForm(prev => ({ ...prev, agent_note: e.target.value }))}
-                  rows={3}
-                  placeholder="Tips internal: lantai terbaik, waktu booking, dll."
-                  className={`${INPUT_CLASS} mt-1.5 resize-none`}
-                />
-                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
-                  Internal — hanya terlihat oleh sesama agent, bukan jamaah.
                 </p>
               </div>
             </section>

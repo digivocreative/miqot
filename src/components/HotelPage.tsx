@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Building2, Search, Star, Footprints, MapPin, Lock, SlidersHorizontal,
+  Building2, Search, Star, Footprints, MapPin, SlidersHorizontal,
   Play, ImageOff, Image as ImageIcon, ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -72,7 +72,6 @@ export interface HotelDetail {
   gmaps_url: string | null;
   description: string | null;
   facilities: string[];
-  agent_note: string | null;
   media: HotelMediaItem[];
   // Opsional: baris lama / prod pra-migrasi 20260816050000 belum punya kolom ini.
   ratings?: HotelRatingItem[];
@@ -1151,19 +1150,6 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                   Buka di Google Maps
                 </button>
               )}
-            </div>
-          )}
-
-          {detail.agent_note && (
-            <div className="mt-5 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 p-3">
-              <div className="flex items-center gap-1.5">
-                <Lock size={13} className="text-amber-700 dark:text-amber-400" />
-                <span className="text-xs font-bold text-amber-800 dark:text-amber-400">Catatan Agent</span>
-                <span className="rounded-full bg-amber-200/70 dark:bg-amber-800/50 px-1.5 py-px text-[9px] font-semibold text-amber-800 dark:text-amber-300">
-                  internal
-                </span>
-              </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-amber-900 dark:text-amber-200 whitespace-pre-line">{detail.agent_note}</p>
             </div>
           )}
 
