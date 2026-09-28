@@ -307,9 +307,11 @@ Current behavior:
    - baca harga paket dari browser agar snapshot SPA yang stale tidak menimpanya,
    - hanya mengisi/mengirim field yang benar-benar ada pada form live; alias kompatibilitas direct-submit yang tidak native tidak disisipkan,
    - tidak memicu ulang AJAX Marketing bila pilihan live sudah sama, agar blok HTML/script `_perwakilan.php` tidak dimuat dua kali,
-   - klik tombol Simpan asli agar listener Alhijaz sendiri menjalankan `grecaptcha.ready()`, action/field token live, dan submit form,
+   - mode tambah jamaah (`.idb`) meniru form native persis: `vjadwal` (disabled) tidak disentuh, `_otb.php` tidak dipanggil, `jadwal`/`idu` hidden milik form live, paket dipetakan ke opsi pre-render (`JBU.PKT.TIPE.TIPE Kamar`) lewat kode PKT; tanpa `idu` yang cocok submit dibatalkan (fail-closed) agar tidak terbentuk ID Umroh baru. Menyentuh jadwal terkunci = Alhijaz menolak `Duplicate entry '<idu>' for key 'id_umrah_3'` (insiden 28 Sep 2026),
+   - sebelum klik Simpan, cek validasi HTML5 form live (`required`, `pattern` mis. KTP 10–18, HP 5–16); field tidak valid dilaporkan by label (`reason: legacy_form_invalid`) — tanpa ini Chrome memblokir submit diam-diam dan muncul "tidak memulai submit",
+   - klik tombol Simpan asli (per 28 Sep 2026 script reCAPTCHA di form Alhijaz dikomentari → submit native biasa; bila listener reCAPTCHA kembali, jalur yang sama tetap jalan),
    - mengirim tepat satu mutasi; kegagalan tidak pernah jatuh ke transport kedua.
-8. Browser submit allows informational `sisa seat = N` dialogs when `N > 0`, but treats zero seat or other alerts as blocking.
+8. Browser submit allows informational `sisa seat = N` dialogs when `N > 0` and auto-correction notices (`Perhatian: … Sistem beralih …`), but treats zero seat or other alerts as blocking; a `gagal`/`duplicate` alert is reported in preference to other dialogs.
 9. Kegagalan upstream dikembalikan sebagai JSON terstruktur (`success:false`, `reason`, `retryable`, `error`) dengan HTTP 424; frontend juga merangkum HTML/proxy failure menjadi pesan yang aman dibaca.
 
 Why this exists:
@@ -325,6 +327,7 @@ node --check laporan-api.js
 node --check server.js
 node --test tests/umrah-submit-orchestrator.test.js
 node --test tests/umrah-register-session-retry.test.js
+node --test tests/umrah-browser-submit.integration.test.js
 npm run build:spa
 sudo systemctl restart miqot.service
 ```

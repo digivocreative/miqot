@@ -82,6 +82,49 @@ function registrationFormHtml() {
     </html>`;
 }
 
+// Live `.idb` form (28 Sep 2026): the parent's schedule is locked (disabled vjadwal +
+// hidden jadwal), the parent ID sits in hidden idu, packages are pre-rendered in the
+// "TIPE TIPE Kamar" format, and there is no reCAPTCHA listener (native submit).
+function boundRegistrationFormHtml({ idu = 'AIW001', extraFields = '' } = {}) {
+  return `<!doctype html>
+    <html>
+      <body>
+        <form id="mF" method="post" enctype="multipart/form-data" action="/aiw/staff/pages/aksi_umrah.php">
+          <select name="jdaftar" onchange="fetch('/aiw/staff/pages/_jdaftar.php')" required>
+            <option value="">-</option>
+            <option value="1">JAMAAH BARU</option>
+          </select>
+          <select id="vjadwal" name="vjadwal" onchange="fetch('/aiw/staff/pages/_otb.php')" disabled>
+            <option value="">-</option>
+            <option value="JBU001.2026-10-02.5" selected>02 Oktober 2026</option>
+          </select>
+          <input type="hidden" id="jadwal" name="jadwal" value="JBU001.2026-10-02.5">
+          ${idu ? `<input type="text" name="vidu" value="${idu}" disabled><input type="hidden" name="idu" value="${idu}">` : ''}
+          <div id="otb">
+            <select id="paket" name="paket" onchange="
+              fetch('/aiw/staff/pages/_pkt.php', { method: 'POST' })
+                .then(response => response.text())
+                .then(html => { document.querySelector('#paket-details').innerHTML = html; })
+            " required>
+              <option value="">-</option>
+              <option value="JBU001.PKT002.UHUD.UHUD Infant">UHUD UHUD Infant</option>
+              <option value="JBU001.PKT001.UHUD.UHUD Quard">UHUD UHUD Quard</option>
+            </select>
+          </div>
+          <div id="paket-details"><input id="hpaket" name="hpaket" disabled required></div>
+          <select name="vmarketing" required><option value="SMTEST" selected>Marketing Test</option></select>
+          <input type="hidden" name="marketing" value="SMTEST">
+          <select name="perwakilan" required><option value="WKTEST" selected>Koordinator Test</option></select>
+          <input name="ktp">
+          <input name="pendaftar" required>
+          ${extraFields}
+          <input type="hidden" name="pin" value="fresh-browser-pin">
+          <button id="sbButton" type="submit">Simpan</button>
+        </form>
+      </body>
+    </html>`;
+}
+
 function loginFormHtml() {
   return `<!doctype html>
     <form method="post" action="/aiw/staff/cek_login.php">
@@ -98,6 +141,7 @@ const DEFAULT_SUBMIT_RESPONSE_HTML =
 async function startFakeLegacyServer({
   packagePrice = TEST_PACKAGE_PRICE,
   submitResponseHtml = DEFAULT_SUBMIT_RESPONSE_HTML,
+  boundFormHtml = boundRegistrationFormHtml(),
 } = {}) {
   const requests = [];
   const server = createServer(async (req, res) => {
@@ -144,7 +188,7 @@ async function startFakeLegacyServer({
         url.searchParams.get('act') === 'tdaftar'
       ) {
         res.setHeader('content-type', 'text/html; charset=utf-8');
-        res.end(registrationFormHtml());
+        res.end(url.searchParams.has('.idb') ? boundFormHtml : registrationFormHtml());
         return;
       }
 
@@ -255,7 +299,6 @@ test('browser submit stays local, preserves fresh package price, and sends one c
       fileBuffer: Buffer.from(TEST_FILE_BYTES),
       fileName: 'ktp.jpg',
       fileFieldName: 'file_ktp',
-      idb: TEST_IDB,
     });
 
     assert.equal(result.success, true, JSON.stringify(result));
@@ -265,7 +308,6 @@ test('browser submit stays local, preserves fresh package price, and sends one c
       new URLSearchParams(request.search).get('act') === 'tdaftar'
     );
     assert.equal(formLoads.length, 1);
-    assert.equal(new URLSearchParams(formLoads[0].search).get('.idb'), TEST_IDB);
 
     const packageRequests = fakeLegacy.requests.filter(request => request.pathname.endsWith('/_pkt.php'));
     assert.equal(
@@ -416,7 +458,6 @@ test('browser submit does NOT infer success from an unknown post-submit label th
       fileBuffer: Buffer.from(TEST_FILE_BYTES),
       fileName: 'ktp.jpg',
       fileFieldName: 'file_ktp',
-      idb: TEST_IDB,
     });
 
     assert.equal(result.success, false, JSON.stringify(result));
@@ -458,7 +499,6 @@ test('browser submit still rejects an explicit failure alert even after navigati
       fileBuffer: Buffer.from(TEST_FILE_BYTES),
       fileName: 'ktp.jpg',
       fileFieldName: 'file_ktp',
-      idb: TEST_IDB,
     });
 
     assert.equal(result.success, false, JSON.stringify(result));
@@ -468,4 +508,114 @@ test('browser submit still rejects an explicit failure alert even after navigati
     else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
     await fakeLegacy.close();
   }
+});
+
+async function withFakeLegacy(options, run) {
+  const fakeLegacy = await startFakeLegacyServer(options);
+  const previousBrowserBase = process.env.LEGACY_BROWSER_API_BASE;
+  process.env.LEGACY_BROWSER_API_BASE = fakeLegacy.origin;
+  try {
+    const api = await importLaporanApiWithoutRefedCleanupTimer();
+    await run(api, fakeLegacy);
+  } finally {
+    if (previousBrowserBase === undefined) delete process.env.LEGACY_BROWSER_API_BASE;
+    else process.env.LEGACY_BROWSER_API_BASE = previousBrowserBase;
+    await fakeLegacy.close();
+  }
+}
+
+// What the SPA sends for "Tambah jamaah": schedule + package come from its own
+// _otb.php lookup (seat count possibly stale, package in "TIPE.Kamar" format).
+const BOUND_SPA_PAYLOAD = {
+  username: 'SMTEST',
+  password: 'secret',
+  kantor: '2',
+  fields: {
+    jdaftar: '1',
+    jadwal: 'JBU001.2026-10-02.4',
+    vjadwal: 'JBU001.2026-10-02.4',
+    paket: 'JBU001.PKT001.UHUD.Quard',
+    ktp: TEST_NIK,
+    pendaftar: 'CODEX TEST',
+    vmarketing: 'SMTEST',
+    perwakilan: 'WKTEST',
+  },
+  hiddenFields: { jadwal: 'JBU001.2026-10-02.4', idu: 'AIW001', marketing: 'SMTEST', pin: 'stale-pin' },
+  idb: TEST_IDB,
+};
+
+test('adding a jamaah to an existing ID Umroh submits the locked form exactly as Alhijaz renders it', { timeout: 45_000 }, async () => {
+  // 28 Sep 2026: re-selecting the locked schedule posted vjadwal, re-ran _otb.php and
+  // swapped the package format; Alhijaz answered "Duplicate entry '<idu>'".
+  await withFakeLegacy({}, async ({ submitUmrahRegistrationWithBrowser }, fakeLegacy) => {
+    const result = await submitUmrahRegistrationWithBrowser(BOUND_SPA_PAYLOAD);
+    assert.equal(result.success, true, JSON.stringify(result));
+
+    const formLoad = fakeLegacy.requests.find(request => new URLSearchParams(request.search).get('act') === 'tdaftar');
+    assert.equal(new URLSearchParams(formLoad.search).get('.idb'), TEST_IDB);
+    const count = suffix => fakeLegacy.requests.filter(request => request.pathname.endsWith(suffix)).length;
+    assert.equal(count('/_otb.php'), 0, 'the locked schedule must not be re-selected');
+    assert.equal(count('/_pkt.php'), 1);
+
+    const submits = fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php'));
+    assert.equal(submits.length, 1);
+    const body = submits[0].body.toString('latin1');
+    assert.equal(multipartField(body, 'vjadwal'), null, 'disabled vjadwal is never posted natively');
+    assert.equal(multipartField(body, 'vidu'), null);
+    assert.equal(multipartField(body, 'idu'), 'AIW001');
+    assert.equal(multipartField(body, 'jadwal'), 'JBU001.2026-10-02.5', 'the live form owns the schedule');
+    assert.equal(multipartField(body, 'paket'), 'JBU001.PKT001.UHUD.UHUD Quard');
+    assert.equal(multipartField(body, 'hpaket'), TEST_PACKAGE_PRICE);
+    assert.equal(multipartField(body, 'pin'), 'fresh-browser-pin');
+  });
+});
+
+test('a bound form without the parent idu fails closed instead of opening a new ID Umroh', { timeout: 45_000 }, async () => {
+  await withFakeLegacy({ boundFormHtml: boundRegistrationFormHtml({ idu: '' }) }, async ({ submitUmrahRegistrationWithBrowser }, fakeLegacy) => {
+    const result = await submitUmrahRegistrationWithBrowser(BOUND_SPA_PAYLOAD);
+    assert.equal(result.success, false);
+    assert.equal(result.reason, 'legacy_bind_missing');
+    assert.match(result.error, /AIW001/);
+    assert.equal(fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php')).length, 0);
+  });
+});
+
+test('an auto-correction notice does not mask the real rejection', { timeout: 45_000 }, async () => {
+  const submitResponseHtml = "<!doctype html><script>"
+    + "alert('Perhatian: Nomor jamaah tidak valid. Sistem beralih menggunakan nomor agen.');"
+    + "alert('Pendaftaran gagal:\\nDuplicate entry \\'AIW001\\' for key \\'id_umrah_3\\'');"
+    + "window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>";
+  await withFakeLegacy({ submitResponseHtml }, async ({ submitUmrahRegistrationWithBrowser }) => {
+    const result = await submitUmrahRegistrationWithBrowser(BOUND_SPA_PAYLOAD);
+    assert.equal(result.success, false, JSON.stringify(result));
+    assert.match(result.error, /Duplicate entry 'AIW001'/);
+    assert.doesNotMatch(result.error, /Perhatian/);
+  });
+});
+
+test('an HTML5-invalid field is named instead of a silent no-submit', { timeout: 45_000 }, async () => {
+  const extraFields = `
+    <div class="form-group"><label>KETERANGAN <span>*</span> <span>(Lain-lain)</span></label><textarea name="keterangan" required></textarea></div>
+    <div class="form-group"><label>NO. TLP/HP PENDAFTAR <span>*</span></label><input name="tpendaftar" pattern=".{5,16}" required></div>`;
+  await withFakeLegacy({ boundFormHtml: boundRegistrationFormHtml({ extraFields }) }, async ({ submitUmrahRegistrationWithBrowser }, fakeLegacy) => {
+    const result = await submitUmrahRegistrationWithBrowser({
+      ...BOUND_SPA_PAYLOAD,
+      fields: { ...BOUND_SPA_PAYLOAD.fields, tpendaftar: '0812' },
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.reason, 'legacy_form_invalid');
+    assert.match(result.error, /KETERANGAN wajib diisi/);
+    assert.match(result.error, /NO\. TLP\/HP PENDAFTAR harus 5–16 karakter/);
+    assert.equal(fakeLegacy.requests.filter(request => request.pathname.endsWith('/aksi_umrah.php')).length, 0);
+  });
+});
+
+test('bound package options match the SPA value by schedule and PKT code', async () => {
+  const { pickLegacyPaketOption } = await importLaporanApiWithoutRefedCleanupTimer();
+  const options = ['', 'JBU1595.PKT051.UHUD.UHUD Infant', 'JBU1595.PKT035.UHUD.UHUD Quard'];
+  assert.equal(pickLegacyPaketOption(options, 'JBU1595.PKT035.UHUD.Quard'), 'JBU1595.PKT035.UHUD.UHUD Quard');
+  assert.equal(pickLegacyPaketOption(options, 'JBU1595.PKT035.UHUD.UHUD Quard'), 'JBU1595.PKT035.UHUD.UHUD Quard');
+  assert.equal(pickLegacyPaketOption(options, 'JBU1600.PKT035.UHUD.Quard'), '', 'another schedule never matches');
+  assert.equal(pickLegacyPaketOption(options, 'JBU1595.PKT099.UHUD.Quard'), '');
+  assert.equal(pickLegacyPaketOption(options, ''), '');
 });

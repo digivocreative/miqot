@@ -2487,14 +2487,65 @@ function normalizeLegacyDialogMessage(message) {
 }
 
 function findBlockingLegacyDialog(dialogs) {
-  return (dialogs || [])
+  const blocking = (dialogs || [])
     .map(normalizeLegacyDialogMessage)
-    .find(message => {
+    .filter(message => {
       if (!message || /berhasil|success/i.test(message)) return false;
+      // "Perhatian: Nomor jamaah tidak valid. Sistem beralih menggunakan nomor agen."
+      // is an auto-correction notice; the submit continues after it.
+      if (/sistem\s+beralih/i.test(message)) return false;
       const seatMatch = message.match(/sisa\s+seat\s*=\s*(\d+)/i);
       if (seatMatch && Number(seatMatch[1]) > 0) return false;
       return true;
-    }) || '';
+    });
+  return blocking.find(message => /gagal|ditolak|duplicate/i.test(message)) || blocking[0] || '';
+}
+
+// "JBU1600.2026-12-20.4" → "JBU1600.2026-12-20": the trailing seat count changes
+// with every registration and must not make the same schedule look different.
+function legacyJadwalKey(value) {
+  return String(value || '').split('.').slice(0, 2).join('.');
+}
+
+// _otb.php (new registration) values are "JBU1595.PKT035.UHUD.Quard", while the
+// `.idb` form pre-renders "JBU1595.PKT035.UHUD.UHUD Quard". Match on schedule + PKT code.
+export function pickLegacyPaketOption(optionValues, requested) {
+  const values = (optionValues || []).filter(Boolean);
+  const wanted = String(requested || '');
+  if (values.includes(wanted)) return wanted;
+  const [kode, pkt] = wanted.split('.');
+  if (!kode || !pkt) return '';
+  return values.find(value => {
+    const [optionKode, optionPkt] = value.split('.');
+    return optionKode === kode && optionPkt === pkt;
+  }) || '';
+}
+
+async function readLegacyBoundForm(page) {
+  return page.evaluate(() => ({
+    idu: document.querySelector('form#mF input[type="hidden"][name="idu"]')?.value || '',
+    jadwal: document.querySelector('form#mF input[type="hidden"][name="jadwal"]')?.value || '',
+  }));
+}
+
+// A native click on Simpan runs HTML5 constraint validation first; one invalid field
+// blocks the submit silently (no dialog, no request). Name the fields instead.
+async function readLegacyBrowserInvalidFields(page) {
+  return page.evaluate(() => {
+    const form = document.querySelector('form#mF');
+    if (!form) return [];
+    return Array.from(form.elements)
+      .filter(el => el.willValidate && !el.checkValidity())
+      .map(el => {
+        const rawLabel = el.closest('.form-group')?.querySelector('label')?.textContent || '';
+        const label = rawLabel.replace(/\*/g, '').replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim() || el.name;
+        const lengthRule = String(el.getAttribute('pattern') || '').match(/^\.\{(\d+),(\d+)\}$/);
+        let problem = `${label} tidak valid`;
+        if (el.validity.valueMissing) problem = `${label} wajib diisi`;
+        else if (lengthRule) problem = `${label} harus ${lengthRule[1]}–${lengthRule[2]} karakter`;
+        return { name: el.name, label, problem };
+      });
+  });
 }
 
 async function pickLegacyBrowserSelectName(page, names) {
@@ -2817,8 +2868,50 @@ export async function submitUmrahRegistrationWithBrowser({
     await page.waitForSelector(`${legacyFieldSelector('ktp')}, select${legacyFieldSelector('kelamin')}`, { timeout: 15_000 }).catch(() => {});
 
     const jadwalValue = fields.jadwal || fields.vjadwal || fields.berangkat || fields.tgl_berangkat;
-    const paketValue = fields.paket || fields.paket_umroh;
-    if (jadwalValue) {
+    let paketValue = fields.paket || fields.paket_umroh;
+
+    // `.idb` adds a jamaah to an existing ID Umroh. Alhijaz renders that form with the
+    // parent's schedule locked (disabled `vjadwal` + hidden `jadwal`), the parent ID in
+    // hidden `idu`, and the package options pre-rendered. A native submit never touches
+    // the locked schedule, so neither may we: re-selecting it posted `vjadwal`, re-ran
+    // _otb.php and swapped the package values for the new-registration format. From
+    // 28 Sep 2026 Alhijaz rejected those submits with "Duplicate entry '<idu>'".
+    const expectedIdu = idb ? String(idb).split('.')[0] : '';
+    const bound = idb ? await readLegacyBoundForm(page) : null;
+    if (idb && bound.idu !== expectedIdu) {
+      // Without `idu` Alhijaz would silently open a separate, new ID Umroh.
+      return {
+        success: false,
+        reason: 'legacy_bind_missing',
+        error: `Form Alhijaz tidak terhubung ke ID Umroh ${expectedIdu}. Pendaftaran dibatalkan agar tidak terbentuk ID Umroh baru. Muat ulang form lalu coba lagi.`,
+        debug: { browserFallback: true, stage: 'bind', liveIdu: bound.idu || null },
+      };
+    }
+    const lockedJadwal = bound?.jadwal || '';
+    if (lockedJadwal) {
+      if (jadwalValue && legacyJadwalKey(jadwalValue) !== legacyJadwalKey(lockedJadwal)) {
+        return {
+          success: false,
+          reason: 'legacy_bind_jadwal_mismatch',
+          error: `Jadwal yang dipilih berbeda dengan jadwal ID Umroh ${expectedIdu} di Alhijaz. Muat ulang form lalu coba lagi.`,
+          debug: { browserFallback: true, stage: 'bind', jadwalValue, lockedJadwal },
+        };
+      }
+      if (paketValue) {
+        const optionValues = await page.locator(`select${legacyFieldSelector('paket')} option`)
+          .evaluateAll(options => options.map(option => option.value));
+        const boundPaket = pickLegacyPaketOption(optionValues, paketValue);
+        if (!boundPaket) {
+          return {
+            success: false,
+            reason: 'legacy_bind_paket_missing',
+            error: `Paket yang dipilih tidak tersedia untuk ID Umroh ${expectedIdu} di Alhijaz. Muat ulang form lalu pilih ulang paket.`,
+            debug: { browserFallback: true, stage: 'bind', paketValue, optionValues },
+          };
+        }
+        paketValue = boundPaket;
+      }
+    } else if (jadwalValue) {
       const paketWait = waitForLegacyAjax(page, '_otb.php');
       const jadwalFieldName = await pickLegacyBrowserSelectName(page, ['vjadwal', 'jadwal', 'berangkat', 'tgl_berangkat']);
       if (!jadwalFieldName) throw new Error('Field jadwal tidak ditemukan di form legacy');
@@ -2866,9 +2959,12 @@ export async function submitUmrahRegistrationWithBrowser({
       }
     }
 
+    // The bound form owns the parent's ID and schedule; the SPA snapshot may carry a
+    // stale seat count, and the display-only copies must stay disabled (unposted).
+    const boundFormFields = lockedJadwal ? new Set(['jadwal', 'idu', 'vjadwal', 'vidu']) : new Set();
     for (const [name, value] of Object.entries(hiddenFields || {})) {
       // Use the browser's fresh anti-CSRF/session pin from the current form.
-      if (BROWSER_MANAGED_UMRAH_FIELDS.has(name)) continue;
+      if (BROWSER_MANAGED_UMRAH_FIELDS.has(name) || boundFormFields.has(name)) continue;
       if (value === undefined || value === null || value === '') continue;
       await fillLegacyBrowserField(page, name, value);
     }
@@ -2878,7 +2974,7 @@ export async function submitUmrahRegistrationWithBrowser({
     ]);
     const ignoredNonNativeFields = [];
     for (const [name, value] of Object.entries(fields || {})) {
-      if (dependencyFields.has(name) || BROWSER_MANAGED_UMRAH_FIELDS.has(name)) continue;
+      if (dependencyFields.has(name) || BROWSER_MANAGED_UMRAH_FIELDS.has(name) || boundFormFields.has(name)) continue;
       const filled = await fillLegacyBrowserField(page, name, value);
       // A fresh browser form is the source of truth. Compatibility aliases used
       // by the direct multipart fallback must not be injected into the live form:
@@ -2919,6 +3015,16 @@ export async function submitUmrahRegistrationWithBrowser({
         success: false,
         error: `Alhijaz menolak pendaftaran: ${preSubmitDialog}`,
         debug: { browserFallback: true, dialogs, stage: 'pre_submit' },
+      };
+    }
+
+    const invalidFields = await readLegacyBrowserInvalidFields(page);
+    if (invalidFields.length > 0) {
+      return {
+        success: false,
+        reason: 'legacy_form_invalid',
+        error: `Isian ditolak form Alhijaz: ${invalidFields.map(field => field.problem).join('; ')}. Perbaiki lalu kirim ulang.`,
+        debug: { browserFallback: true, stage: 'validity', invalidFields },
       };
     }
 
