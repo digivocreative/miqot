@@ -2874,8 +2874,7 @@ export async function submitUmrahRegistrationWithBrowser({
     // parent's schedule locked (disabled `vjadwal` + hidden `jadwal`), the parent ID in
     // hidden `idu`, and the package options pre-rendered. A native submit never touches
     // the locked schedule, so neither may we: re-selecting it posted `vjadwal`, re-ran
-    // _otb.php and swapped the package values for the new-registration format. From
-    // 28 Sep 2026 Alhijaz rejected those submits with "Duplicate entry '<idu>'".
+    // _otb.php and swapped the package values for the new-registration format.
     const expectedIdu = idb ? String(idb).split('.')[0] : '';
     const bound = idb ? await readLegacyBoundForm(page) : null;
     if (idb && bound.idu !== expectedIdu) {
