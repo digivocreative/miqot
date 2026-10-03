@@ -2047,9 +2047,11 @@ _________________________
                       />
                     )}
                   </div>
-                  {/* Badge */}
+                  {/* Badge — di pojok kanan ATAS. Strip bawah brosur adalah
+                      tempat nama + nomor WA agent dibakar, dan nomornya rata
+                      kanan: di pojok kanan bawah lencana ini menutupinya. */}
                   {brosurSiap && (
-                    <div className="absolute bottom-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
+                    <div className="absolute top-3 right-3 bg-black/50 text-white text-[11px] font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
                       <Maximize2 size={12} />
                       Lihat penuh
                     </div>

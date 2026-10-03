@@ -66,6 +66,17 @@ const bacaKeadaan = () => {
     // animasi expand. Inilah yang dulu melompat +574px di frame terakhir.
     tinggiKontenPanel: panel ? panel.scrollHeight : null,
     lencanaSiap: document.body.textContent.includes('Lihat penuh'),
+    lencana: (() => {
+      const el = [...kotak.parentElement.querySelectorAll('div')]
+        .find(d => d.textContent.trim() === 'Lihat penuh');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    })(),
+    gambar: (() => {
+      const r = img.getBoundingClientRect();
+      return { top: r.top, height: r.height };
+    })(),
     // Bayangan kabur dari turunan 400px: yang membuat ruang brosur terbaca
     // "sedang dimuat" alih-alih "kosong" selama beberapa detik pertama.
     bayangan: (() => {
@@ -191,6 +202,15 @@ describe('Pratinjau brosur: kerangka menahan tinggi, lalu gambarnya fade-in', { 
       assert.equal(siap.rasioTerkunci, 'auto', 'kunci rasio tidak dilepas; gambar dipaksa masuk kotak 3:4');
       assert.equal(siap.animasiKerangka, 'none', 'kerangka masih berdenyut di belakang gambar yang sudah tampil');
       assert.equal(siap.lencanaSiap, true, 'lencana "Lihat penuh" tidak muncul setelah gambar siap');
+      // Strip kontak = 10% terbawah brosur (CONTACT_SLOT.scanRatio): di situlah
+      // nama + nomor WA agent dibakar, dan nomornya rata KANAN. Lencana di pojok
+      // kanan bawah menutupi persis nomor itu di setiap template.
+      assert.ok(siap.lencana, 'lencana "Lihat penuh" tidak ditemukan di atas brosur');
+      assert.ok(
+        siap.lencana.bottom <= siap.gambar.top + siap.gambar.height * 0.9,
+        `lencana "Lihat penuh" menutupi strip kontak brosur (dasar lencana ${siap.lencana.bottom.toFixed(0)}px, ` +
+        `strip mulai ${(siap.gambar.top + siap.gambar.height * 0.9).toFixed(0)}px)`,
+      );
       assert.equal(siap.bayangan, null, 'bayangan kabur masih menumpuk di belakang brosur yang sudah tampil');
 
       // INVARIAN UTAMA: tinggi yang diukur framer-motion sebagai target animasi
