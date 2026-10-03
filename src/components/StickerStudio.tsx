@@ -27,6 +27,7 @@ import {
   compositeStickers,
 } from '../utils/compositeStickers';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { trackEvent } from '../utils/analytics';
 
 export interface StickerStudioProps {
   isOpen: boolean;
@@ -103,6 +104,13 @@ export function StickerStudio({
     isTouchPrimary() && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useBackToClose(isOpen, onClose);
+
+  // Studio tetap ter-mount; dicatat sekali per transisi tertutup → terbuka.
+  const openTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { openTrackedRef.current = false; return; }
+    if (!openTrackedRef.current) { trackEvent('feature', 'open_sticker_studio'); openTrackedRef.current = true; }
+  }, [isOpen]);
 
   // ── Gambar dasar: object URL + ukuran naturalnya ──
   useEffect(() => {
@@ -353,15 +361,20 @@ export function StickerStudio({
       const blob = await compositeStickers(baseBlob, placements);
       const name = `${fileNameBase}.${STICKER_OUTPUT_EXT}`;
       const file = new File([blob], name, { type: STICKER_OUTPUT_MIME });
+      // null = share dibatalkan user → tidak dicatat.
+      let method: 'share' | 'download' | null = 'download';
       if (mode === 'share' && canShareFiles([file])) {
         try {
           await navigator.share({ files: [file], title: fileNameBase });
+          method = 'share';
         } catch (err) {
           if ((err as { name?: string } | null)?.name !== 'AbortError') downloadBlob(blob, name);
+          else method = null;
         }
       } else {
         downloadBlob(blob, name);
       }
+      if (method) trackEvent('action', 'save_sticker_brosur', { method });
       setSaved(true);
     } catch (err) {
       // Studio TIDAK ditutup dan placement TIDAK dibuang: agent bisa coba lagi

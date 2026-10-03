@@ -137,7 +137,6 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
   const handleToggle = async (key: string) => {
     const newValue = !prefs[key];
     setPrefs(prev => ({ ...prev, [key]: newValue }));
-    trackEvent('action', 'update_notif_prefs', { pref: key, value: newValue });
     try {
       const res = await fetch('/api/telegram/prefs', {
         method: 'PUT',
@@ -145,7 +144,9 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
         body: JSON.stringify({ [key]: newValue }),
       });
       const json = await res.json();
-      if (!json.success) setPrefs(prev => ({ ...prev, [key]: !newValue }));
+      // Catat hanya setelah tersimpan (gagal = toggle dikembalikan)
+      if (json.success) trackEvent('action', 'update_notif_prefs', { pref: key, value: newValue });
+      else setPrefs(prev => ({ ...prev, [key]: !newValue }));
     } catch {
       setPrefs(prev => ({ ...prev, [key]: !newValue }));
     }
@@ -166,7 +167,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
       const json = await res.json();
       if (json.success) {
         setTelegramStatus({ connected: false, chatId: null, hasCredentials: true });
-        trackEvent('action', 'disconnect_telegram');
+        // disconnect_telegram dicatat server-side di POST /api/telegram/disconnect
       }
     } catch { /* ignore */ }
     setDisconnecting(false);
@@ -499,7 +500,8 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                   return;
                 }
                 if (json.success) {
-                  trackEvent('action', 'connect_telegram');
+                  // Baru niat (deep link dibuat); connect_telegram asli dicatat di webhook
+                  trackEvent('action', 'request_telegram_link');
                   openExternalLink(json.data.deepLink);
                   // Dashboard tetap terbuka; status disegarkan saat pengguna kembali (visibilitychange).
                   setTelegramLoading(false);
@@ -590,7 +592,7 @@ function EmailAliasField() {
       if (!res.ok) {
         setError(json.message || json.error || 'Gagal membuat alias');
       } else {
-        trackEvent('action', 'set_email_alias');
+        // set_email_alias dicatat server-side di POST /api/agent/email-alias
         await fetchStatus();
       }
     } catch {
@@ -1285,7 +1287,7 @@ export default function DashboardProfile({ agent, onUpdated, mode = 'standalone'
       setSaved(true);
       setProfileEdited(false);
       setSavedMessage('Profil disimpan.');
-      trackEvent('action', 'update_profil');
+      // update_profil dicatat server-side di PUT /api/admin/profile
       onUpdated();
       setTimeout(() => { setSaved(false); setSavedMessage(''); }, 2500);
     } catch {

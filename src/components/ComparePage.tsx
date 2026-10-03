@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { trackEvent } from '../utils/analytics';
+import { trackEvent, trackPublicEvent } from '../utils/analytics';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Document as PdfDoc, Page as PdfPage, pdfjs } from 'react-pdf';
@@ -22,7 +22,7 @@ import {
 import { getPackages, filterAvailable, sortByDepartureDate } from '@/services';
 import { describeLoadError } from '@/lib/loadError';
 import { useBackToClose } from '@/hooks/useBackToClose';
-import { getAuthHeaders } from '../lib/authSession';
+import { getAuthHeaders, getStoredSession } from '../lib/authSession';
 import type { UmrohPackage } from '@/types';
 import {
   listPackageTiers,
@@ -344,8 +344,20 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
   const [pdfError, setPdfError] = useState(false);
   const pdfBlobRef = useRef<Blob | null>(null);
   const pdfContentRef = useRef<HTMLDivElement>(null);
+  // Agent login → event agent; pengunjung /:slug/compare → event publik. Tak pernah dua-duanya.
   const mountTracked = useRef(false);
-  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_compare'); mountTracked.current = true; } }, []);
+  useEffect(() => {
+    if (mountTracked.current) return;
+    mountTracked.current = true;
+    if (getStoredSession()?.token) {
+      trackEvent('feature', 'open_compare');
+    } else if (agentSlug) {
+      const params = new URLSearchParams(window.location.search);
+      // Tautan dari kartu paket memakai ?paketA=.
+      const paket = params.get('paket') || params.get('paketA');
+      trackPublicEvent(agentSlug, 'open_compare_public', paket ? { paket } : {});
+    }
+  }, []);
 
   // ── Dark Mode ──
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -521,6 +533,10 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       pdfBlobRef.current = blob;
       setPdfNumPages(null);
       setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
+      // Agent sudah tercatat generate_pdf di atas; ini khusus pengunjung.
+      if (!getStoredSession()?.token && agentSlug) {
+        trackPublicEvent(agentSlug, 'quotation_pdf_public', { source: 'compare' });
+      }
     } catch (err) {
       console.error('Gagal membuat PDF perbandingan:', err);
       setPdfError(true);
@@ -528,7 +544,7 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
       setPdfLoading(false);
       setComparing(false);
     }
-  }, [pkgA, pkgB, activeTierA, activeTierB, sameSelection, comparing, agent, itineraryUrlFor, ambilKumpul]);
+  }, [pkgA, pkgB, activeTierA, activeTierB, sameSelection, comparing, agent, agentSlug, itineraryUrlFor, ambilKumpul]);
 
   // Pilihan berubah berarti PDF lama sudah tidak mewakili apa pun.
   useEffect(() => {
@@ -567,13 +583,16 @@ export default function ComparePage({ agent, agentSlug, hideHeader = false }: {
             text: `Perbandingan ${pkgA.nama} dengan ${pkgB.nama}`,
             files: [file],
           });
+          trackEvent('action', 'share_quotation_pdf', { source: 'compare', method: 'share' });
         } catch (err) {
           if ((err as { name?: string })?.name !== 'AbortError') {
             downloadBlob(pdfBlobRef.current, fileName);
+            trackEvent('action', 'share_quotation_pdf', { source: 'compare', method: 'download' });
           }
         }
       } else {
         downloadBlob(pdfBlobRef.current, fileName);
+        trackEvent('action', 'share_quotation_pdf', { source: 'compare', method: 'download' });
       }
     } catch (err) {
       console.error('Gagal membagikan PDF:', err);

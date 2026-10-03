@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { X, Share2, Download, Loader2, ZoomIn, ZoomOut, Sparkles, Wand2, ChevronDown, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
+import { trackEvent } from '../utils/analytics';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { useStampedBrochure } from '../hooks/useStampedBrochure';
 import { BrosurBlurPlaceholder } from './BrosurBlurPlaceholder';
@@ -55,13 +56,15 @@ interface BrochureModalProps {
    * kebalikannya berarti setiap pemanggil baru bocor sampai ada yang sadar.
    */
   allowSticker?: boolean;
+  /** Asal pembukaan modal untuk metadata event share_brosur (opsional). */
+  source?: string;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function BrochureModal({ isOpen, onClose, imageUrl, thumbUrl = null, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null, allowSticker = false }: BrochureModalProps) {
+export function BrochureModal({ isOpen, onClose, imageUrl, thumbUrl = null, title, onCaption, onPackageValue, onPrompt, tone = 'emerald', agent = null, allowSticker = false, source }: BrochureModalProps) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [scale, setScale] = useState(1);
@@ -192,6 +195,9 @@ export function BrochureModal({ isOpen, onClose, imageUrl, thumbUrl = null, titl
       window.URL.revokeObjectURL(blobUrl);
 
       const file = new File([pngBlob], fileName, { type: 'image/png' });
+      // Dicatat hanya setelah berkas benar-benar terkirim/terunduh (bukan batal).
+      const trackShare = (method: 'download' | 'share') =>
+        trackEvent('action', 'share_brosur', source ? { method, source } : { method });
 
       if (canShareFiles([file])) {
         try {
@@ -200,13 +206,16 @@ export function BrochureModal({ isOpen, onClose, imageUrl, thumbUrl = null, titl
             text: `Berikut brosur untuk Paket ${title}`,
             files: [file],
           });
+          trackShare('share');
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
             downloadBlob(pngBlob, fileName);
+            trackShare('download');
           }
         }
       } else {
         downloadBlob(pngBlob, fileName);
+        trackShare('download');
       }
     } catch {
       const fullUrl = imageUrl.replace(/^http:\/\//i, 'https://');

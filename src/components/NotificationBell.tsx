@@ -21,6 +21,7 @@ function measurePanelAnchor(button: HTMLElement | null) {
   return { top: rect.bottom + PANEL_MARGIN, right, width };
 }
 
+import { markPostOpenedFromNotification } from '../hooks/useTerasNotifications';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { formatNotificationText, timeAgo, type TerasNotification } from '../lib/communityNotifications';
 
@@ -254,7 +255,12 @@ export default function NotificationBell({
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => { onClose(); onOpenPost(item.post_id); }}
+                      onClick={() => {
+                        onClose();
+                        // Sumber metrik open_teras_post (dikonsumsi TerasPage).
+                        markPostOpenedFromNotification(item.post_id);
+                        onOpenPost(item.post_id);
+                      }}
                       className={`flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/60 ${item.unread ? 'bg-emerald-50/60 dark:bg-emerald-900/15' : ''}`}
                     >
                       <span className="relative">

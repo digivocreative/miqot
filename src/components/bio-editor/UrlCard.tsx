@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Copy, Check, Link } from 'lucide-react';
+import { trackEvent } from '../../utils/analytics';
 
 interface Props {
   /** Uppercase label rendered above the URL (e.g. "LINK BIO PUBLIK") */
@@ -8,6 +9,8 @@ interface Props {
   url: string;
   /** Optional aria-label override for the copy button */
   copyAriaLabel?: string;
+  /** Asal kartu untuk analitik copy_landing_link (umroh | haji | bio) */
+  surface?: string;
 }
 
 /**
@@ -15,7 +18,7 @@ interface Props {
  * Used by all three Landing Page tabs (Umroh, Haji, Bio) to keep the
  * URL display consistent.
  */
-export default function UrlCard({ label, url, copyAriaLabel }: Props) {
+export default function UrlCard({ label, url, copyAriaLabel, surface }: Props) {
   const [copied, setCopied] = useState(false);
   const displayUrl = url.replace(/^https?:\/\//, '');
 
@@ -24,6 +27,7 @@ export default function UrlCard({ label, url, copyAriaLabel }: Props) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
+      trackEvent('action', 'copy_landing_link', { surface: surface || 'unknown' });
     } catch {
       // Best-effort — clipboard can be denied in some environments.
     }

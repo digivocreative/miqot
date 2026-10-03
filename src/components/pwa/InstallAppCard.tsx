@@ -2,6 +2,7 @@ import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Download, Loader2, Share, SquarePlus, X } from 'lucide-react';
 import { detectInstallPlatform, getInstallPromptStore } from '../../lib/pwa/installPrompt';
 import { isStandaloneDisplay } from '../../lib/pwa/launch';
+import { trackEvent } from '../../utils/analytics';
 
 // Kartu ajakan pasang aplikasi di beranda dashboard.
 //
@@ -59,6 +60,7 @@ export default function InstallAppCard() {
     setPrompting(true);
     try {
       const outcome = await store.promptInstall();
+      if (outcome === 'accepted') trackEvent('action', 'install_app', { platform });
       // Prompt bawaan ditolak = pilihan pengguna; jangan tawarkan lagi 30 hari ke depan.
       if (outcome === 'dismissed') dismiss();
     } catch {

@@ -4,6 +4,7 @@ import SheetBase from './SheetBase';
 import PhotoCropModal from '../../PhotoCropModal';
 import type { BioAgentPublic, BioConfig } from '../../bio/types';
 import { getAuthHeaders } from '../../../lib/authSession';
+import { trackEvent } from '../../../utils/analytics';
 
 const TITLE_LIMIT = 60;
 const DESC_LIMIT = 160;
@@ -76,6 +77,7 @@ export default function SheetSeo({ open, onClose, agent, config, onUpdate, onSav
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j?.error || 'Upload gagal');
       updateSeo({ og_image_url: j.url });
+      trackEvent('action', 'upload_og_image', { surface: 'bio' });
     } catch (e: any) {
       setError(e?.message || 'Upload gagal');
     } finally {

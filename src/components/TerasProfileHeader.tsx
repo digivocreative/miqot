@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import WhatsAppIcon from './bio/WhatsAppIcon';
 import { getAgentInitials, handleAgentPhotoError } from '../lib/agent-photo';
 import type { MentionMember } from '../lib/communityMentions';
+import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
 
 /**
@@ -125,6 +126,8 @@ export function TerasProfileHeader({
             // aksesibel harus menyebut salurannya (pola sama dengan call site
             // wa.me lain: StatistikPage, Kloter45LandingPage).
             aria-label={`Chat WhatsApp ${name}`}
+            // Metrik antar-agent, bukan klik WA jamaah.
+            onClick={() => trackEvent('action', 'teras_profile_wa_click')}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
           >
             <WhatsAppIcon size={15} />

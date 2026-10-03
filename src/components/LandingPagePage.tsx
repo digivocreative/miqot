@@ -339,6 +339,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
       setLoaded(prev => prev ? { ...prev, [type]: { ...prev[type], og_image_url: json.og_image_url } } : prev);
       setDraft(prev => prev ? { ...prev, [type]: { ...prev[type], og_image_url: json.og_image_url } } : prev);
       showToast('Gambar berhasil diunggah', 'success');
+      trackEvent('action', 'upload_og_image', { surface: type });
     } catch (err: any) {
       showToast(toastErrorMessage(err, 'Upload gagal'), 'error');
     } finally {
@@ -465,6 +466,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             label="LANDING PAGE UMROH"
             url={getAgentPublicUrl(agentForUrl, '/umroh')}
             copyAriaLabel="Salin link umroh"
+            surface="umroh"
           />
           <LandingCard
             type="umroh"
@@ -492,6 +494,7 @@ export default function LandingPagePage({ agent, onNavigate }: Props) {
             label="LANDING PAGE HAJI"
             url={getAgentPublicUrl(agentForUrl, '/haji')}
             copyAriaLabel="Salin link haji"
+            surface="haji"
           />
           <LandingCard
             type="haji"

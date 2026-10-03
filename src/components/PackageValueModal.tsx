@@ -174,6 +174,14 @@ export function PackageValueModal({ isOpen, onClose, subject, jadwalId, tier, ag
   // ikut tertutup.
   useBackToClose(isOpen, onClose);
 
+  // Modal tetap ter-mount; dicatat sekali per transisi tertutup → terbuka.
+  const openTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { openTrackedRef.current = false; return; }
+    if (!openTrackedRef.current) { trackEvent('feature', 'open_package_value', { paket: jadwalId }); openTrackedRef.current = true; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   // Fokus awal + tutup via Escape; kembalikan fokus ke pemicu saat modal tutup.
   useEffect(() => {
     if (!isOpen) return;

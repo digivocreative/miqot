@@ -13,9 +13,10 @@ interface Props {
   title?: string;
   url?: string;
   icon?: string;
+  onTileClick?: () => void;
 }
 
-export default function TileLink({ title, url, icon }: Props) {
+export default function TileLink({ title, url, icon, onTileClick }: Props) {
   if (!title || !url) return null;
   const IconCmp = (icon && ALLOWED_ICONS[icon]) || Link2;
 
@@ -25,6 +26,7 @@ export default function TileLink({ title, url, icon }: Props) {
       target="_blank"
       rel="noopener noreferrer nofollow"
       className="bio-tile bio-tile--button"
+      onClick={onTileClick}
     >
       <div className="bio-tile-row">
         <div className="bio-tile-icon">

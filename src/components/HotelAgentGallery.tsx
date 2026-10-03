@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, X, Loader2, Trash2, Play, ImageOff } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
+import { trackEvent } from '../utils/analytics';
 import MediaViewerModal from './MediaViewerModal';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError, LOAD_ERROR_MESSAGES } from '../lib/loadError';
@@ -166,6 +167,15 @@ function EditSheet({
   // Unggahan sesi ini yang dicabut sebelum simpan langsung dibuang dari
   // storage — pola identik pendingUploadsRef di HotelKelolaPage.
   const pendingUploadsRef = useRef<Map<string, 'image' | 'video'>>(new Map());
+
+  // Sheet hanya ter-mount selama terbuka → sekali per buka (ref = penjaga StrictMode).
+  const mountTracked = useRef(false);
+  useEffect(() => {
+    if (!mountTracked.current) {
+      trackEvent('feature', 'open_hotel_agent_media', { slug: hotelSlug, has_entry: Boolean(existing) });
+      mountTracked.current = true;
+    }
+  }, []);
 
   // Back Android menutup sheet ini, bukan meninggalkan halaman detail hotel.
   useBackToClose(true, onClose);
@@ -476,6 +486,8 @@ export default function HotelAgentGallerySection({
             media={viewerEntry.media}
             initialIndex={0}
             label={`Foto oleh ${viewerEntry.agent.name}`}
+            onDownloaded={() => trackEvent('action', 'hotel_media_download', { slug: hotelSlug, scope: 'agent' })}
+            onShared={() => trackEvent('action', 'hotel_media_share', { slug: hotelSlug, scope: 'agent' })}
             onClose={() => setViewerEntry(null)}
           />
         )}

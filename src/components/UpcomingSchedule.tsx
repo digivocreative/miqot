@@ -15,6 +15,7 @@ import { ManasikSessionSummaryRow, ManasikSessionDetail } from './berangkat/Mana
 import { useBackToClose } from '../hooks/useBackToClose';
 import { describeLoadError } from '../lib/loadError';
 import { lockDocumentScroll } from '../lib/scrollLock';
+import { trackEvent } from '../utils/analytics';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -518,7 +519,11 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
             return (
               <button
                 key={day}
-                onClick={() => { if (!hasEvent) return; setSelectedDay(selected ? null : day); }}
+                onClick={() => {
+                  if (!hasEvent) return;
+                  if (!selected) trackEvent('feature', 'open_calendar_day', { has_departure: types.has('keberangkatan') });
+                  setSelectedDay(selected ? null : day);
+                }}
                 className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''} ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
               >
                 {today ? (
@@ -809,11 +814,14 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                           {detail.itinerary_url && (
                             <button
                               type="button"
-                              onClick={() => setActiveItinerary({
-                                url: detail.itinerary_url as string,
-                                title: paket.name,
-                                jadwalId: detail.jadwal_id ?? null,
-                              })}
+                              onClick={() => {
+                                setActiveItinerary({
+                                  url: detail.itinerary_url as string,
+                                  title: paket.name,
+                                  jadwalId: detail.jadwal_id ?? null,
+                                });
+                                trackEvent('action', 'download_itinerary', { source: 'calendar', paket: paket.name });
+                              }}
                               className={`flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[8px] font-extrabold tracking-wide transition-colors hover:bg-emerald-100 active:scale-95 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40 ${tabConfig.textColor} ${tabConfig.textColorDark}`}
                             >
                               <FileText size={9} strokeWidth={2.5} />

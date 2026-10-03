@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageCircle, Moon, ShieldCheck } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
 import { trackPublicEvent } from '@/utils/analytics';
@@ -23,6 +23,14 @@ export default function LandingPage({ slug }: { slug: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+
+  // Sekali per mount: layar masuk portal (sebelum login).
+  const landingTracked = useRef(false);
+  useEffect(() => {
+    if (landingTracked.current) return;
+    landingTracked.current = true;
+    trackPublicEvent(slug, 'open_portal_landing');
+  }, [slug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +133,7 @@ export default function LandingPage({ slug }: { slug: string }) {
                     href={waLink}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() => trackPublicEvent(slug, 'wa_click_portal', { source: 'landing' })}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#25D366]/30 bg-[#25D366]/10 px-4 py-3 text-sm font-semibold text-[#0E7C4A] transition-colors hover:bg-[#25D366]/15 active:scale-95"
                   >
                     <MessageCircle size={16} strokeWidth={2} />

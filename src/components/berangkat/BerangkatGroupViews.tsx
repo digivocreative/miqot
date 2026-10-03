@@ -48,11 +48,12 @@ function buildBerangkatWaText(item: BerangkatItem): string {
 
 // Dipakai daftar Berangkat Mendatang DAN daftar peserta sesi manasik, karena
 // itu namanya bukan lagi BerangkatRow. `buildWaText` dioper supaya pengingat
-// manasik tidak memakai kalimat keberangkatan.
-export function JamaahRow({ item, showPackage = true, buildWaText = buildBerangkatWaText }: {
+// manasik tidak memakai kalimat keberangkatan; `waSource` untuk analytics.
+export function JamaahRow({ item, showPackage = true, buildWaText = buildBerangkatWaText, waSource = 'berangkat' }: {
   item: BerangkatItem;
   showPackage?: boolean;
   buildWaText?: (item: BerangkatItem) => string;
+  waSource?: 'berangkat' | 'manasik';
 }) {
   const initials = getInitials(item.nama);
   const isFemale = item.jk === 'P';
@@ -93,6 +94,7 @@ export function JamaahRow({ item, showPackage = true, buildWaText = buildBerangk
             href={waUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackEvent('action', 'wa_click_jamaah', { source: waSource })}
             aria-label={`Chat WhatsApp ${item.nama}`}
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[10px] font-bold text-emerald-600 transition-colors hover:bg-emerald-500/15 active:scale-95 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300"
           >
@@ -284,6 +286,14 @@ export function BerangkatGroupDetail({ group, agentSlug }: { group: BerangkatGro
   const manasikLabel = realDateKey(group.manasik_tgl)
     ? fmtTglLong(group.manasik_tgl)
     : null;
+
+  // Sheet detail dibuka (Statistik & kalender): sekali per grup yang tampil.
+  const trackedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (trackedKeyRef.current === group.key) return;
+    trackedKeyRef.current = group.key;
+    trackEvent('feature', 'open_berangkat_detail', { kind: 'berangkat' });
+  }, [group.key]);
 
   return (
     <div>

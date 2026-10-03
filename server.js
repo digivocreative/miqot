@@ -1669,6 +1669,7 @@ app.post('/api/ai-copy', authMiddleware, async (req, res) => {
     if (versions.length === 0) {
       return res.status(502).json({ error: 'OpenAI API error', details: 'Empty or malformed completion' });
     }
+    if (req.user?.id && req.user.role !== 'admin') logAnalyticsEvent(req.user.id, 'action', 'caption_ai_generate', {}, getClientIpUa(req));
     // `text` dipertahankan untuk bundle frontend lama yang masih membaca single-text
     res.json({ versions, text: versions[0].text });
 
@@ -3505,6 +3506,7 @@ app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
     }
 
     invalidateAgentCache();
+    if (req.user?.role !== 'admin') logAnalyticsEvent(req.user.id, 'action', 'set_pin', { action: 'set' }, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[PIN] Set PIN error:', err);
@@ -3639,6 +3641,8 @@ app.post('/api/auth/pin-reset-verify', authMiddleware, async (req, res) => {
     delete pinResetOTPs[agentId];
     delete pinAttempts[agentId];
     invalidateAgentCache();
+    // Reset via OTP = PIN dihapus
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'set_pin', { action: 'remove' }, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[PIN] Reset verify error:', err);
@@ -3757,6 +3761,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
       } catch (photoErr) { /* ignore photo rename errors */ }
 
       invalidateAgentCache();
+      if (req.user.role !== 'admin') logAnalyticsEvent(req.user.id, 'action', 'change_slug', {}, getClientIpUa(req));
       // Invalidate landing page caches for old slug (so subsequent requests redirect)
       umrohLandingCache.delete(oldSlug);
       hajiLandingCache.delete(oldSlug);
@@ -3883,7 +3888,7 @@ app.post('/api/telegram/disconnect', authMiddleware, async (req, res) => {
 
     if (error) throw error;
     invalidateAgentCache();
-    logAnalyticsEvent(agentId, 'action', 'disconnect_telegram', {}, getClientIpUa(req));
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'disconnect_telegram', {}, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[telegram-disconnect] Error:', err);
@@ -4024,7 +4029,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
 
       const { data: agent, error } = await supabase
         .from('agents')
-        .select('id, slug, name')
+        .select('id, slug, name, role')
         .eq('telegram_link_token', token)
         .single();
 
@@ -4044,13 +4049,14 @@ app.post('/api/telegram/webhook', async (req, res) => {
       }
 
       invalidateAgentCache();
+      // Dicatat begitu chat_id tersimpan — sendMsg di bawah bisa gagal (jaringan)
+      if (agent.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'connect_telegram');
 
       await sendMsg(chatId,
         `✅ <b>Berhasil terhubung!</b>\n\nHalo ${agent.name}, akun Telegram kamu sekarang terhubung dengan Alhijaz.co by Bagas/Nikita. Kamu akan menerima notifikasi keberangkatan jamaah di sini.\n\n💡 Kamu bisa putuskan koneksi kapan saja dari halaman Profil di dasbor.`,
         'HTML'
       );
 
-      logAnalyticsEvent(agent.slug, 'action', 'connect_telegram');
       console.log(`[telegram-webhook] Agent ${agent.slug} connected with chat_id ${chatId}`);
     }
 
@@ -4218,6 +4224,7 @@ app.post('/api/admin/photo', authMiddleware, express.json({ limit: '5mb' }), asy
     invalidateAgentCache();
     // Regenerate default OG image with the new photo (fire-and-forget)
     triggerOgRegen(slug);
+    if (req.user.role !== 'admin') logAnalyticsEvent(targetAgent.id, 'action', 'upload_photo', {}, getClientIpUa(req));
     res.json({ success: true, photo: photoUrl });
   } catch (err) {
     console.error('Photo upload error:', err);
@@ -8021,6 +8028,7 @@ app.put('/api/hotels/:slug/agent-media', dbLoadShedGuard, authMiddleware, expres
 
     const removed = hotelMediaUrlsRemoved(oldRow?.media, data.media, mediaPrefixes);
     if (removed.length) void cleanupHotelAgentMediaUrls(removed, 'edit galeri agent');
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'hotel_agent_media_save', { is_new: !oldRow }, getClientIpUa(req));
     res.json({ success: true, data });
   } catch (err) {
     console.error('[hotel-agent-media] upsert error:', err?.message || err);
@@ -8067,6 +8075,8 @@ app.delete('/api/hotels/:slug/agent-media', dbLoadShedGuard, authMiddleware, asy
 
     const removed = hotelMediaUrlsRemoved(row.media, [], hotelAgentMediaPublicPrefixes());
     if (removed.length) void cleanupHotelAgentMediaUrls(removed, 'hapus galeri agent');
+    // Admin (moderasi) tak dicatat — targetAgentId bisa milik agent lain
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'hotel_agent_media_delete', {}, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[hotel-agent-media] delete error:', err?.message || err);
@@ -9490,6 +9500,7 @@ app.post('/api/agent/custom-domain', authMiddleware, async (req, res) => {
     if (oldDomain && oldDomain !== raw) invalidateAgentDomainCache(oldDomain);
     invalidateAgentDomainCache(raw);
     console.log(`[custom-domain] Set ${raw} for agent ${agent.slug} (status=pending)`);
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'add_custom_domain', {}, getClientIpUa(req));
 
     // Fire-and-forget immediate DNS check — kalau langsung resolve ke IP yang benar,
     // promote ke 'active' tanpa nunggu cron 1-menit
@@ -9545,6 +9556,7 @@ app.delete('/api/agent/custom-domain', authMiddleware, async (req, res) => {
     invalidateAgentCache();
     if (oldDomain) invalidateAgentDomainCache(oldDomain);
     console.log(`[custom-domain] Removed for agent ${agent.slug}`);
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'remove_custom_domain', {}, getClientIpUa(req));
     res.json(buildCustomDomainPayload({}));
   } catch (err) {
     console.error('[custom-domain] DELETE error:', err);
@@ -10484,6 +10496,7 @@ Buatkan satu tagline yang membuat calon jamaah merasa nyaman menghubungi. Pastik
     // Final hard guard: trim if still over max — never return >115 chars to the client
     if (tagline.length > TAGLINE_MAX) tagline = tagline.slice(0, TAGLINE_MAX).trim();
 
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'bio_tagline_generate', {}, getClientIpUa(req));
     res.json({ success: true, tagline });
   } catch (err) {
     console.error('[bio-tagline] error:', err);
@@ -10717,6 +10730,20 @@ function stampMcpKeyUsage(agent) {
 }
 
 const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage });
+
+// Analytics mcp_tool_call — maksimal 1 baris per (agent, tool) per 10 menit;
+// asisten AI bisa memanggil tool puluhan kali per percakapan. Admin dilewati.
+const mcpToolCallLoggedAt = new Map();
+const MCP_TOOL_CALL_LOG_INTERVAL_MS = 10 * 60 * 1000;
+mcpRuntime.setToolCallHook(({ agent, tool, ok }) => {
+  if (!agent?.id || agent.role === 'admin') return;
+  const key = `${agent.id}:${tool}`;
+  const now = Date.now();
+  if ((mcpToolCallLoggedAt.get(key) || 0) > now - MCP_TOOL_CALL_LOG_INTERVAL_MS) return;
+  if (mcpToolCallLoggedAt.size > 5000) mcpToolCallLoggedAt.clear();
+  mcpToolCallLoggedAt.set(key, now);
+  logAnalyticsEvent(agent.id, 'action', 'mcp_tool_call', { tool, ok: !!ok });
+});
 
 // Dev-MCP: MCP developer-tool (POST /dev-mcp) — dokumentasi + struktur + cari kode
 // untuk brainstorming di claude.ai. Single-user OAuth (DEV_MCP_PASSWORD). Read-only,
@@ -11525,7 +11552,8 @@ app.post('/api/capi/:slug/config', authMiddleware, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: 'Gagal menyimpan konfigurasi CAPI: ' + (err.message || 'unknown error') });
   }
-  logAnalyticsEvent(agent.id, 'action', 'save_capi_config', {}, getClientIpUa(req));
+  // Admin bisa simpan config agent lain → jangan dicatat atas nama agent itu
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'save_capi_config', { testMode: configToSave.testMode }, getClientIpUa(req));
   const decryptedForDisplay = capiDecrypt(configToSave.accessToken);
   res.json({
     success: true,
@@ -11551,6 +11579,7 @@ app.delete('/api/capi/:slug/config', authMiddleware, async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: 'Gagal mereset konfigurasi CAPI: ' + (err.message || 'unknown error') });
   }
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'reset_capi_config', {}, getClientIpUa(req));
   res.json({ success: true });
 });
 
@@ -11962,6 +11991,8 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
   await supabase.from('agents').update(updates).eq('id', req.user.id);
   invalidateAgentCache();
 
+  // reconnect = login ulang akun yang sama (refresh password / sesi)
+  if (req.user?.role !== 'admin') logAnalyticsEvent(req.user.id, 'action', 'connect_internal_account', { reconnect: !!alreadyMine }, getClientIpUa(req));
   res.json({ ...result, username, kantor: k, awapi_discovered: !!updates.awapi_key });
 });
 
@@ -16858,6 +16889,7 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'Gagal menyimpan data jamaah' });
     }
 
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'update_jamaah', {}, getClientIpUa(req));
     res.json({ success: true, data: { row: updated } });
   } catch (err) {
     console.error('[jamaah-update] Error:', err);
@@ -16891,6 +16923,7 @@ app.post('/api/laporan/jamaah/note', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'Failed to save note' });
     }
 
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'save_jamaah_note', { kind: 'umroh' }, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[jamaah-note] Error:', err);
@@ -17007,6 +17040,7 @@ app.post('/api/laporan/jamaah/confirm-lunas', authMiddleware, async (req, res) =
       }
     }
     console.log(`[confirm-lunas] ${slug}: ${confirm ? 'confirmed' : 'un-confirmed'} ${target.nama} (${id_umroh}/${jm_id}); ${updates.length} row(s) updated`);
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'confirm_lunas_manual', { confirm: !!confirm }, getClientIpUa(req));
     res.json({ success: true, confirmed: !!confirm, updated: updates.length });
   } catch (err) {
     console.error('[confirm-lunas] Error:', err);
@@ -17057,6 +17091,7 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
     .eq('id', agentId);
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
+  if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'disconnect_internal_account', {}, getClientIpUa(req));
   res.json({ success: true });
 });
 
@@ -17416,6 +17451,10 @@ app.post('/api/umrah/ocr-ktp', authMiddleware, express.json({ limit: '15mb' }), 
   if (!imageBase64) {
     return res.status(400).json({ error: 'imageBase64 required' });
   }
+  // ok=false hanya untuk kegagalan OCR (bukan validasi input)
+  const logOcr = (ok) => {
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agent.id, 'action', 'ocr_ktp', { ok }, getClientIpUa(req));
+  };
 
   try {
     const mime = imageMimeType || 'image/jpeg';
@@ -17466,6 +17505,7 @@ Jika field tidak terbaca, gunakan null. Jangan invent data.`;
     if (!openaiRes.ok) {
       const errBody = await openaiRes.text();
       console.error('OpenAI OCR error:', errBody);
+      logOcr(false);
       return res.status(502).json({ error: 'OCR gagal', details: errBody });
     }
 
@@ -17479,12 +17519,15 @@ Jika field tidak terbaca, gunakan null. Jangan invent data.`;
     try {
       parsed = JSON.parse(cleaned);
     } catch {
+      logOcr(false);
       return res.status(500).json({ error: 'OCR response tidak valid', raw: text });
     }
 
+    logOcr(true);
     res.json({ success: true, data: parsed });
   } catch (err) {
     console.error('OCR KTP error:', err);
+    logOcr(false);
     res.status(500).json({ error: 'Gagal memproses OCR: ' + err.message });
   }
 });
@@ -18117,6 +18160,10 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
 // POST /api/haji/sync — progressive sync (same pattern as umroh)
 app.post('/api/haji/sync', authMiddleware, async (req, res) => {
   const { id: agentId, slug } = req.user;
+  // Dicatat hanya saat sync benar-benar jalan & sukses (bukan "sudah berjalan")
+  const logHajiSync = (source) => {
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'sync_jamaah_haji', { source }, getClientIpUa(req));
+  };
 
   try {
     const agent = await getAgentById(agentId);
@@ -18151,6 +18198,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
 
       const apiResult = await syncHajiViaApiCore(agentId, slug, awapiAgent, { context: 'manual' });
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: apiResult.count, lastSync: apiResult.syncedAt });
+      logHajiSync('awapi');
       return res.json({
         success: true,
         data: {
@@ -18195,6 +18243,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
         const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: truncatedNow }).eq('id', agentId);
         if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (truncated) failed:`, bumpErr.message);
         invalidateStatsCache(agentId);
+        logHajiSync('legacy');
         return res.json({ success: true, data: { initialCount: 0, syncing: false, message: 'Respons list tidak lengkap — cleanup dilewati' } });
       }
       // Legitimate empty — but go through cleanup guard which also percent-guards.
@@ -18221,6 +18270,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       const { error: bumpErr } = await supabase.from('agents').update({ last_jamaah_haji_sync_at: emptyNow }).eq('id', agentId);
       if (bumpErr) console.warn(`[haji-sync] ${slug} bump last_jamaah_haji_sync_at (empty) failed:`, bumpErr.message);
       invalidateStatsCache(agentId);
+      logHajiSync('legacy');
       return res.json({ success: true, data: { initialCount: 0, syncing: false } });
     }
 
@@ -18303,6 +18353,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     syncingAgents.set(agentId, { isSyncing: moreToSync, scope: 'haji-manual', totalSynced: firstRows.length, lastSync: now });
 
     // Respond immediately with first batch
+    logHajiSync('legacy');
     res.json({
       success: true,
       data: { initialCount: firstRows.length, total: hajiList.length, syncing: moreToSync },
@@ -18745,6 +18796,7 @@ app.post('/api/haji/jamaah/note', authMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'Failed to save note' });
     }
 
+    if (req.user?.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'save_jamaah_note', { kind: 'haji' }, getClientIpUa(req));
     res.json({ success: true });
   } catch (err) {
     console.error('[haji-note] Error:', err);
@@ -19194,6 +19246,14 @@ const VALID_PUBLIC_EVENTS = [
   // berangkat/terdaftar. Keduanya BUKAN 'action' — yang mengunduh bukan agen,
   // jadi tidak boleh menggelembungkan metrik aktivitas agen.
   'itinerary_pdf_download_share', 'itinerary_pdf_download_portal',
+  // Permukaan pengunjung/jamaah tambahan (audit tracking 2026-10)
+  'package_share_public', 'itinerary_pdf_download_rail', 'itinerary_brosur_open',
+  'ask_ai_attachment_open', 'jadwal_hotel_photo', 'open_kalkulasi_public',
+  'open_compare_public', 'quotation_pdf_public', 'open_flight_share',
+  'flight_share_reshare', 'bio_tile_click', 'open_portal_landing',
+  'pwa_install_public',
+  // Landing WP /umroh & /haji (beacon dari script yang disuntik), metadata { surface }
+  'landing_view',
 ];
 // Every event_name that counts as a "WhatsApp click" for the overview + per-agent + drill-down WA metrics.
 const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal', 'wa_click_itinerary'];
@@ -19205,9 +19265,7 @@ const FEATURE_LABELS = {
   open_jadwal: 'Jadwal', open_analytics: 'Analytics',
   open_ai_tools: 'AI Tools', open_voice_over: 'Voice Over', open_business_card: 'Kartu Nama',
   open_haji_plus: 'Haji Plus', open_jamaah_haji: 'Jamaah Haji',
-  // Direktori Hotel: selama gate nikita/bagas (keduanya admin) event TIDAK
-  // terekam (trackEvent klien & server sama-sama skip admin) — label disiapkan
-  // untuk saat gate dibuka ke semua agent.
+  // Direktori Hotel terbuka untuk semua agent sejak 2026-08-19.
   open_hotel_directory: 'Direktori Hotel',
   open_settings: 'Settings', open_tren_daftar: 'Tren Daftar',
   open_kurs: 'Kurs',
@@ -19231,10 +19289,23 @@ const FEATURE_LABELS = {
   open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
   // Itinerary web/share
   open_itinerary_share: 'Itinerary Share',
+  // Audit tracking 2026-10
+  open_dashboard: 'Beranda Dashboard', open_from_telegram: 'Buka dari Notif Telegram',
+  open_calendar_day: 'Kalender: Detail Tanggal', open_berangkat_detail: 'Detail Keberangkatan/Manasik',
+  open_portal_invite_teaser: 'Minat Portal Jamaah (Segera Hadir)',
+  open_haji_plus_statistik: 'Haji Plus: Statistik', open_brosur_paket: 'Brosur Paket',
+  open_sticker_studio: 'Studio Sticker', open_caption_ai: 'Caption AI',
+  open_brochure_prompt: 'Prompt Brosur AI', open_package_value: 'Nilai Plus Paket',
+  open_bio_editor: 'Editor Bio', open_hotel_media: 'Semua Media Hotel',
+  open_hotel_agent_media: 'Foto Saya (Hotel)', open_teras_notifications: 'Notifikasi Teras',
+  open_teras_notif_settings: 'Pengaturan Notifikasi Teras', open_teras_composer: 'Komposer Teras',
+  open_capi_log: 'CAPI Event Log',
 };
 const ACTION_LABELS = {
   sync_jamaah: 'Sync Jamaah', generate_pdf: 'Generate PDF Quotation',
-  share_screenshot: 'Share Screenshot', download_brosur: 'Download Brosur',
+  // `download_brosur` menyala saat modal brosur DIBUKA; unduh/bagikan sungguhan
+  // tercatat sebagai `share_brosur`. Nama event dipertahankan demi data historis.
+  share_screenshot: 'Share Screenshot', download_brosur: 'Buka Brosur',
   // Terlepas dari namanya, `download_itinerary` menyala saat kartu paket MEMBUKA
   // modal itinerary — bukan saat berkas terunduh. Nama event dipertahankan demi
   // data historis; labelnya dijujurkan supaya tidak tertukar dengan dua event
@@ -19254,12 +19325,12 @@ const ACTION_LABELS = {
   change_password: 'Ganti Password',
   generate_script: 'Generate Script VO', generate_voice: 'Generate Voice VO',
   download_mp3: 'Download MP3', download_wav: 'Download WAV',
-  generate_business_card: 'Generate Kartu Nama', download_business_card: 'Download Kartu Nama',
+  generate_business_card: 'Generate Kartu Nama (otomatis, lama)', download_business_card: 'Download Kartu Nama',
   share_business_card: 'Share Kartu Nama',
   export_haji_infographic: 'Export Infografis Haji',
   sync_jamaah_haji: 'Sync Jamaah Haji', view_bpih_doc: 'Lihat BPIH',
   view_pernyataan_doc: 'Lihat Srt Pernyataan', wa_click_haji: 'WA Jamaah Haji',
-  connect_telegram: 'Hubungkan Telegram', disconnect_telegram: 'Putuskan Telegram',
+  connect_telegram: 'Telegram Terhubung', disconnect_telegram: 'Putuskan Telegram',
   update_notif_prefs: 'Update Notif Prefs',
   forgot_password: 'Lupa Password', reset_password: 'Reset Password',
   view_flight_status: 'Flight Status', share_flight: 'Share Flight Status',
@@ -19297,6 +19368,36 @@ const ACTION_LABELS = {
   portal_login_request: 'Minta Login Portal', portal_login_success: 'Login Portal Berhasil',
   wa_click_portal: 'WA Portal', view_portal_doc: 'Lihat Dokumen Portal',
   open_quran_surah: 'Baca Surah Al-Quran',
+  // Audit tracking 2026-10 — aksi klien
+  telegram_banner_click: 'Klik Banner Telegram', birthday_copy_message: 'Salin Ucapan Ultah',
+  install_app: 'Pasang Aplikasi (PWA)', share_package_wa: 'Bagikan Paket via WA',
+  copy_package_link: 'Salin Link Paket', download_pernyataan_pdf: 'Unduh Srt Pernyataan',
+  refresh_jamaah_row: 'Refresh Data Jamaah', register_jamaah_error: 'Gagal Daftarkan Jamaah',
+  generate_haji_plus_offer: 'Buat Penawaran Haji Plus', share_haji_plus_offer: 'Bagikan Penawaran Haji Plus',
+  share_haji_doc: 'Bagikan Dokumen Haji', download_brosur_jadwal: 'Unduh Brosur Jadwal',
+  share_brosur_jadwal: 'Bagikan Brosur Jadwal', download_katalog_pdf: 'Unduh Katalog PDF',
+  share_brosur: 'Unduh/Bagikan Brosur Paket', save_sticker_brosur: 'Simpan Brosur + Sticker',
+  caption_ai_copy: 'Salin Caption AI', caption_ai_share_wa: 'Kirim Caption AI ke WA',
+  share_kalkulasi_text: 'Kirim Teks Kalkulasi', share_quotation_pdf: 'Bagikan/Unduh PDF Penawaran',
+  bio_add_tile: 'Tambah Bagian Bio', copy_landing_link: 'Salin Link Landing/Bio',
+  upload_og_image: 'Unggah Gambar Pratinjau', hotel_media_download: 'Unduh Foto Hotel',
+  hotel_media_share: 'Bagikan Foto Hotel', hotel_link_click: 'Buka Maps/Rating Hotel',
+  delete_comment: 'Hapus Komentar Teras', report_post: 'Laporkan Kiriman Teras',
+  teras_profile_wa_click: 'WA dari Profil Teras', capi_replay_purchases: 'Re-hit Purchase CAPI',
+  request_telegram_link: 'Minta Link Telegram',
+  itinerary_tab_switch: 'Ganti Tab Itinerary', sync_jamaah_api: 'Sync Jamaah (API)',
+  vote_teras_poll: 'Vote Polling Teras', teras_snippet_open: 'Buka Snippet Teras',
+  teras_snippet_copy: 'Salin Snippet Teras',
+  // Aksi yang dicatat server-side (setelah endpoint sukses)
+  save_jamaah_note: 'Simpan Catatan Jamaah', confirm_lunas_manual: 'Tandai Lunas Manual',
+  update_jamaah: 'Simpan Edit Jamaah', ocr_ktp: 'Scan KTP (OCR)',
+  connect_internal_account: 'Hubungkan Akun Internal', disconnect_internal_account: 'Putuskan Akun Internal',
+  caption_ai_generate: 'Buat Caption AI', bio_tagline_generate: 'Buat Tagline Bio (AI)',
+  add_custom_domain: 'Tambah Custom Domain', remove_custom_domain: 'Hapus Custom Domain',
+  hotel_agent_media_save: 'Simpan Foto Saya (Hotel)', hotel_agent_media_delete: 'Hapus Foto Saya (Hotel)',
+  change_slug: 'Ganti Username', upload_photo: 'Ganti Foto Profil',
+  set_pin: 'Atur PIN Statistik', reset_capi_config: 'Reset Config CAPI',
+  mcp_tool_call: 'Pakai Tool Asisten AI (MCP)',
 };
 const ALL_EVENT_LABELS = {
   ...FEATURE_LABELS, ...ACTION_LABELS,
@@ -19308,6 +19409,22 @@ const ALL_EVENT_LABELS = {
   ask_ai_opened: 'Ask AI Dibuka', ask_ai_chip_tapped: 'Ask AI Chip',
   ask_ai_free_query: 'Ask AI Query', ask_ai_wa_clicked: 'Ask AI WA',
   bio_view: 'Kunjungan Bio', bio_social_click: 'Klik Sosial Bio',
+  // Public (pengunjung/jamaah) — audit tracking 2026-10
+  package_share_public: 'Bagikan Paket (Pengunjung)',
+  itinerary_pdf_download_rail: 'Unduh Itinerary (Rail Jadwal)',
+  itinerary_brosur_open: 'Buka Brosur dari Itinerary',
+  ask_ai_attachment_open: 'Ask AI Buka Lampiran', jadwal_hotel_photo: 'Foto Hotel (Rail Jadwal)',
+  open_kalkulasi_public: 'Kalkulasi (Pengunjung)', open_compare_public: 'Compare (Pengunjung)',
+  quotation_pdf_public: 'PDF Penawaran (Pengunjung)',
+  open_flight_share: 'Buka Lacak Penerbangan (Share)', flight_share_reshare: 'Bagikan Ulang Lacak Penerbangan',
+  bio_tile_click: 'Klik Tile Bio', open_portal_landing: 'Portal: Halaman Masuk',
+  pwa_install_public: 'Pasang Aplikasi (Pengunjung)', landing_view: 'Kunjungan Landing Page',
+  portal_login_failed: 'Login Portal Gagal', ask_ai_query: 'Ask AI Dijawab',
+  // Event lama/dihapus — label tetap ada agar data historis terbaca
+  download_voiceover: 'Download Voice Over (lama)', open_wa_copy: 'WA Copy (dihapus)',
+  generate_brochure_prompt: 'Generate Prompt Brosur (lama)', copy_brochure_prompt: 'Salin Prompt Brosur (lama)',
+  view_web_itinerary: 'Lihat Itinerary Web (lama)', open_leads: 'Leads (dihapus)',
+  wa_click_lead: 'WA Lead (dihapus)', quiz_lead_submit: 'Quiz Lead (dihapus)',
 };
 const publicEventRateLimits = new Map(); // ip → { count, resetAt }
 
@@ -21552,6 +21669,10 @@ async function findPortalTokenRowByCode(code) {
 }
 
 async function handlePortalMagicConsume(req, res) {
+  // Catat gagal login portal hanya bila agent pemilik link bisa ditentukan
+  const logPortalFail = (agentId, reason) => {
+    if (agentId) logAnalyticsEvent(agentId, 'public', 'portal_login_failed', { reason }, getClientIpUa(req));
+  };
   try {
     let portalToken = null;
     if (!req.params.slug && isPortalGlobalMagicCode(String(req.params.token || '').trim())) {
@@ -21570,8 +21691,17 @@ async function handlePortalMagicConsume(req, res) {
       if (error) return res.status(500).json({ error: error.message });
       portalToken = data;
     }
-    if (!portalToken) return res.status(404).json({ error: 'not_found' });
+    if (!portalToken) {
+      // Link berslug: agent diketahui dari slug walau token tak ditemukan
+      if (req.params.slug) {
+        getAgentBySlug(String(req.params.slug).toLowerCase())
+          .then((a) => logPortalFail(a?.id, 'not_found'))
+          .catch(() => {});
+      }
+      return res.status(404).json({ error: 'not_found' });
+    }
     if (new Date(portalToken.expires_at) < new Date()) {
+      logPortalFail(portalToken.agent_id, 'expired');
       return res.status(410).json({ error: 'expired', message: 'Link sudah expired, minta link baru ke agent' });
     }
 
@@ -21581,8 +21711,12 @@ async function handlePortalMagicConsume(req, res) {
     ]);
     if (jamaahRes.error) return res.status(500).json({ error: jamaahRes.error.message });
     if (agentRes.error) return res.status(500).json({ error: agentRes.error.message });
-    if (!jamaahRes.data || !agentRes.data) return res.status(404).json({ error: 'not_found' });
+    if (!jamaahRes.data || !agentRes.data) {
+      logPortalFail(agentRes.data?.id, 'jamaah_not_found');
+      return res.status(404).json({ error: 'not_found' });
+    }
     if (!portalBookingHasDp(jamaahRes.data)) {
+      logPortalFail(agentRes.data.id, 'belum_dp');
       return res.status(403).json({ error: 'belum_dp', message: 'Akses portal tersedia setelah DP tercatat.' });
     }
 

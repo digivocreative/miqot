@@ -135,11 +135,11 @@ export default function PortalDashboard({
         <Suspense fallback={<LoadingScreen />}>
           {route === 'beranda' && <BerandaPage slug={slug} data={data} onNavigate={navigate} onLogout={handleLogout} />}
           {route === 'itinerary' && <ItineraryPage slug={slug} data={data} onBack={goBack} />}
-          {route === 'pembayaran' && <PembayaranPage data={data} onBack={goBack} />}
+          {route === 'pembayaran' && <PembayaranPage slug={slug} data={data} onBack={goBack} />}
           {route === 'dokumen' && <DokumenPage data={data} onBack={goBack} />}
           {route === 'al-quran' && <AlQuranPage slug={slug} data={data} onBack={goBack} />}
           {route === 'doa-dzikir' && <DoaDzikirPage data={data} onBack={goBack} />}
-          {route === 'faq' && <FaqPage data={data} onBack={goBack} />}
+          {route === 'faq' && <FaqPage slug={slug} data={data} onBack={goBack} />}
         </Suspense>
       </PortalSyncContext.Provider>
       <StickyWhatsAppCta slug={slug} tab={route} agent={data.agent} booking={data.booking} initiator={initiator} />

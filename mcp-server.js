@@ -102,9 +102,13 @@ function toolError(message) {
 
 const TOOL = BANI_TOOL_BY_NAME;
 
-function buildAgentMcpServer({ agent, supabase, log }) {
+function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
   const server = new McpServer({ name: 'alhijaz', version: '1.0.0' });
   const deps = { supabase, agent, log };
+  // Telemetri pemakaian tool via hook dari server.js (modul ini tetap read-only)
+  const reportToolCall = (tool, ok) => {
+    try { onToolCall?.({ agent, tool, ok }); } catch { /* jangan ganggu respons */ }
+  };
 
   const register = (name, config, handler) => {
     server.registerTool(name, config, async (args = {}) => {
@@ -115,11 +119,13 @@ function buildAgentMcpServer({ agent, supabase, log }) {
         // Handler lib/bani-tools.js mengembalikan bentuk netral
         // { ok, data|error }; pembungkusan ke content MCP terjadi di sini saja.
         const out = await handler(args);
+        reportToolCall(name, !!out?.ok);
         return out?.ok ? toolResult(out.data) : toolError(out?.error || 'Permintaan tidak dapat diproses');
       } catch (err) {
         // Real DB/internal error stays in the server log; the client gets a
         // generic message so Postgres internals never leak downstream.
         log(`[MCP] ${agent.slug}: ${name} ERROR ${err.message}`);
+        reportToolCall(name, false);
         return toolError('Terjadi kesalahan internal saat memproses permintaan. Coba lagi.');
       }
     });
@@ -245,6 +251,8 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
   // token-hash -> { agent|null, expiresAt }; negative entries stop bad keys
   // from hammering the DB between rate-limit windows.
   const keyCache = new Map();
+  // Hook telemetri per tool call, dipasang server.js via setToolCallHook().
+  let onToolCall = null;
 
   const resolveAgent = async (token) => {
     // Keys are stored hashed; never query by the raw bearer token.
@@ -253,7 +261,7 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
     if (cached && cached.expiresAt > Date.now()) return cached.agent;
     const { data, error } = await supabase
       .from('agents')
-      .select('id, slug, name, status')
+      .select('id, slug, name, status, role')
       .eq('mcp_api_key', keyHash)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -304,7 +312,7 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
     try { onAuthenticated?.(agent); } catch { /* never block the request */ }
 
     try {
-      const server = buildAgentMcpServer({ agent, supabase, log });
+      const server = buildAgentMcpServer({ agent, supabase, log, onToolCall });
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       res.on('close', () => { transport.close(); server.close(); });
       await server.connect(transport);
@@ -322,5 +330,8 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
 
   // Admin key-management invalidation hook (server.js calls this after
   // generate/revoke so a rotated key takes effect immediately).
-  return { invalidateKeyCache: () => keyCache.clear() };
+  return {
+    invalidateKeyCache: () => keyCache.clear(),
+    setToolCallHook: (fn) => { onToolCall = typeof fn === 'function' ? fn : null; },
+  };
 }

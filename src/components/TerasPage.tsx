@@ -77,6 +77,7 @@ import PollBlock, { type CommunityPoll, type PollVoter, type PollVotersState } f
 import { AgentAvatar } from './teras/AgentAvatar';
 import { canDeleteCommunityEntry } from '../lib/communityAccess';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
+import { consumePostOpenedFromNotification } from '../hooks/useTerasNotifications';
 import { trackEvent } from '../utils/analytics';
 import { shareLinkCopyText } from '../utils/share';
 import { lockDocumentScroll } from '../lib/scrollLock';
@@ -867,7 +868,7 @@ function LinkPreviewCard({ preview }: { preview: LinkPreview }) {
       rel="noopener noreferrer nofollow"
       onClick={event => {
         event.stopPropagation();
-        trackEvent('action', 'teras_link_click');
+        trackEvent('action', 'teras_link_click', { surface: 'preview' });
       }}
       className="mt-2 block min-w-0 overflow-hidden rounded-2xl border border-gray-200/80 bg-white transition-colors hover:bg-gray-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:hover:bg-slate-900"
     >
@@ -2911,6 +2912,7 @@ export default function TerasPage({
     // state "setengah terbuka" (app inert + terkunci scroll, tanpa modal
     // yang bisa diklik) jadi mustahil terjadi, bukan cuma dicegah di render.
     if (profileSlug) return;
+    if (!composerOpen) trackEvent('feature', 'open_teras_composer');
     composerTriggerRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -3359,6 +3361,8 @@ export default function TerasPage({
         has_snippet: !!composerSnippet,
         has_link_preview: !!(composerLinkPreview && !firstHasMedia && !composerQuote && !composerSnippet),
         mention_count: extractMentionSlugs(sendable.map(segment => segment.body).join('\n'), memberSlugs).length,
+        has_poll: !!(composerPoll && !firstHasMedia && !composerQuote),
+        mention_all: hasEveryoneMention(firstBody),
       });
       // Kiriman ber-`@semua` yang baru sukses terkirim memakai jatah broadcast
       // hari ini — ambil ulang supaya picker tidak mangkrak di label lama.
@@ -3819,7 +3823,6 @@ export default function TerasPage({
 
   const openPostDetail = (targetPostId: string) => {
     if (detailPostId === targetPostId) return;
-    trackEvent('feature', 'open_teras_post');
     feedScrollYRef.current = window.scrollY;
     setDetailError(null);
     onNavigate(`/dashboard/teras/post/${encodeURIComponent(targetPostId)}`, {
@@ -3834,6 +3837,22 @@ export default function TerasPage({
     if (window.history.state?.terasFromFeed) window.history.back();
     else onNavigate('/dashboard/teras', { replace: true });
   }, [onNavigate]);
+
+  // Metrik buka kiriman ditembakkan saat tampilan detail berganti id — jalur
+  // apa pun (feed, notifikasi, deep link/tautan share). Kode share dilewati:
+  // URL-nya segera dikanonkan ke id penuh, baru dihitung sekali di situ.
+  const trackedDetailIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!detailPostId) {
+      trackedDetailIdRef.current = null;
+      return;
+    }
+    if (isTerasShortCode(detailPostId) || trackedDetailIdRef.current === detailPostId) return;
+    trackedDetailIdRef.current = detailPostId;
+    const fromNotification = consumePostOpenedFromNotification(detailPostId);
+    const source = window.history.state?.terasFromFeed ? 'feed' : fromNotification ? 'notification' : 'link';
+    trackEvent('feature', 'open_teras_post', { source });
+  }, [detailPostId]);
 
   useEffect(() => {
     // Skip while detailPostId is still a share code — the deep-link loader will
@@ -4651,6 +4670,7 @@ export default function TerasPage({
           ? { ...current, comment_count: Math.max(0, current.comment_count - 1) }
           : current));
       }
+      trackEvent('action', 'delete_comment');
     } catch (deleteError) {
       showToast(errorMessage(deleteError, 'Gagal menghapus komentar'), 'error');
     } finally {
@@ -4822,6 +4842,7 @@ export default function TerasPage({
       );
       closePostMenu(postId, true);
       showToast('Laporan terkirim ke admin', 'success');
+      trackEvent('action', 'report_post');
     } catch (reportError) {
       showToast(errorMessage(reportError, 'Gagal mengirim laporan'), 'error');
     } finally {

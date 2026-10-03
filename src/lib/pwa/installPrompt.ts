@@ -4,6 +4,8 @@
 // halaman publik tetap memakai UI pasang bawaan peramban. iOS tidak punya event ini:
 // kartu menampilkan langkah "Bagikan → Tambahkan ke Layar Utama".
 
+import { resolveInstallStart } from '../installScope.js';
+
 export type InstallPlatform = 'ios' | 'android' | 'desktop';
 
 export interface InstallState {
@@ -29,7 +31,7 @@ export function detectInstallPlatform(userAgent: string, maxTouchPoints: number)
   return 'desktop';
 }
 
-export function createInstallPrompt(win: InstallWindow) {
+export function createInstallPrompt(win: InstallWindow, onInstalled?: (pathname: string) => void) {
   let deferred: PromptEvent | null = null;
   let state: InstallState = { canPrompt: false, installed: false };
   const listeners = new Set<() => void>();
@@ -48,6 +50,7 @@ export function createInstallPrompt(win: InstallWindow) {
   win.addEventListener('appinstalled', (() => {
     deferred = null;
     setState({ canPrompt: false, installed: true });
+    onInstalled?.(win.location.pathname);
   }) as (event: never) => void);
 
   return {
@@ -73,11 +76,35 @@ export function createInstallPrompt(win: InstallWindow) {
 
 export type InstallPromptStore = ReturnType<typeof createInstallPrompt>;
 
+// Pengunjung memasang dari halaman publik agent (/:slug, /:slug/jamaah) → catat ke agent
+// itu. Dashboard sudah dicatat install_app di InstallAppCard. Impor dinamis supaya modul
+// ini tetap bisa dimuat langsung oleh tes node (tanpa alias/resolusi tanpa ekstensi).
+async function trackPublicInstall(pathname: string): Promise<void> {
+  const start = resolveInstallStart(pathname);
+  if (!start) return;
+  try {
+    const [{ AGENTS_DATA }, { getStoredSession }, { trackPublicEvent }] = await Promise.all([
+      import('../../data/agents'),
+      import('../authSession'),
+      import('../../utils/analytics'),
+    ]);
+    const segment = start.split('/')[1].toLowerCase();
+    // Hanya slug agent sungguhan (bukan landing kloter / path lain).
+    const slug = Object.keys(AGENTS_DATA).find(key => key.toLowerCase() === segment);
+    if (!slug) return;
+    // Agent memasang halamannya sendiri — bukan pengunjung.
+    if (getStoredSession()?.user?.slug?.toLowerCase() === segment) return;
+    trackPublicEvent(slug, 'pwa_install_public', { scope: start.endsWith('/jamaah') ? 'portal' : 'jadwal' });
+  } catch {
+    // Analytics tidak boleh mengganggu pemasangan.
+  }
+}
+
 let sharedStore: InstallPromptStore | null = null;
 
 /** Dipanggil sekali dari src/main.tsx, sedini mungkin. */
 export function initInstallPrompt(): InstallPromptStore {
-  if (!sharedStore) sharedStore = createInstallPrompt(window);
+  if (!sharedStore) sharedStore = createInstallPrompt(window, pathname => { void trackPublicInstall(pathname); });
   return sharedStore;
 }
 

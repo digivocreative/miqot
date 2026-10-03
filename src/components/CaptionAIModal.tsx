@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { getSessionAuthHeaders } from '@/utils/authUtils';
 import { shareCaption } from '@/utils/share';
 import { useBackToClose } from '@/hooks/useBackToClose';
+import { trackEvent } from '@/utils/analytics';
 import WhatsAppIcon from './common/WhatsAppIcon';
 
 // Rate limiting: shared across every Caption AI entry point (15 generates per 2 hours per device)
@@ -63,6 +64,14 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
   // modal terbuka bagi pintasan Escape halaman jadwal (App): modal ini tidak
   // bereaksi pada Escape, jadi tanpa entri kartu di belakangnya yang tertutup.
   useBackToClose(isOpen, onClose);
+
+  // Modal tetap ter-mount; dicatat sekali per transisi tertutup → terbuka.
+  // Generate dicatat server-side (caption_ai_generate), bukan di sini.
+  const openTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { openTrackedRef.current = false; return; }
+    if (!openTrackedRef.current) { trackEvent('feature', 'open_caption_ai'); openTrackedRef.current = true; }
+  }, [isOpen]);
 
   // Subject changed (e.g. brochure filter switched) → stale captions, back to idle
   useEffect(() => {
@@ -372,6 +381,7 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                       document.execCommand('copy');
                       document.body.removeChild(ta);
                     }
+                    trackEvent('action', 'caption_ai_copy', { style: versions[activeIdx]?.label || '' });
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2000);
                   }}
@@ -394,7 +404,10 @@ export function CaptionAIModal({ isOpen, onClose, subject, buildPayload, buildFa
                 {/* Kirim WA Button */}
                 <button
                   disabled={loading || !text}
-                  onClick={() => shareCaption(text)}
+                  onClick={async () => {
+                    await shareCaption(text);
+                    trackEvent('action', 'caption_ai_share_wa', { style: versions[activeIdx]?.label || '' });
+                  }}
                   className={`
                     flex-1 flex items-center justify-center gap-1.5 py-3
                     rounded-xl text-sm font-bold text-white

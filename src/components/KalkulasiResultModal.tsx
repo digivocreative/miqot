@@ -282,9 +282,13 @@ export function KalkulasiResultModal({
     const text = buildWaText();
     if (navigator.share) {
       setSharing(true);
-      try { await navigator.share({ text }); } catch { /* user cancelled */ } finally { setSharing(false); }
+      try {
+        await navigator.share({ text });
+        trackEvent('action', 'share_kalkulasi_text', { method: 'wa' });
+      } catch { /* user cancelled */ } finally { setSharing(false); }
     } else {
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+      trackEvent('action', 'share_kalkulasi_text', { method: 'wa' });
     }
   };
 
@@ -294,6 +298,7 @@ export function KalkulasiResultModal({
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+      trackEvent('action', 'share_kalkulasi_text', { method: 'copy' });
     } catch { /* clipboard failed */ }
   };
 
@@ -322,13 +327,16 @@ export function KalkulasiResultModal({
             text: 'Berikut quotation penawaran umroh',
             files: [file],
           });
+          trackEvent('action', 'share_quotation_pdf', { source: 'kalkulasi', method: 'share' });
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
             downloadBlob(pdfBlobRef.current, fileName);
+            trackEvent('action', 'share_quotation_pdf', { source: 'kalkulasi', method: 'download' });
           }
         }
       } else {
         downloadBlob(pdfBlobRef.current, fileName);
+        trackEvent('action', 'share_quotation_pdf', { source: 'kalkulasi', method: 'download' });
       }
     } catch (err) {
       console.error('Share failed:', err);

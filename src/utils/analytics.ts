@@ -16,6 +16,8 @@ export async function trackEvent(eventType: string, eventName: string, metadata:
         'Authorization': `Bearer ${session.token}`,
       },
       body: JSON.stringify({ eventType, eventName, metadata }),
+      // keepalive: event yang dikirim tepat sebelum pindah halaman tidak dibatalkan.
+      keepalive: true,
     }).then(res => {
       if (!res.ok) console.warn('[Analytics] Track failed:', eventName, res.status);
     }).catch(err => {
@@ -32,6 +34,7 @@ export async function trackPublicEvent(slug: string, eventName: string, metadata
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slug, eventName, metadata }),
+      keepalive: true,
     }).then(res => {
       // A non-2xx here is usually a 400 from the server-side whitelist
       // (VALID_PUBLIC_EVENTS). Surface it so new public events that were never

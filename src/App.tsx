@@ -26,6 +26,7 @@ import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
 import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { isOwnerOrAdminViewer } from '@/components/AgentProfile';
 import { AnimatePresence } from 'framer-motion';
 import { useWideLayout } from '@/hooks/useWideLayout';
 import RailShell from '@/components/jadwal-rails/RailShell';
@@ -338,7 +339,10 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
     if (!currentAgentSlug || capiPageViewFired[0]) return;
     capiPageViewFired[1](true);
     sendCapiEvent(currentAgentSlug, 'pageView');
-    trackPublicEvent(currentAgentSlug, 'page_view', { path: window.location.pathname });
+    // Agent pemilik / admin yang membuka halaman ini bukan pengunjung.
+    if (!isOwnerOrAdminViewer(currentAgentSlug)) {
+      trackPublicEvent(currentAgentSlug, 'page_view', { path: window.location.pathname });
+    }
   }, [currentAgentSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── CAPI: Search event (debounced) ──
@@ -1388,7 +1392,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       <AnimatePresence>
         {selectedPkg && (
           <RailShell key="rail-kiri" side="left" contentKey={selectedPkg.jadwalId}>
-            <ItineraryRail pkg={selectedPkg} />
+            <ItineraryRail pkg={selectedPkg} agentSlug={railAgentSlug} />
           </RailShell>
         )}
         {selectedPkg && (

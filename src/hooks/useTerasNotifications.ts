@@ -2,8 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getAuthHeaders } from '../lib/authSession';
 import type { TerasNotification } from '../lib/communityNotifications';
+import { trackEvent } from '../utils/analytics';
 
 const HEAD_POLL_INTERVAL_MS = 30_000;
+
+// Penanda sumber metrik open_teras_post: kiriman yang barusan dibuka dari panel
+// notifikasi. Diisi NotificationBell, dikonsumsi sekali oleh TerasPage.
+let notificationPostId: string | null = null;
+export function markPostOpenedFromNotification(postId: string) {
+  notificationPostId = postId;
+}
+export function consumePostOpenedFromNotification(postId: string): boolean {
+  const hit = notificationPostId === postId;
+  notificationPostId = null;
+  return hit;
+}
 
 interface Envelope<T> {
   success?: boolean;
@@ -82,6 +95,7 @@ export function useTerasNotifications(enabled: boolean) {
     const requestId = (requestIdRef.current += 1);
     const isStale = () => !mountedRef.current || requestIdRef.current !== requestId;
 
+    if (!openRef.current) trackEvent('feature', 'open_teras_notifications');
     openRef.current = true;
     setOpen(true);
     setLoading(true);

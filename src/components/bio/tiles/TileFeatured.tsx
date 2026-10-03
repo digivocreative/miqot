@@ -7,6 +7,7 @@ interface Props {
   agent: BioAgentPublic;
   badge?: string;
   cta?: string;
+  onTileClick?: () => void;
 }
 
 function formatDateShort(iso: string): string {
@@ -20,7 +21,7 @@ function formatRupiah(n: number): string {
   return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(n);
 }
 
-export default function TileFeatured({ jadwal_id, agent, badge, cta }: Props) {
+export default function TileFeatured({ jadwal_id, agent, badge, cta, onTileClick }: Props) {
   const [data, setData] = useState<FeaturedPaketPreview | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -59,7 +60,7 @@ export default function TileFeatured({ jadwal_id, agent, badge, cta }: Props) {
   const dateLine = depart && ret ? `${depart} – ${ret}` : depart || ret || '';
 
   return (
-    <a href={href} className="bio-tile bio-tile-featured bio-tile--button">
+    <a href={href} className="bio-tile bio-tile-featured bio-tile--button" onClick={onTileClick}>
       <div className="bio-featured-image">
         {data.image_url ? (
           <img src={data.image_url} alt={data.name} loading="lazy" />

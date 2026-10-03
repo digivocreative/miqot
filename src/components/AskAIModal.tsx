@@ -965,7 +965,10 @@ export default function AskAIModal({
                     {msg.attachment && (
                       <AttachmentCard
                         attachment={msg.attachment}
-                        onOpen={() => setActiveAttachment(msg.attachment)}
+                        onOpen={() => {
+                          setActiveAttachment(msg.attachment);
+                          trackPublicEvent(agentSlug, 'ask_ai_attachment_open', { jadwalId, type: msg.attachment?.type });
+                        }}
                       />
                     )}
 

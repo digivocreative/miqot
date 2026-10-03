@@ -29,6 +29,8 @@ interface Props {
   /** Diteruskan ke JourneyStrip: pelacakan unduhan PDF kantor. Nama event beda
    *  per permukaan (share publik vs portal jamaah), jadi pemanggil yang tahu. */
   onPdfDownload?: () => void;
+  /** Diteruskan ke JourneyStrip: pelacakan buka brosur (dipakai share publik). */
+  onBrosurOpen?: () => void;
   /** Buang bidang latar milik komponen ini (krem #F6F1EA dan putih di keadaan
    *  memuat/galat) sehingga kartu harinya duduk langsung di atas latar
    *  pemanggil. Dipakai rail kiri halaman jadwal: di sana latar halaman sudah
@@ -67,7 +69,7 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 
 export default function WebItineraryView({
   content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom, onPdfDownload,
-  transparentSurface, hideHotelCard,
+  onBrosurOpen, transparentSurface, hideHotelCard,
 }: Props) {
   const surface = transparentSurface ? '' : 'bg-white';
   if (loading) {
@@ -133,6 +135,7 @@ export default function WebItineraryView({
       departISO={paket?.keberangkatan?.tgl}
       paketNama={paket?.nama}
       onPdfDownload={onPdfDownload}
+      onBrosurOpen={onBrosurOpen}
     />
   );
 

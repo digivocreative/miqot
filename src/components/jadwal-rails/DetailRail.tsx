@@ -8,6 +8,7 @@ import { matchHotelPhoto } from '@/lib/hotelThumbs';
 import { extraHotelsOf, hotelDistanceOf, hotelStarsOf } from '@/lib/packageDetail';
 import { cheapestTierOf } from '@/lib/packagePricing';
 import type { UmrohPackage } from '@/types';
+import { trackPublicEvent } from '@/utils/analytics';
 
 // Viewer menyeret PlyrVideo + pipa watermark; halaman publik tidak boleh
 // membayarnya sebelum ada yang benar-benar mengetuk foto.
@@ -172,7 +173,10 @@ export default function DetailRail({ pkg, agentSlug }: Props) {
             distance={row.distance}
             photos={photos}
             area={hit?.area ?? null}
-            onOpenGallery={() => setGaleri({ name: row.name, photos })}
+            onOpenGallery={() => {
+              setGaleri({ name: row.name, photos });
+              if (agentSlug) trackPublicEvent(agentSlug, 'jadwal_hotel_photo', { action: 'open', paket: pkg.jadwalId });
+            }}
           />
         );
       })}
@@ -185,6 +189,12 @@ export default function DetailRail({ pkg, agentSlug }: Props) {
               label={galeri.name}
               watermark={agentWatermarkText(agentSlug)}
               showThumbnails
+              onDownloaded={agentSlug
+                ? () => trackPublicEvent(agentSlug, 'jadwal_hotel_photo', { action: 'download', paket: pkg.jadwalId })
+                : undefined}
+              onShared={agentSlug
+                ? () => trackPublicEvent(agentSlug, 'jadwal_hotel_photo', { action: 'share', paket: pkg.jadwalId })
+                : undefined}
               onClose={() => setGaleri(null)}
             />
           </Suspense>

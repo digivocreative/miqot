@@ -5,7 +5,9 @@
 // Warnanya ungu, mengikuti warna yang sudah jadi milik manasik di legenda dan
 // titik kalender kartu ini (TAB_CONFIG.manasik di UpcomingSchedule.tsx).
 
+import { useEffect, useRef } from 'react';
 import { Clock, User, Users } from 'lucide-react';
+import { trackEvent } from '../../utils/analytics';
 import { fmtTgl, fmtTglHari, fmtTglLong } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem } from '../../../lib/berangkat-groups.js';
 import type { ManasikSession } from '../../../lib/manasik-sessions.js';
@@ -157,6 +159,14 @@ function ManasikTourLeaders({ tourLeaders }: { tourLeaders: string[] }) {
 }
 
 export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
+  // Sheet detail dibuka: sekali per sesi yang tampil.
+  const trackedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (trackedKeyRef.current === session.key) return;
+    trackedKeyRef.current = session.key;
+    trackEvent('feature', 'open_berangkat_detail', { kind: 'manasik' });
+  }, [session.key]);
+
   return (
     <div>
       <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700/50 bg-white/40 dark:bg-slate-800/40">
@@ -189,6 +199,7 @@ export function ManasikSessionDetail({ session }: { session: ManasikSession }) {
                 item={item}
                 showPackage={false}
                 buildWaText={(jamaah) => buildManasikWaText(jamaah, session)}
+                waSource="manasik"
               />
             ))}
           </div>

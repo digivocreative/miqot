@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, MessageCircle, X } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
+import { trackPublicEvent } from '@/utils/analytics';
 import { useBackToClose } from '@/hooks/useBackToClose';
 import PortalBackBar from '../components/PortalBackBar';
 import JamaahPaymentCard from '../components/JamaahPaymentCard';
@@ -34,9 +35,11 @@ function roomTypeFromPackage(paket?: string | null) {
 }
 
 export default function PembayaranPage({
+  slug,
   data,
   onBack,
 }: {
+  slug: string;
   data: PortalMeData;
   onBack: () => void;
 }) {
@@ -162,6 +165,7 @@ Mohon dicek ya. Terima kasih 🙏`,
               href={waLink}
               target="_blank"
               rel="noreferrer"
+              onClick={() => trackPublicEvent(slug, 'wa_click_portal', { tab: 'pembayaran', source: 'konfirmasi_bayar' })}
               className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3 text-center text-sm font-semibold leading-5 text-white shadow-sm transition-all duration-200 hover:brightness-105 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burgundy-700 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               <MessageCircle className="h-5 w-5 flex-none" strokeWidth={2} />

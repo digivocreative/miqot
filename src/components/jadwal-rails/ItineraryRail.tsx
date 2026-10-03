@@ -3,9 +3,12 @@ import { useMemo } from 'react';
 import WebItineraryView, { type ItineraryContent } from '@/components/WebItineraryView';
 import { useItineraryContent } from '@/hooks/useItineraryContent';
 import type { UmrohPackage } from '@/types';
+import { trackPublicEvent } from '@/utils/analytics';
 
 interface Props {
   pkg: UmrohPackage;
+  /** Slug agent pemilik halaman — kunci event publik unduhan PDF dari rail. */
+  agentSlug?: string | null;
 }
 
 /**
@@ -24,7 +27,7 @@ interface Props {
  * Light-only mengikuti spec itinerary 2026-07-30 — di mode gelap ia terbaca
  * seperti lembar dokumen di atas meja gelap, bukan bug.
  */
-export default function ItineraryRail({ pkg }: Props) {
+export default function ItineraryRail({ pkg, agentSlug }: Props) {
   const { state, days } = useItineraryContent(pkg.jadwalId);
 
   // Cast di batas, sama seperti SharePage: keduanya membaca endpoint yang sama
@@ -50,6 +53,10 @@ export default function ItineraryRail({ pkg }: Props) {
         summaryAtBottom
         transparentSurface
         onRetryPdf={pkg.itineraryUrl ? () => window.open(pkg.itineraryUrl, '_blank', 'noopener') : undefined}
+        // Nama event per permukaan, sama seperti share page / portal jamaah.
+        onPdfDownload={agentSlug
+          ? () => trackPublicEvent(agentSlug, 'itinerary_pdf_download_rail', { paket: pkg.jadwalId })
+          : undefined}
       />
     </div>
   );

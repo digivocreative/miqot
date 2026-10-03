@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Wand2, Copy, ClipboardCheck, ExternalLink, ChevronDown, FileImage, Megaphone, Loader2, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -199,6 +199,16 @@ export function BrochurePromptModal({ isOpen, onClose, agent, referenceImageUrl,
   const [isOpeningChatGPT, setIsOpeningChatGPT] = useState(false);
   const [preparedReferenceFile, setPreparedReferenceFile] = useState<File | null>(null);
   const [nativeSharePreparationFailed, setNativeSharePreparationFailed] = useState(false);
+
+  // Modal tetap ter-mount; dicatat sekali per transisi tertutup → terbuka.
+  const openTrackedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) { openTrackedRef.current = false; return; }
+    if (!openTrackedRef.current) {
+      trackEvent('feature', 'open_brochure_prompt', { kind: isScheduleContext ? 'schedule' : 'package' });
+      openTrackedRef.current = true;
+    }
+  }, [isOpen, isScheduleContext]);
 
   // Reset info kontak ke profil setiap kali modal dibuka (hindari data basi)
   useEffect(() => {

@@ -267,6 +267,7 @@ export default function ItinerarySharePage({ slug, packageId }: { slug: string; 
           error={null}
           paket={paket}
           onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_share', { paket: packageId })}
+          onBrosurOpen={() => trackPublicEvent(slug, 'itinerary_brosur_open', { paket: packageId })}
         />
 
         <div className="px-4">

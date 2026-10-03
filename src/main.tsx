@@ -541,6 +541,10 @@ if (isPwaHost && isSsrLandingPath) {
           ? AGENTS_DATA[ctxSlug] || null
           : AGENTS_DATA[firstSlug] || null)
       : null
+    // Slug mentah untuk analitik pengunjung (pola sama dengan compareSlug).
+    const kalkulasiSlug = isKalkulasi
+      ? (segments.length === 1 && ctxSlug ? ctxSlug : (segments.length >= 2 ? firstSlug : ''))
+      : ''
     const compareSlug = isCompare
       ? (segments.length === 1 && ctxSlug ? ctxSlug : (segments.length >= 2 ? firstSlug : ''))
       : ''
@@ -591,7 +595,7 @@ if (isPwaHost && isSsrLandingPath) {
       }
       // Diskon di rute publik hanya untuk agent/admin yang sedang login;
       // pengunjung (calon jamaah) tetap tidak melihat opsi diskon.
-      if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} hideDiscount={!isSessionValid()} />
+      if (isKalkulasi) return <KalkulasiPage agent={agentSlugForKalkulasi} agentSlug={kalkulasiSlug || undefined} hideDiscount={!isSessionValid()} />
       if (isCompare) return <ComparePage agent={agentSlugForCompare} agentSlug={compareSlug || undefined} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />

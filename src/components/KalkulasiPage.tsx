@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { trackEvent } from '../utils/analytics';
+import { trackEvent, trackPublicEvent } from '../utils/analytics';
+import { getStoredSession } from '../lib/authSession';
 // Modal hasil + generator PDF quotation dipindah ke KalkulasiResultModal.tsx
 // (dipakai bersama kartu kalkulasi Bani) — react-pdf/@react-pdf ikut pindah.
 import { KalkulasiResultModal, generateQuotationPdfBlob } from './KalkulasiResultModal';
@@ -311,13 +312,26 @@ function SectionHeader({ icon: Icon, label }: { icon: React.ElementType; label: 
 // ============================================
 // Main Page Component
 // ============================================
-export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount = false }: { agent?: AgentData | null; hideHeader?: boolean; hideDiscount?: boolean }) {
+export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hideDiscount = false }: { agent?: AgentData | null; agentSlug?: string; hideHeader?: boolean; hideDiscount?: boolean }) {
   // --- API Data ---
   const [packages, setPackages] = useState<UmrohPackage[]>([]);
   const [loadingPackages, setLoadingPackages] = useState(true);
   // Galat mentah data-service — hanya untuk describeLoadError, jangan dirender.
   const [packagesError, setPackagesError] = useState<string | null>(null);
   const [isGoingBack, setIsGoingBack] = useState(false);
+
+  // Agent login → event agent; pengunjung /:slug/kalkulasi → event publik. Tak pernah dua-duanya.
+  const mountTracked = useRef(false);
+  useEffect(() => {
+    if (mountTracked.current) return;
+    mountTracked.current = true;
+    if (getStoredSession()?.token) {
+      trackEvent('feature', 'open_kalkulasi');
+    } else if (agentSlug) {
+      const paket = new URLSearchParams(window.location.search).get('paket');
+      trackPublicEvent(agentSlug, 'open_kalkulasi_public', paket ? { paket } : {});
+    }
+  }, []);
 
   // ── Dark Mode (synced with App via localStorage) ──
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -599,12 +613,16 @@ export default function KalkulasiPage({ agent, hideHeader = false, hideDiscount 
       const url = URL.createObjectURL(blob);
       setPdfNumPages(null);
       setPdfPreviewUrl(url);
+      // Agent sudah tercatat generate_pdf di modal; ini khusus pengunjung.
+      if (!getStoredSession()?.token && agentSlug) {
+        trackPublicEvent(agentSlug, 'quotation_pdf_public', { source: 'kalkulasi' });
+      }
     } catch (err) {
       console.error('PDF generation failed:', err);
     } finally {
       setPdfLoading(false);
     }
-  }, [summary, selectedPkg, selectedTier, namaLengkap, agent, discountLabel]);
+  }, [summary, selectedPkg, selectedTier, namaLengkap, agent, discountLabel, agentSlug]);
 
   // ============================================
   // Render

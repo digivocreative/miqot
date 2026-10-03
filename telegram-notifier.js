@@ -186,8 +186,11 @@ function buildAgentPackageUrl(agentSlug, packageId) {
   return `${APP_BASE_URL}/${agentSlug}/${packageId}`;
 }
 
+// src=tg → dashboard bisa mencatat kunjungan dari notif Telegram (open_from_telegram)
 function buildDashboardUrl(path = '') {
-  return `${APP_BASE_URL}/dashboard${path}`;
+  const [base, hash] = String(path).split('#');
+  const url = `${APP_BASE_URL}/dashboard${base}${base.includes('?') ? '&' : '?'}src=tg`;
+  return hash === undefined ? url : `${url}#${hash}`;
 }
 
 function buildUrlKeyboard(rows) {

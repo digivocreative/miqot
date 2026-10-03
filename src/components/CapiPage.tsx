@@ -458,6 +458,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
         return;
       }
       showToast('Re-hit Purchase jamaah berjalan di background.', 'success');
+      trackEvent('action', 'capi_replay_purchases');
     } catch {
       showToast('Gagal menghubungi server.', 'error');
     } finally {
@@ -497,7 +498,7 @@ function SettingsPage({ agentSlug, agentName, isDark, onToggleDark, onLogout, hi
         return;
       }
 
-      trackEvent('action', 'save_capi_config', { testMode: config.testMode });
+      // save_capi_config dicatat server-side di POST /api/capi/:slug/config
 
       // Keep the token in the textarea
       if (data.savedToken) {

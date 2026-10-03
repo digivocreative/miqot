@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { ChevronDown, HelpCircle, LifeBuoy, MessageCircle } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
+import { trackPublicEvent } from '@/utils/analytics';
 import PortalBackBar from '../components/PortalBackBar';
 import { PORTAL_FAQ } from '../lib/faq';
 import { Button, Card, IconTile, PortalPageShell, SectionLabel, StatusChip } from '../ui';
 import type { PortalMeData } from '../hooks/usePortalMe';
 
 export default function FaqPage({
+  slug,
   data,
   onBack,
 }: {
+  slug: string;
   data: PortalMeData;
   onBack: () => void;
 }) {
@@ -99,6 +102,7 @@ export default function FaqPage({
             href={escalationLink}
             target="_blank"
             rel="noreferrer"
+            onClick={() => trackPublicEvent(slug, 'wa_click_portal', { tab: 'faq', source: 'faq' })}
             variant="wa"
             size="lg"
             fullWidth

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, Clock3, Send, X } from 'lucide-react';
 import MagicLinkModal from './MagicLinkModal';
+import { trackEvent } from '../../../utils/analytics';
 
 interface Props {
   jamaahId: number;
@@ -32,6 +33,8 @@ export default function MagicLinkButton(props: Props) {
           if (canGenerateMagicLink) {
             setOpen(true);
           } else {
+            // Transisi tertutup -> terbuka saja (minat agent non-pilot)
+            if (!comingSoonOpen) trackEvent('feature', 'open_portal_invite_teaser');
             setComingSoonOpen(true);
           }
         }}

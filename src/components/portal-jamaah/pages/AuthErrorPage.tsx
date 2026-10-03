@@ -1,5 +1,6 @@
 import { AlertCircle, Loader2, MessageCircle, RefreshCw, WifiOff } from 'lucide-react';
 import { normalizeWaNumber } from '@/utils/phone';
+import { trackPublicEvent } from '@/utils/analytics';
 import type { PortalAgent } from '../lib/fetchAgentBySlug';
 import type { ConsumeLinkErrorKind } from '../lib/portalApi';
 import { Button, Card, PortalPageShell } from '../ui';
@@ -53,6 +54,7 @@ export default function AuthErrorPage(props: Props) {
   }
 
   const message = COPY[props.kind].replace('agent', agent?.name || 'agent');
+  const reason = props.kind;
 
   return (
     <PortalPageShell className="flex items-center justify-center px-4 py-8 font-sans">
@@ -68,6 +70,9 @@ export default function AuthErrorPage(props: Props) {
               href={`https://wa.me/${wa}`}
               target="_blank"
               rel="noreferrer"
+              onClick={() => {
+                if (agent?.slug) trackPublicEvent(agent.slug, 'wa_click_portal', { source: 'auth_error', reason });
+              }}
               variant="wa"
               size="lg"
               fullWidth

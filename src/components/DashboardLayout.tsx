@@ -24,9 +24,12 @@ import TerasNotificationSettings from './TerasNotificationSettings';
 import { useTerasNotificationPrefs } from '../hooks/useTerasNotificationPrefs';
 import { backOr, canGoBackInApp, pushAppState, replaceAppState } from '../lib/appHistory';
 import InstallAppCard from './pwa/InstallAppCard';
+import { isStandaloneDisplay } from '../lib/pwa/launch';
 import PullToRefreshHost from './pwa/PullToRefreshHost';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { hasUnsavedChanges } from '../lib/unsavedChanges';
+
+const DASHBOARD_OPEN_TRACKED_KEY = 'analytics-open-dashboard-tracked';
 
 function getLocalStorageItem(key: string): string | null {
   try {
@@ -771,10 +774,37 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // entri: setelah muat ulang di sub-halaman, Kembali tetap mundur ke layar
   // sebelumnya; app yang baru diluncurkan berkedalaman 0 → Kembali mengganti URL.
   useEffect(() => {
-    replaceAppState({ tab: activeTab }, window.location.pathname + window.location.search + window.location.hash);
+    // Link notifikasi Telegram membawa ?src=tg: catat sekali, lalu buang param-nya
+    // supaya muat ulang tidak tercatat lagi.
+    let search = window.location.search;
+    const params = new URLSearchParams(search);
+    if (params.get('src') === 'tg') {
+      trackEvent('feature', 'open_from_telegram', { path: window.location.pathname });
+      params.delete('src');
+      const rest = params.toString();
+      search = rest ? `?${rest}` : '';
+    }
+    replaceAppState({ tab: activeTab }, window.location.pathname + search + window.location.hash);
     document.title = getCurrentDocumentTitle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // open_dashboard: sekali per sesi peramban saat Beranda tampil — layout tetap
+  // ter-mount antar tab, jadi dijaga ref + sessionStorage. Key per slug: ganti
+  // akun di tab yang sama (mis. admin lalu agent) tetap tercatat.
+  const dashboardOpenTracked = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'home' || dashboardOpenTracked.current) return;
+    dashboardOpenTracked.current = true;
+    const storageKey = `${DASHBOARD_OPEN_TRACKED_KEY}:${session.user?.slug || ''}`;
+    try {
+      if (window.sessionStorage.getItem(storageKey)) return;
+      window.sessionStorage.setItem(storageKey, '1');
+    } catch {
+      // Penyimpanan diblokir: cukup dijaga ref (sekali per mount).
+    }
+    trackEvent('feature', 'open_dashboard', { display: isStandaloneDisplay() ? 'standalone' : 'browser' });
+  }, [activeTab]);
   const [isDarkMode, setIsDarkMode] = useState(() => getLocalStorageItem('darkMode') === 'true');
   const [agentData, setAgentData] = useState(session.user);
 
@@ -1476,6 +1506,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {/* ── Telegram Connect Banner ── */}
           <TelegramConnectBanner
             onConnect={() => {
+              trackEvent('action', 'telegram_banner_click');
               navigateTab('settings');
               replaceAppState({ tab: 'settings' }, '/dashboard/settings/telegram');
             }}

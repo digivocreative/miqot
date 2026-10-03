@@ -48,9 +48,16 @@ export function useTerasNotificationPrefs(enabled: boolean) {
   // Keys are tracked independently so a slow response for one switch can never
   // suppress or clobber the outcome of a different switch.
   const requestSeqRef = useRef<Partial<Record<TerasPrefKey, number>>>({});
+  // openSheet juga dipakai sebagai retry (reload) — metrik buka hanya pada
+  // transisi tertutup→terbuka.
+  const openTrackedRef = useRef(false);
 
   const openSheet = useCallback(async () => {
     if (!enabled) return;
+    if (!openTrackedRef.current) {
+      trackEvent('feature', 'open_teras_notif_settings');
+      openTrackedRef.current = true;
+    }
     setOpen(true);
     setLoading(true);
     setError(null);
@@ -72,6 +79,7 @@ export function useTerasNotificationPrefs(enabled: boolean) {
   }, [enabled]);
 
   const closeSheet = useCallback(() => {
+    openTrackedRef.current = false;
     setOpen(false);
     setError(null);
   }, []);

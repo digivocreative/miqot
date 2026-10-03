@@ -7,6 +7,7 @@ import PriceLadder from './PriceLadder';
 import FilterDropdown from './FilterDropdown';
 import { lockDocumentScroll } from '../lib/scrollLock';
 import { computeHajiPlusEscalation, condenseLadder } from '@/lib/hajiPlusPricing';
+import { trackEvent } from '../utils/analytics';
 
 // ── Constants ──
 type RoomTypeId = 'double' | 'triple' | 'quad';
@@ -249,6 +250,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
       setPreviewBlob(blob);
       setPreviewUrl(url);
       setPreviewOpen(true);
+      trackEvent('action', 'generate_haji_plus_offer', { pkg: selectedPkg || '', room: selectedRoomType });
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -276,6 +278,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
 
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file] });
+        trackEvent('action', 'share_haji_plus_offer', { method: 'share' });
       } else {
         // Fallback: download. URL blob dicabut belakangan — Safari (terutama app
         // terpasang) masih membacanya setelah klik; dicabut seketika = unduhan gagal.
@@ -287,6 +290,7 @@ export default function SimulasiHajiPlus({ agent }: SimulasiHajiPlusProps) {
         link.click();
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        trackEvent('action', 'share_haji_plus_offer', { method: 'download' });
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {

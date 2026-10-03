@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Plus, Inbox } from 'lucide-react';
 import type { BioAgentPublic, BioTile, BioTileType } from '../bio/types';
 import { useBioConfig, bioEditorNewId, buildBioLink } from './useBioConfig';
@@ -16,6 +16,7 @@ import SheetAddTile from './sheets/SheetAddTile';
 import SheetSeo from './sheets/SheetSeo';
 import SheetPreview from './sheets/SheetPreview';
 import HintBanner from './HintBanner';
+import { trackEvent } from '../../utils/analytics';
 
 interface Props {
   agent: BioAgentPublic;
@@ -24,6 +25,9 @@ interface Props {
 export default function BioEditorPage({ agent }: Props) {
   const bio = useBioConfig(agent.slug);
   const { config, loading, saveStatus, error, reload } = bio;
+
+  const mountTracked = useRef(false);
+  useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_bio_editor'); mountTracked.current = true; } }, []);
 
   const [heroOpen, setHeroOpen] = useState(false);
   const [seoOpen, setSeoOpen] = useState(false);
@@ -60,6 +64,7 @@ export default function BioEditorPage({ agent }: Props) {
     // stays "on" so once they complete the form it appears immediately.
     const tileDraft: Omit<BioTile, 'order'> = { id, type, visible: true, config: {} };
     bio.addTile(tileDraft);
+    trackEvent('action', 'bio_add_tile', { tile_type: type });
     setAddOpen(false);
     // Open edit sheet for the new tile — OOBE flow
     setTimeout(() => setEditingTileId(id), 100);
@@ -133,7 +138,7 @@ export default function BioEditorPage({ agent }: Props) {
   return (
     <div className="pb-28">
       <div className="px-4 pb-4 flex flex-col gap-3">
-        <UrlCard label="LINK BIO PUBLIK" url={buildBioLink(agent.slug)} copyAriaLabel="Salin link bio" />
+        <UrlCard label="LINK BIO PUBLIK" url={buildBioLink(agent.slug)} copyAriaLabel="Salin link bio" surface="bio" />
         <HintBanner />
         <ThemePicker value={config.theme} onChange={bio.setTheme} />
         <HeroCard agent={agent} hero={config.hero} onTap={() => setHeroOpen(true)} />

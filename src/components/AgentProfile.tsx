@@ -2,6 +2,20 @@ import type { AgentData } from '../data/agents';
 import { AGENTS_DATA } from '../data/agents';
 import { sendCapiEvent } from '../lib/capi';
 import { handleAgentPhotoError } from '../lib/agent-photo';
+import { getStoredSession } from '../lib/authSession';
+import { trackPublicEvent } from '../utils/analytics';
+
+/**
+ * Yang melihat halaman /:slug adalah agent pemilik slug itu sendiri atau admin.
+ * Event publik pengunjung (page_view, klik WA, share) dilewati supaya agent yang
+ * membuka halamannya sendiri tidak terhitung sebagai pengunjung.
+ */
+export function isOwnerOrAdminViewer(agentSlug: string | null | undefined): boolean {
+  const user = getStoredSession()?.user;
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return !!agentSlug && user.slug.toLowerCase() === agentSlug.toLowerCase();
+}
 
 interface AgentProfileProps {
   agent: AgentData;
@@ -70,7 +84,13 @@ export default function AgentProfile({ agent, packageName = "Umrah Alhijaz", dep
         href={waLink}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={() => { if (agentSlug) sendCapiEvent(agentSlug, 'contact'); }}
+        onClick={() => {
+          if (!agentSlug) return;
+          sendCapiEvent(agentSlug, 'contact');
+          if (!isOwnerOrAdminViewer(agentSlug)) {
+            trackPublicEvent(agentSlug, 'wa_click_public', { source: 'package_chat', paket: packageName });
+          }
+        }}
         className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-600 text-white pl-3 pr-4 py-2 rounded-full flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 dark:shadow-emerald-500/10 transition-all active:scale-[0.96] group"
       >
         <svg className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

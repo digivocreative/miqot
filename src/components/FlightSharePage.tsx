@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plane, Check, MapPin, ArrowRight, ArrowLeft,
   Sun, Cloud, CloudRain, CloudSun, CloudLightning, CloudSnow,
@@ -13,6 +13,7 @@ import { getFlightStatusPresentation, normalizeFlightStatus } from '../lib/fligh
 import { isReturnFlight } from '../lib/flightDirection';
 import { describeLoadError } from '../lib/loadError';
 import { hasInAppHistory } from '../lib/appHistory';
+import { trackPublicEvent } from '../utils/analytics';
 
 // ── Types ──
 
@@ -273,6 +274,8 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
   // Halaman ini kebanyakan dibuka dari link WhatsApp — tak ada "kembali" yang masuk
   // akal, jadi tombolnya hanya ada kalau dibuka dari dalam app di tab yang sama.
   const [canGoBack] = useState(hasInAppHistory);
+  // Kode share yang sudah tercatat open_flight_share — retry/poll tak dobel.
+  const openTracked = useRef<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -296,6 +299,14 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
           setLoadError(null);
 
           if (isInitialRequest) {
+            const agentSlug = result.data.agent?.slug;
+            if (agentSlug && openTracked.current !== code) {
+              openTracked.current = code;
+              trackPublicEvent(agentSlug, 'open_flight_share', {
+                flight: result.data.flight.flight_number,
+                status: normalizeFlightStatus(result.data.flight.flight_status),
+              });
+            }
             void loadDestinationWeather(result.data.flight.arr_iata).then(nextWeather => {
               if (!disposed && nextWeather) setWeather(nextWeather);
             });
@@ -383,12 +394,15 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
     const title = flightPageTitle(data.flight.group_number, dfn, data.agent?.name || 'Agent');
     const text = `Cek status penerbangan ${dfn} (${data.flight.dep_iata} → ${data.flight.arr_iata}) di sini:`;
 
+    const agentSlug = data.agent?.slug;
     if (navigator.share) {
       try {
         await navigator.share({ title, text, url });
+        if (agentSlug) trackPublicEvent(agentSlug, 'flight_share_reshare', { method: 'native' });
       } catch { /* user cancelled */ }
     } else {
       await navigator.clipboard.writeText(url);
+      if (agentSlug) trackPublicEvent(agentSlug, 'flight_share_reshare', { method: 'copy' });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -565,6 +579,7 @@ export default function FlightSharePage({ code }: FlightSharePageProps) {
     const message = encodeURIComponent(
       `Assalamualaikum kak ${agent.name.split(' ')[0]}, saya mau tanya tentang penerbangan ${dfn} tanggal ${flightDate} (${flight.dep_city || flight.dep_iata} → ${flight.arr_city || flight.arr_iata})`
     );
+    if (agent.slug) trackPublicEvent(agent.slug, 'wa_click_public', { source: 'flight_share' });
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };
 

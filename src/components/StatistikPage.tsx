@@ -257,6 +257,7 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
       <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">{fmtRpShort(item.sisa)}</span>
       {waUrl && (
         <a href={waUrl} target="_blank" rel="noopener noreferrer"
+          onClick={() => trackEvent('action', 'wa_click_jamaah', { source: 'belum_lunas' })}
           className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-800/30 active:scale-95 flex items-center justify-center shrink-0 transition-colors border border-emerald-100 dark:border-emerald-800/40">
           <WaIcon size={14} />
         </a>

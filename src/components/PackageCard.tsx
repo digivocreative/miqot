@@ -24,7 +24,7 @@ const PackageValueModal = lazy(() => import('./PackageValueModal').then(m => ({ 
 const BrochurePromptModal = lazy(() => import('./BrochurePromptModal').then(m => ({ default: m.BrochurePromptModal })));
 import type { AgentData } from '@/data/agents';
 import { AGENTS_DATA } from '@/data/agents';
-import AgentProfile from './AgentProfile';
+import AgentProfile, { isOwnerOrAdminViewer } from './AgentProfile';
 import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
@@ -532,6 +532,7 @@ _________________________
     const encodedMessage = encodeURIComponent(message);
     fireViewContent();
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+    trackEvent('action', 'share_package_wa', { paket: pkg.nama });
   };
 
   const handleCopyPackageLink = async (e: React.MouseEvent, shareUrl: string) => {
@@ -551,6 +552,7 @@ _________________________
 
     setIsLinkCopying(false);
     if (copied) {
+      trackEvent('action', 'copy_package_link', { paket: pkg.nama });
       setLinkCheckVisible(true);
       setLinkToastVisible(true);
       if (linkCheckTimerRef.current !== null) {
@@ -1533,7 +1535,12 @@ _________________________
   const handleShareScreenshot = async () => {
     if (!previewImage) return;
     trackEvent('action', 'share_screenshot', { paket: pkg.nama });
-    trackPublicEvent(agentSlug, 'wa_click_public', { source: 'screenshot_share', paket: pkg.nama });
+    // Share pengunjung (bukan klik WA) — hanya setelah berhasil, bukan agent pemilik/admin.
+    const trackVisitorShare = (method: 'share' | 'download') => {
+      if (agentSlug && !isOwnerOrAdminViewer(agentSlug)) {
+        trackPublicEvent(agentSlug, 'package_share_public', { paket: pkg.nama, method });
+      }
+    };
 
     try {
       const blob = await (await fetch(previewImage)).blob();
@@ -1548,6 +1555,7 @@ _________________________
       if (navigator.canShare && navigator.canShare(shareData)) {
         try {
           await navigator.share(shareData);
+          trackVisitorShare('share');
         } catch (err: any) {
           if (err?.name !== 'AbortError') {
             console.warn('Share error, falling back to download:', err);
@@ -1555,6 +1563,7 @@ _________________________
             link.download = fileName;
             link.href = previewImage;
             link.click();
+            trackVisitorShare('download');
           }
         }
       } else {
@@ -1563,6 +1572,7 @@ _________________________
         link.download = fileName;
         link.href = previewImage;
         link.click();
+        trackVisitorShare('download');
       }
     } catch (err) {
       console.log('Share error:', err);

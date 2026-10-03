@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import { trackPublicEvent } from '@/utils/analytics';
-import type { BioAgentPublic, BioConfig, BioTile } from './types';
+import type { BioAgentPublic, BioConfig, BioTile, BioTileType } from './types';
 import BioHero from './BioHero';
 import BioSocialRow from './BioSocialRow';
 import TileText from './tiles/TileText';
@@ -148,6 +148,10 @@ export default function BioPage({ slug }: Props) {
   const handleSocialClick = (network: 'ig' | 'tiktok' | 'youtube') => {
     trackPublicEvent(slug, 'bio_social_click', { network });
   };
+  // Klik tile selain WA (WA sudah tercatat via wa_click_public)
+  const handleTileClick = (tile_type: BioTileType) => {
+    trackPublicEvent(slug, 'bio_tile_click', { tile_type });
+  };
 
   const publicAgent: BioAgentPublic | null = useMemo(() => {
     if (!agent) return null;
@@ -226,6 +230,7 @@ export default function BioPage({ slug }: Props) {
                   jadwal_id={c.jadwal_id as string}
                   badge={c.badge as string}
                   cta={c.cta as string}
+                  onTileClick={() => handleTileClick('featured')}
                 />
               );
             case 'umroh':
@@ -235,6 +240,7 @@ export default function BioPage({ slug }: Props) {
                   variant="umroh"
                   agent={publicAgent}
                   cta={c.cta as string}
+                  onTileClick={() => handleTileClick('umroh')}
                 />
               );
             case 'umroh_landing':
@@ -244,6 +250,7 @@ export default function BioPage({ slug }: Props) {
                   variant="umroh_landing"
                   agent={publicAgent}
                   cta={c.cta as string}
+                  onTileClick={() => handleTileClick('umroh_landing')}
                 />
               );
             case 'haji':
@@ -253,6 +260,7 @@ export default function BioPage({ slug }: Props) {
                   variant="haji"
                   agent={publicAgent}
                   cta={c.cta as string}
+                  onTileClick={() => handleTileClick('haji')}
                 />
               );
             case 'photo':
@@ -270,6 +278,7 @@ export default function BioPage({ slug }: Props) {
                   title={c.title as string}
                   url={c.url as string}
                   icon={c.icon as string}
+                  onTileClick={() => handleTileClick('link')}
                 />
               );
             case 'testi':

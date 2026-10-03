@@ -389,7 +389,7 @@ function HotelDescription({ text }: { text: string }) {
 // Widget rating platform pemesanan. Skala berbeda per platform, jadi angkanya
 // SELALU ditulis "x/maks" — bukan bintang seragam yang membuat 8,6 (Booking)
 // terlihat lebih buruk dari 4,3 (Google).
-function HotelRatings({ ratings }: { ratings: HotelRatingItem[] }) {
+function HotelRatings({ ratings, hotelSlug }: { ratings: HotelRatingItem[]; hotelSlug: string }) {
   const known = HOTEL_RATING_PLATFORMS as { id: string; label: string; max: number }[];
   const rows = known
     .map(platform => ({ platform, value: ratings.find(r => r.platform === platform.id) }))
@@ -424,6 +424,7 @@ function HotelRatings({ ratings }: { ratings: HotelRatingItem[] }) {
               href={value.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackEvent('action', 'hotel_link_click', { kind: 'rating', platform: platform.id, slug: hotelSlug })}
               className={`${shell} block transition-all hover:shadow-md active:scale-[0.98]`}
             >
               {content}
@@ -563,6 +564,17 @@ export default function HotelPage({ onNavigate, agentSlug }: {
   // pindah detail↔media TIDAK memicu fetch ulang.
   const detailSlug = view.kind === 'detail' || view.kind === 'media' ? view.slug : null;
   const listCity = view.kind === 'list' ? view.city : null;
+
+  // Halaman Semua Media memakai mount yang sama dengan detail: dicatat tiap
+  // MASUK ke view itu. Ref menahan dobel-jalan StrictMode; keluar = reset.
+  const mediaSlug = view.kind === 'media' ? view.slug : null;
+  const mediaTracked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!mediaSlug) { mediaTracked.current = null; return; }
+    if (mediaTracked.current === mediaSlug) return;
+    mediaTracked.current = mediaSlug;
+    trackEvent('feature', 'open_hotel_media', { slug: mediaSlug });
+  }, [mediaSlug]);
 
   // Detail dipilih saat RENDER, bukan lewat setState di efek: efek berjalan
   // setelah frame pertama tercat, jadi "kosongkan detail lalu isi dari cache"
@@ -986,6 +998,8 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                   initialIndex={viewerIndex}
                   label={detail.name}
                   watermark={watermark}
+                  onDownloaded={() => trackEvent('action', 'hotel_media_download', { slug: detail.slug, scope: 'official' })}
+                  onShared={() => trackEvent('action', 'hotel_media_share', { slug: detail.slug, scope: 'official' })}
                   onClose={() => setViewerIndex(null)}
                 />
               )}
@@ -1102,7 +1116,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
             </div>
           )}
 
-          <HotelRatings ratings={detail.ratings || []} />
+          <HotelRatings ratings={detail.ratings || []} hotelSlug={detail.slug} />
 
           {detail.description && (
             <div className="mt-5">
@@ -1143,7 +1157,10 @@ export default function HotelPage({ onNavigate, agentSlug }: {
               )}
               {detail.gmaps_url && (
                 <button
-                  onClick={() => window.open(detail.gmaps_url || '', '_blank', 'noopener')}
+                  onClick={() => {
+                    window.open(detail.gmaps_url || '', '_blank', 'noopener');
+                    trackEvent('action', 'hotel_link_click', { kind: 'maps', slug: detail.slug });
+                  }}
                   className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 text-[13px] font-semibold text-gray-700 dark:text-slate-200 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 active:scale-[0.98]"
                 >
                   <MapPin size={15} />
@@ -1180,6 +1197,8 @@ export default function HotelPage({ onNavigate, agentSlug }: {
                 initialIndex={viewerIndex}
                 label={detail.name}
                 watermark={watermark}
+                onDownloaded={() => trackEvent('action', 'hotel_media_download', { slug: detail.slug, scope: 'official' })}
+                onShared={() => trackEvent('action', 'hotel_media_share', { slug: detail.slug, scope: 'official' })}
                 onClose={() => setViewerIndex(null)}
               />
             )}

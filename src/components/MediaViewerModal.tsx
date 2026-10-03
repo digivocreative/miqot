@@ -35,6 +35,10 @@ interface MediaViewerModalProps {
    * ruang gambar. Dipakai galeri hotel di rail jadwal.
    */
   showThumbnails?: boolean;
+  /** Dipanggil setelah berkas berhasil tersimpan ke perangkat (analitik pemanggil). */
+  onDownloaded?: () => void;
+  /** Dipanggil setelah share sheet selesai tanpa batal/galat (analitik pemanggil). */
+  onShared?: () => void;
   onClose: () => void;
 }
 
@@ -92,7 +96,7 @@ function isAbortError(err: unknown): boolean {
 /** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
 interface PreparedMedia { blob: Blob; stamped: boolean }
 
-export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, showThumbnails, onClose }: MediaViewerModalProps) {
+export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, showThumbnails, onDownloaded, onShared, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(() => Math.max(0, Math.min(media.length - 1, initialIndex)));
@@ -208,6 +212,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
       if (!stamped && watermark && item.type === 'image') {
         setActionError('Watermark gagal ditempel — berkas terunduh tanpa watermark.');
       }
+      onDownloaded?.();
     } catch {
       // Jaringan/CDN bermasalah: buka di tab baru supaya media tetap bisa
       // disimpan manual, bukan buntu tanpa jalan keluar.
@@ -216,7 +221,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
     } finally {
       setBusy(null);
     }
-  }, [busy, index, label, media, prepareMedia, watermark]);
+  }, [busy, index, label, media, onDownloaded, prepareMedia, watermark]);
 
   const handleShare = useCallback(async () => {
     const item = media[index];
@@ -253,6 +258,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
       if (!prepared) prepared = await prepareMedia(item);
       const shared = await shareFile(toFile(prepared));
       if (!shared) setActionError('Perangkat ini tidak mendukung berbagi langsung — pakai Download.');
+      else onShared?.();
     } catch (err) {
       // Batal dari share sheet bukan kegagalan.
       if (isAbortError(err)) return;
@@ -262,13 +268,15 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
         // berkasnya sudah ada: jangan buntu, serahkan lewat unduhan.
         downloadBlob(prepared.blob, toFile(prepared).name);
         setActionError('Bagikan ditolak peramban — berkas diunduh sebagai gantinya.');
+        // Berkas tetap tersimpan → dihitung sebagai unduhan, bukan share.
+        onDownloaded?.();
       } else {
         setActionError('Gagal mengambil media dari CDN. Coba lagi.');
       }
     } finally {
       setBusy(null);
     }
-  }, [busy, index, label, media, prepareMedia]);
+  }, [busy, index, label, media, onDownloaded, onShared, prepareMedia]);
 
   // Efek sendiri berdeps kosong: efek di bawah ikut jalan ulang tiap `onClose`
   // berganti identitas (pemanggil memberi arrow inline), dan kunci gulir tidak

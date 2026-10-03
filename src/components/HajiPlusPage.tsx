@@ -192,6 +192,13 @@ export default function HajiPlusPage({ agent: _agent, onExport, initialTab }: Ha
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Sekali per kunjungan ke tab Statistik (reset saat pindah ke Simulasi).
+  const statistikTracked = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'statistik') { statistikTracked.current = false; return; }
+    if (!statistikTracked.current) { trackEvent('feature', 'open_haji_plus_statistik'); statistikTracked.current = true; }
+  }, [activeTab]);
+
   const currentYear = new Date().getFullYear();
 
   // Ganti tab = ganti URL di tempat (pola sub-tab Settings/Jamaah/Statistik): halaman ini

@@ -86,7 +86,6 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
   const [selectedDesign, setSelectedDesign] = useState<DesignId>('d1');
   const [format, setFormat] = useState<CardFormat>('landscape');
   const [qrMode, setQrMode] = useState<QrMode>('web');
-  const hasTrackedGenerate = useRef(false);
   const [exporting, setExporting] = useState<'download' | 'share' | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const currentDesign = DESIGNS.find(d => d.id === selectedDesign)!;
@@ -104,11 +103,9 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
       errorCorrectionLevel: qrMode === 'vcard' ? 'L' : 'M',
       color: { dark: currentDesign.qrColor.dark, light: currentDesign.qrColor.light },
     }).then(url => {
+      // Tidak ada event 'generate_business_card' di sini: efek ini jalan otomatis
+      // tiap mount (tanpa aksi user) sehingga hanya menggandakan open_business_card.
       setQrDataUrl(url);
-      if (!hasTrackedGenerate.current) {
-        trackEvent('action', 'generate_business_card', { theme: currentDesign.name, orientation: format, qr: qrMode });
-        hasTrackedGenerate.current = true;
-      }
     });
   }, [publicUrl, selectedDesign, qrMode, name, waDigits, email]);
 
@@ -202,6 +199,7 @@ export default function BusinessCardPage({ agent }: BusinessCardPageProps) {
           a.click();
           a.remove();
           setTimeout(() => URL.revokeObjectURL(url), 4000);
+          trackEvent('action', 'download_business_card', { theme: currentDesign.name, via: 'share_fallback' });
         }
       }
     } catch (e: any) { if (e?.name !== 'AbortError') console.error('Share gagal:', e); }

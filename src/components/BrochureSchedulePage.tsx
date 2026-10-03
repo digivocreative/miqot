@@ -420,6 +420,13 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_brosur'); mountTracked.current = true; } }, []);
+  // Mode Paket tidak me-remount halaman (replaceState), jadi dicatat tiap kali
+  // mode BERPINDAH ke paket — termasuk saat mount langsung di …/paket.
+  const lastTrackedModeRef = useRef<BrochureMode | null>(null);
+  useEffect(() => {
+    if (mode === 'paket' && lastTrackedModeRef.current !== 'paket') trackEvent('feature', 'open_brosur_paket');
+    lastTrackedModeRef.current = mode;
+  }, [mode]);
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
   // Catalog export follows the active on-screen filter. Brosur Jadwal makes ONE
@@ -894,6 +901,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       if (addedPackages === 0) throw new Error('semua gambar brosur gagal dimuat');
       pdf.save(packageCatalogFilename(agent, packageCatalogScope.label));
+      trackEvent('action', 'download_katalog_pdf', { cover: coverId, mode: 'paket' });
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -980,6 +988,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       if (added === 0) throw new Error('semua halaman gagal dibuat');
       pdf.save(catalogFilenameWithLabel(agent, plan.filenameLabel));
+      trackEvent('action', 'download_katalog_pdf', { cover: coverId, mode: 'jadwal' });
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -1105,6 +1114,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
       return;
     }
     downloadBlob(image.blob, filenameForBrochure(exportLabel, pageIndex + 1, activeImagePages.length, image.ext));
+    trackEvent('action', 'download_brosur_jadwal', { design: designId, mode });
   }
 
   // Studio sticker bekerja pada blob KANONIK — gambar yang byte-nya identik
@@ -1139,6 +1149,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     const file = new File([image.blob], filename, { type: image.mime });
     if (!canShareFiles([file])) {
       downloadBlob(image.blob, filename);
+      trackEvent('action', 'download_brosur_jadwal', { design: designId, mode, via: 'share_fallback' });
       showToast(`Share tidak didukung, ${image.ext.toUpperCase()} diunduh`);
       return;
     }
@@ -1148,6 +1159,8 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         files: [file],
         title: `Brosur Paket Umroh ${exportLabel}`,
         text: `Paket Umroh ${exportLabel} dari ${agent.name || 'Alhijaz'}`,
+      }).then(() => {
+        trackEvent('action', 'share_brosur_jadwal', { design: designId, mode });
       }).catch((shareError: any) => {
         if (shareError?.name === 'AbortError') return;
         console.error('[brosur] share failed:', shareError);

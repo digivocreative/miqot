@@ -189,6 +189,7 @@ export default function BirthdayDetailSheet({
       try {
         await navigator.clipboard.writeText(message);
         showToast('Pesan disalin ke clipboard');
+        trackEvent('action', 'birthday_copy_message', { day_offset: jamaah.day_offset });
       } catch {
         showToast('Gagal menyalin pesan');
       }

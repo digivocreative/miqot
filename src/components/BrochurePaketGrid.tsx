@@ -362,6 +362,7 @@ export default function BrochurePaketGrid({ packages, filterLabel, agent }: Broc
             tone="emerald"
             agent={{ name: agent.name, phone: agent.phone }}
             allowSticker
+            source="brosur_paket"
             onCaption={() => setView('caption')}
             // Butuh nama tier untuk mengunci fakta paket di backend; 1 dari 66
             // paket tidak punya harga sehingga tier-nya kosong — di situ alat

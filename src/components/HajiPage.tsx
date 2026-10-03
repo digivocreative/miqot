@@ -174,7 +174,7 @@ function formatUsd(value: number | string | null) {
 }
 
 // ── Document Viewer with auth proxy ──
-function DocViewerPopup({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
+function DocViewerPopup({ url, title, doc, onClose }: { url: string; title: string; doc: 'bpih' | 'pernyataan'; onClose: () => void }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   // Blob aslinya disimpan untuk share/unduh: window.open(blob:) tidak berfungsi di app
   // terpasang iOS (gagal diam-diam) dan fetch ulang URL blob membuang gestur ketuk.
@@ -279,13 +279,18 @@ function DocViewerPopup({ url, title, onClose }: { url: string; title: string; o
               const file = new File([blob], fileName, { type: blob.type });
               if (!canShareFiles([file])) {
                 downloadBlob(blob, fileName);
+                trackEvent('action', 'share_haji_doc', { doc });
                 return;
               }
               setSharing(true);
               try {
                 await navigator.share({ title, files: [file] });
+                trackEvent('action', 'share_haji_doc', { doc });
               } catch (err: any) {
-                if (err?.name !== 'AbortError') downloadBlob(blob, fileName);
+                if (err?.name !== 'AbortError') {
+                  downloadBlob(blob, fileName);
+                  trackEvent('action', 'share_haji_doc', { doc });
+                }
               } finally {
                 setSharing(false);
               }
@@ -358,7 +363,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
 
   const [showFilters, setShowFilters] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
-  const [docViewer, setDocViewer] = useState<{ url: string; title: string } | null>(null);
+  const [docViewer, setDocViewer] = useState<{ url: string; title: string; doc: 'bpih' | 'pernyataan' } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
   const hasAutoSynced = useRef(false);
@@ -586,7 +591,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
 
   // ── Sync handler (progressive — same as Umroh) ──
   const handleSync = async () => {
-    trackEvent('action', 'sync_jamaah_haji');
+    // sync_jamaah_haji dicatat server-side di /api/haji/sync (juga mencakup sync dari Statistik).
     setSyncing(true);
     setError('');
     setSyncedCount(0);
@@ -1270,14 +1275,14 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
                           <div className="px-3 py-2.5 flex items-center gap-2 border-t border-gray-50 dark:border-slate-700/50">
                             {item.bpih_url && (
                               <button
-                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.bpih_url), title: `BPIH - ${item.nama}` }); trackEvent('action', 'view_bpih_doc', { jamaah: item.nama || '' }); }}
+                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.bpih_url), title: `BPIH - ${item.nama}`, doc: 'bpih' }); trackEvent('action', 'view_bpih_doc', { jamaah: item.nama || '' }); }}
                                 className="flex-[3] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/20 px-2 py-2 rounded-xl border border-blue-100 dark:border-blue-800/40 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors active:scale-95">
                                 <FileText size={13} /> BPIH
                               </button>
                             )}
                             {item.surat_pernyataan_url && (
                               <button
-                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.surat_pernyataan_url), title: `Pernyataan - ${item.nama}` }); trackEvent('action', 'view_pernyataan_doc', { jamaah: item.nama || '' }); }}
+                                onClick={() => { setDocViewer({ url: resolveInternalUrl(item.surat_pernyataan_url), title: `Pernyataan - ${item.nama}`, doc: 'pernyataan' }); trackEvent('action', 'view_pernyataan_doc', { jamaah: item.nama || '' }); }}
                                 className="flex-[5] flex items-center justify-center gap-1.5 text-[11px] font-semibold text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-900/20 px-2 py-2 rounded-xl border border-violet-100 dark:border-violet-800/40 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors active:scale-95">
                                 <FileText size={13} /> Pernyataan
                               </button>
@@ -1357,6 +1362,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
           <DocViewerPopup
             url={docViewer.url}
             title={docViewer.title}
+            doc={docViewer.doc}
             onClose={() => setDocViewer(null)}
           />
         )}

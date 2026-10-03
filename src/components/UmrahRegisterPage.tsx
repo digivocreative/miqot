@@ -1193,6 +1193,9 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       if (!res.ok || data.success === false) {
         setError(data.error || 'Gagal mengirim pendaftaran');
         setSubmitting(false);
+        // reason = kode singkat dari server (snake_case), selain itu status HTTP
+        const reason = data.reason && /^[a-z0-9_]{1,48}$/.test(data.reason) ? data.reason : `http_${res.status}`;
+        trackEvent('action', 'register_jamaah_error', { reason });
         return;
       }
       setSuccess(true);
@@ -1223,6 +1226,9 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       const message = describeLoadError(err);
       setError(message === LOAD_ERROR_MESSAGES.generic ? 'Pendaftaran belum terkirim. Coba lagi.' : message);
       setSubmitting(false);
+      const reason = message === LOAD_ERROR_MESSAGES.timeout ? 'timeout'
+        : message === LOAD_ERROR_MESSAGES.offline ? 'network' : 'client_error';
+      trackEvent('action', 'register_jamaah_error', { reason });
     }
   };
 

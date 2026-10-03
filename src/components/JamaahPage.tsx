@@ -261,11 +261,16 @@ function UmrohPernyataanViewer({ url, jamaahName, onClose }: { url: string; jama
             text: `Surat Pernyataan ${jamaahName}`,
             files: [file],
           });
+          trackEvent('action', 'download_pernyataan_pdf', { kind: 'umroh', method: 'share' });
         } catch (shareErr: any) {
-          if (shareErr?.name !== 'AbortError') downloadBlob(blob, fileName);
+          if (shareErr?.name !== 'AbortError') {
+            downloadBlob(blob, fileName);
+            trackEvent('action', 'download_pernyataan_pdf', { kind: 'umroh', method: 'download' });
+          }
         }
       } else {
         downloadBlob(blob, fileName);
+        trackEvent('action', 'download_pernyataan_pdf', { kind: 'umroh', method: 'download' });
       }
     } catch {
       setError('PDF belum bisa diunduh. Coba lagi.');
@@ -974,7 +979,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
         return;
       }
 
-      trackEvent('action', 'sync_jamaah', {});
+      // sync_jamaah dicatat server di POST /api/laporan/sync — jangan double count di klien.
 
       // First batch arrived — show data immediately
       setView('data');
@@ -2191,10 +2196,13 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           <button
                             type="button"
                             aria-label="Buka surat pernyataan"
-                            onClick={() => setPernyataanViewer({
-                              url: resolveUmrohPernyataanUrl(pernyataanDocumentUrl, item.jm_id),
-                              jamaahName: item.nama,
-                            })}
+                            onClick={() => {
+                              setPernyataanViewer({
+                                url: resolveUmrohPernyataanUrl(pernyataanDocumentUrl, item.jm_id),
+                                jamaahName: item.nama,
+                              });
+                              trackEvent('action', 'view_pernyataan_doc', { kind: 'umroh' });
+                            }}
                             className="w-full flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 px-3 py-2.5 text-left hover:border-emerald-200 dark:hover:border-emerald-800/60 hover:bg-emerald-50/35 dark:hover:bg-emerald-900/10 transition-all active:scale-[0.99]"
                           >
                             <span className="flex min-w-0 items-center gap-2.5">
@@ -2354,7 +2362,10 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                           return (
                             <button
                               type="button"
-                              onClick={() => handleRefreshRow(item)}
+                              onClick={() => {
+                                // Hanya refresh manual; auto-refresh perlengkapan tidak dicatat
+                                handleRefreshRow(item).then(ok => { if (ok) trackEvent('action', 'refresh_jamaah_row'); });
+                              }}
                               disabled={isRefreshing}
                               className={`${baseClass} ${stateClass}`}
                               title={isAutoRefreshing ? 'Auto-refresh perlengkapan...' : hasError ? 'Refresh gagal — coba lagi' : justRefreshed ? 'Berhasil di-refresh' : 'Refresh data jamaah dari Alhijaz'}

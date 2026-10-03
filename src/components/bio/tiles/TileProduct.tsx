@@ -7,6 +7,7 @@ interface Props {
   variant: 'umroh' | 'umroh_landing' | 'haji';
   agent: BioAgentPublic;
   cta?: string;
+  onTileClick?: () => void;
 }
 
 const VARIANT_META = {
@@ -32,14 +33,14 @@ const VARIANT_META = {
   },
 } as const;
 
-export default function TileProduct({ variant, agent, cta }: Props) {
+export default function TileProduct({ variant, agent, cta, onTileClick }: Props) {
   const meta = VARIANT_META[variant];
   const Icon = meta.icon;
   const title = cta?.trim() || meta.title;
   const href = getBioAgentPath(agent.slug, meta.path);
 
   return (
-    <a href={href} className="bio-tile bio-tile--button">
+    <a href={href} className="bio-tile bio-tile--button" onClick={onTileClick}>
       <div className="bio-tile-row">
         <div className="bio-tile-icon">
           <Icon size={20} strokeWidth={2.2} />

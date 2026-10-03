@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ChevronLeft, ChevronRight, Inbox, AlertTriangle } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
 import FilterDropdown from './FilterDropdown';
+import { trackEvent } from '../utils/analytics';
 
 interface LogEntry {
   id: number;
@@ -59,6 +60,7 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
   const [filter, setFilter] = useState('');
   const [circuit, setCircuit] = useState<CircuitState | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountTracked = useRef(false);
   const eventOptions = Array.from(new Set([
     ...EVENT_OPTIONS.filter(Boolean),
     ...logs.map(log => log.event_name).filter(Boolean),
@@ -81,6 +83,10 @@ export default function CapiEventLog({ agentSlug }: { agentSlug: string }) {
       setLoading(false);
     }
   }, [agentSlug, page, filter]);
+
+  useEffect(() => {
+    if (!mountTracked.current) { trackEvent('feature', 'open_capi_log'); mountTracked.current = true; }
+  }, []);
 
   useEffect(() => {
     setLoading(true);

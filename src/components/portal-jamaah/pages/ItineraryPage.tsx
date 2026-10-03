@@ -147,7 +147,11 @@ export default function ItineraryPage({
                 loading={loading}
                 error={null}
                 paket={paket}
-                onRetryPdf={pdfUrl ? () => window.open(pdfUrl, '_blank', 'noopener,noreferrer') : undefined}
+                onRetryPdf={pdfUrl ? () => {
+                  window.open(pdfUrl, '_blank', 'noopener,noreferrer');
+                  // Fallback PDF saat itinerary web tak bisa disusun.
+                  trackPublicEvent(slug, 'view_portal_doc', { doc: 'itinerary_pdf' });
+                } : undefined}
                 onPdfDownload={() => trackPublicEvent(slug, 'itinerary_pdf_download_portal', { paket: jadwalId })}
               />
             </Card>

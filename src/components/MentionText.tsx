@@ -1,6 +1,7 @@
 import { toMentionSegments, type MentionMember, type MentionSegment } from '../lib/communityMentions';
 import { linkifySegments } from '../../lib/teras-linkify.js';
 import { isModifiedClick, terasProfilePath } from '../lib/terasRoutes';
+import { trackEvent } from '../utils/analytics';
 
 /**
  * Render a post/comment body with `@slug` tokens shown as pills of the member's
@@ -92,7 +93,10 @@ export function MentionText({
               href={linkSegment.href}
               target="_blank"
               rel="noopener noreferrer nofollow"
-              onClick={event => event.stopPropagation()}
+              onClick={event => {
+                event.stopPropagation();
+                trackEvent('action', 'teras_link_click', { surface: 'inline' });
+              }}
               className="font-medium text-emerald-600 hover:underline dark:text-emerald-400 [overflow-wrap:anywhere]"
             >
               {linkSegment.value}

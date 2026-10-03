@@ -21,6 +21,9 @@ interface Props {
    *  permukaan dengan sesi berbeda (modal agen, share publik, portal jamaah),
    *  jadi event-nya ditembakkan pemanggil — bukan di sini. */
   onPdfDownload?: () => void;
+  /** Dipanggil saat tombol "Brosur" membuka brosur — sama seperti onPdfDownload,
+   *  event-nya milik pemanggil (hanya share publik yang melacaknya). */
+  onBrosurOpen?: () => void;
 }
 
 /**
@@ -37,7 +40,7 @@ function tapActivationExpired(): boolean {
   return activation ? !activation.isActive : false;
 }
 
-export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama, onPdfDownload }: Props) {
+export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paketNama, onPdfDownload, onBrosurOpen }: Props) {
   // Animasi 2 detik: bar terisi + pesawat menyeberangi tombol, PDF di-fetch
   // paralel. Sesudahnya:
   // - Perangkat sentuh → share sheet native. Batal share = bukan error. Ditolak
@@ -189,7 +192,7 @@ export default function JourneyStrip({ days, pdfUrl, brosurUrl, departISO, paket
                mengesampingkan D7 "burgundy = tombol penuh saja" untuk tombol ini. */
             <button
               type="button"
-              onClick={() => { setBrosurMounted(true); setBrosurOpen(true); }}
+              onClick={() => { setBrosurMounted(true); setBrosurOpen(true); onBrosurOpen?.(); }}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border-[1.5px] border-burgundy-600 bg-white py-2.5 text-[13px] font-bold text-burgundy-700"
             >
               <BookOpen size={15} /> Brosur
