@@ -9,6 +9,12 @@ export interface ContactSlot {
   y: number;
   width: number;
   height: number;
+  /**
+   * RGB rata-rata isian kotak. Diisi findContactSlot; penggambar memilih teks
+   * terang di atas isian gelap. Kotak buatan pemanggil (pita jaring pengaman)
+   * boleh tanpa ini.
+   */
+  fill?: [number, number, number];
 }
 
 export interface ContactSlotRegion {
@@ -31,6 +37,15 @@ export declare const CONTACT_SLOT: {
   readonly minHeightRatio: number;
   readonly step: number;
   readonly whiteLevel: number;
+  readonly usableAspect: number;
+  readonly fillTolerance: number;
+  readonly maxFills: number;
+  readonly edgeCoverage: number;
+  readonly edgeReachRatio: number;
+  readonly labelMinWidthRatio: number;
+  readonly labelReachRatio: number;
+  readonly labelTopPercentile: number;
+  readonly bandMinWidthRatio: number;
 };
 
 export declare function findContactSlot(region: ContactSlotRegion): ContactSlot | null;

@@ -1,6 +1,7 @@
 /**
  * Deklarasi tipe untuk src/lib/agentBandLayout.js — tata letak nama + nomor
- * WhatsApp agent di dalam kotak kontak brosur, satu baris.
+ * WhatsApp agent di dalam kotak kontak brosur: satu baris, atau ditumpuk dua
+ * baris di kotak sempit kalau itu membuat hurufnya jauh lebih besar.
  */
 
 import type { ContactSlot } from './brochureContactSlot';
@@ -20,8 +21,10 @@ export interface AgentBandLayout {
   contentHeight: number;
   /** Satu ukuran untuk nama DAN nomor. */
   fontSize: number;
-  /** Sumbu tengah vertikal baris — penggambar memakai textBaseline 'middle'. */
+  /** Sumbu tengah vertikal blok — tiap baris membawa midY-nya sendiri. */
   midY: number;
+  /** true = nama di atas, nomor di bawah; false = sebaris. */
+  stacked: boolean;
   name: { x: number; midY: number; text: string } | null;
   wa: {
     iconX: number;
@@ -42,6 +45,11 @@ export declare const AGENT_BLOCK: {
   readonly waGapRatio: number;
   readonly columnGapRatio: number;
   readonly minHeight: number;
+  readonly stackGapRatio: number;
+  readonly stackFillRatio: number;
+  readonly stackMinGain: number;
+  readonly stackNameShrink: number;
+  readonly darkFillLuma: number;
   readonly fontFamily: string;
   readonly colors: {
     readonly name: string;
@@ -55,5 +63,7 @@ export declare function ellipsize(
   maxWidth: number,
   measureAt: (text: string) => number,
 ): string;
+
+export declare function fillTone(fill: readonly number[] | undefined): 'light' | 'dark';
 
 export declare function layoutAgentBlock(input: AgentBandInput): AgentBandLayout | null;

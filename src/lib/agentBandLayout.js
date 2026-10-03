@@ -21,6 +21,11 @@
  * asli berkisar 308×54 sampai 758×74 — bahkan ada yang 520×160 — jadi blok ini
  * memang harus bisa memuai dan menyusut, bukan sekadar digeser.
  *
+ * Pengecualiannya kotak SEMPIT (pita di kanan pil template Milad, ±250 px):
+ * sebaris, nama + nomor hanya muat dengan huruf ±12 px. Di situ keduanya
+ * ditumpuk dua baris — tapi hanya kalau itu menaikkan huruf minimal seperempat.
+ * Tujuannya tetap sama dengan keputusan satu baris tadi: huruf sebesar mungkin.
+ *
  * Pengukuran lebar teks disuntikkan lewat `measure` supaya modul ini tetap
  * murni: kanvas menyediakan ctx.measureText, tes menyediakan penggaris palsu.
  */
@@ -55,6 +60,27 @@ export const AGENT_BLOCK = {
    * layak — pemanggil sebaiknya jatuh ke pita tambahan.
    */
   minHeight: 18,
+  /** Tumpukan dua baris: jeda antarbaris, kelipatan ukuran huruf. */
+  stackGapRatio: 0.28,
+  /** Bagian tinggi kotak yang boleh diisi dua baris; sisanya ruang napas. */
+  stackFillRatio: 0.82,
+  /**
+   * Tumpukan dipakai hanya kalau hurufnya naik minimal sekian kali versi
+   * sebaris. Pil 40 px dengan nama panjang cuma naik beberapa persen kalau
+   * ditumpuk — dua baris sesak lebih jelek daripada elipsis di satu baris.
+   */
+  stackMinGain: 1.25,
+  /**
+   * Dalam tumpukan, huruf boleh menyusut sampai sekian kali ukuran awalnya agar
+   * nama yang nyaris muat tampil utuh. Lebih dari itu namanya yang dielipsis:
+   * huruf besar lebih penting daripada nama superpanjang yang lengkap.
+   */
+  stackNameShrink: 0.85,
+  /**
+   * Luminans isian kotak (0–255) di bawah angka ini digambar dengan teks terang.
+   * Kotak marun template Syawal/Lailatul Qadr ±28; kuning Ramadhan ±219.
+   */
+  darkFillLuma: 140,
   /**
    * Tumpukan huruf sengaja sama dengan WATERMARK: font ini sudah pasti termuat
    * di aplikasi, dan kanvas yang menggambar huruf belum termuat diam-diam
@@ -81,6 +107,20 @@ export function ellipsize(text, maxWidth, measureAt) {
     else hi = mid - 1;
   }
   return lo > 0 ? full.slice(0, lo) + '…' : '';
+}
+
+/**
+ * Nada isian kotak: 'dark' berarti teks harus terang. Tanpa info isian (kotak
+ * lama, pita jaring pengaman) hasilnya 'light' — perilaku sebelum ada kotak
+ * berwarna.
+ *
+ * @param {number[] | undefined} fill RGB rata-rata isian kotak.
+ * @returns {'light' | 'dark'}
+ */
+export function fillTone(fill) {
+  if (!Array.isArray(fill) || fill.length < 3) return 'light';
+  const luma = 0.2126 * fill[0] + 0.7152 * fill[1] + 0.0722 * fill[2];
+  return luma < AGENT_BLOCK.darkFillLuma ? 'dark' : 'light';
 }
 
 /**
@@ -137,10 +177,11 @@ export function layoutAgentBlock({ slot, name, phone, measure }) {
 
   const waIconSize = fontSize * B.waIconRatio;
 
-  return {
+  const single = {
     contentHeight,
     fontSize,
     midY,
+    stacked: false,
     name: nameFinal ? { x: left, midY, text: nameFinal } : null,
     wa: phoneText
       ? {
@@ -152,5 +193,58 @@ export function layoutAgentBlock({ slot, name, phone, measure }) {
           text: phoneText,
         }
       : null,
+  };
+
+  const stacked = nameText && phoneText
+    ? layoutStacked({ slot, nameText, phoneText, measure, contentHeight, left, rowWidth })
+    : null;
+  return stacked && stacked.fontSize >= fontSize * B.stackMinGain ? stacked : single;
+}
+
+/**
+ * Nama di atas, ikon + nomor di bawah, rata kiri pada padding yang sama dengan
+ * versi sebaris. Hurufnya tidak pernah melewati titik awal versi sebaris
+ * (lebar kotak tetap yang menentukan seberapa besar isi boleh tampil).
+ *
+ * Aturan potongnya sama dengan versi sebaris: nomor tidak pernah dipotong,
+ * nama boleh dielipsis. Sebelum memotong, huruf boleh menyusut sedikit
+ * (sampai `stackNameShrink`) supaya nama yang nyaris muat tampil utuh.
+ */
+function layoutStacked({ slot, nameText, phoneText, measure, contentHeight, left, rowWidth }) {
+  const B = AGENT_BLOCK;
+  const waWidthAt = (fs) => fs * B.waIconRatio + fs * B.waGapRatio + measure(phoneText, fs, 700);
+  let fontSize = Math.min(
+    contentHeight * B.singleLineRatio,
+    (slot.height * B.stackFillRatio) / (2 + B.stackGapRatio),
+  );
+  while (fontSize > 0 && waWidthAt(fontSize) > rowWidth) fontSize -= 0.5;
+  if (!(fontSize > 0)) return null;
+
+  const shrinkFloor = fontSize * B.stackNameShrink;
+  let fitted = fontSize;
+  while (fitted > shrinkFloor && measure(nameText, fitted, 700) > rowWidth) fitted -= 0.5;
+  if (measure(nameText, fitted, 700) <= rowWidth) fontSize = fitted;
+  const nameFinal = ellipsize(nameText, rowWidth, (t) => measure(t, fontSize, 700));
+  if (!nameFinal) return null;
+
+  const block = fontSize * (2 + B.stackGapRatio);
+  const top = slot.y + (slot.height - block) / 2;
+  const nameMidY = top + fontSize / 2;
+  const waMidY = top + fontSize * (1 + B.stackGapRatio) + fontSize / 2;
+  const iconSize = fontSize * B.waIconRatio;
+  return {
+    contentHeight,
+    fontSize,
+    midY: slot.y + slot.height / 2,
+    stacked: true,
+    name: { x: left, midY: nameMidY, text: nameFinal },
+    wa: {
+      iconX: left,
+      iconY: waMidY - iconSize / 2,
+      iconSize,
+      textX: left + iconSize + fontSize * B.waGapRatio,
+      midY: waMidY,
+      text: phoneText,
+    },
   };
 }
