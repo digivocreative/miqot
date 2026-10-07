@@ -26,6 +26,9 @@ import { lockDocumentScroll } from '../lib/scrollLock';
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
 
+// Tab Tren Daftar disembunyikan sementara; muncul lagi otomatis 7 Okt 2026 17:00 WIB.
+const TREN_HIDDEN_UNTIL = Date.parse('2026-10-07T17:00:00+07:00');
+
 // ── Types ──
 interface OutstandingItem {
   nama: string;
@@ -375,8 +378,15 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   initialStatTab?: 'umroh' | 'haji' | 'tren';
 }) {
   const isAdmin = role === 'admin';
-  // Coerce non-admin landing on 'tren' (admin-only) to 'umroh'
-  const safeInitialTab = initialStatTab === 'tren' && role !== 'admin' ? 'umroh' : (initialStatTab || 'umroh');
+  const [trenUnhidden, setTrenUnhidden] = useState(() => Date.now() >= TREN_HIDDEN_UNTIL);
+  useEffect(() => {
+    if (trenUnhidden) return;
+    const t = setTimeout(() => setTrenUnhidden(true), Math.max(0, TREN_HIDDEN_UNTIL - Date.now()));
+    return () => clearTimeout(t);
+  }, [trenUnhidden]);
+  const showTren = isAdmin && trenUnhidden;
+  // Coerce landing on 'tren' (admin-only, or temporarily hidden) to 'umroh'
+  const safeInitialTab = initialStatTab === 'tren' && !showTren ? 'umroh' : (initialStatTab || 'umroh');
   const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(safeInitialTab);
   // Year state split: hijriah for Umroh+Tren, masehi for Haji
   const [selectedYearMasehi, setSelectedYearMasehi] = useState('');
@@ -815,7 +825,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             {([
               { id: 'umroh' as const, label: 'Umroh', Icon: BarChart3 },
               { id: 'haji' as const, label: 'Haji', Icon: Plane },
-              ...(isAdmin ? [{ id: 'tren' as const, label: 'Tren Daftar', Icon: TrendingUp }] : []),
+              ...(showTren ? [{ id: 'tren' as const, label: 'Tren Daftar', Icon: TrendingUp }] : []),
             ]).map(tab => {
               const active = statTab === tab.id;
               return (
@@ -1183,7 +1193,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       )}
 
       {/* ── Tren Daftar Tab ── */}
-      {isAdmin && statTab === 'tren' && (
+      {showTren && statTab === 'tren' && (
         <Suspense fallback={
           <div className="px-4 pt-4 pb-8 space-y-3">
             <div className="grid grid-cols-2 gap-2">
