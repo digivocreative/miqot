@@ -47,6 +47,12 @@ export const BROCHURE_DESIGNS: ReadonlyArray<BrochureDesignDef> = [
     Component: BrochureScheduleTemplate,
   },
   {
+    id: 'kalender',
+    label: 'Kalender',
+    swatch: 'linear-gradient(180deg, #870018 0%, #C8102E 36%, #FFFFFF 36%, #F3EADF 100%)',
+    Component: KalenderTemplate,
+  },
+  {
     id: 'boarding',
     label: 'Boarding Pass',
     swatch: 'linear-gradient(135deg, #C8102E 0%, #C8102E 42%, #F4F6F8 42%, #F4F6F8 72%, #1E3A8A 72%)',
@@ -69,12 +75,6 @@ export const BROCHURE_DESIGNS: ReadonlyArray<BrochureDesignDef> = [
     label: 'Kolom Harga',
     swatch: 'linear-gradient(90deg, #FFFFFF 0%, #FFF3E4 60%, #870018 60%, #C8102E 100%)',
     Component: KolomHargaTemplate,
-  },
-  {
-    id: 'kalender',
-    label: 'Kalender',
-    swatch: 'linear-gradient(180deg, #870018 0%, #C8102E 36%, #FFFFFF 36%, #F3EADF 100%)',
-    Component: KalenderTemplate,
   },
 ];
 

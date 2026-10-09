@@ -53,7 +53,9 @@ function Entry({ p, displayMode, last }: { p: BrochurePackage; displayMode: 'har
   const highlighted = !row.soldOut && row.chip !== null;
   const fade: CSSProperties = row.soldOut ? { opacity: 0.55 } : {};
   const tagBg = row.soldOut ? GREY_GRADIENT : highlighted ? GOLD_GRADIENT : RED_GRADIENT;
-  const tagInk = highlighted ? DARK : '#FFFFFF';
+  // Harga selalu putih; di label emas (terang di sisi kanan) diberi bayangan
+  // tipis supaya angkanya tetap terbaca.
+  const priceInk: CSSProperties = { color: '#FFFFFF', ...(highlighted ? { textShadow: '0 1px 2px rgba(110,60,0,0.45)' } : {}) };
 
   return (
     <div style={{
@@ -111,12 +113,12 @@ function Entry({ p, displayMode, last }: { p: BrochurePackage; displayMode: 'har
                 <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, lineHeight: 1, color: DARK, whiteSpace: 'nowrap' }}>{row.chip}</span>
               )}
               {row.priceJt ? (
-                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, lineHeight: 1, color: tagInk, whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, lineHeight: 1, ...priceInk, whiteSpace: 'nowrap' }}>
                   <span style={{ fontSize: 34, fontWeight: 900, letterSpacing: -0.5 }}>{row.priceJt}</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: highlighted ? DARK : PALE }}> Jt</span>
+                  <span style={{ fontSize: 16, fontWeight: 800 }}> Jt</span>
                 </span>
               ) : (
-                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 15, fontWeight: 800, lineHeight: 1.1, color: tagInk, whiteSpace: 'nowrap' }}>Hubungi kami</span>
+                <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, fontSize: 15, fontWeight: 800, lineHeight: 1.1, ...priceInk, whiteSpace: 'nowrap' }}>Hubungi kami</span>
               )}
             </>
           )}
