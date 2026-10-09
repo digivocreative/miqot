@@ -44,6 +44,7 @@ interface FormMedia {
 
 interface FormState {
   name: string;
+  aliases: string[];
   city: string;
   stars: number | null;
   distance_label: string;
@@ -62,7 +63,7 @@ interface FormState {
 
 function emptyForm(): FormState {
   return {
-    name: '', city: 'mekkah', stars: null,
+    name: '', aliases: [], city: 'mekkah', stars: null,
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
     description: '', facilities: [], media: [], ratings: {}, faq: [],
   };
@@ -77,6 +78,7 @@ function formSnapshot(form: FormState): string {
 function formFromDetail(detail: HotelDetail): FormState {
   return {
     name: detail.name,
+    aliases: detail.aliases || [],
     city: detail.city,
     stars: detail.stars,
     distance_label: detail.distance_label || '',
@@ -248,6 +250,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
   // skeleton dan terlihat seperti berpindah halaman.
   const skipEditFetchRef = useRef<string | null>(null);
   const [facilityDraft, setFacilityDraft] = useState('');
+  const [aliasDraft, setAliasDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<HotelListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteClosing, setDeleteClosing] = useState(false);
@@ -513,6 +516,15 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     setFacilityDraft('');
   };
 
+  const addAlias = (value: string) => {
+    const trimmed = value.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+    setForm(prev => (prev.aliases.some(a => a.toUpperCase() === trimmed.toUpperCase())
+      ? prev
+      : { ...prev, aliases: [...prev.aliases, trimmed] }));
+    setAliasDraft('');
+  };
+
   const handleSave = async () => {
     // Mode edit tapi detail belum/gagal termuat → tanpa editingId permintaan
     // akan jatuh ke POST dan MENDUPLIKASI hotel. Tahan di sini (fail-closed).
@@ -531,6 +543,7 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
     const cityHasDistance = Boolean(HOTEL_CITY_LANDMARKS[form.city]);
     const body = {
       name: form.name,
+      aliases: form.aliases,
       city: form.city,
       stars: form.stars,
       distance_label: cityHasDistance ? form.distance_label : null,
@@ -723,6 +736,44 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                   placeholder="mis. Makkah Towers"
                   className={`${INPUT_CLASS} mt-1.5`}
                 />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>Nama Lain di Jadwal</label>
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+                  Isi bila ejaan hotel di jadwal Alhijaz berbeda dari nama di atas, supaya fotonya tetap muncul di detail jadwal.
+                </p>
+                {form.aliases.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {form.aliases.map(alias => (
+                      <span key={alias} className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-slate-300">
+                        {alias}
+                        <button
+                          onClick={() => setForm(prev => ({ ...prev, aliases: prev.aliases.filter(a => a !== alias) }))}
+                          aria-label={`Hapus ${alias}`}
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={aliasDraft}
+                    onChange={e => setAliasDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAlias(aliasDraft); } }}
+                    placeholder="mis. ELIFIM RESOT"
+                    className={INPUT_CLASS}
+                  />
+                  <button
+                    onClick={() => addAlias(aliasDraft)}
+                    disabled={!aliasDraft.trim()}
+                    className="shrink-0 rounded-xl bg-gray-100 dark:bg-slate-800 px-3 text-xs font-semibold text-gray-600 dark:text-slate-300 disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Tambah
+                  </button>
+                </div>
               </div>
               <div>
                 <label className={LABEL_CLASS}>Kategori <span className="text-red-500">*</span></label>

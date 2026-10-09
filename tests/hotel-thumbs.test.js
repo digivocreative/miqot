@@ -90,3 +90,26 @@ test('nyaris-cocok dari data produksi tidak menghasilkan foto yang salah', () =>
   // Tapi yang memang cocok tetap harus lolos.
   assert.equal(matchHotelPhoto('ROYAL MAJESTIC', dir)?.cover, 'https://cdn/majestic.webp');
 });
+
+/**
+ * Ejaan jadwal yang tidak memuat/dimuat nama kanonik ("ELIFIM RESOT" vs
+ * "Elifim Resort", "CONNECT HOTEL" vs "Connect Thermal Hotel") hanya bisa
+ * dicocokkan lewat nama lain yang dicatat admin di direktori.
+ */
+test('nama lain (aliases) entri direktori ikut dicocokkan', () => {
+  const dir = [
+    { name: 'Elifim Resort', aliases: ['ELIFIM RESOT'], city: 'turki', cover: 'https://cdn/elifim.webp' },
+    { name: 'Connect Thermal Hotel', aliases: ['Connect Hotel'], city: 'turki', cover: 'https://cdn/connect.webp' },
+  ];
+  assert.equal(matchHotelPhoto('ELIFIM RESOT', dir)?.cover, 'https://cdn/elifim.webp');
+  assert.equal(matchHotelPhoto('CONNECT HOTEL', dir)?.cover, 'https://cdn/connect.webp');
+  assert.equal(matchHotelPhoto('ELIFIM RESORT', dir)?.cover, 'https://cdn/elifim.webp');
+});
+
+test('alias pendek tetap tunduk pada ambang panjang yang sama', () => {
+  const dir = [{ name: 'Koza Park Hotel', aliases: ['KOZA'], city: 'turki', cover: 'https://cdn/koza.webp' }];
+  // Sama persis tetap cocok…
+  assert.equal(matchHotelPhoto('KOZA / SETARAF', dir)?.cover, 'https://cdn/koza.webp');
+  // …tapi alias 4 huruf tidak boleh jadi dasar "memuat".
+  assert.equal(matchHotelPhoto('KOZAN', [{ name: 'Lain Sekali', aliases: ['KOZA'], cover: 'x' }]), null);
+});

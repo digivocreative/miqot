@@ -77,6 +77,8 @@ export interface HotelDetail {
   ratings?: HotelRatingItem[];
   // Opsional: baris lama / prod pra-migrasi 20260816040000 tidak punya kolom ini.
   faq?: HotelFaqItemData[];
+  // Nama lain seperti tertulis di jadwal (migrasi 20261009000000).
+  aliases?: string[];
 }
 
 export const HOTEL_CITIES = ['mekkah', 'madinah', 'turki', 'dubai', 'kairo', 'haikou'] as const;

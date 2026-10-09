@@ -19,6 +19,7 @@ import {
   HOTEL_AGENT_MEDIA_MAX_ITEMS,
   normalizeHotelAgentMediaInput,
   buildHotelAgentMediaPayload,
+  normalizeHotelAliasesInput,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
@@ -568,4 +569,31 @@ test('buildHotelAgentMediaPayload: sah, dan catatan ikut tervalidasi', () => {
     { agentSlug: 'bagas', mediaPrefixes: AGENT_PREFIXES }
   );
   assert.equal(badMedia.ok, false);
+});
+
+test('buildHotelPayload: aliases tidak ikut bila klien tidak mengirimnya', () => {
+  // Bundle lama yang belum kenal kolom ini tidak boleh mengosongkan alias.
+  const result = buildHotelPayload(validInput(), OPTS);
+  assert.equal(result.ok, true);
+  assert.equal('aliases' in result.data, false);
+});
+
+test('buildHotelPayload: aliases dibersihkan — trim, dedup, buang yang sama dengan nama', () => {
+  const result = buildHotelPayload(
+    validInput({ aliases: ['  ELIFIM   RESOT ', 'elifim resot', '', 'MAKKAH TOWERS', 'Makkah Twr'] }),
+    OPTS
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.aliases, ['ELIFIM RESOT', 'Makkah Twr']);
+
+  const cleared = buildHotelPayload(validInput({ aliases: null }), OPTS);
+  assert.deepEqual(cleared.data.aliases, []);
+});
+
+test('normalizeHotelAliasesInput: bentuk salah dan batas ditolak', () => {
+  assert.equal(normalizeHotelAliasesInput('ELIFIM').ok, false);
+  assert.equal(normalizeHotelAliasesInput([1]).ok, false);
+  assert.equal(normalizeHotelAliasesInput(['x'.repeat(121)]).ok, false);
+  assert.equal(normalizeHotelAliasesInput(Array.from({ length: 11 }, (_, i) => `Nama ${i}`)).ok, false);
+  assert.equal(normalizeHotelAliasesInput(Array.from({ length: 10 }, (_, i) => `Nama ${i}`)).ok, true);
 });

@@ -7759,7 +7759,7 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
     }
     const { data, error } = await supabase
       .from('hotels')
-      .select('name, city, stars, distance_label, walk_label, area, media')
+      .select('name, aliases, city, stars, distance_label, walk_label, area, media')
       .order('name', { ascending: true });
     if (error) {
       // Migrasi belum jalan = fitur belum ada, bukan galat server. Rail kanan
@@ -7777,6 +7777,7 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
         .map((m) => m.url);
       return {
         name: row.name,
+        aliases: Array.isArray(row.aliases) ? row.aliases : [],
         city: row.city,
         stars: row.stars ?? null,
         distance_label: row.distance_label ?? null,
