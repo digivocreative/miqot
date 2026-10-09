@@ -11,7 +11,7 @@ import { createServer } from 'vite';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const packageBrochureFixture = fileURLToPath(new URL('../public/img-brosur/cover-katalog.png', import.meta.url));
-const designLabels = ['Klasik', 'Boarding Pass', 'Serambi Nabawi', 'Tasbih Hijau'];
+const designLabels = ['Klasik', 'Boarding Pass', 'Kartu Jadwal', 'Kartu Ringkas', 'Kolom Harga', 'Kalender'];
 const browserType = process.env.BROCHURE_TEST_BROWSER === 'webkit' ? webkit : chromium;
 
 const apiPayload = {
@@ -189,7 +189,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
       await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
       let current = await previewDetails(page);
       const firstPass = new Map();
-      const designIds = ['classic', 'boarding', 'serambi', 'tasbih'];
+      const designIds = ['classic', 'boarding', 'kartu', 'kartu-ringkas', 'kolom-harga', 'kalender'];
 
       for (let index = 0; index < designLabels.length; index++) {
         const label = designLabels[index];
@@ -276,7 +276,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
 
       // Jelajahi semua desain dengan cepat — capture generasi lama harus
       // dibatalkan, bukan mengantre di depan capture desain aktif.
-      for (const label of ['Boarding Pass', 'Serambi Nabawi', 'Klasik', 'Tasbih Hijau']) {
+      for (const label of ['Boarding Pass', 'Kolom Harga', 'Klasik', 'Kalender']) {
         await page.getByRole('button', { name: 'Pilih desain brosur' }).click();
         await page.getByRole('option', { name: label, exact: true }).click();
         await page.waitForTimeout(300);

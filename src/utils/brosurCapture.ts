@@ -53,16 +53,14 @@ export async function waitForFonts() {
       document.fonts.load(`800 20px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       document.fonts.load(`900 40px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       document.fonts.load(`800 150px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
-      // Desain alternatif: Bebas (judul Boarding + angka toggle Serambi),
-      // Playfair (judul/tanggal/harga Serambi, judul Tasbih), Oswald (tile
-      // Tasbih), Montserrat (harga Tasbih).
-      document.fonts.load(`400 114px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
-      document.fonts.load(`400 36px "${BROCHURE_BEBAS_FONT}"`).catch(() => null),
-      document.fonts.load(`800 108px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
-      document.fonts.load(`800 102px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
-      document.fonts.load(`800 48px "${BROCHURE_PLAYFAIR_FONT}"`).catch(() => null),
-      document.fonts.load(`700 34px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
+      // Desain alternatif: Montserrat (judul Boarding/Kartu/Kolom Harga/
+      // Kalender + harga), Oswald (tanggal, tile kalender, kolom HARI).
+      document.fonts.load(`900 104px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+      document.fonts.load(`900 66px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+      document.fonts.load(`800 26px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
       document.fonts.load(`900 42px "${BROCHURE_MONTSERRAT_FONT}"`).catch(() => null),
+      document.fonts.load(`700 34px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
+      document.fonts.load(`500 15px "${BROCHURE_OSWALD_FONT}"`).catch(() => null),
     ]);
     await document.fonts.ready;
     // iOS Safari sometimes resolves `fonts.ready` while individual FontFace entries

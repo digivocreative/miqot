@@ -1,8 +1,19 @@
-// Utilitas bersama untuk desain brosur alternatif (Boarding Pass, Serambi
-// Nabawi, Tasbih Hijau). Helper inti (format tanggal/harga/pill/dsb) tetap
+// Utilitas bersama untuk desain brosur alternatif (Boarding Pass, Kartu,
+// Kolom Harga, Kalender). Helper inti (format tanggal/harga/pill/dsb) tetap
 // milik BrochureScheduleTemplate — file ini hanya menampung logika yang KHUSUS
 // desain alternatif agar tidak menempel di template klasik.
-import type { BrochureAgent, BrochureMonth, BrochurePackage } from '../BrochureScheduleTemplate';
+import {
+  MONTH_ABBR_ID,
+  cleanPackageDisplayName,
+  countTripDays,
+  detectPackagePills,
+  formatDepartureDay,
+  formatHargaJt,
+  type BrochureAgent,
+  type BrochureMonth,
+  type BrochurePackage,
+  type PillTag,
+} from '../BrochureScheduleTemplate';
 
 // Prop kontrak seragam semua desain (klasik memakai superset-nya sendiri).
 // `variant` hanya dipakai klasik (winter otomatis); desain lain mengabaikannya
@@ -73,4 +84,68 @@ export function landingIata(landing: string | undefined | null): string | null {
   if (/taif|^tif$/i.test(s)) return 'TIF';
   if (/^[A-Za-z]{3}$/.test(s)) return s.toUpperCase();
   return null;
+}
+
+// Ukuran judul yang tetap muat satu baris (nowrap) di `widthPx`. Huruf
+// Montserrat Black rata-rata ~0.66em per karakter; label filter non-bulan
+// (Tipe Paket, Maskapai) bisa jauh lebih panjang dari "JANUARI 2027".
+export function fitTitleFontSize(title: string, widthPx: number, maxPx: number, minPx: number): number {
+  const len = Math.max(1, title.length);
+  return Math.max(minPx, Math.min(maxPx, Math.floor(widthPx / (len * 0.66))));
+}
+
+// "JANUARI 2027" → { head: 'JANUARI', year: '2027' } untuk judul dua warna.
+// Label tanpa tahun di ujung → year kosong, head = label utuh.
+export function splitTitleYear(title: string): { head: string; year: string } {
+  const year = title.match(/\d{4}$/)?.[0] ?? '';
+  return { head: year ? title.replace(/\s+\d{4}$/, '') : title, year };
+}
+
+export interface BrochureRowModel {
+  name: string;
+  pills: PillTag[];
+  chip: 'PROMO' | 'HEMAT' | null;
+  soldOut: boolean;
+  day: string;
+  monthAbbr: string;
+  /** "11 HARI" (mode hari) atau "SISA 25 SEAT" (mode seat); null = sembunyikan. */
+  metaLabel: string | null;
+  /** Angka kolom HARI/SISA untuk desain bertabel ('-' bila kosong). */
+  metaValue: string;
+  /** Sisa seat 1–5 di mode seat — layak diberi penanda mendesak. */
+  seatCritical: boolean;
+  /** "36.3" (juta) atau null → "Hubungi kami". */
+  priceJt: string | null;
+}
+
+// Satu sumber turunan baris paket untuk desain Kartu/Kolom Harga/Kalender:
+// nama bersih (tanpa PROMO bila chip PROMO tampil, tanpa "n HARI" karena
+// durasi punya slotnya sendiri), pil, chip highlight, dan isi slot HARI/SEAT.
+export function brochureRowModel(p: BrochurePackage, displayMode: 'hari' | 'seat'): BrochureRowModel {
+  const chip = promoChipLabel(p);
+  const soldOut = !!p.soldOut;
+  const tripDays = p.hari ?? countTripDays(p.berangkat_tgl, p.pulang_tgl);
+  const seat = p.seatSisa;
+  const seatCritical = displayMode === 'seat' && !soldOut && typeof seat === 'number' && seat > 0 && seat <= 5;
+  let metaLabel: string | null;
+  let metaValue: string;
+  if (displayMode === 'seat') {
+    metaValue = typeof seat === 'number' ? String(seat) : '-';
+    metaLabel = soldOut ? null : `SISA ${metaValue} SEAT`;
+  } else {
+    metaValue = tripDays ? String(tripDays) : '-';
+    metaLabel = tripDays ? `${tripDays} HARI` : null;
+  }
+  return {
+    name: stripDurationWord(stripPromoWord(cleanPackageDisplayName(p.nama), chip)),
+    pills: detectPackagePills(p.nama, p.umrohDulu),
+    chip,
+    soldOut,
+    day: formatDepartureDay(p.berangkat_tgl),
+    monthAbbr: monthAbbrFromIso(p.berangkat_tgl, MONTH_ABBR_ID),
+    metaLabel,
+    metaValue,
+    seatCritical,
+    priceJt: typeof p.harga === 'number' ? formatHargaJt(p.harga) : null,
+  };
 }

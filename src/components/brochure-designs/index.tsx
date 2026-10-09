@@ -3,7 +3,9 @@
 // BrochureSchedulePage (persist localStorage 'brosurDesignId'). Berlaku untuk
 // preview + export gambar bulanan; katalog PDF selalu klasik (raster-safe).
 // Zamrud Royal & Senja Haramain (gelap) dicabut 18 Jul 2026 — user prefer
-// desain terang; id lama di localStorage jatuh kembali ke 'classic' via
+// desain terang. Serambi Nabawi & Tasbih Hijau dicabut 9 Okt 2026 (kurang
+// diminati), diganti Kartu Jadwal, Kartu Ringkas, Kolom Harga, Kalender.
+// Id lama di localStorage jatuh kembali ke 'classic' via
 // normalizeBrochureDesignId.
 import type { ComponentType } from 'react';
 import {
@@ -12,10 +14,11 @@ import {
   type BrochureMonth,
 } from '../BrochureScheduleTemplate';
 import { BoardingPassTemplate } from './BoardingPassTemplate';
-import { SerambiNabawiTemplate } from './SerambiNabawiTemplate';
-import { TasbihHijauTemplate } from './TasbihHijauTemplate';
+import { KalenderTemplate } from './KalenderTemplate';
+import { KartuJadwalTemplate, KartuRingkasTemplate } from './KartuJadwalTemplate';
+import { KolomHargaTemplate } from './KolomHargaTemplate';
 
-export type BrochureDesignId = 'classic' | 'boarding' | 'serambi' | 'tasbih';
+export type BrochureDesignId = 'classic' | 'boarding' | 'kartu' | 'kartu-ringkas' | 'kolom-harga' | 'kalender';
 
 // Prop yang dikirim halaman ke desain terpilih. `variant` (winter otomatis
 // saat filter Musim Dingin) hanya berefek pada klasik; desain lain punya
@@ -50,16 +53,28 @@ export const BROCHURE_DESIGNS: ReadonlyArray<BrochureDesignDef> = [
     Component: BoardingPassTemplate,
   },
   {
-    id: 'serambi',
-    label: 'Serambi Nabawi',
-    swatch: 'linear-gradient(135deg, #FFFFFF 0%, #F7F1E4 45%, #C9A24B 100%)',
-    Component: SerambiNabawiTemplate,
+    id: 'kartu',
+    label: 'Kartu Jadwal',
+    swatch: 'linear-gradient(135deg, #5A0010 0%, #C8102E 46%, #FFF8F0 46%, #FFF7E0 100%)',
+    Component: KartuJadwalTemplate,
   },
   {
-    id: 'tasbih',
-    label: 'Tasbih Hijau',
-    swatch: 'linear-gradient(135deg, #FFFFFF 0%, #EAF6F0 40%, #0E8A5F 75%, #D9A83C 100%)',
-    Component: TasbihHijauTemplate,
+    id: 'kartu-ringkas',
+    label: 'Kartu Ringkas',
+    swatch: 'linear-gradient(180deg, #C8102E 0%, #C8102E 32%, #FFF8F0 32%, #FFFFFF 100%)',
+    Component: KartuRingkasTemplate,
+  },
+  {
+    id: 'kolom-harga',
+    label: 'Kolom Harga',
+    swatch: 'linear-gradient(90deg, #FFFFFF 0%, #FFF3E4 60%, #870018 60%, #C8102E 100%)',
+    Component: KolomHargaTemplate,
+  },
+  {
+    id: 'kalender',
+    label: 'Kalender',
+    swatch: 'linear-gradient(180deg, #870018 0%, #C8102E 36%, #FFFFFF 36%, #F3EADF 100%)',
+    Component: KalenderTemplate,
   },
 ];
 

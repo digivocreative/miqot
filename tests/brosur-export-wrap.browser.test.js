@@ -1,4 +1,4 @@
-// Penjaga patah-baris untuk keempat desain Brosur Jadwal.
+// Penjaga patah-baris untuk semua desain Brosur Jadwal.
 //
 // captureStableDom() merakit SVG-nya lewat domToForeignObjectSvg milik
 // modern-screenshot — pipeline kloning yang sama dengan domToPng. Klon itu
@@ -32,8 +32,10 @@ const PREVIEW = '[data-brochure-preview-page="0"]';
 const DESIGNS = [
   { label: 'Klasik', id: 'classic' },
   { label: 'Boarding Pass', id: 'boarding' },
-  { label: 'Serambi Nabawi', id: 'serambi' },
-  { label: 'Tasbih Hijau', id: 'tasbih' },
+  { label: 'Kartu Jadwal', id: 'kartu' },
+  { label: 'Kartu Ringkas', id: 'kartu-ringkas' },
+  { label: 'Kolom Harga', id: 'kolom-harga' },
+  { label: 'Kalender', id: 'kalender' },
 ];
 
 // Opsi yang dipakai captureCanvasFromElement → captureStableDom di produksi.
