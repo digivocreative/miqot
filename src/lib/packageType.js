@@ -28,6 +28,7 @@ export const PACKAGE_TYPE_UMROH_RAHMAH = 'UMROH RAHMAH';
 export const PACKAGE_TYPE_UMROH_PROMO = 'UMROH PROMO';
 export const PACKAGE_TYPE_UMROH_MUSIM_DINGIN = 'UMROH MUSIM DINGIN';
 export const PACKAGE_TYPE_UMROH_RAMADHAN = 'UMROH RAMADHAN';
+export const PACKAGE_TYPE_UMROH_SYAWAL = 'UMROH SYAWAL';
 export const PACKAGE_TYPE_UMROH_JUMATAIN = 'UMROH JUMATAIN';
 export const PACKAGE_TYPE_KERETA_CEPAT = 'KERETA CEPAT';
 
@@ -177,13 +178,50 @@ export const RAMADHAN_WINDOWS = Object.entries(RAMADHAN_MASEHI)
   }))
   .filter(w => w.mulai && w.akhir);
 
-/** Tanggal berangkat (YYYY-MM-DD) jatuh di salah satu jendela Ramadhan terdaftar. */
-export function isRamadhanDeparture(iso) {
+function isInIsoWindows(iso, windows) {
   if (!parseIsoDateUtc(iso)) return false;
   // Perbandingan string aman: ISO 'YYYY-MM-DD' urut leksikografis = urut waktu,
   // dan bentuknya sudah divalidasi di atas.
   const s = String(iso);
-  return RAMADHAN_WINDOWS.some(w => s >= w.mulai && s <= w.akhir);
+  return windows.some(w => s >= w.mulai && s <= w.akhir);
+}
+
+/** Tanggal berangkat (YYYY-MM-DD) jatuh di salah satu jendela Ramadhan terdaftar. */
+export function isRamadhanDeparture(iso) {
+  return isInIsoWindows(iso, RAMADHAN_WINDOWS);
+}
+
+// ============================================
+// Umroh Syawal
+// ============================================
+//
+// Pola persis Umroh Ramadhan: keanggotaan dari TANGGAL BERANGKAT, tabel
+// konstanta yang hanya memuat tahun yang tanggalnya sudah diperiksa, tanpa
+// perhitungan Hijriah otomatis. Di data 1448 keempat paket yang berangkat di
+// Syawal kebetulan bernama "SYAWAL", tapi aturannya tanggal supaya paket
+// Syawal yang namanya tidak menyebut bulan tetap ikut.
+//
+// Jendelanya bulan Syawal itu sendiri, TANPA padding: paket yang berangkat
+// menjelang Syawal adalah paket Ramadhan/Lailatul Qadr, yang berangkat awal
+// Dzulqaidah bukan lagi Syawal. Akibatnya tumpang-tindih dengan padding +5
+// hari Ramadhan (1–5 Syawal) — paket yang berangkat di sana muncul di DUA
+// opsi. Itu disengaja: tipe non-destinasi memang tidak eksklusif.
+//
+// Umm al-Qura: 1 Syawal 1448 = 9 Mar 2027 (sehari setelah akhir RAMADHAN_MASEHI
+// 1448), 30 Syawal = 7 Apr 2027, 1 Dzulqaidah = 8 Apr 2027.
+
+/** Awal & akhir bulan Syawal dalam Masehi, per tahun Hijriah. Batas INKLUSIF. */
+const SYAWAL_MASEHI = {
+  1448: { mulai: '2027-03-09', akhir: '2027-04-07' },
+};
+
+export const SYAWAL_WINDOWS = Object.entries(SYAWAL_MASEHI)
+  .map(([tahunHijriah, bulan]) => ({ tahunHijriah: Number(tahunHijriah), ...bulan }))
+  .filter(w => parseIsoDateUtc(w.mulai) && parseIsoDateUtc(w.akhir));
+
+/** Tanggal berangkat (YYYY-MM-DD) jatuh di salah satu bulan Syawal terdaftar. */
+export function isSyawalDeparture(iso) {
+  return isInIsoWindows(iso, SYAWAL_WINDOWS);
 }
 
 /**
@@ -223,11 +261,11 @@ function isPromoSubject(subject) {
 }
 
 /**
- * Keanggotaan satu paket pada satu tipe. Urutannya penting: lima tipe pertama
+ * Keanggotaan satu paket pada satu tipe. Urutannya penting: enam tipe pertama
  * BUKAN kategori eksklusif (sebuah paket bisa sekaligus "Plus Turki" dan
  * "Kereta Cepat", atau promo dan musim dingin, atau Ramadhan dan Plus Badar,
- * atau Jum'atain dan Plus Taif), jadi mereka tidak lewat derivePackageType yang
- * memilih SATU tipe per paket.
+ * atau Syawal dan Jum'atain dan Plus Taif), jadi mereka tidak lewat
+ * derivePackageType yang memilih SATU tipe per paket.
  */
 export function matchesPackageType(subject, type, musimDinginWindow) {
   if (!subject || !type) return false;
@@ -237,6 +275,9 @@ export function matchesPackageType(subject, type, musimDinginWindow) {
   if (type === PACKAGE_TYPE_UMROH_RAMADHAN) {
     return isRamadhanDeparture(subject.departureIso);
   }
+  if (type === PACKAGE_TYPE_UMROH_SYAWAL) {
+    return isSyawalDeparture(subject.departureIso);
+  }
   if (type === PACKAGE_TYPE_UMROH_PROMO) return isPromoSubject(subject);
   if (type === PACKAGE_TYPE_KERETA_CEPAT) return hasKeretaCepat(subject.nama);
   if (type === PACKAGE_TYPE_UMROH_JUMATAIN) return hasJumatain(subject.nama);
@@ -245,11 +286,12 @@ export function matchesPackageType(subject, type, musimDinginWindow) {
   return derivePackageType(subject.nama) === type;
 }
 
-/** Urutan kanonik roster: 7 tipe non-destinasi dulu, lalu PLUS * sesuai PACKAGE_TYPES. */
+/** Urutan kanonik roster: 8 tipe non-destinasi dulu, lalu PLUS * sesuai PACKAGE_TYPES. */
 const PACKAGE_TYPE_ORDER = [
   PACKAGE_TYPE_UMROH_SAJA,
   PACKAGE_TYPE_UMROH_MUSIM_DINGIN,
   PACKAGE_TYPE_UMROH_RAMADHAN,
+  PACKAGE_TYPE_UMROH_SYAWAL,
   PACKAGE_TYPE_UMROH_JUMATAIN,
   PACKAGE_TYPE_UMROH_RAHMAH,
   PACKAGE_TYPE_UMROH_PROMO,
@@ -261,6 +303,7 @@ const PACKAGE_TYPE_LABELS = {
   [PACKAGE_TYPE_UMROH_SAJA]: 'Umroh Saja',
   [PACKAGE_TYPE_UMROH_MUSIM_DINGIN]: 'Umroh Musim Dingin',
   [PACKAGE_TYPE_UMROH_RAMADHAN]: 'Umroh Ramadhan',
+  [PACKAGE_TYPE_UMROH_SYAWAL]: 'Umroh Syawal',
   [PACKAGE_TYPE_UMROH_JUMATAIN]: 'Umroh Jumatain',
   [PACKAGE_TYPE_UMROH_RAHMAH]: 'Umroh Rahmah',
   [PACKAGE_TYPE_UMROH_PROMO]: 'Umroh Promo',

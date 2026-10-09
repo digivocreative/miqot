@@ -29,6 +29,7 @@ export const PACKAGE_TYPE_UMROH_RAHMAH: 'UMROH RAHMAH';
 export const PACKAGE_TYPE_UMROH_PROMO: 'UMROH PROMO';
 export const PACKAGE_TYPE_UMROH_MUSIM_DINGIN: 'UMROH MUSIM DINGIN';
 export const PACKAGE_TYPE_UMROH_RAMADHAN: 'UMROH RAMADHAN';
+export const PACKAGE_TYPE_UMROH_SYAWAL: 'UMROH SYAWAL';
 export const PACKAGE_TYPE_UMROH_JUMATAIN: 'UMROH JUMATAIN';
 export const PACKAGE_TYPE_KERETA_CEPAT: 'KERETA CEPAT';
 
@@ -53,6 +54,10 @@ export function isMusimDinginDeparture(iso: string | undefined | null, musimDing
  */
 export const RAMADHAN_WINDOWS: ReadonlyArray<{ tahunHijriah: number; mulai: string; akhir: string }>;
 export function isRamadhanDeparture(iso: string | undefined | null): boolean;
+
+/** Jendela bulan Syawal (tanpa padding), batas inklusif, per tahun Hijriah yang terdaftar. */
+export const SYAWAL_WINDOWS: ReadonlyArray<{ tahunHijriah: number; mulai: string; akhir: string }>;
+export function isSyawalDeparture(iso: string | undefined | null): boolean;
 
 export function matchesPackageType(
   subject: PackageTypeSubject | null | undefined,
