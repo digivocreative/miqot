@@ -90,7 +90,8 @@ export function createRateLimiter({ limit = RATE_LIMIT_PER_MINUTE, windowMs = 60
 // validasi supaya panggilan tidak terbuang sia-sia karena -32602. JSON schema
 // yang diiklankan ke klien tetap tipe aslinya.
 const zDayEnum = (values) => z.preprocess((v) => (v == null ? v : String(v)), z.enum(values));
-const zInt = (schema) => z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), schema);
+const zNum = (schema) => z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), schema);
+const zBool = () => z.preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean());
 
 function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 1) }] };
@@ -101,6 +102,14 @@ function toolError(message) {
 }
 
 const TOOL = BANI_TOOL_BY_NAME;
+
+// Deskripsi/enum parameter yang ditulis di registry (JSON Schema) dipakai ulang
+// supaya teks yang dilihat model tidak kembar. Setiap properti registry WAJIB
+// punya pasangan zod di bawah — zod membuang kunci tak dikenal DIAM-DIAM, jadi
+// parameter yang lupa didaftarkan di sini diabaikan tanpa error dan model
+// menerima jawaban yang tampak wajar tapi salah (dijaga test drift di
+// tests/mcp-server.test.js).
+const paramOf = (tool, prop) => TOOL[tool].parameters.properties[prop];
 
 function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
   const server = new McpServer({ name: 'alhijaz', version: '1.0.0' });
@@ -145,8 +154,8 @@ function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
         .describe('Keberangkatan mulai tanggal ini (YYYY-MM-DD, inklusif). Untuk SATU tanggal eksak, isi sama dengan departure_to.'),
       departure_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
         .describe('Keberangkatan sampai tanggal ini (YYYY-MM-DD, inklusif)'),
-      page: zInt(z.number().int().min(1)).optional(),
-      limit: zInt(z.number().int().min(1).max(MAX_LIMIT)).optional(),
+      page: zNum(z.number().int().min(1)).optional(),
+      limit: zNum(z.number().int().min(1).max(MAX_LIMIT)).optional(),
     },
   }, (args) => TOOL.list_jamaah.run(deps, args));
 
@@ -172,7 +181,7 @@ function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
     inputSchema: {
       group_by: z.preprocess((v) => (v == null ? v : String(v)), z.enum(['month', 'date'])).optional()
         .describe('Granularitas breakdown keberangkatan: month (default) atau date (per-tanggal)'),
-      horizon_days: zInt(z.number().int().min(1).max(366)).optional()
+      horizon_days: zNum(z.number().int().min(1).max(366)).optional()
         .describe('Batasi ke keberangkatan N hari ke depan, mis. 90 untuk fokus tagihan dekat keberangkatan'),
     },
   }, (args) => TOOL.payment_summary.run(deps, args));
@@ -185,12 +194,27 @@ function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
     description: TOOL.list_jadwal_paket.description,
     inputSchema: {
       month: z.string().regex(/^\d{4}-\d{2}$/).optional().describe('Filter bulan keberangkatan, format YYYY-MM'),
+      berangkat_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe(paramOf('list_jadwal_paket', 'berangkat_from').description),
+      berangkat_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe(paramOf('list_jadwal_paket', 'berangkat_to').description),
+      covers_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+        .describe(paramOf('list_jadwal_paket', 'covers_date').description),
       search: z.string().max(80).optional().describe('Cari di nama paket, mis. "TURKEY" atau "PROMO"'),
-      promo_only: z.boolean().optional(),
-      available_only: z.boolean().optional().describe('Hanya paket yang masih ada seat'),
-      include_departed: z.boolean().optional().describe('Sertakan keberangkatan yang sudah lewat (default tidak)'),
-      page: zInt(z.number().int().min(1)).optional(),
-      limit: zInt(z.number().int().min(1).max(MAX_LIMIT)).optional(),
+      // Model kadang mengirim satu string, bukan array — bungkus dulu.
+      search_any: z.preprocess((v) => (typeof v === 'string' ? [v] : v), z.array(z.string().max(40)).max(5)).optional()
+        .describe(paramOf('list_jadwal_paket', 'search_any').description),
+      tur: z.enum(paramOf('list_jadwal_paket', 'tur').enum).optional()
+        .describe(paramOf('list_jadwal_paket', 'tur').description),
+      kota_pada_tanggal: z.object({
+        tanggal: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        kota: z.enum(['mekkah', 'madinah']),
+      }).optional().describe(paramOf('list_jadwal_paket', 'kota_pada_tanggal').description),
+      promo_only: zBool().optional(),
+      available_only: zBool().optional().describe('Hanya paket yang masih ada seat'),
+      include_departed: zBool().optional().describe('Sertakan keberangkatan yang sudah lewat (default tidak)'),
+      page: zNum(z.number().int().min(1)).optional(),
+      limit: zNum(z.number().int().min(1).max(MAX_LIMIT)).optional(),
     },
   }, (args) => TOOL.list_jadwal_paket.run(deps, args));
 
@@ -208,14 +232,14 @@ function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
     inputSchema: {
       jadwal_id: z.string().min(2).max(30),
       tier: z.string().max(30).optional().describe('Tier harga, mis. UHUD / RAHMAH — default tier pertama paket'),
-      kamar_quad: z.number().int().min(0).max(200).optional().describe('Jumlah orang di kamar quad'),
-      kamar_triple: z.number().int().min(0).max(200).optional(),
-      kamar_double: z.number().int().min(0).max(200).optional(),
-      kamar_single: z.number().int().min(0).max(200).optional(),
-      anak_tanpa_kasur: z.number().int().min(0).max(50).optional(),
-      infant: z.number().int().min(0).max(50).optional(),
-      diskon_per_pax: z.number().min(0).optional().describe('Diskon Rupiah per jamaah (infant tidak dihitung)'),
-      diskon_flat: z.number().min(0).optional().describe('Diskon Rupiah total'),
+      kamar_quad: zNum(z.number().int().min(0).max(200)).optional().describe('Jumlah orang di kamar quad'),
+      kamar_triple: zNum(z.number().int().min(0).max(200)).optional(),
+      kamar_double: zNum(z.number().int().min(0).max(200)).optional(),
+      kamar_single: zNum(z.number().int().min(0).max(200)).optional(),
+      anak_tanpa_kasur: zNum(z.number().int().min(0).max(50)).optional(),
+      infant: zNum(z.number().int().min(0).max(50)).optional(),
+      diskon_per_pax: zNum(z.number().min(0)).optional().describe('Diskon Rupiah per jamaah (infant tidak dihitung)'),
+      diskon_flat: zNum(z.number().min(0)).optional().describe('Diskon Rupiah total'),
     },
   }, (args) => TOOL.kalkulasi_harga.run(deps, args));
 
@@ -225,8 +249,8 @@ function buildAgentMcpServer({ agent, supabase, log, onToolCall }) {
     inputSchema: {
       type: z.enum(['manasik', 'keberangkatan', 'kepulangan']).optional().describe('Default semua tipe'),
       from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Tanggal mulai, default hari ini'),
-      days: zInt(z.number().int().min(1).max(120)).optional().describe('Rentang hari ke depan (batas akhir inklusif), default 30'),
-      search: z.string().max(80).optional().describe('Cari di nama paket / nama Tour Leader / nomor grup'),
+      days: zNum(z.number().int().min(1).max(120)).optional().describe('Rentang hari ke depan (batas akhir inklusif), default 30'),
+      search: z.string().max(80).optional().describe(paramOf('calendar_events', 'search').description),
     },
   }, (args) => TOOL.calendar_events.run(deps, args));
 
@@ -327,6 +351,20 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
   const methodNotAllowed = (req, res) => jsonRpcError(res, 405, -32000, 'Method not allowed (stateless MCP: gunakan POST)');
   app.get('/mcp', methodNotAllowed);
   app.delete('/mcp', methodNotAllowed);
+
+  // /mcp memakai bearer key statis, BUKAN OAuth. Tanpa route ini discovery
+  // path-specific jatuh ke SPA catch-all (200 HTML); klien MCP (Claude Code,
+  // mcp-remote) lalu menganggap origin sebagai authorization server dan memulai
+  // OAuth ke login Dev-MCP (/oauth/dev/*) — agent tersesat ke halaman password
+  // developer. 404 membuat klien membaca metadata root, melihat resource-nya
+  // /dev-mcp (bukan /mcp), dan berhenti dengan error yang jelas.
+  const noOAuthForMcp = (req, res) => res.status(404).json({
+    error: 'not_found',
+    error_description: 'Endpoint /mcp tidak memakai OAuth — kirim header Authorization: Bearer alhijaz_mcp_...',
+  });
+  app.get('/.well-known/oauth-protected-resource/mcp', noOAuthForMcp);
+  app.get('/.well-known/oauth-authorization-server/mcp', noOAuthForMcp);
+  app.get('/.well-known/openid-configuration/mcp', noOAuthForMcp);
 
   // Admin key-management invalidation hook (server.js calls this after
   // generate/revoke so a rotated key takes effect immediately).

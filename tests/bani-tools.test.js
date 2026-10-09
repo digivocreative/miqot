@@ -404,18 +404,20 @@ test('list_jadwal_paket tidak memakai itinerary lama ketika hash PDF berubah', a
   assert.deepEqual(out.data.rows[0].tur, []);
 });
 
-test('list_jadwal_paket membatasi lookup itinerary ke 60 kandidat terdekat', async () => {
-  const schedules = Array.from({ length: 61 }, (_, index) => ({
-    jadwal_id: `JBU${String(index).padStart(2, '0')}`,
-    jadwal_nama: `PAKET ${index}`,
-    berangkat_tgl: `2027-01-${String((index % 28) + 1).padStart(2, '0')}`,
-    pulang_tgl: '2027-02-10',
-    paket_harga: PAKET_HARGA,
-  }));
-  const supabase = filteringScheduleSupabase(schedules);
+const SIXTY_ONE_SCHEDULES = Array.from({ length: 61 }, (_, index) => ({
+  jadwal_id: `JBU${String(index).padStart(2, '0')}`,
+  jadwal_nama: `PAKET ${index}`,
+  berangkat_tgl: `2027-01-${String((index % 28) + 1).padStart(2, '0')}`,
+  pulang_tgl: '2027-02-10',
+  paket_harga: PAKET_HARGA,
+}));
+
+test('list_jadwal_paket membatasi lookup itinerary ke 60 kandidat terdekat saat memfilter tur/kota', async () => {
+  const supabase = filteringScheduleSupabase(SIXTY_ONE_SCHEDULES);
 
   const out = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), {
     include_departed: true,
+    kota_pada_tanggal: { tanggal: '2027-01-05', kota: 'mekkah' },
     limit: 50,
   });
 
@@ -424,6 +426,25 @@ test('list_jadwal_paket membatasi lookup itinerary ke 60 kandidat terdekat', asy
   assert.equal(out.data.total, 60);
   assert.equal(out.data.rows.length, 50);
   assert.match(out.data.note, /Penyaringan itinerary dibatasi ke 60 keberangkatan terdekat\./);
+});
+
+test('list_jadwal_paket tanpa filter itinerary: total jujur & halaman setelah ke-60 tetap terisi', async () => {
+  const supabase = filteringScheduleSupabase(SIXTY_ONE_SCHEDULES);
+
+  const page1 = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(supabase), { include_departed: true, limit: 50 });
+  // Lookup itinerary hanya untuk baris di halaman ini, bukan 60 kandidat.
+  const requestedIds = supabase.calls.find(([method, column]) => method === 'in' && column === 'jadwal_id')?.[2];
+  assert.equal(requestedIds.length, 50);
+  assert.equal(page1.data.total, 61);
+  assert.equal(page1.data.rows.length, 50);
+  assert.doesNotMatch(page1.data.note, /dibatasi ke 60/);
+
+  const page2 = await BANI_TOOL_BY_NAME.list_jadwal_paket.run(DEPS(filteringScheduleSupabase(SIXTY_ONE_SCHEDULES)), {
+    include_departed: true, limit: 50, page: 2,
+  });
+  assert.equal(page2.data.total, 61);
+  assert.equal(page2.data.rows.length, 11);
+  assert.ok(page2.data.rows.every((row) => Array.isArray(row.tur) && 'itinerary_tersedia' in row));
 });
 
 test('bulan mustahil ditolak sebagai { ok:false, error } sebelum menyentuh Postgres', async () => {

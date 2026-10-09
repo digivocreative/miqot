@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import express from 'express';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { BANI_TOOLS } from '../lib/bani-tools.js';
 import {
+  initMcpServer,
   generateMcpApiKey,
   hashMcpApiKey,
   parseMcpBearer,
@@ -551,4 +556,95 @@ test('MCP UI is wired into the ai-tools tab', () => {
   assert.match(page, /fetch\('\/api\/mcp-key', \{ method: 'POST'/);
   assert.match(page, /fetch\('\/api\/mcp-key', \{ method: 'DELETE'/);
   assert.match(page, /getAuthHeaders\(\)/);
+});
+
+// ── protocol: lewat MCP sungguhan (Client SDK ↔ /mcp in-process) ─────────────
+
+// Stub supabase: lookup key di `agents` selalu resolve ke satu agent; tabel lain
+// mengembalikan kosong sambil mencatat filter yang benar-benar sampai ke query.
+function protocolSupabase(calls) {
+  return {
+    from(table) {
+      const chain = {};
+      for (const method of ['select', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'not', 'or', 'ilike', 'in', 'order', 'range', 'limit']) {
+        chain[method] = (...args) => { calls.push([table, method, ...args]); return chain; };
+      }
+      chain.maybeSingle = async () => (table === 'agents'
+        ? { data: { id: 'agent-1', slug: 'uji', name: 'Uji', status: 'active', role: 'agent' }, error: null }
+        : { data: null, error: null });
+      chain.then = (resolve, reject) => Promise.resolve({ data: [], error: null, count: 0 }).then(resolve, reject);
+      return chain;
+    },
+  };
+}
+
+async function withMcpClient(fn) {
+  const calls = [];
+  const app = express();
+  app.use(express.json());
+  initMcpServer(app, { supabase: protocolSupabase(calls), log: () => {} });
+  const http = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const base = `http://127.0.0.1:${http.address().port}`;
+  const client = new Client({ name: 'mcp-server-test', version: '1.0.0' });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${generateMcpApiKey()}` } },
+    }));
+    return await fn({ client, calls, base });
+  } finally {
+    await client.close().catch(() => {});
+    await new Promise((resolve) => http.close(resolve));
+  }
+}
+
+test('every registry parameter is advertised in the MCP inputSchema (zod strips unknown keys silently)', async () => {
+  await withMcpClient(async ({ client }) => {
+    const { tools } = await client.listTools();
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+    for (const tool of BANI_TOOLS) {
+      assert.ok(byName[tool.name], `${tool.name} must be registered on /mcp`);
+      assert.deepEqual(
+        Object.keys(byName[tool.name].inputSchema.properties || {}).sort(),
+        Object.keys(tool.parameters.properties).sort(),
+        `${tool.name}: parameter di registry (dan deskripsinya) harus sama dengan inputSchema MCP`,
+      );
+    }
+    assert.deepEqual(
+      byName.list_jadwal_paket.inputSchema.properties.tur.enum,
+      BANI_TOOLS.find((t) => t.name === 'list_jadwal_paket').parameters.properties.tur.enum,
+    );
+  });
+});
+
+test('list_jadwal_paket covers_date/berangkat_from reach the query over MCP (not stripped)', async () => {
+  await withMcpClient(async ({ client, calls }) => {
+    const out = await client.callTool({ name: 'list_jadwal_paket', arguments: { covers_date: '2027-01-01' } });
+    assert.ok(!out.isError, out.content?.[0]?.text);
+    assert.ok(calls.some(([table, method, column, value]) => table === 'umroh_schedules' && method === 'gte' && column === 'pulang_tgl' && value === '2027-01-01'));
+
+    calls.length = 0;
+    await client.callTool({ name: 'list_jadwal_paket', arguments: { berangkat_from: '2027-01-01', berangkat_to: '2027-03-31' } });
+    assert.ok(calls.some(([, method, column, value]) => method === 'gte' && column === 'berangkat_tgl' && value === '2027-01-01'));
+    assert.ok(calls.some(([, method, column, value]) => method === 'lte' && column === 'berangkat_tgl' && value === '2027-03-31'));
+  });
+});
+
+test('stringly-typed numbers/booleans from small models are coerced, not rejected with -32602', async () => {
+  await withMcpClient(async ({ client }) => {
+    const kalk = await client.callTool({ name: 'kalkulasi_harga', arguments: { jadwal_id: 'JBU0000', kamar_quad: '2', diskon_flat: '500000' } });
+    // Lolos validasi; stub tak punya paketnya → error domain, bukan error skema.
+    assert.match(kalk.content[0].text, /tidak ditemukan/);
+    const jadwal = await client.callTool({ name: 'list_jadwal_paket', arguments: { available_only: 'true', search_any: 'TURKI' } });
+    assert.ok(!jadwal.isError, jadwal.content?.[0]?.text);
+  });
+});
+
+test('/mcp OAuth discovery answers 404 so clients never start the Dev-MCP login', async () => {
+  await withMcpClient(async ({ base }) => {
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server/mcp']) {
+      const res = await fetch(`${base}${path}`);
+      assert.equal(res.status, 404, path);
+      assert.match((await res.json()).error_description, /Bearer alhijaz_mcp_/);
+    }
+  });
 });
