@@ -25,24 +25,34 @@ const read = (path) => readFileSync(join(rootPath, path), 'utf8');
 
 // ── pure ─────────────────────────────────────────────────────────────────────
 
-test('redirect_uri allowlist: AI callbacks, loopback & app schemes in; arbitrary https out', () => {
+test('redirect_uri allowlist: exact vendor callbacks + loopback only', () => {
   assert.deepEqual(classifyRedirectUri('https://claude.ai/api/mcp/auth_callback'), { ok: true, host: 'claude.ai' });
   assert.deepEqual(classifyRedirectUri('https://chatgpt.com/connector_platform_oauth_redirect'), { ok: true, host: 'chatgpt.com' });
+  assert.deepEqual(classifyRedirectUri('https://chatgpt.com/connector/oauth/cb_8f3A-x'), { ok: true, host: 'chatgpt.com' });
   assert.deepEqual(classifyRedirectUri('http://127.0.0.1:33418/callback'), { ok: true, host: 'localhost' });
   assert.deepEqual(classifyRedirectUri('http://localhost:6274/oauth/callback'), { ok: true, host: 'localhost' });
-  assert.deepEqual(classifyRedirectUri('cursor://anysphere.cursor-retrieval/oauth/callback'), { ok: true, host: 'cursor' });
+  assert.deepEqual(classifyRedirectUri('cursor://anysphere.cursor-mcp/oauth/callback'), { ok: true, host: 'cursor' });
   for (const bad of [
     'https://evil.example/cb',
-    'https://claude.ai.evil.example/cb',
-    'http://claude.ai/cb', // bukan https
-    'https://claude.ai/cb#frag',
+    'https://claude.ai.evil.example/api/mcp/auth_callback',
+    'https://anything.claude.com/any/path', // subdomain/path lain di domain vendor
+    'https://claude.ai/api/mcp/auth_callback/extra',
+    'https://claude.ai/api/mcp/auth_callback?next=https://evil.example',
+    'https://vscode.dev/redirect', // redirector: tujuan dari state
+    'https://chatgpt.com/connector/oauth/a/../../evil',
+    'https://chatgpt.com/connector/oauth/x?y=1',
+    'https://chatgpt.com/connector/oauth/',
+    'vscode://attacker.ext/cb',
+    'cursor://anysphere.cursor-mcp/oauth/other',
+    'http://claude.ai/api/mcp/auth_callback', // bukan https
+    'https://claude.ai/api/mcp/auth_callback#frag',
     'javascript:alert(1)',
     'not a url',
   ]) {
     assert.equal(classifyRedirectUri(bad).ok, false, bad);
   }
-  // Host tambahan lewat env.
-  assert.equal(classifyRedirectUri('https://chat.mistral.ai/cb', ['chat.mistral.ai']).ok, true);
+  // Tambahan lewat env (MCP_OAUTH_REDIRECT_URIS).
+  assert.equal(classifyRedirectUri('https://chat.mistral.ai/oauth/cb', ['https://chat.mistral.ai/oauth/cb']).ok, true);
 });
 
 test('loopback redirect_uri matches regardless of port (RFC 8252); others must match exactly', () => {
@@ -59,6 +69,9 @@ test('CIMD client_id must be an https URL with a path on an allowlisted host', (
   assert.equal(isCimdClientId('https://claude.ai/'), false);
   assert.equal(isCimdClientId('http://claude.ai/oauth/x'), false);
   assert.equal(isCimdClientId('eyJhbGciOi.jwt.client'), false);
+  assert.equal(isCimdClientId('https://claude.ai:8443/oauth/x'), false);
+  assert.equal(isCimdClientId('https://claude.ai/oauth/x?y=1'), false);
+  assert.equal(isCimdClientId('https://www.cursor.com/oauth/x'), false);
 });
 
 test('display name comes from the trusted redirect host, not the self-declared client_name', () => {
@@ -234,6 +247,14 @@ async function submitLogin(base, authUrl, { identifier = 'uji', password = 'raha
   return { page, html, res, location: res.headers.get('location') ? new URL(res.headers.get('location')) : null };
 }
 
+// POST form login dengan IP sumber tertentu (X-Real-IP, seperti di belakang Caddy).
+async function submitLoginFrom(base, authUrl, ip, { identifier = 'uji', password = 'rahasia' } = {}) {
+  const body = new URLSearchParams({ ...Object.fromEntries(new URL(authUrl).searchParams), identifier, password, action: 'allow' });
+  return fetch(`${base}/oauth/mcp/authorize`, {
+    method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body,
+  });
+}
+
 async function connectWithOAuth(base, provider = new TestProvider()) {
   const url = new URL(`${base}/mcp`);
   const first = new StreamableHTTPClientTransport(url, { authProvider: provider });
@@ -316,6 +337,8 @@ test('DCR refuses redirect_uris outside the allowlist (anti-phishing)', async ()
     });
     assert.equal((await register(['https://evil.example/cb'])).status, 400);
     assert.equal((await register(['https://claude.ai/api/mcp/auth_callback', 'https://evil.example/cb'])).status, 400);
+    assert.equal((await register(['https://vscode.dev/redirect'])).status, 400);
+    assert.equal((await register(['vscode://attacker.ext/cb'])).status, 400);
     const ok = await register(['https://claude.ai/api/mcp/auth_callback']);
     assert.equal(ok.status, 201);
     assert.equal((await ok.json()).token_endpoint_auth_method, 'none');
@@ -362,14 +385,20 @@ test('login page: wrong password stays on page, deny returns access_denied, inac
   }
 });
 
-test('per-account lockout blocks even the correct password after repeated failures', async () => {
+test('login brute force: per-IP cap, and an attacker cannot lock a real agent out', async () => {
   const srv = await startServer();
   try {
     const { url } = await registerAndAuthorizeUrl(srv.base);
-    // Batas per-IP 10/10 menit juga berlaku; 8 gagal + 1 benar = 9 percobaan.
-    for (let i = 0; i < 8; i++) assert.equal((await submitLogin(srv.base, url, { password: `salah${i}` })).res.status, 401);
-    const locked = await submitLogin(srv.base, url);
-    assert.equal(locked.res.status, 429);
+    const fromIp = (ip, opts) => submitLoginFrom(srv.base, url, ip, opts);
+    // 9 password salah dari IP penyerang → korban dari IP lain tetap bisa masuk.
+    for (let i = 0; i < 9; i++) assert.equal((await fromIp('6.6.6.6', { password: `salah${i}` })).status, 401);
+    assert.equal((await fromIp('1.2.3.4')).status, 302);
+    // Percobaan ke-11 dari IP yang sama kena batas per IP (10/10 menit).
+    await fromIp('6.6.6.6', { password: 'salah9' });
+    assert.equal((await fromIp('6.6.6.6')).status, 429);
+    // Tebakan tersebar dari banyak IP tetap mentok di batas per akun (30/jam).
+    for (let i = 0; i < 30; i++) await fromIp(`10.0.${i}.1`, { password: `x${i}` });
+    assert.equal((await fromIp('10.9.9.9')).status, 429);
   } finally {
     await srv.close();
   }
@@ -528,4 +557,77 @@ test('CIMD: Claude published identity (no DCR) connects; spoofed or foreign docu
   } finally {
     await srv.close();
   }
+});
+
+const callMcpWith = (base, token) => fetch(`${base}/mcp`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+});
+
+test('refresh tokens are single-use: parallel race tolerated, later replay revokes the whole connection', async () => {
+  const srv = await startServer();
+  try {
+    const { client, provider } = await connectWithOAuth(srv.base);
+    await client.close();
+    const rt1 = provider.tokens().refresh_token;
+    const first = await (await exchange(srv.base, { grant_type: 'refresh_token', refresh_token: rt1 })).json();
+    assert.ok(first.refresh_token && first.refresh_token !== rt1);
+
+    // Balapan (rt1 lagi < 30 dtk sesudah rotasi): ditolak, sambungan TETAP hidup.
+    const race = await exchange(srv.base, { grant_type: 'refresh_token', refresh_token: rt1 });
+    assert.equal((await race.json()).error, 'invalid_grant');
+    assert.equal((await callMcpWith(srv.base, first.access_token)).status, 200);
+
+    // rt1 dipakai lagi jauh sesudahnya = token bocor → grant dicabut.
+    const [grant] = srv.supabase.tables.mcp_oauth_grants;
+    grant.refreshed_at = new Date(Date.now() - 5 * 60_000).toISOString();
+    const replay = await exchange(srv.base, { grant_type: 'refresh_token', refresh_token: rt1 });
+    assert.equal((await replay.json()).error, 'invalid_grant');
+    assert.ok(grant.revoked_at, 'pemakaian ulang mencabut sambungan');
+    assert.equal((await callMcpWith(srv.base, first.access_token)).status, 401);
+    // Refresh token terbaru pun ikut mati.
+    assert.equal((await (await exchange(srv.base, { grant_type: 'refresh_token', refresh_token: first.refresh_token })).json()).error, 'invalid_grant');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('token endpoint: malformed Basic header → 401 invalid_client (not 500); short code_verifier rejected', async () => {
+  const srv = await startServer();
+  try {
+    const bad = await exchange(srv.base, { grant_type: 'refresh_token', refresh_token: 'x' }, { authorization: `Basic ${Buffer.from('%E0%A4%A:%zz').toString('base64')}` });
+    // refresh_token tak valid dicek dulu → tetap 4xx, tidak pernah 500.
+    assert.ok(bad.status >= 400 && bad.status < 500, String(bad.status));
+    const { url, reg, redirect } = await registerAndAuthorizeUrl(srv.base, { verifier: 'v'.repeat(50) });
+    const code = (await submitLogin(srv.base, url)).location.searchParams.get('code');
+    const malformed = await exchange(srv.base, { grant_type: 'authorization_code', code, code_verifier: 'v'.repeat(50), redirect_uri: redirect },
+      { authorization: `Basic ${Buffer.from(`${reg.client_id}:%zz`).toString('base64')}` });
+    assert.equal(malformed.status, 401);
+    assert.equal((await malformed.json()).error, 'invalid_client');
+    assert.match(malformed.headers.get('www-authenticate'), /^Basic/);
+    const code2 = (await submitLogin(srv.base, url)).location.searchParams.get('code');
+    const short = await exchange(srv.base, { grant_type: 'authorization_code', code: code2, code_verifier: 'pendek', client_id: reg.client_id });
+    assert.equal((await short.json()).error, 'invalid_grant');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('password change revokes every OAuth connection of that agent', async () => {
+  const srv = await startServer();
+  try {
+    const { client, provider } = await connectWithOAuth(srv.base);
+    await client.close();
+    await srv.oauth.revokeAllForAgent(AGENT.id);
+    assert.equal((await callMcpWith(srv.base, provider.tokens().access_token)).status, 401);
+  } finally {
+    await srv.close();
+  }
+  // Semua jalur ganti password di server.js memanggilnya.
+  const server = read('server.js');
+  const handler = (marker) => server.slice(server.indexOf(marker), server.indexOf('\n});', server.indexOf(marker)));
+  assert.match(handler("app.post('/api/auth/reset-password'"), /revokeMcpOAuthOnPasswordChange\(decoded\.id\)/);
+  assert.match(handler("app.put('/api/admin/agents/:slug'"), /if \(updates\.password\) revokeMcpOAuthOnPasswordChange\(targetAgent\.id\)/);
+  assert.equal((server.match(/if \(updates\.password\) revokeMcpOAuthOnPasswordChange\(req\.user\.id\)/g) || []).length, 2, 'profil: cabang ganti-slug & biasa');
 });

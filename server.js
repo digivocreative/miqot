@@ -325,7 +325,9 @@ const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
 // Slug halaman kloter (/26SEP2026, /12SEP2026, ...) ikut dipesan dari registri.
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', ...KLOTER_TRIPS.map((trip) => trip.slug)]);
+// oauth/mcp/dev-mcp: rute MCP & login asisten AI — kalau dipakai slug agent ber-
+// custom-domain, redirect /{slug}/… di bawah akan membajak halaman login OAuth.
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', 'oauth', 'mcp', 'dev-mcp', ...KLOTER_TRIPS.map((trip) => trip.slug)]);
 const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
 // Tabel checklist kloter sendiri (migrations/20260910000000_kloter_persiapan.sql):
 // satu baris per jamaah per kloter, tanpa agent_id. booking_persiapan milik
@@ -3441,6 +3443,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     // Invalidate agent cache
     invalidateAgentCache();
+    revokeMcpOAuthOnPasswordChange(decoded.id);
     logAnalyticsEvent(decoded.id, 'action', 'reset_password', {}, getClientIpUa(req));
     console.log(`[Auth] Password reset successful for slug: ${decoded.slug}`);
     res.json({ success: true, message: 'Password berhasil diperbarui' });
@@ -3743,6 +3746,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
       if (agentErr) {
         return res.status(500).json({ error: agentErr.message });
       }
+      if (updates.password) revokeMcpOAuthOnPasswordChange(req.user.id);
 
       // 3. Rename photo in storage
       try {
@@ -3799,6 +3803,7 @@ app.put('/api/admin/profile', authMiddleware, async (req, res) => {
     .eq('id', req.user.id);
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
+  if (updates.password) revokeMcpOAuthOnPasswordChange(req.user.id);
   if (req.user.role !== 'admin') {
     const ipUa = getClientIpUa(req);
     if (password) logAnalyticsEvent(req.user.id, 'action', 'change_password', {}, ipUa);
@@ -10622,6 +10627,7 @@ app.put('/api/admin/agents/:slug', authMiddleware, adminOnly, async (req, res) =
     .eq('id', targetAgent.id);
   if (error) return res.status(500).json({ error: error.message });
   invalidateAgentCache();
+  if (updates.password) revokeMcpOAuthOnPasswordChange(targetAgent.id);
   // Name / website / phone changes affect the default OG text
   if (updates.name !== undefined || updates.website !== undefined || updates.phone !== undefined) {
     triggerOgRegen(targetAgent.slug);
@@ -10761,6 +10767,15 @@ const mcpOAuth = initMcpOAuth(app, {
   },
 });
 const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage, oauth: mcpOAuth });
+
+// Password berubah (ganti di profil, reset, atau diubah admin) → semua aplikasi
+// AI yang tersambung lewat login OAuth harus login ulang. Tanpa ini, akun yang
+// sempat bocor tetap terbuka lewat sambungan lama walau password sudah diganti.
+// Deklarasi fungsi (hoisted) karena dipanggil endpoint auth di atas berkas ini.
+function revokeMcpOAuthOnPasswordChange(agentId) {
+  mcpOAuth.revokeAllForAgent(agentId)
+    .catch((err) => console.warn('[MCP-OAuth] revoke on password change failed:', err.message));
+}
 
 // Analytics mcp_tool_call — maksimal 1 baris per (agent, tool) per 10 menit;
 // asisten AI bisa memanggil tool puluhan kali per percakapan. Admin dilewati.

@@ -14,11 +14,13 @@
 // - Klien: CIMD (client_id = URL dokumen metadata, mis. "identitas Claude yang
 //   dipublikasikan" — default di claude.ai) dari host daftar putih, atau DCR
 //   RFC 7591 stateless (client_id = JWT berisi redirect_uris).
-//   redirect_uri WAJIB lolos daftar putih host (claude.ai, chatgpt.com, loopback,
-//   skema aplikasi lokal). Tanpa daftar putih, siapa pun bisa mendaftar klien
-//   ber-redirect ke domainnya lalu memancing agent login di halaman ASLI kita →
-//   kode (dan data jamaah) jatuh ke penyerang. Tambahan host: env
-//   MCP_OAUTH_REDIRECT_HOSTS (dipisah koma).
+//   redirect_uri WAJIB salah satu URL callback PERSIS milik klien yang dikenal
+//   (claude.ai, chatgpt.com, Cursor) atau loopback. Tanpa itu, siapa pun bisa
+//   mendaftar klien ber-redirect ke URL-nya lalu memancing agent login di halaman
+//   ASLI kita → kode (dan data jamaah) jatuh ke penyerang. Sengaja persis, bukan
+//   per-domain: satu open redirect / halaman UGC di domain vendor (mis.
+//   vscode.dev/redirect yang tujuannya dari state) cukup untuk membocorkan kode.
+//   Tambahan: env MCP_OAUTH_REDIRECT_URIS (dipisah koma; akhiran * = prefiks).
 // - Login: username/email + password dashboard (bcrypt, disuntik dari server.js).
 //   MASTER_PASSWORD sengaja TIDAK berlaku — impersonasi admin tidak boleh diam-diam
 //   menyerahkan data agent ke aplikasi AI pihak ketiga.
@@ -49,15 +51,30 @@ const GRANT_CACHE_TTL_MS = 60_000;
 const LAST_USED_STAMP_INTERVAL_MS = 10 * 60_000;
 const IP_RATE_LIMIT_PER_MINUTE = 60;
 const LOGIN_ATTEMPTS_PER_IP = 10; // per 10 menit
-const LOGIN_FAILS_PER_ACCOUNT = 8; // per 15 menit
+// Per akun lintas IP — sengaja longgar: kunci ketat bisa dipakai siapa pun untuk
+// mengunci agent (slug publik). Penjaga utama tebak-password = batas per IP.
+const LOGIN_FAILS_PER_ACCOUNT = 30; // per 60 menit
+const LOGIN_FAIL_WINDOW_MS = 60 * 60_000;
+// Refresh token lama yang muncul dalam jendela ini sesudah rotasi dianggap balapan
+// klien (dua refresh paralel), bukan pencurian — ditolak tanpa mencabut sambungan.
+const REFRESH_REUSE_GRACE_MS = 30_000;
 const ACCESS_PREFIX = 'alhijaz_at_';
 const REFRESH_PREFIX = 'alhijaz_rt_';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Host callback klien AI yang dikenal. Subdomain ikut (mis. www.claude.ai).
-const DEFAULT_REDIRECT_HOSTS = ['claude.ai', 'claude.com', 'chatgpt.com', 'chat.openai.com', 'vscode.dev', 'insiders.vscode.dev', 'cursor.com'];
-// Skema aplikasi lokal — kode berakhir di perangkat agent sendiri.
-const APP_SCHEMES = ['cursor:', 'vscode:', 'vscode-insiders:'];
+// URL callback persis klien AI yang dikenal (dicek 9 Okt 2026). Akhiran * =
+// prefiks yang sisanya hanya boleh satu segmen [A-Za-z0-9_-] tanpa query.
+// VS Code & klien CLI memakai loopback (selalu diizinkan, port bebas).
+const DEFAULT_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://claude.com/api/mcp/auth_callback',
+  'https://chatgpt.com/connector_platform_oauth_redirect',
+  'https://chatgpt.com/connector/oauth/*',
+  'https://www.cursor.com/agents/mcp/oauth/callback',
+  'cursor://anysphere.cursor-mcp/oauth/callback',
+];
+// CIMD hanya di-fetch dari host vendor ini (anti-SSRF).
+const CIMD_HOSTS = new Set(['claude.ai', 'claude.com', 'chatgpt.com']);
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 export function deriveMcpOAuthSecret({ oauthSecret, jwtSecret } = {}) {
@@ -65,23 +82,31 @@ export function deriveMcpOAuthSecret({ oauthSecret, jwtSecret } = {}) {
   return crypto.createHmac('sha256', 'mcp-oauth-v1').update(String(jwtSecret || 'fallback-secret-change-me')).digest('hex');
 }
 
-export function parseRedirectHostAllowlist(spec) {
-  const extra = String(spec || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
-  return [...new Set([...DEFAULT_REDIRECT_HOSTS, ...extra])];
+export function parseRedirectUriAllowlist(spec) {
+  const extra = String(spec || '').split(',').map((u) => u.trim()).filter(Boolean);
+  return [...new Set([...DEFAULT_REDIRECT_URIS, ...extra])];
 }
 
 // { ok, host } — host = label stabil untuk grant & tampilan ('localhost' untuk
 // semua loopback, nama skema untuk aplikasi lokal).
-export function classifyRedirectUri(uri, allowedHosts = DEFAULT_REDIRECT_HOSTS) {
+export function classifyRedirectUri(uri, allowedUris = DEFAULT_REDIRECT_URIS) {
+  const raw = String(uri || '');
   let u;
-  try { u = new URL(String(uri)); } catch { return { ok: false }; }
-  if (u.hash) return { ok: false };
-  if (APP_SCHEMES.includes(u.protocol)) return { ok: true, host: u.protocol.slice(0, -1) };
-  const host = u.hostname.toLowerCase();
-  if ((u.protocol === 'http:' || u.protocol === 'https:') && LOOPBACK_HOSTS.has(host)) return { ok: true, host: 'localhost' };
-  if (u.protocol !== 'https:') return { ok: false };
-  const allowed = allowedHosts.some((h) => host === h || host.endsWith(`.${h}`));
-  return allowed ? { ok: true, host } : { ok: false };
+  try { u = new URL(raw); } catch { return { ok: false }; }
+  if (u.hash || u.username || u.password) return { ok: false };
+  if ((u.protocol === 'http:' || u.protocol === 'https:') && LOOPBACK_HOSTS.has(u.hostname.toLowerCase())) {
+    return { ok: true, host: 'localhost' };
+  }
+  // Bandingkan string mentah (bukan hasil normalisasi URL) supaya ../ , %2e,
+  // atau host berhuruf besar tidak bisa menyelinap lewat prefiks.
+  const allowed = allowedUris.some((entry) => {
+    if (!entry.endsWith('*')) return raw === entry;
+    const prefix = entry.slice(0, -1);
+    return raw.startsWith(prefix) && /^[A-Za-z0-9_-]{1,200}$/.test(raw.slice(prefix.length));
+  });
+  if (!allowed) return { ok: false };
+  const host = u.protocol === 'https:' ? u.hostname.toLowerCase() : u.protocol.slice(0, -1);
+  return { ok: true, host };
 }
 
 // redirect_uri harus terdaftar persis — kecuali loopback: RFC 8252 §7.3, port
@@ -100,14 +125,13 @@ export function redirectUriRegistered(uri, registered = []) {
   });
 }
 
-// CIMD: client_id berupa URL https di host daftar putih (path wajib ada).
-export function isCimdClientId(clientId, allowedHosts = DEFAULT_REDIRECT_HOSTS) {
+// CIMD: client_id berupa URL https di host vendor yang dikenal (path wajib ada).
+export function isCimdClientId(clientId) {
   if (typeof clientId !== 'string' || !clientId.startsWith('https://')) return false;
   let u;
   try { u = new URL(clientId); } catch { return false; }
-  if (u.pathname === '/' || u.hash || u.username || u.password) return false;
-  const host = u.hostname.toLowerCase();
-  return allowedHosts.some((h) => host === h || host.endsWith(`.${h}`));
+  if (u.pathname === '/' || u.hash || u.search || u.username || u.password || u.port) return false;
+  return CIMD_HOSTS.has(u.hostname.toLowerCase()) && u.href === clientId;
 }
 
 // Ambil & validasi dokumen metadata klien (CIMD). Dibatasi waktu & ukuran,
@@ -126,8 +150,7 @@ export function clientDisplayName(redirectHost, clientName) {
   const host = String(redirectHost || '');
   if (/(^|\.)claude\.(ai|com)$/.test(host)) return 'Claude';
   if (/(^|\.)(chatgpt\.com|openai\.com)$/.test(host)) return 'ChatGPT';
-  if (host === 'cursor') return 'Cursor';
-  if (/vscode/.test(host)) return 'VS Code';
+  if (host === 'cursor' || /(^|\.)cursor\.com$/.test(host)) return 'Cursor';
   const name = String(clientName || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60);
   if (name) return name;
   return host === 'localhost' ? 'Aplikasi di komputermu' : host;
@@ -169,10 +192,11 @@ export function issueMcpAccessToken(secret, { issuer, resource, agentId, grantId
   }));
 }
 
-export function issueMcpRefreshToken(secret, { issuer, resource, agentId, grantId, cid, auth }) {
+// jti refresh token disimpan di baris grant (refresh_jti) → sekali pakai.
+export function issueMcpRefreshToken(secret, { issuer, resource, agentId, grantId, cid, auth, jti }) {
   return wrap(REFRESH_PREFIX, jwt.sign({ typ: 'mcp_rt', gid: grantId, cid, auth, scope: SCOPE }, secret, {
     subject: agentId, audience: resource, issuer, expiresIn: REFRESH_TTL_SECONDS,
-    jwtid: crypto.randomBytes(12).toString('hex'),
+    jwtid: jti || crypto.randomBytes(12).toString('hex'),
   }));
 }
 
@@ -269,14 +293,14 @@ export function initMcpOAuth(app, {
   if (typeof verifyAgentCredentials !== 'function') throw new Error('initMcpOAuth: verifyAgentCredentials is required');
 
   const secret = deriveMcpOAuthSecret({ oauthSecret: env.MCP_OAUTH_SECRET, jwtSecret: env.JWT_SECRET });
-  const allowedHosts = parseRedirectHostAllowlist(env.MCP_OAUTH_REDIRECT_HOSTS);
+  const allowedUris = parseRedirectUriAllowlist(env.MCP_OAUTH_REDIRECT_URIS);
   const ipLimiter = createRateLimiter({ limit: IP_RATE_LIMIT_PER_MINUTE });
   const loginIpLimiter = createRateLimiter({ limit: LOGIN_ATTEMPTS_PER_IP, windowMs: 10 * 60_000 });
   // identifier -> stempel waktu password salah (15 menit terakhir). Diperiksa
   // SEBELUM bcrypt supaya tebak-password ke satu akun dari banyak IP tetap mentok.
   const accountFails = new Map();
   const recentFails = (identifier) => {
-    const cutoff = Date.now() - 15 * 60_000;
+    const cutoff = Date.now() - LOGIN_FAIL_WINDOW_MS;
     const fails = (accountFails.get(identifier) || []).filter((t) => t > cutoff);
     if (fails.length) accountFails.set(identifier, fails); else accountFails.delete(identifier);
     return fails;
@@ -369,7 +393,7 @@ export function initMcpOAuth(app, {
       return res.status(400).json({ error: 'invalid_redirect_uri', error_description: 'redirect_uris wajib diisi minimal satu' });
     }
     for (const u of redirectUris) {
-      if (!classifyRedirectUri(u, allowedHosts).ok) {
+      if (!classifyRedirectUri(u, allowedUris).ok) {
         log(`[MCP-OAuth] register ditolak: redirect_uri di luar daftar putih (${String(u).slice(0, 120)})`);
         return res.status(400).json({ error: 'invalid_redirect_uri', error_description: `redirect_uri tidak diizinkan untuk Alhijaz: ${u}` });
       }
@@ -414,7 +438,7 @@ export function initMcpOAuth(app, {
     return client;
   };
   const resolveClient = async (clientId) => {
-    if (isCimdClientId(clientId, allowedHosts)) return resolveCimdClient(clientId);
+    if (isCimdClientId(clientId)) return resolveCimdClient(clientId);
     try { return parseMcpClientId(secret, clientId); } catch { return null; }
   };
 
@@ -427,7 +451,7 @@ export function initMcpOAuth(app, {
   const validateAuthorize = async (q, base) => {
     const client = await resolveClient(q.client_id);
     if (!client) return { fatal: 'Aplikasi tidak dikenal. Hapus lalu tambahkan ulang sambungan Alhijaz di aplikasi AI-mu.' };
-    const redirect = classifyRedirectUri(q.redirect_uri, allowedHosts);
+    const redirect = classifyRedirectUri(q.redirect_uri, allowedUris);
     if (!redirect.ok || !redirectUriRegistered(q.redirect_uri, client.redirect_uris)) return { fatal: 'Alamat kembali (redirect_uri) aplikasi ini tidak diizinkan.' };
     const display = clientDisplayName(redirect.host, client.client_name);
     const ctx = { client, redirectHost: redirect.host, display };
@@ -482,7 +506,7 @@ export function initMcpOAuth(app, {
     const password = String(p.password || '');
     if (!identifier || !password) return page(400, 'Isi username/email dan password.', identifier);
     if (recentFails(identifier).length >= LOGIN_FAILS_PER_ACCOUNT) {
-      return page(429, 'Terlalu banyak password salah untuk akun ini. Coba lagi 15 menit lagi.', identifier);
+      return page(429, 'Terlalu banyak password salah untuk akun ini. Coba lagi dalam 1 jam, atau masuk lewat dashboard dulu.', identifier);
     }
 
     let agent;
@@ -523,7 +547,7 @@ export function initMcpOAuth(app, {
     return true;
   };
 
-  const createGrant = async ({ agentId, clientName, redirectHost }) => {
+  const createGrant = async ({ agentId, clientName, redirectHost, refreshJti }) => {
     // Sambung ulang dari aplikasi yang sama (claude.ai/ChatGPT: satu sambungan
     // per akun) menggantikan grant lama supaya daftar sambungan tidak menumpuk.
     // Loopback dikecualikan: dua komputer berbeda sama-sama "localhost".
@@ -539,7 +563,7 @@ export function initMcpOAuth(app, {
     }
     const id = crypto.randomUUID();
     const { error } = await supabase.from('mcp_oauth_grants')
-      .insert({ id, agent_id: agentId, client_name: clientName, redirect_host: redirectHost });
+      .insert({ id, agent_id: agentId, client_name: clientName, redirect_host: redirectHost, refresh_jti: refreshJti });
     if (error) throw new Error(error.message);
     return id;
   };
@@ -577,6 +601,39 @@ export function initMcpOAuth(app, {
       .catch((err) => log(`[MCP-OAuth] stempel last_used ditolak: ${err?.message || err}`));
   };
 
+  // Rotasi refresh token sekali pakai (OAuth 2.1 untuk klien publik). jti yang
+  // bukan milik grant saat ini = token lama dipakai ulang → kemungkinan bocor →
+  // cabut seluruh sambungan; kecuali token tepat-sebelumnya dalam jendela singkat
+  // (dua refresh paralel dari klien yang sama).
+  const rotateRefresh = async ({ gid, sub, jti }) => {
+    const { data: grant, error } = await supabase.from('mcp_oauth_grants')
+      .select('id, agent_id, revoked_at, refresh_jti, prev_refresh_jti, refreshed_at')
+      .eq('id', gid)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!grant || grant.revoked_at || grant.agent_id !== sub) return { error: 'revoked' };
+    if (!jti || grant.refresh_jti !== jti) {
+      const racing = jti && jti === grant.prev_refresh_jti && grant.refreshed_at
+        && Date.now() - Date.parse(grant.refreshed_at) < REFRESH_REUSE_GRACE_MS;
+      if (racing) return { error: 'race' };
+      log(`[MCP-OAuth] refresh token lama dipakai ulang — sambungan ${gid.slice(0, 8)} dicabut`);
+      await revokeGrant(gid);
+      return { error: 'reused' };
+    }
+    const agent = await loadGrantAgent(gid, sub, { fresh: true });
+    if (!agent) return { error: 'revoked' };
+    const nextJti = crypto.randomBytes(12).toString('hex');
+    const { data: updated, error: updateError } = await supabase.from('mcp_oauth_grants')
+      .update({ refresh_jti: nextJti, prev_refresh_jti: jti, refreshed_at: new Date().toISOString() })
+      .eq('id', gid)
+      .eq('refresh_jti', jti)
+      .is('revoked_at', null)
+      .select('id');
+    if (updateError) throw new Error(updateError.message);
+    if (!updated?.length) return { error: 'race' };
+    return { nextJti };
+  };
+
   const revokeGrant = async (gid) => {
     const { error } = await supabase.from('mcp_oauth_grants')
       .update({ revoked_at: new Date().toISOString() })
@@ -594,11 +651,17 @@ export function initMcpOAuth(app, {
     if (m) {
       const decoded = Buffer.from(m[1], 'base64').toString('utf8');
       const i = decoded.indexOf(':');
-      if (i > 0) return { clientId: decodeURIComponent(decoded.slice(0, i)), clientSecret: decodeURIComponent(decoded.slice(i + 1)) };
+      if (i <= 0) return { malformed: true };
+      try {
+        return { clientId: decodeURIComponent(decoded.slice(0, i)), clientSecret: decodeURIComponent(decoded.slice(i + 1)) };
+      } catch {
+        return { malformed: true };
+      }
     }
     return { clientId: b.client_id, clientSecret: b.client_secret };
   };
-  const clientAuthOk = ({ clientId, clientSecret }, { cid, auth }) => {
+  const clientAuthOk = ({ clientId, clientSecret, malformed }, { cid, auth }) => {
+    if (malformed) return false;
     if (clientId && clientHash(clientId) !== cid) return false;
     if (!auth || auth === 'none') return true;
     if (!clientId || !clientSecret) return false;
@@ -609,11 +672,11 @@ export function initMcpOAuth(app, {
 
   // Audience SELALU URL kanonik — resource kiriman klien boleh beda trailing
   // slash, sedangkan verifikasi audience JWT membandingkan string persis.
-  const tokenResponse = ({ base, agentId, grantId, cid, auth }) => ({
+  const tokenResponse = ({ base, agentId, grantId, cid, auth, refreshJti }) => ({
     access_token: issueMcpAccessToken(secret, { issuer: issuerOf(base), resource: resourceOf(base), agentId, grantId }),
     token_type: 'Bearer',
     expires_in: ACCESS_TTL_SECONDS,
-    refresh_token: issueMcpRefreshToken(secret, { issuer: issuerOf(base), resource: resourceOf(base), agentId, grantId, cid, auth }),
+    refresh_token: issueMcpRefreshToken(secret, { issuer: issuerOf(base), resource: resourceOf(base), agentId, grantId, cid, auth, jti: refreshJti }),
     scope: SCOPE,
   });
 
@@ -623,7 +686,10 @@ export function initMcpOAuth(app, {
     const base = buildBaseUrl(req);
     const b = req.body || {};
     const clientAuth = readClientAuth(req);
-    const fail = (status, error, description) => res.status(status).json({ error, error_description: description });
+    const fail = (status, error, description) => {
+      if (error === 'invalid_client') res.set('WWW-Authenticate', 'Basic realm="alhijaz"');
+      return res.status(status).json({ error, error_description: description });
+    };
 
     if (b.grant_type === 'authorization_code') {
       let payload;
@@ -631,12 +697,15 @@ export function initMcpOAuth(app, {
       if (payload.typ !== 'mcp_code') return fail(400, 'invalid_grant', 'tipe kode salah');
       if (!clientAuthOk(clientAuth, payload)) return fail(401, 'invalid_client', 'autentikasi klien gagal');
       if (b.redirect_uri != null && b.redirect_uri !== payload.redirect_uri) return fail(400, 'invalid_grant', 'redirect_uri tidak cocok');
+      // RFC 7636: verifier 43–128 karakter unreserved.
+      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(String(b.code_verifier || ''))) return fail(400, 'invalid_grant', 'code_verifier tidak valid');
       if (!verifyPkceS256(b.code_verifier, payload.code_challenge)) return fail(400, 'invalid_grant', 'PKCE code_verifier tidak cocok');
       if (!resourceOk(b.resource, base)) return fail(400, 'invalid_target', 'resource tidak cocok dengan grant');
       if (!consumeCode(payload.jti, payload.exp)) return fail(400, 'invalid_grant', 'authorization code sudah dipakai');
       let grantId;
+      const refreshJti = crypto.randomBytes(12).toString('hex');
       try {
-        grantId = await createGrant({ agentId: payload.sub, clientName: payload.client_name, redirectHost: payload.redirect_host });
+        grantId = await createGrant({ agentId: payload.sub, clientName: payload.client_name, redirectHost: payload.redirect_host, refreshJti });
       } catch (err) {
         log(`[MCP-OAuth] gagal menyimpan grant: ${err.message}`);
         return fail(503, 'temporarily_unavailable', 'Coba lagi sebentar');
@@ -646,7 +715,7 @@ export function initMcpOAuth(app, {
       Promise.resolve()
         .then(() => onConnect?.({ agentId: payload.sub, clientName: payload.client_name }))
         .catch((err) => log(`[MCP-OAuth] onConnect gagal: ${err?.message || err}`));
-      return res.json(tokenResponse({ base, agentId: payload.sub, grantId, cid: payload.cid, auth: payload.auth }));
+      return res.json(tokenResponse({ base, agentId: payload.sub, grantId, cid: payload.cid, auth: payload.auth, refreshJti }));
     }
 
     if (b.grant_type === 'refresh_token') {
@@ -656,13 +725,14 @@ export function initMcpOAuth(app, {
       } catch { return fail(400, 'invalid_grant', 'refresh_token tidak valid / kadaluarsa'); }
       if (!clientAuthOk(clientAuth, payload)) return fail(401, 'invalid_client', 'autentikasi klien gagal');
       if (!resourceOk(b.resource, base)) return fail(400, 'invalid_target', 'resource tidak cocok');
-      let agent;
-      try { agent = await loadGrantAgent(payload.gid, payload.sub, { fresh: true }); } catch (err) {
+      let rotated;
+      try { rotated = await rotateRefresh({ gid: payload.gid, sub: payload.sub, jti: payload.jti }); } catch (err) {
         log(`[MCP-OAuth] refresh lookup error: ${err.message}`);
         return fail(503, 'temporarily_unavailable', 'Coba lagi sebentar');
       }
-      if (!agent) return fail(400, 'invalid_grant', 'Sambungan sudah diputus — sambungkan ulang dari aplikasi AI');
-      return res.json(tokenResponse({ base, agentId: payload.sub, grantId: payload.gid, cid: payload.cid, auth: payload.auth }));
+      if (rotated.error === 'race') return fail(400, 'invalid_grant', 'refresh_token sudah diganti — pakai token terbaru');
+      if (rotated.error) return fail(400, 'invalid_grant', 'Sambungan sudah diputus — sambungkan ulang dari aplikasi AI');
+      return res.json(tokenResponse({ base, agentId: payload.sub, grantId: payload.gid, cid: payload.cid, auth: payload.auth, refreshJti: rotated.nextJti }));
     }
 
     return fail(400, 'unsupported_grant_type', 'grant_type harus authorization_code atau refresh_token');
@@ -710,6 +780,15 @@ export function initMcpOAuth(app, {
       return agent;
     },
     revokeGrant,
+    // Ganti/reset password = semua aplikasi AI agent itu harus login ulang.
+    async revokeAllForAgent(agentId) {
+      const { error } = await supabase.from('mcp_oauth_grants')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('agent_id', agentId)
+        .is('revoked_at', null);
+      if (error) throw new Error(error.message);
+      grantCache.clear();
+    },
     invalidateGrant: (gid) => grantCache.delete(gid),
   };
 }

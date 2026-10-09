@@ -13,6 +13,12 @@ test('slug rute inti tetap terpesan', () => {
   }
 });
 
+test('rute MCP & login OAuth asisten AI terpesan (custom-domain redirect tak boleh membajaknya)', () => {
+  for (const slug of ['oauth', 'mcp', 'dev-mcp']) assert.equal(isReservedAgentSlug(slug), true, slug);
+  const server = read('server.js');
+  assert.match(server, /RESERVED_SPA_SLUGS = new Set\(\[[^\]]*'oauth', 'mcp', 'dev-mcp'/);
+});
+
 test('teras terpesan supaya tidak menabrak cabang /teras/*', () => {
   assert.equal(isReservedAgentSlug('teras'), true);
   assert.equal(isReservedAgentSlug('TERAS'), true);

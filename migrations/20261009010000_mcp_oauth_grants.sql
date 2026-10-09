@@ -16,8 +16,19 @@ CREATE TABLE IF NOT EXISTS mcp_oauth_grants (
   redirect_host TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_used_at TIMESTAMPTZ,
-  revoked_at TIMESTAMPTZ
+  revoked_at TIMESTAMPTZ,
+  -- Rotasi refresh token sekali pakai: hanya jti refresh_jti yang sah; jti
+  -- sebelumnya (prev_refresh_jti) dalam 30 dtk sesudah refreshed_at = balapan
+  -- klien, selain itu = pemakaian ulang → grant dicabut.
+  refresh_jti TEXT,
+  prev_refresh_jti TEXT,
+  refreshed_at TIMESTAMPTZ
 );
+
+-- Untuk DB yang sudah menerapkan versi awal migrasi ini (tanpa kolom rotasi).
+ALTER TABLE mcp_oauth_grants ADD COLUMN IF NOT EXISTS refresh_jti TEXT;
+ALTER TABLE mcp_oauth_grants ADD COLUMN IF NOT EXISTS prev_refresh_jti TEXT;
+ALTER TABLE mcp_oauth_grants ADD COLUMN IF NOT EXISTS refreshed_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_mcp_oauth_grants_agent_active
   ON mcp_oauth_grants(agent_id) WHERE revoked_at IS NULL;
