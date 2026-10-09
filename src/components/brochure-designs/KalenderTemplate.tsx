@@ -28,7 +28,6 @@ import {
 
 const RED = '#C8102E';
 const DEEP = '#870018';
-const DARK = '#5A0010';
 const PALE = '#F8DFA1';
 const INK = '#241A1C';
 const MUTED = '#6F6264';
@@ -53,8 +52,8 @@ function Entry({ p, displayMode, last }: { p: BrochurePackage; displayMode: 'har
   const highlighted = !row.soldOut && row.chip !== null;
   const fade: CSSProperties = row.soldOut ? { opacity: 0.55 } : {};
   const tagBg = row.soldOut ? GREY_GRADIENT : highlighted ? GOLD_GRADIENT : RED_GRADIENT;
-  // Harga selalu putih; di label emas (terang di sisi kanan) diberi bayangan
-  // tipis supaya angkanya tetap terbaca.
+  // Harga + chip PROMO/HEMAT selalu putih; di label emas (terang di sisi
+  // kanan) diberi bayangan tipis supaya tetap terbaca.
   const priceInk: CSSProperties = { color: '#FFFFFF', ...(highlighted ? { textShadow: '0 1px 2px rgba(110,60,0,0.45)' } : {}) };
 
   return (
@@ -110,7 +109,7 @@ function Entry({ p, displayMode, last }: { p: BrochurePackage; displayMode: 'har
           ) : (
             <>
               {highlighted && (
-                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, lineHeight: 1, color: DARK, whiteSpace: 'nowrap' }}>{row.chip}</span>
+                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, lineHeight: 1, ...priceInk, whiteSpace: 'nowrap' }}>{row.chip}</span>
               )}
               {row.priceJt ? (
                 <span style={{ fontFamily: BROCHURE_MONTSERRAT_FONT_STACK, lineHeight: 1, ...priceInk, whiteSpace: 'nowrap' }}>
