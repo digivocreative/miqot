@@ -219,6 +219,9 @@ async function generateHTML(slug: string, agentOverride?: AgentOverride): Promis
     + '<st' + 'yle>'
     + LANDING_FONT_CSS
     + SVG_FA_CSS
+    // Custom CSS template `.icon-jajan i{top:20px}` (sejajarkan ikon "Kenapa Berhaji"
+    // dengan judul ber-margin-top) hanya kena <i> — replaceFaIcons menggantinya SVG.
+    + '.icon-jajan svg.svg-fa{position:relative;top:20px}'
     // ── Uniform all WA/CTA buttons (all screens) ──
     + '.elementor-2333 .elementor-button{background-color:#28B83C!important;border-color:#149626!important;color:#fff!important;border-radius:50px!important;border-style:solid!important;border-width:3px!important;font-family:"Inter",sans-serif!important;font-weight:600!important;transition:background-color .2s,transform .2s!important}'
     + '.elementor-2333 .elementor-button:hover,.elementor-2333 .elementor-button:focus{background-color:#1DA855!important;transform:translateY(-1px)!important}'
