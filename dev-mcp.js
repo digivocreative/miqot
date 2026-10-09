@@ -319,6 +319,16 @@ export function buildBaseUrl(req) {
 function canonicalResource(base) {
   return `${base}/dev-mcp`;
 }
+// Issuer Dev-MCP ber-PATH sejak 9 Okt 2026: root domain kini milik OAuth agent
+// /mcp (mcp-oauth.js — ChatGPT hanya membaca metadata di root). Claude mengikuti
+// path-insertion RFC 8414, jadi /.well-known/oauth-authorization-server/oauth/dev
+// tetap ditemukan. Token lama ber-iss root masih diterima (DEV_LEGACY_ISSUER)
+// supaya connector yang sudah tersambung tidak putus.
+const DEV_ISSUER_PATH = '/oauth/dev';
+function issuerOf(base) {
+  return `${base}${DEV_ISSUER_PATH}`;
+}
+const acceptedIssuers = (base) => [issuerOf(base), base];
 function protectedResourceMetadataUrl(base) {
   return `${base}/.well-known/oauth-protected-resource/dev-mcp`;
 }
@@ -620,7 +630,7 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
     if (req.method === 'OPTIONS') return res.status(204).end();
     next();
   };
-  app.use(['/dev-mcp', '/oauth/dev', '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server'], corsMw);
+  app.use(['/dev-mcp', '/oauth/dev', '/.well-known/oauth-protected-resource/dev-mcp', '/.well-known/oauth-authorization-server/oauth/dev', '/.well-known/oauth-authorization-server/dev-mcp'], corsMw);
 
   // ── Discovery (RFC 9728 + RFC 8414) — plain & path-suffixed ──
   const protectedResource = (req, res) => {
@@ -628,18 +638,17 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
     res.set('Cache-Control', 'no-store').json({
       resource: canonicalResource(base),
       resource_name: 'Alhijaz Dev MCP',
-      authorization_servers: [base],
+      authorization_servers: [issuerOf(base)],
       scopes_supported: [DEFAULT_SCOPE],
       bearer_methods_supported: ['header'],
     });
   };
-  app.get('/.well-known/oauth-protected-resource', protectedResource);
   app.get('/.well-known/oauth-protected-resource/dev-mcp', protectedResource);
 
   const authServerMeta = (req, res) => {
     const base = buildBaseUrl(req);
     res.set('Cache-Control', 'no-store').json({
-      issuer: base,
+      issuer: issuerOf(base),
       authorization_endpoint: `${base}/oauth/dev/authorize`,
       token_endpoint: `${base}/oauth/dev/token`,
       registration_endpoint: `${base}/oauth/dev/register`,
@@ -651,7 +660,10 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
       scopes_supported: [DEFAULT_SCOPE],
     });
   };
-  app.get('/.well-known/oauth-authorization-server', authServerMeta);
+  // Path-insertion (RFC 8414) & path-append untuk issuer /oauth/dev, plus varian
+  // lama /dev-mcp untuk klien yang menebak issuer dari URL resource.
+  app.get('/.well-known/oauth-authorization-server/oauth/dev', authServerMeta);
+  app.get('/oauth/dev/.well-known/oauth-authorization-server', authServerMeta);
   app.get('/.well-known/oauth-authorization-server/dev-mcp', authServerMeta);
 
   // ── Dynamic Client Registration (RFC 7591) ──
@@ -729,7 +741,7 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
     const url = new URL(p.redirect_uri);
     url.searchParams.set('code', code);
     if (p.state) url.searchParams.set('state', p.state);
-    url.searchParams.set('iss', base);
+    url.searchParams.set('iss', issuerOf(base));
     res.redirect(302, url.toString());
   });
 
@@ -761,10 +773,10 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
 
     const tokenJson = ({ resource, scope, includeResponseScope, clientId }) => {
       return {
-        access_token: issueAccessToken(secret, resource, ACCESS_TTL, { issuer: base, clientId, scope }),
+        access_token: issueAccessToken(secret, resource, ACCESS_TTL, { issuer: issuerOf(base), clientId, scope }),
         token_type: 'Bearer',
         expires_in: 8 * 3600,
-        refresh_token: issueRefreshToken(secret, resource, REFRESH_TTL, { issuer: base, clientId, scope }),
+        refresh_token: issueRefreshToken(secret, resource, REFRESH_TTL, { issuer: issuerOf(base), clientId, scope }),
         ...(includeResponseScope ? { scope } : {}),
       };
     };
@@ -789,7 +801,7 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
 
     if (b.grant_type === 'refresh_token') {
       let payload;
-      try { payload = jwt.verify(unwrapBearerToken(b.refresh_token, 'rt'), secret, { issuer: base }); } catch { return res.status(400).json({ error: 'invalid_grant', error_description: 'refresh_token tidak valid / kadaluarsa' }); }
+      try { payload = jwt.verify(unwrapBearerToken(b.refresh_token, 'rt'), secret, { issuer: acceptedIssuers(base) }); } catch { return res.status(400).json({ error: 'invalid_grant', error_description: 'refresh_token tidak valid / kadaluarsa' }); }
       if (payload.typ !== 'rt') return res.status(400).json({ error: 'invalid_grant', error_description: 'tipe token salah' });
       if (b.client_id && payload.client_id && payload.client_id !== b.client_id) return res.status(400).json({ error: 'invalid_grant', error_description: 'client_id tidak cocok' });
       const target = pickTokenResource(b.resource, payload.aud, canonical);
@@ -821,7 +833,7 @@ export function initDevMcp(app, { log = console.log, env = process.env } = {}) {
       return jsonRpcError(res, 401, -32001, 'Unauthorized: OAuth diperlukan');
     }
     try {
-      verifyAccessToken(secret, m[1].trim(), resource, { issuer: base });
+      verifyAccessToken(secret, m[1].trim(), resource, { issuer: acceptedIssuers(base) });
     } catch {
       res.set('WWW-Authenticate', `${challenge}, error="invalid_token"`);
       return jsonRpcError(res, 401, -32001, 'Unauthorized: access token tidak valid / kadaluarsa');

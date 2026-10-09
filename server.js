@@ -10708,6 +10708,7 @@ app.put('/api/admin/agents/:slug/reject', authMiddleware, adminOnly, async (req,
 // ter-scope agent_id. Lihat mcp-server.js.
 // ──────────────────────────────────────────────
 import { initMcpServer, generateMcpApiKey, hashMcpApiKey } from './mcp-server.js';
+import { initMcpOAuth } from './mcp-oauth.js';
 import { initDevMcp } from './dev-mcp.js';
 
 // Stamp pemakaian MCP key (UI "Tersambung" vs "belum tersambung") — throttled
@@ -10730,7 +10731,36 @@ function stampMcpKeyUsage(agent) {
     .catch((err) => console.warn(`[MCP] last-used stamp rejected for ${agent.slug}:`, err?.message || err));
 }
 
-const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage });
+// Login OAuth asisten AI (claude.ai / ChatGPT) — kredensial dashboard yang sama
+// dengan /api/auth/login (username atau email + bcrypt). MASTER_PASSWORD sengaja
+// TIDAK diterima: impersonasi admin tidak boleh menyerahkan data agent ke
+// aplikasi AI pihak ketiga.
+async function verifyAgentLoginForMcp({ identifier, password }) {
+  const input = String(identifier || '').trim().toLowerCase();
+  if (!input || !password) return null;
+  let agent;
+  if (input.includes('@')) {
+    const { data } = await supabase.from('agents').select('id, slug, name, status, role, password').eq('email', input).maybeSingle();
+    agent = data;
+  } else {
+    agent = await getAgentBySlug(input);
+  }
+  if (!agent) return null;
+  if (!(await bcrypt.compare(String(password), agent.password || ''))) return null;
+  // status apa adanya: token OAuth hanya berlaku untuk agent 'active' (mcp-oauth.js),
+  // jadi login pun harus menolak status lain — jangan petakan null → active.
+  return { id: agent.id, slug: agent.slug, name: agent.name, status: agent.status, role: agent.role || 'agent' };
+}
+
+const mcpOAuth = initMcpOAuth(app, {
+  supabase,
+  verifyAgentCredentials: verifyAgentLoginForMcp,
+  onConnect: async ({ agentId, clientName }) => {
+    const agent = await getAgentById(agentId);
+    if (agent && agent.role !== 'admin') logAnalyticsEvent(agentId, 'action', 'mcp_oauth_connect', { client: clientName });
+  },
+});
+const mcpRuntime = initMcpServer(app, { supabase, onAuthenticated: stampMcpKeyUsage, oauth: mcpOAuth });
 
 // Analytics mcp_tool_call — maksimal 1 baris per (agent, tool) per 10 menit;
 // asisten AI bisa memanggil tool puluhan kali per percakapan. Admin dilewati.
@@ -10817,6 +10847,41 @@ app.post('/api/mcp-key', authMiddleware, async (req, res) => {
   if (error) { console.warn('[MCP] self generate key failed:', error.message); return res.status(500).json({ error: 'Gagal membuat kunci' }); }
   resetMcpKeyState(req.user.id);
   res.json({ success: true, key, endpoint: '/mcp' });
+});
+
+// Aplikasi AI yang tersambung lewat login OAuth (claude.ai, ChatGPT, ...).
+app.get('/api/mcp-oauth/connections', authMiddleware, async (req, res) => {
+  const { data, error } = await supabase
+    .from('mcp_oauth_grants')
+    .select('id, client_name, redirect_host, created_at, last_used_at')
+    .eq('agent_id', req.user.id)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) { console.warn('[MCP-OAuth] connections lookup failed:', error.message); return res.status(500).json({ error: 'Gagal memuat sambungan' }); }
+  res.json({
+    success: true,
+    connections: (data || []).map((g) => ({
+      id: g.id, name: g.client_name, host: g.redirect_host, createdAt: g.created_at, lastUsedAt: g.last_used_at || null,
+    })),
+  });
+});
+
+// Putuskan satu sambungan OAuth — token aplikasi itu langsung ditolak.
+app.delete('/api/mcp-oauth/connections/:id', authMiddleware, async (req, res) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: 'ID sambungan tidak valid' });
+  const { data, error } = await supabase
+    .from('mcp_oauth_grants')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .eq('agent_id', req.user.id)
+    .is('revoked_at', null)
+    .select('id');
+  if (error) { console.warn('[MCP-OAuth] revoke failed:', error.message); return res.status(500).json({ error: 'Gagal memutuskan sambungan' }); }
+  if (!data?.length) return res.status(404).json({ error: 'Sambungan tidak ditemukan' });
+  mcpOAuth.invalidateGrant(req.params.id);
+  if (req.user.role !== 'admin') logAnalyticsEvent(req.user.id, 'action', 'mcp_oauth_revoke', {});
+  res.json({ success: true });
 });
 
 // Revoke key sendiri.
@@ -19399,6 +19464,7 @@ const ACTION_LABELS = {
   change_slug: 'Ganti Username', upload_photo: 'Ganti Foto Profil',
   set_pin: 'Atur PIN Statistik', reset_capi_config: 'Reset Config CAPI',
   mcp_tool_call: 'Pakai Tool Asisten AI (MCP)',
+  mcp_oauth_connect: 'Sambungkan Asisten AI (login)', mcp_oauth_revoke: 'Putuskan Asisten AI (login)',
 };
 const ALL_EVENT_LABELS = {
   ...FEATURE_LABELS, ...ACTION_LABELS,

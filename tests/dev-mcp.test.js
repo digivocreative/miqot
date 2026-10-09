@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import jwt from 'jsonwebtoken';
+import express from 'express';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import {
+  initDevMcp,
   REPO_ROOT,
   deriveSecret,
   resolveRepoPath,
@@ -270,5 +275,56 @@ test('dev-mcp.js performs no filesystem writes / git mutations', () => {
   // git usage must be read-only plumbing only
   for (const mutate of ["'commit'", "'add'", "'push'", "'checkout'", "'reset'", "'rm'"]) {
     assert.ok(!src.includes(`, ${mutate}`) && !src.includes(`[${mutate}`), `dev-mcp.js must not run git ${mutate}`);
+  }
+});
+
+// ── HTTP: issuer /oauth/dev lewat klien OAuth resmi MCP SDK (logika Claude) ──
+// Root domain dipakai OAuth agent /mcp sejak 9 Okt 2026; Dev-MCP harus tetap
+// tersambung lewat path-insertion RFC 8414, dan token lama ber-iss root tetap sah.
+test('Dev-MCP OAuth works end-to-end with the /oauth/dev path issuer; legacy root-issuer tokens still accepted', async () => {
+  const env = { DEV_MCP_PASSWORD: 'pw-dev', JWT_SECRET: 'jwt-dev-test' };
+  const app = express();
+  initDevMcp(app, { log: () => {}, env });
+  const http = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const base = `http://127.0.0.1:${http.address().port}`;
+  try {
+    const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/dev-mcp`)).json();
+    assert.deepEqual(prm.authorization_servers, [`${base}/oauth/dev`]);
+    assert.equal((await (await fetch(`${base}/.well-known/oauth-authorization-server/oauth/dev`)).json()).issuer, `${base}/oauth/dev`);
+    // Root bukan lagi milik Dev-MCP.
+    assert.equal((await fetch(`${base}/.well-known/oauth-authorization-server`)).status, 404);
+
+    const provider = {
+      get redirectUrl() { return 'http://127.0.0.1:65531/callback'; },
+      get clientMetadata() { return { client_name: 'Dev Uji', redirect_uris: ['http://127.0.0.1:65531/callback'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }; },
+      clientInformation() { return this.client; },
+      saveClientInformation(c) { this.client = c; },
+      tokens() { return this._tokens; },
+      saveTokens(t) { this._tokens = t; },
+      redirectToAuthorization(url) { this.authUrl = url; },
+      saveCodeVerifier(v) { this._v = v; },
+      codeVerifier() { return this._v; },
+    };
+    const url = new URL(`${base}/dev-mcp`);
+    const first = new StreamableHTTPClientTransport(url, { authProvider: provider });
+    await assert.rejects(new Client({ name: 'dev', version: '1' }).connect(first), UnauthorizedError);
+    const body = new URLSearchParams({ ...Object.fromEntries(provider.authUrl.searchParams), password: 'pw-dev' });
+    const res = await fetch(`${base}/oauth/dev/authorize`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+    const loc = new URL(res.headers.get('location'));
+    assert.equal(loc.searchParams.get('iss'), `${base}/oauth/dev`);
+    await first.finishAuth(loc.searchParams.get('code'));
+    const client = new Client({ name: 'dev', version: '1' });
+    await client.connect(new StreamableHTTPClientTransport(url, { authProvider: provider }));
+    assert.ok((await client.listTools()).tools.some((t) => t.name === 'project_overview'));
+    await client.close();
+
+    // Token yang diterbitkan sebelum pindah issuer (iss = root) masih diterima.
+    const secret = deriveSecret({ jwtSecret: env.JWT_SECRET });
+    const legacy = issueAccessToken(secret, `${base}/dev-mcp`, '1h', { issuer: base, scope: 'dev' });
+    const legacyClient = new Client({ name: 'dev', version: '1' });
+    await legacyClient.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${legacy}` } } }));
+    await legacyClient.close();
+  } finally {
+    await new Promise((resolve) => http.close(resolve));
   }
 });

@@ -261,7 +261,10 @@ function jsonRpcError(res, status, code, message) {
   res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id: null });
 }
 
-export function initMcpServer(app, { supabase, log = console.log, onAuthenticated } = {}) {
+// `oauth` (opsional) = runtime dari mcp-oauth.js: bearer OAuth per-agent
+// (alhijaz_at_...) diterima di samping kunci statis, dan 401 membawa tantangan
+// WWW-Authenticate supaya claude.ai / ChatGPT memulai login agent.
+export function initMcpServer(app, { supabase, log = console.log, onAuthenticated, oauth = null } = {}) {
   if (!supabase) throw new Error('initMcpServer: supabase client is required');
 
   const rateLimiter = createRateLimiter();
@@ -295,7 +298,29 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
     return agent;
   };
 
+  // Klien berbasis browser (probe connector) butuh CORS; auth murni lewat
+  // header bearer tanpa cookie, jadi origin * aman. WWW-Authenticate harus
+  // di-expose agar browser bisa membaca tantangan 401.
+  const applyCors = (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS');
+    res.set('Access-Control-Allow-Headers', req.headers['access-control-request-headers']
+      || 'Authorization, Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
+    res.set('Access-Control-Expose-Headers', 'WWW-Authenticate, Mcp-Session-Id');
+    res.set('Access-Control-Max-Age', '86400');
+  };
+  app.options('/mcp', (req, res) => { applyCors(req, res); res.status(204).end(); });
+
+  // 401 + tantangan RFC 9728 (resource_metadata) bila OAuth aktif.
+  const unauthorized = (req, res, message, error) => {
+    if (oauth) {
+      res.set('WWW-Authenticate', `Bearer resource_metadata="${oauth.resourceMetadataUrl(req)}", scope="read"${error ? `, error="${error}"` : ''}`);
+    }
+    return jsonRpcError(res, 401, -32001, message);
+  };
+
   app.post('/mcp', async (req, res) => {
+    applyCors(req, res);
     // Caddy sets X-Real-IP to the true client; fall back to XFF/socket.
     const clientIp = req.headers['x-real-ip']
       || (typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : '')
@@ -309,31 +334,57 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
     // awal hash sebagai korelasi): laporan "asisten AI tidak dapat data" tak
     // bisa didiagnosis kalau jalur 401/429 diam total di journald.
     const token = parseMcpBearer(req.headers.authorization);
+    const oauthToken = !token && oauth ? oauth.parseBearer(req.headers.authorization) : null;
     const keyTag = token ? `key#${hashMcpApiKey(token).slice(0, 8)}` : 'no-token';
-    if (!token) {
+    if (!token && !oauthToken) {
       log(`[MCP] reject 401 missing/malformed bearer ip=${clientIp}`);
-      return jsonRpcError(res, 401, -32001, 'Unauthorized: kirim header Authorization: Bearer alhijaz_mcp_...');
-    }
-    if (!rateLimiter(token)) {
-      log(`[MCP] reject 429 per-key ${keyTag} ip=${clientIp}`);
-      return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);
+      return unauthorized(req, res, 'Unauthorized: login lewat OAuth, atau kirim header Authorization: Bearer alhijaz_mcp_...');
     }
 
     let agent;
-    try {
-      agent = await resolveAgent(token);
-    } catch (err) {
-      log(`[MCP] auth lookup error: ${err.message}`);
-      return jsonRpcError(res, 503, -32003, 'Auth lookup failed, coba lagi');
+    if (oauthToken) {
+      // Verifikasi tanda tangan dulu (tanpa DB) — token palsu tak pernah
+      // menyentuh Postgres; rate limit per sambungan (grant), bukan per token
+      // yang berganti tiap jam.
+      const claims = oauth.verifyAccessToken(oauthToken, req);
+      if (!claims) {
+        log(`[MCP] reject 401 invalid oauth token ip=${clientIp}`);
+        return unauthorized(req, res, 'Unauthorized: access token tidak valid / kadaluarsa', 'invalid_token');
+      }
+      if (!rateLimiter(`grant:${claims.grantId}`)) {
+        log(`[MCP] reject 429 per-grant ${claims.grantId.slice(0, 8)} ip=${clientIp}`);
+        return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per sambungan`);
+      }
+      try {
+        agent = await oauth.resolveAgent(claims);
+      } catch (err) {
+        log(`[MCP] auth lookup error: ${err.message}`);
+        return jsonRpcError(res, 503, -32003, 'Auth lookup failed, coba lagi');
+      }
+      if (!agent) {
+        log(`[MCP] reject 401 revoked grant ${claims.grantId.slice(0, 8)} ip=${clientIp}`);
+        return unauthorized(req, res, 'Unauthorized: sambungan sudah diputus atau agent non-aktif — sambungkan ulang', 'invalid_token');
+      }
+    } else {
+      if (!rateLimiter(token)) {
+        log(`[MCP] reject 429 per-key ${keyTag} ip=${clientIp}`);
+        return jsonRpcError(res, 429, -32002, `Rate limit: max ${RATE_LIMIT_PER_MINUTE} request/menit per key`);
+      }
+      try {
+        agent = await resolveAgent(token);
+      } catch (err) {
+        log(`[MCP] auth lookup error: ${err.message}`);
+        return jsonRpcError(res, 503, -32003, 'Auth lookup failed, coba lagi');
+      }
+      if (!agent) {
+        log(`[MCP] reject 401 unknown/inactive ${keyTag} ip=${clientIp}`);
+        return unauthorized(req, res, 'Unauthorized: API key tidak dikenal atau agent non-aktif', 'invalid_token');
+      }
+      // Usage telemetry (last-used stamp kunci) is owned by the caller — this
+      // module stays strictly read-only against the database. Sambungan OAuth
+      // distempel oleh mcp-oauth.js (tabel grant-nya sendiri).
+      try { onAuthenticated?.(agent); } catch { /* never block the request */ }
     }
-    if (!agent) {
-      log(`[MCP] reject 401 unknown/inactive ${keyTag} ip=${clientIp}`);
-      return jsonRpcError(res, 401, -32001, 'Unauthorized: API key tidak dikenal atau agent non-aktif');
-    }
-
-    // Usage telemetry (last-used stamp) is owned by the caller — this module
-    // stays strictly read-only against the database.
-    try { onAuthenticated?.(agent); } catch { /* never block the request */ }
 
     try {
       const server = buildAgentMcpServer({ agent, supabase, log, onToolCall });
@@ -348,23 +399,22 @@ export function initMcpServer(app, { supabase, log = console.log, onAuthenticate
   });
 
   // Stateless mode: no SSE stream to resume, no session to delete.
-  const methodNotAllowed = (req, res) => jsonRpcError(res, 405, -32000, 'Method not allowed (stateless MCP: gunakan POST)');
+  const methodNotAllowed = (req, res) => { applyCors(req, res); jsonRpcError(res, 405, -32000, 'Method not allowed (stateless MCP: gunakan POST)'); };
   app.get('/mcp', methodNotAllowed);
   app.delete('/mcp', methodNotAllowed);
 
-  // /mcp memakai bearer key statis, BUKAN OAuth. Tanpa route ini discovery
-  // path-specific jatuh ke SPA catch-all (200 HTML); klien MCP (Claude Code,
-  // mcp-remote) lalu menganggap origin sebagai authorization server dan memulai
-  // OAuth ke login Dev-MCP (/oauth/dev/*) — agent tersesat ke halaman password
-  // developer. 404 membuat klien membaca metadata root, melihat resource-nya
-  // /dev-mcp (bukan /mcp), dan berhenti dengan error yang jelas.
-  const noOAuthForMcp = (req, res) => res.status(404).json({
+  // Metadata authorization server untuk issuer `<base>/mcp` TIDAK ada (issuer
+  // OAuth /mcp adalah `<base>/oauth/mcp`, lihat mcp-oauth.js; PRM-nya juga di
+  // sana). Tanpa 404 eksplisit, path ini jatuh ke SPA catch-all (200 HTML) dan
+  // klien yang menebak issuer dari URL server tersesat ke OAuth Dev-MCP di root.
+  const notAnIssuer = (req, res) => res.status(404).json({
     error: 'not_found',
-    error_description: 'Endpoint /mcp tidak memakai OAuth — kirim header Authorization: Bearer alhijaz_mcp_...',
+    error_description: 'Bukan authorization server — lihat /.well-known/oauth-protected-resource/mcp',
   });
-  app.get('/.well-known/oauth-protected-resource/mcp', noOAuthForMcp);
-  app.get('/.well-known/oauth-authorization-server/mcp', noOAuthForMcp);
-  app.get('/.well-known/openid-configuration/mcp', noOAuthForMcp);
+  app.get('/.well-known/oauth-authorization-server/mcp', notAnIssuer);
+  app.get('/.well-known/openid-configuration/mcp', notAnIssuer);
+  // Tanpa runtime OAuth, PRM path-specific juga 404 (perilaku sebelum OAuth).
+  if (!oauth) app.get('/.well-known/oauth-protected-resource/mcp', notAnIssuer);
 
   // Admin key-management invalidation hook (server.js calls this after
   // generate/revoke so a rotated key takes effect immediately).

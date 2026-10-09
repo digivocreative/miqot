@@ -497,7 +497,10 @@ test('every MCP jamaah query is scoped to the authenticated agent', () => {
 
 test('server.js wires the MCP endpoint with admin-only key management', () => {
   const server = read('server.js');
-  assert.match(server, /initMcpServer\(app,\s*\{\s*supabase,\s*onAuthenticated:\s*stampMcpKeyUsage\s*\}\)/);
+  assert.match(server, /initMcpServer\(app,\s*\{\s*supabase,\s*onAuthenticated:\s*stampMcpKeyUsage,\s*oauth:\s*mcpOAuth\s*\}\)/);
+  // OAuth per-agent dipasang SEBELUM /mcp & Dev-MCP (route discovery root miliknya).
+  assert.ok(server.indexOf('initMcpOAuth(app') < server.indexOf('initMcpServer(app'));
+  assert.ok(server.indexOf('initMcpServer(app') < server.indexOf('initDevMcp(app'));
   assert.match(server, /app\.post\('\/api\/admin\/agents\/:slug\/mcp-key',\s*authMiddleware,\s*adminOnly/);
   assert.match(server, /app\.delete\('\/api\/admin\/agents\/:slug\/mcp-key',\s*authMiddleware,\s*adminOnly/);
   // Every generate/rotate/revoke must reset bearer cache + usage stamp.
@@ -639,12 +642,14 @@ test('stringly-typed numbers/booleans from small models are coerced, not rejecte
   });
 });
 
-test('/mcp OAuth discovery answers 404 so clients never start the Dev-MCP login', async () => {
+test('issuer guesses at /mcp answer 404 JSON instead of falling through to the SPA', async () => {
+  // Tanpa runtime OAuth (withMcpClient), PRM /mcp juga 404; dengan OAuth, PRM
+  // disajikan mcp-oauth.js (tests/mcp-oauth.test.js).
   await withMcpClient(async ({ base }) => {
-    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server/mcp']) {
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server/mcp', '/.well-known/openid-configuration/mcp']) {
       const res = await fetch(`${base}${path}`);
       assert.equal(res.status, 404, path);
-      assert.match((await res.json()).error_description, /Bearer alhijaz_mcp_/);
+      assert.equal((await res.json()).error, 'not_found');
     }
   });
 });

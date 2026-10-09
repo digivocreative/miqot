@@ -83,8 +83,8 @@ Catatan:
 | AI tools | `/api/ai-copy`, `/api/ask-ai/*`, `/api/ai-tools/*` | OpenAI proxy, `AskAIModal.tsx`, AI tools pages | Captions, Tanya AI, script/voice, brochure schedule data. |
 | CAPI analytics | `/api/capi/*`, `/api/analytics/*` | CAPI helpers in `server.js`, `lib/analytics-maintenance.js` | Meta events, logs, admin analytics, daily aggregate. |
 | Telegram | `/api/telegram/*`, `telegram-notifier.js` | Bot webhook + cron jobs | Deep link connect, preference, alerts, reminders, kurs. |
-| MCP assistant | `/mcp`, `/api/mcp-key` | `mcp-server.js`, MCP key routes | Read-only AI assistant tools scoped per agent. |
-| Dev-MCP (developer) | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-*` | `dev-mcp.js` | Read-only MCP developer-tool (docs/struktur/cari kode) untuk brainstorming di claude.ai; OAuth 2.1 single-user. |
+| MCP assistant | `/mcp`, `/oauth/mcp/*`, `/.well-known/oauth-*` (root), `/api/mcp-key`, `/api/mcp-oauth/connections` | `mcp-server.js`, `mcp-oauth.js`, `McpIntegrationPage.tsx` | Read-only AI assistant tools scoped per agent; login OAuth per-agent (claude.ai/ChatGPT) atau kunci statis (developer). |
+| Dev-MCP (developer) | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-*/dev-mcp`, `/.well-known/oauth-authorization-server/oauth/dev` | `dev-mcp.js` | Read-only MCP developer-tool (docs/struktur/cari kode) untuk brainstorming di claude.ai; OAuth 2.1 single-user. |
 | Top Partner | `/top-partner`, `/api/top-partner` | `TopPartnerPage.tsx`, `lib/top-partner*.js` | Public partner directory + cached photos/OG. |
 
 ## Peta Folder
@@ -436,8 +436,8 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Landing/Bio/Domain | `/api/landing-config`, `/api/bio/*`, `/api/agent/custom-domain` |
 | Portal Jamaah | `/api/portal/jamaah/*` |
 | Teras/Community | `/api/community/*` (teaser, read, feed[/head], posts + reaction/comments/report, media, members, notifications[/head, /seen], link-preview) |
-| MCP | `/mcp`, `/api/mcp-key` |
-| Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` |
+| MCP | `/mcp`, `/oauth/mcp/{register,authorize,token,revoke,jwks}`, `/.well-known/oauth-protected-resource[/mcp]`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/api/mcp-key`, `/api/mcp-oauth/connections[/:id]` |
+| Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource/dev-mcp`, `/.well-known/oauth-authorization-server/oauth/dev` |
 | Top Partner | `/api/top-partner` |
 | Schedule cache | `/api/schedules/:yearCode` |
 | Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/top-partner`, `/f/:code`, `/og/flight/:code.png`, SPA fallback |
@@ -461,13 +461,26 @@ Common failure shape:
 { "success": false, "error": "Pesan error" }
 ```
 
+### MCP assistant per-agent (`/mcp`) — Claude, ChatGPT, developer
+
+`mcp-server.js` (8 tool read-only dari `lib/bani-tools.js`, ter-scope agent) + `mcp-oauth.js` (login). Dua cara autentikasi, keduanya di `POST /mcp`:
+
+- **OAuth 2.1 per-agent (jalur utama agent, sejak 9 Okt 2026):** agent cukup menempel `https://alhijaz.co/mcp` sebagai custom connector di claude.ai (Customize → Connectors → Add custom connector) atau ChatGPT (chatgpt.com/plugins → Add custom MCP server → OAuth), lalu login username/email + password dashboard di `/oauth/mcp/authorize`. ChatGPT & claude.ai biasa **tidak bisa** mengirim header bearer statis — tanpa OAuth mereka tak bisa tersambung (audit 9 Okt: 24 kunci dibuat, praktis 0 pernah dipakai).
+  - Discovery: 401 `/mcp` membawa `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"`; PRM (path-specific **dan** root) → issuer **root** `https://alhijaz.co` (dokumentasi ChatGPT hanya menyebut metadata root); endpoint di `/oauth/mcp/*`. Metadata juga di `/.well-known/openid-configuration`.
+  - Klien: **CIMD** (`client_id` = URL dokumen metadata di host daftar putih — default "identitas Claude" di claude.ai) atau **DCR** stateless (client_id = JWT). `redirect_uri` wajib lolos daftar putih (claude.ai/claude.com, chatgpt.com, vscode.dev, cursor.com, loopback port bebas RFC 8252, `cursor:`/`vscode:`) — anti-phishing; tambahan via `MCP_OAUTH_REDIRECT_HOSTS`. PKCE S256 wajib. Klien publik (`none`) atau `client_secret_post/basic` (secret diturunkan HMAC dari client_id).
+  - Token: access `alhijaz_at_…` 1 jam, refresh `alhijaz_rt_…` 90 hari dirotasi; JWT dengan secret `MCP_OAUTH_SECRET` (kosong → HMAC dari `JWT_SECRET`, terpisah dari dashboard & Dev-MCP). Tiap token membawa id baris **`mcp_oauth_grants`** → bisa diputus per aplikasi dari dashboard (`DELETE /api/mcp-oauth/connections/:id`) atau RFC 7009 `/oauth/mcp/revoke`; agent non-aktif = token mati (cache 60 dtk). Sambung ulang dari aplikasi hosted yang sama menggantikan grant lama.
+  - Login: bcrypt sama dengan `/api/auth/login`; **`MASTER_PASSWORD` sengaja tidak berlaku**. Batas 10 percobaan/IP/10 mnt + 8 gagal/akun/15 mnt. Halaman login: no-frame, CSP ketat, input 16px.
+- **Kunci statis `alhijaz_mcp_…` (developer):** Claude Code (`claude mcp add --transport http alhijaz https://alhijaz.co/mcp --header "Authorization: Bearer …"`), Cursor, API OpenAI/Anthropic. Hash sha256 di `agents.mcp_api_key`; bagian "Untuk developer" di `/dashboard/ai-tools/mcp`.
+- **Uji:** `tests/mcp-oauth.test.js` (alur lengkap lewat klien OAuth resmi MCP SDK, CIMD, revoke, lockout), `tests/mcp-server.test.js` (drift registry↔skema zod, protokol), `scripts/mcp-audit-harness.mjs` (tool vs data asli tanpa merotasi kunci). Log: `journalctl -u miqot -g 'MCP'` (`[MCP]`, `[MCP-OAuth]`).
+- **Cloudflare:** request token/MCP datang dari server vendor (Anthropic `160.79.104.0/21`; OpenAI `openai.com/chatgpt-connectors.json`). Pastikan WAF Skip mencakup `/mcp`, `/oauth/mcp/*`, `/.well-known/*`, dan Bot Fight Mode / blokir AI-bot tidak menolak kategori agent.
+
 ### Dev-MCP (developer tool untuk brainstorming di claude.ai)
 
 `dev-mcp.js` — MCP read-only KEDUA, **berbeda dari `mcp-server.js`**: bukan data bisnis per-agent, melainkan **struktur project + dokumentasi + kode** untuk developer. Dipakai dari custom connector claude.ai supaya Claude paham codebase saat brainstorming. Endpoint `POST /dev-mcp`.
 
 - **Tools (7, read-only):** `project_overview` (project-summary.md), `design_system` (DESIGN-SYSTEM.md), `list_docs`, `read_doc`, `project_tree`, `search_code` (git grep), `read_file`.
 - **Batas aman = git:** hanya file **ter-track** yang bisa dibaca (`git ls-files`/`git grep`); `.env` & secret gitignore otomatis TAK terjangkau. Path-traversal di-guard, git dipanggil via `execFile` (no shell). Blocklist opsional `DEV_MCP_BLOCK_GLOBS`.
-- **Auth OAuth 2.1 single-user:** connector claude.ai wajib OAuth (bukan bearer statis). Gerbang **satu password** `DEV_MCP_PASSWORD`; semua artefak (client_id/code/access/refresh) = JWT bertanda-tangan → **tanpa tabel DB**. Discovery RFC 9728/8414 (`/.well-known/oauth-*`), DCR RFC 7591 (`/oauth/dev/register`), authorize+PKCE S256 (`/oauth/dev/authorize`), token (`/oauth/dev/token`). Access token aud-bound ke `<base>/dev-mcp`, exp 8 jam; refresh 30 hari. Token response memakai opaque wrapper (`mcp_at_...`, `mcp_rt_...`) dengan klaim internal `iss`/`aud`/`client_id`/`jti`/`scope`.
+- **Auth OAuth 2.1 single-user:** connector claude.ai wajib OAuth (bukan bearer statis). Gerbang **satu password** `DEV_MCP_PASSWORD`; semua artefak (client_id/code/access/refresh) = JWT bertanda-tangan → **tanpa tabel DB**. Discovery RFC 9728/8414 — sejak 9 Okt 2026 issuer **`<base>/oauth/dev`** (path; root domain milik OAuth agent `/mcp`): PRM `/.well-known/oauth-protected-resource/dev-mcp`, metadata `/.well-known/oauth-authorization-server/oauth/dev` (+ `/oauth/dev/.well-known/…`, varian lama `/…/dev-mcp`); token lama ber-`iss` root masih diterima. DCR RFC 7591 (`/oauth/dev/register`), authorize+PKCE S256 (`/oauth/dev/authorize`), token (`/oauth/dev/token`). Access token aud-bound ke `<base>/dev-mcp`, exp 8 jam; refresh 30 hari. Token response memakai opaque wrapper (`mcp_at_...`, `mcp_rt_...`) dengan klaim internal `iss`/`aud`/`client_id`/`jti`/`scope`.
 - **Secret:** `DEV_MCP_SECRET` (kalau kosong diturunkan dari `JWT_SECRET` via HMAC → token dev terpisah kriptografis dari JWT dashboard). **Revoke** = rotate `DEV_MCP_SECRET` + restart.
 - **Aktivasi:** kosongkan `DEV_MCP_PASSWORD` = endpoint nonaktif (default). Baca repo di disk VPS → mencerminkan versi **ter-deploy** (bukan working-dir belum di-commit).
 - **Pakai:** claude.ai → Settings → Connectors → Add custom connector → `https://alhijaz.co/dev-mcp` → login password dev. Status 2026-07-10: Claude Web connector berhasil terhubung.
@@ -508,6 +521,7 @@ Core tables referenced by current code/docs:
 | Table | Purpose |
 | --- | --- |
 | `agents` | Canonical user/agent row, login, profile, slug, CAPI config refs, legacy credentials, AWAPI key, MCP key, landing/bio config, Telegram prefs, `email_alias` (immutable, unique) + `email_alias_enabled`. |
+| `mcp_oauth_grants` | Sambungan OAuth asisten AI per agent (Claude/ChatGPT): client_name, redirect_host, last_used_at, revoked_at. Token OAuth membawa id baris ini → bisa diputus. RLS on, tanpa policy (server-only). |
 | `email_forward_log` | Log forwarding email alias (status forwarded/dropped_*/failed per `resend_email_id` + agent); juga guard idempotensi webhook retry. RLS on, tanpa policy (server-only). |
 | `agent_slug_history` | Slug change history/cooldown. |
 | `jamaah` | Jamaah umroh rows, owned by `agent_id`; booking id, jm_id, payment, docs, equipment, notes, raw_data. |
@@ -537,6 +551,7 @@ Recent committed migrations:
 - Analytics FK/index maintenance.
 - Weather cache.
 - MCP key columns.
+- `mcp_oauth_grants` (OAuth agent `/mcp`, 9 Okt 2026; diterapkan manual via `docker exec -i sb-db psql`).
 - Calendar pax fields.
 - Top Partner cache.
 - Teras community feed: posts/reactions/comments/reports, reads, media post+komentar, quote, mentions, link preview (additive-only; diterapkan manual via Supabase SQL Editor).
@@ -555,6 +570,8 @@ Essential:
 | `JWT_SECRET` | Dashboard JWT signing. Must be set in production. |
 | `CAPI_ENCRYPTION_KEY` | Encrypt/decrypt sensitive CAPI and legacy credential data. |
 | `MASTER_PASSWORD` | Emergency/master login path used in auth/CAPI login. |
+| `MCP_OAUTH_SECRET` | Opsional. JWT signing OAuth agent `/mcp` (`mcp-oauth.js`); kosong = turunan HMAC dari `JWT_SECRET`. Rotate = semua sambungan Claude/ChatGPT agent harus login ulang. |
+| `MCP_OAUTH_REDIRECT_HOSTS` | Opsional. Host redirect_uri tambahan (dipisah koma) untuk klien AI di luar daftar putih bawaan. |
 | `DEV_MCP_PASSWORD` | **Wajib untuk MENGAKTIFKAN Dev-MCP `/dev-mcp`** (kosong = nonaktif). Password gerbang OAuth developer. |
 | `DEV_MCP_SECRET` | Opsional. JWT signing Dev-MCP; kalau kosong diturunkan aman dari `JWT_SECRET`. Rotate = revoke semua token Dev-MCP. |
 | `DEV_MCP_BLOCK_GLOBS` | Opsional. Glob dipisah koma untuk menyembunyikan berkas tertentu dari Dev-MCP. |

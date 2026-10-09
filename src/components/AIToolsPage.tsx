@@ -85,7 +85,7 @@ const TOOLS: Tool[] = [
   {
     id: 'mcp',
     name: 'AI Assistant (MCP)',
-    desc: 'Sambungkan asisten AI pribadimu',
+    desc: 'Sambungkan ke Claude atau ChatGPT',
     icon: Bot,
     color: 'teal',
     route: 'mcp',
