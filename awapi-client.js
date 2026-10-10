@@ -25,7 +25,7 @@
  * which is computed by the caller from `tgl_berangkat`).
  */
 
-import { Agent } from 'undici';
+import { createUpstreamFetch, networkErrorCode } from './lib/upstream-fetch.js';
 import {
   PAYMENT_SOURCE_AWAPI,
   isAwapiPaymentSource,
@@ -37,28 +37,9 @@ const BASE = process.env.AWAPI_BASE || 'http://115.124.86.220';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const RETRY_DELAY_MS = 800;
 
-// Upstream kadang menelan sebagian besar koneksi TCP berjam-jam (10 Okt 2026:
-// ±60% SYN tak berbalas, yang tersambung dalam 0,03 dtk). Default undici
-// menunggu 10 dtk lalu request gagal — refresh jamaah sesudah daftar pun gagal.
-// Sambung singkat + coba ulang hanya untuk gagal-sambung; semua request AWAPI
-// adalah GET, jadi aman diulang.
-const CONNECT_TIMEOUT_MS = 3_000;
-const CONNECT_ATTEMPTS = 5;
-const AWAPI_DISPATCHER = new Agent({ connect: { family: 4, timeout: CONNECT_TIMEOUT_MS } });
-const RETRYABLE_NETWORK_CODES = new Set([
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_SOCKET',
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'ETIMEDOUT',
-  'EAI_AGAIN',
-]);
-
-function networkErrorCode(err) {
-  return err?.cause?.code || err?.code || '';
-}
+// Gagal-sambung ke upstream dicoba ulang di lib/upstream-fetch.js (semua
+// request AWAPI adalah GET).
+const awapiFetch = createUpstreamFetch();
 
 class AwapiError extends Error {
   constructor(message, { status, body } = {}) {
@@ -90,17 +71,10 @@ async function awapiRequest(path, { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {
   if (apiKey) headers['x-api-key'] = apiKey;
 
   const doFetch = async () => {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await fetch(url, {
-          headers,
-          signal: AbortSignal.timeout(timeoutMs),
-          dispatcher: AWAPI_DISPATCHER,
-        });
-      } catch (err) {
-        if (attempt >= CONNECT_ATTEMPTS || !RETRYABLE_NETWORK_CODES.has(networkErrorCode(err))) throw err;
-      }
-    }
+    return await awapiFetch(url, {
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   };
 
   let res;

@@ -9,6 +9,7 @@
 
 import * as cheerio from 'cheerio';
 import { getSetCookies as getUndiciSetCookies } from 'undici';
+import { createUpstreamFetch } from './lib/upstream-fetch.js';
 import { parseLegacyDmyDate } from './lib/legacy-date-parse.js';
 
 const DEFAULT_INTERNAL_API_BASE = 'http://115.124.86.220';
@@ -30,6 +31,10 @@ const LOGIN_BASE_CANDIDATES = Array.from(new Set([
   INTERNAL_API_BASE,
   DEFAULT_INTERNAL_API_BASE,
 ])).map(base => base.replace(/\/+$/, ''));
+// Semua request HTTP ke sistem legacy lewat sini: sambung 3 dtk × 5 percobaan
+// untuk gagal-sambung (lihat lib/upstream-fetch.js). Submit browser (Playwright)
+// memakai jaringan Chromium sendiri, tidak lewat sini.
+const legacyFetch = createUpstreamFetch();
 const LEGACY_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
 const LEGACY_STAFF_PATH = '/aiw/staff';
 const LEGACY_INTERNAL_HOSTS = new Set([
@@ -228,7 +233,7 @@ export async function login(username, password, kantor = '2') {
     const staffBase = `${loginBase}/aiw/staff`;
     const bootstrapCookies = [];
     try {
-      const bootstrapRes = await fetch(`${staffBase}/`, {
+      const bootstrapRes = await legacyFetch(`${staffBase}/`, {
         method: 'GET',
         headers: {
           'User-Agent': LEGACY_UA,
@@ -252,7 +257,7 @@ export async function login(username, password, kantor = '2') {
           z: '',
         });
 
-        const res = await fetch(`${staffBase}/cek_login.php`, {
+        const res = await legacyFetch(`${staffBase}/cek_login.php`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -314,7 +319,7 @@ export async function login(username, password, kantor = '2') {
 
         // Validate the cookie against a protected page. Without this, an
         // unauthenticated bootstrap PHPSESSID could be mistaken for a login.
-        const validateRes = await fetch(`${staffBase}/pages/main.php?route=home`, {
+        const validateRes = await legacyFetch(`${staffBase}/pages/main.php?route=home`, {
           method: 'GET',
           headers: {
             Cookie: cookieString,
@@ -389,7 +394,7 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUTS[attempt]);
 
-      const res = await fetch(url, {
+      const res = await legacyFetch(url, {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
@@ -448,7 +453,7 @@ export async function fetchUmrahBookings(username) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
 
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'GET',
       headers: {
         Cookie: session.cookie,
@@ -539,7 +544,7 @@ export async function fetchAwapiCredentials(username) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
 
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'GET',
       headers: {
         Cookie: session.cookie,
@@ -603,7 +608,7 @@ export async function fetchUmrahDetail(username, idUmroh) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000); // 10s — page is small
 
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'GET',
       headers: { Cookie: session.cookie, 'User-Agent': 'Mozilla/5.0' },
       signal: controller.signal,
@@ -1165,7 +1170,7 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);
 
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'GET',
       headers: {
         Cookie: session.cookie,
@@ -1530,7 +1535,7 @@ export async function fetchUmrahJamaahEditForm(username, { idUmroh, jmId } = {})
   const editUrl = `${base}/pages/main.php?route=umrah&act=edaftar&.idb=${encodeURIComponent(`${idUmroh}.${jmId}`)}`;
 
   try {
-    const res = await fetch(editUrl, {
+    const res = await legacyFetch(editUrl, {
       method: 'GET',
       headers: {
         Cookie: session.cookie,
@@ -1563,7 +1568,7 @@ export async function fetchUmrahJamaahEditForm(username, { idUmroh, jmId } = {})
 
     const docUrl = `${base}/pages/main.php?route=dokumen&act=edit-dokumen&id=${encodeURIComponent(idUmroh)}&idj=${encodeURIComponent(jmId)}`;
     try {
-      const docRes = await fetch(docUrl, {
+      const docRes = await legacyFetch(docUrl, {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
@@ -1621,7 +1626,7 @@ export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
   const url = `${base}/pages/route/data_umrah/_jdaftar.php`;
 
   try {
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'POST',
       headers: {
         Cookie: session.cookie,
@@ -1839,7 +1844,7 @@ async function tryPaketAjax(session, jadwal, jsHandlers) {
         url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs;
       }
 
-      const res = await fetch(url, {
+      const res = await legacyFetch(url, {
         method: attempt.method,
         headers,
         body,
@@ -1935,7 +1940,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
+      const res = await legacyFetch(url, {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
@@ -2067,7 +2072,7 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
 
   for (const url of candidateUrls) {
     try {
-      const res = await fetch(url, {
+      const res = await legacyFetch(url, {
         method: 'GET',
         headers: {
           Cookie: session.cookie,
@@ -2152,7 +2157,7 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
   const url = `${base}/pages/route/data_umrah/_pkt.php`;
 
   const parseResponse = async (compositePkt) => {
-    const res = await fetch(url, {
+    const res = await legacyFetch(url, {
       method: 'POST',
       headers: {
         Cookie: session.cookie,
@@ -2315,7 +2320,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
 
     let res;
     try {
-      res = await fetch(actionUrl, {
+      res = await legacyFetch(actionUrl, {
         method: 'POST',
         headers: {
           Cookie: session.cookie,
@@ -3756,7 +3761,7 @@ export async function disconnect(username, { skipRemoteLogout = false } = {}) {
     // Destroy PHP session on remote server (best-effort)
     try {
       const base = getSessionBase(session);
-      await fetch(`${base}/logout.php`, {
+      await legacyFetch(`${base}/logout.php`, {
         method: 'GET',
         headers: {
           'Cookie': session.cookie,
