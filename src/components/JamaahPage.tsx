@@ -884,25 +884,27 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
 
     (async () => {
       setBackgroundSyncing(true);
+      let needsFullSync = true;
       try {
         const res = await fetch(`/api/laporan/umrah/${encodeURIComponent(refreshId)}/refresh`, {
           headers: { ...getAuthHeaders() },
+          signal: AbortSignal.timeout(60_000),
         });
         if (res.ok) {
           // Endpoint upserted fresh rows into Supabase — reload list from DB.
           await fetchJamaah(page);
-        } else if (res.status === 503) {
-          // API resmi disabled → fall back to full sync.
-          handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
+          needsFullSync = false;
         } else {
+          // API resmi mati (503) atau upstream gagal (502, mis. koneksi Alhijaz
+          // putus) → jangan diam saja: jamaah yang baru ditambah harus tetap ditarik.
           console.warn('[JamaahPage] Targeted refresh failed:', res.status);
-          await fetchJamaah(page);
         }
       } catch (err) {
         console.error('[JamaahPage] Targeted refresh error:', err);
       } finally {
         setBackgroundSyncing(false);
       }
+      if (needsFullSync) handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
     })();
   }, [view]);
 

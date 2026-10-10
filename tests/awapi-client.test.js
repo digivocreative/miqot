@@ -1007,3 +1007,51 @@ test('detail id match is case/whitespace tolerant and an empty result stays empt
     assert.deepEqual(rows, []);
   });
 });
+
+function connectError(code) {
+  return Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+}
+
+async function withFlakyFetch(failures, run) {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls <= failures.length) throw failures[calls - 1];
+    const pax = [{ id_umrah: 'AIW1', id_jamaah: 'JM1' }];
+    return new Response(JSON.stringify({ status: 'true', recordsTotal: 1, aaData: pax }), { status: 200 });
+  };
+  try {
+    return await run(() => calls);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+test('connect failures are retried with the short connect timeout (upstream drops ±60% of SYNs)', async () => {
+  const failures = [connectError('UND_ERR_CONNECT_TIMEOUT'), connectError('ECONNRESET'), connectError('UND_ERR_CONNECT_TIMEOUT')];
+  await withFlakyFetch(failures, async (calls) => {
+    const { rows } = await awapiFetchUmrahById('K-1', 'SM1', 'AIW1');
+    assert.equal(rows.length, 1);
+    assert.equal(calls(), 4);
+  });
+});
+
+test('connect retries stop after 5 attempts and name the cause', async () => {
+  const failures = Array.from({ length: 6 }, () => connectError('UND_ERR_CONNECT_TIMEOUT'));
+  await withFlakyFetch(failures, async (calls) => {
+    await assert.rejects(
+      awapiFetchUmrahById('K-1', 'SM1', 'AIW1'),
+      (err) => err.status === 0 && /Network error: fetch failed \[UND_ERR_CONNECT_TIMEOUT\]/.test(err.message),
+    );
+    assert.equal(calls(), 5);
+  });
+});
+
+test('a non-connect failure (whole-request timeout) is not retried', async () => {
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  await withFlakyFetch([timeout], async (calls) => {
+    await assert.rejects(awapiFetchUmrahById('K-1', 'SM1', 'AIW1'), (err) => err.status === 0);
+    assert.equal(calls(), 1);
+  });
+});

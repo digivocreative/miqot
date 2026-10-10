@@ -13853,19 +13853,11 @@ app.post('/api/laporan/umrah/refresh-recent', authMiddleware, async (req, res) =
   const activeYears = getActiveHijriahYears();
   const startedAt = Date.now();
 
-  // Upstream kadang putus-sambung berjam-jam (`fetch failed`, ±1 dari 4 request)
-  // → status 0 dicoba sekali lagi; status HTTP (403 dll.) langsung gagal.
-  const fetchMonth = async ({ tahun, bulan }) => {
-    try {
-      return await awapiFetchUmrahByPendaftaran(agent.awapi_key, code, { tahun, bulan });
-    } catch (err) {
-      if (!(err instanceof AwapiError) || err.status !== 0) throw err;
-      return awapiFetchUmrahByPendaftaran(agent.awapi_key, code, { tahun, bulan });
-    }
-  };
-
   try {
-    const lists = await Promise.all(months.map(fetchMonth));
+    // Gagal-sambung ke upstream sudah dicoba ulang di awapi-client.js.
+    const lists = await Promise.all(months.map(({ tahun, bulan }) => (
+      awapiFetchUmrahByPendaftaran(agent.awapi_key, code, { tahun, bulan })
+    )));
     const rowsByKey = new Map();
     for (const { rows } of lists) {
       for (const raw of rows) {
