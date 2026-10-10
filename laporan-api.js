@@ -2637,6 +2637,13 @@ async function readLegacyBrowserPackagePrice(page) {
   });
 }
 
+async function waitForLegacyDialog(dialogs, matches, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!dialogs.some(matches) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+}
+
 async function waitForLegacyAjax(page, urlPart, timeout = 15_000) {
   return page.waitForResponse(res => res.url().includes(urlPart), { timeout }).catch(() => null);
 }
@@ -2666,6 +2673,9 @@ async function getLegacyBrowserRecaptchaConfig(page) {
       tokenField: tokenNameMatch?.[1] || fallbackTokenField,
       tokenId: tokenIdMatch?.[1] || 'legacy_recaptcha_token',
       source: tokenNameMatch?.[1] ? 'legacy_script' : 'fallback',
+      // Form benar-benar memuat reCAPTCHA? Sejak ±28 Sep 2026 skripnya dikomentari
+      // Alhijaz (tak ada grecaptcha, submit native). Ragu → true (perilaku lama).
+      active: typeof window.grecaptcha !== 'undefined' || /recaptcha/i.test(scripts),
     };
   }, {
     fallbackSiteKey: UMRAH_RECAPTCHA_SITE_KEY,
@@ -3090,8 +3100,11 @@ export async function submitUmrahRegistrationWithBrowser({
       // Feed reCAPTCHA v3 a little human-like behavioural signal before it scores
       // the submit: real cursor movement + a short dwell, then a physical click on
       // the button's center rather than an instantaneous programmatic dispatch.
-      await humanizeLegacyPointer(page, submitButton).catch(() => {});
-      await page.waitForTimeout(1_200);
+      // Tanpa reCAPTCHA di form, gerakan + jeda ini cuma ±2 dtk waktu mati.
+      if (recaptchaConfig.active) {
+        await humanizeLegacyPointer(page, submitButton).catch(() => {});
+        await page.waitForTimeout(1_200);
+      }
       await submitButton.click();
 
       const submitRequest = await submitRequestPromise;
@@ -3148,7 +3161,10 @@ export async function submitUmrahRegistrationWithBrowser({
     }
 
     const submitResponse = await submitResponsePromise;
-    await new Promise(resolve => setTimeout(resolve, 1_500));
+    // aksi_umrah.php menjawab dengan alert(status) inline. Alert 'berhasil' →
+    // lanjut seketika; selain itu tetap tunggu penuh 1,5 dtk, supaya 'berhasil'
+    // yang datang sesudah notice lain tak pernah terbaca sebagai penolakan.
+    await waitForLegacyDialog(dialogs, message => /berhasil|success/i.test(message), 1_500);
     const html = await page.content().catch(() => '');
     const statusCode = submitResponse?.status() || null;
     const responseUrl = submitResponse?.url() || '';
@@ -3170,6 +3186,7 @@ export async function submitUmrahRegistrationWithBrowser({
       tokenLength: tokenInfo.length,
       recaptchaSource: recaptchaConfig.source,
       recaptchaAction: recaptchaConfig.action,
+      recaptchaActive: recaptchaConfig.active,
       responsePreview,
       submitResponseBody,
     });

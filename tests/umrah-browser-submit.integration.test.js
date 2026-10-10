@@ -156,6 +156,7 @@ async function startFakeLegacyServer({
         search: url.search,
         headers: req.headers,
         body,
+        at: Date.now(),
       });
 
       if (req.method === 'GET' && url.pathname === '/aiw/staff/') {
@@ -567,6 +568,27 @@ test('adding a jamaah to an existing ID Umroh submits the locked form exactly as
     assert.equal(multipartField(body, 'paket'), 'JBU001.PKT001.UHUD.UHUD Quard');
     assert.equal(multipartField(body, 'hpaket'), TEST_PACKAGE_PRICE);
     assert.equal(multipartField(body, 'pin'), 'fresh-browser-pin');
+  });
+});
+
+test('a form without reCAPTCHA submits without the humanizing dwell and returns right after the success alert', { timeout: 45_000 }, async () => {
+  // Live state since ±28 Sep 2026: no reCAPTCHA on the form, and aksi_umrah.php answers
+  // with a notice + success alert, then redirects to the list.
+  const submitResponseHtml = "<!doctype html><script>"
+    + "alert('Perhatian: Nomor jamaah tidak valid. Sistem beralih menggunakan nomor agen.');"
+    + "alert('Pendaftaran berhasil!');"
+    + "window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>";
+  await withFakeLegacy({ submitResponseHtml }, async ({ submitUmrahRegistrationWithBrowser }, fakeLegacy) => {
+    const result = await submitUmrahRegistrationWithBrowser(BOUND_SPA_PAYLOAD);
+    const returnedAt = Date.now();
+    assert.equal(result.success, true, JSON.stringify(result));
+
+    const pkt = fakeLegacy.requests.find(request => request.pathname.endsWith('/_pkt.php'));
+    const submit = fakeLegacy.requests.find(request => request.pathname.endsWith('/aksi_umrah.php'));
+    // Humanizing pointer + 1.2 s dwell (only for reCAPTCHA) took ≥2 s here.
+    assert.ok(submit.at - pkt.at < 1_500, `pre-submit took ${submit.at - pkt.at}ms`);
+    // The fixed 1.5 s post-submit wait is gone once the success alert is seen.
+    assert.ok(returnedAt - submit.at < 1_200, `post-submit took ${returnedAt - submit.at}ms`);
   });
 });
 
