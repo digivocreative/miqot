@@ -276,6 +276,7 @@ import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-par
 import { evaluateDbProbe, freshDbHealthState, DEFAULT_DB_HEALTH_CONFIG } from './lib/db-health.js';
 import { freshCircuitState, recordDbOutcome, isCircuitOpen, nextBackoffMs, isDbConnectivityError, DEFAULT_CIRCUIT_CONFIG } from './lib/db-circuit.js';
 import { resolveJamaahUpsertBatch, jamaahUpsertKey, partitionChangedJamaahRows } from './lib/jamaah-upsert.js';
+import { recentRegistrationMonths, recentRowHijriahYear } from './lib/umroh-recent-refresh.js';
 import { buildJamaahSearchNeedle, matchesUmrohJamaahSearch, buildJamaahSearchOrFilter } from './lib/jamaah-search.js';
 import { createScheduleResponseCache } from './lib/schedule-response-cache.js';
 import { listPublicAgents } from './lib/public-agents.js';
@@ -12148,11 +12149,12 @@ function filterSafeJamaahRows(rows, context) {
 // 2026-06-02 Disk IO). Returns null on any error → caller upserts everything (safe
 // fallback). A cheap, cache-friendly read on the agent_id index; trades one small
 // SELECT for skipping a cycle's worth of redundant temp-spilling writes.
-async function fetchExistingJamaahByKey(agentId, years) {
+async function fetchExistingJamaahByKey(agentId, years, { bookingIds = null } = {}) {
   try {
     // raw_data excluded (heavy jsonb, ignored by the diff) — see JAMAAH_DIFF_COLUMNS.
     let q = supabase.from('jamaah').select(JAMAAH_DIFF_COLUMNS).eq('agent_id', agentId);
     if (Array.isArray(years) && years.length > 0) q = q.in('hijriah_year', years);
+    if (Array.isArray(bookingIds)) q = q.in('id_umroh', bookingIds);
     const { data, error } = await q;
     if (error || !Array.isArray(data)) return null;
     const map = new Map();
@@ -12673,62 +12675,70 @@ async function syncUmrahViaApiCore(agentId, slug, agent, { context = 'manual', y
   const syncEvents = emptyJamaahSyncEvents();
   const allowNewJamaahNotify = await hasJamaahNotificationBaseline(agentId, agent);
 
-  for (const yearH of yearsToSync) {
-    const fetchPlans = [
-      {
-        source: 'keberangkatan',
-        endpoint: 'bh',
-        fetchRows: () => awapiFetchUmrahByKeberangkatan(apiKey, code, {
-          tahun: yearH,
-          hijriah: true,
-        }),
-      },
-      {
-        source: 'pendaftaran',
-        endpoint: 'dh',
-        fetchRows: () => awapiFetchUmrahByPendaftaran(apiKey, code, {
-          tahun: yearH,
-          hijriah: true,
-        }),
-      },
-    ];
+  const fetchPlans = yearsToSync.flatMap((yearH) => [
+    {
+      yearH,
+      source: 'keberangkatan',
+      endpoint: 'bh',
+      fetchRows: () => awapiFetchUmrahByKeberangkatan(apiKey, code, {
+        tahun: yearH,
+        hijriah: true,
+      }),
+    },
+    {
+      yearH,
+      source: 'pendaftaran',
+      endpoint: 'dh',
+      fetchRows: () => awapiFetchUmrahByPendaftaran(apiKey, code, {
+        tahun: yearH,
+        hijriah: true,
+      }),
+    },
+  ]);
+  // Sync manual ditunggu orang di layar → semua list diambil serentak (AWAPI
+  // ~2.5 dtk/halaman). Siklus background tetap berurutan agar beban upstream
+  // dari 3 agent paralel tidak berubah. Hasil tetap diproses urut plan (dh
+  // menimpa bh untuk kunci yang sama, seperti sebelumnya).
+  const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
+  const prefetched = context === 'manual' ? fetchPlans.map((plan) => settle(plan.fetchRows())) : [];
 
-    for (const plan of fetchPlans) {
-      try {
-        const { rows } = await plan.fetchRows();
-        for (const raw of rows) {
-          const norm = normalizeAwapiRow(raw, { agentId });
-          if (!norm) continue;
-          const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
-          if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
-          if (!syncYearSet.has(yr)) continue;
-          norm.hijriah_year = yr;
-
-          const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
-          rowsByKey.set(key, {
-            ...norm,
-            raw_data: {
-              ...(norm.raw_data || {}),
-              sync_source: plan.source,
-              sync_endpoint: plan.endpoint,
-            },
-          });
-
-          fetchedBookingIds.add(norm.id_umroh);
-          successfulBookingIds.add(norm.id_umroh);
-          const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
-          const cleanupKey = jamaahCleanupIdentityKey(norm);
-          if (cleanupKey) jset.add(cleanupKey);
-          successfulJamaahPerBooking.set(norm.id_umroh, jset);
-        }
-        if (plan.source === 'keberangkatan') keberangkatanYearsCompleted++;
-        console.log(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH}: ${rows.length} rows`);
-      } catch (err) {
-        fetchErrors++;
-        listComplete = false;
-        console.warn(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH} failed: ${err.message}`);
-      }
+  for (const [planIndex, plan] of fetchPlans.entries()) {
+    const { yearH } = plan;
+    const { value, error } = await (prefetched[planIndex] || settle(plan.fetchRows()));
+    if (error) {
+      fetchErrors++;
+      listComplete = false;
+      console.warn(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH} failed: ${error.message}`);
+      continue;
     }
+    const { rows } = value;
+    for (const raw of rows) {
+      const norm = normalizeAwapiRow(raw, { agentId });
+      if (!norm) continue;
+      const yr = getHijriahYear(norm.tgl_berangkat) || yearH;
+      if (Number(yr) < MIN_HIJRIAH_YEAR) continue;
+      if (!syncYearSet.has(yr)) continue;
+      norm.hijriah_year = yr;
+
+      const key = `${norm.id_umroh}_${norm.jm_id}`.toLowerCase();
+      rowsByKey.set(key, {
+        ...norm,
+        raw_data: {
+          ...(norm.raw_data || {}),
+          sync_source: plan.source,
+          sync_endpoint: plan.endpoint,
+        },
+      });
+
+      fetchedBookingIds.add(norm.id_umroh);
+      successfulBookingIds.add(norm.id_umroh);
+      const jset = successfulJamaahPerBooking.get(norm.id_umroh) || new Set();
+      const cleanupKey = jamaahCleanupIdentityKey(norm);
+      if (cleanupKey) jset.add(cleanupKey);
+      successfulJamaahPerBooking.set(norm.id_umroh, jset);
+    }
+    if (plan.source === 'keberangkatan') keberangkatanYearsCompleted++;
+    console.log(`[Sync/api/${context}] ${slug} ${plan.endpoint}/${yearH}: ${rows.length} rows`);
   }
 
   const allRows = await preserveLegacyUmrohRawDataForRows(agentId, Array.from(rowsByKey.values()));
@@ -13728,6 +13738,54 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
 
 // ── Refresh single umrah booking (and all its jamaah) by ID ──
 // Gated by AWAPI_SYNC_ENABLED — see note on /jamaah/:id/refresh above.
+// Upsert baris AWAPI umroh di luar siklus sync (satu booking, atau pendaftaran
+// terbaru) lewat guard yang sama dengan sync penuh, TANPA cleanup — daftar parsial
+// tidak boleh menghapus. `skipUnchanged` menulis baris baru/berubah saja (aturan
+// Disk-IO, lihat lib/jamaah-upsert.js); tanpa itu semua baris ditulis ulang.
+async function upsertTargetedAwapiUmrohRows(agentId, slug, agent, normalized, { label, skipUnchanged = false }) {
+  const legacyPreservedRows = await preserveLegacyUmrohRawDataForRows(agentId, normalized);
+  const guardedRefresh = await preserveSuspiciousAwapiPayments(agentId, legacyPreservedRows);
+  if (guardedRefresh.unresolved.length > 0) {
+    return { ok: false, status: 409, error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' };
+  }
+
+  const safeRows = filterSafeJamaahRows(guardedRefresh.rows, `api-${label}`);
+  const syncEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, {
+    allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
+  });
+  let rowsToWrite = safeRows;
+  if (skipUnchanged && safeRows.length > 0) {
+    const bookingIds = [...new Set(safeRows.map((r) => r.id_umroh))];
+    const existingByKey = await fetchExistingJamaahByKey(agentId, null, { bookingIds });
+    rowsToWrite = partitionChangedJamaahRows(safeRows, existingByKey).changed;
+  }
+  for (let i = 0; i < rowsToWrite.length; i += JAMAAH_UPSERT_BATCH) {
+    const { error } = await supabase
+      .from('jamaah')
+      .upsert(rowsToWrite.slice(i, i + JAMAAH_UPSERT_BATCH), { onConflict: 'agent_id,id_umroh,jm_id' });
+    if (error) {
+      console.error(`[Sync/api] ${slug} ${label} upsert error:`, error.message);
+      return { ok: false, status: 500, error: 'Gagal menyimpan data refreshed' };
+    }
+  }
+  if (rowsToWrite.length > 0) invalidateStatsCache(agentId);
+  queueJamaahSyncNotifications(agentId, syncEvents, `${label}/${slug}`);
+
+  processCapiPurchases(
+    agentId,
+    slug,
+    'umroh',
+    safeRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }))
+  ).catch((e) => console.error(`[CAPI/api] ${label} error:`, e.message));
+
+  const source = guardedRefresh.guardedCount > 0
+    ? 'awapi-payment-preserved'
+    : guardedRefresh.neutralizedCount > 0
+      ? 'awapi-payment-neutralized'
+      : 'awapi';
+  return { ok: true, safeRows, writtenCount: rowsToWrite.length, source };
+}
+
 app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) => {
   if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
     return res.status(503).json({ error: 'API resmi sedang dinonaktifkan' });
@@ -13762,45 +13820,80 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
     if (normalized.length === 0) {
       return res.status(422).json({ error: 'Tidak ada baris jamaah valid pada booking ini' });
     }
-    const legacyPreservedRows = await preserveLegacyUmrohRawDataForRows(agentId, normalized);
-    const guardedRefresh = await preserveSuspiciousAwapiPayments(agentId, legacyPreservedRows);
-    if (guardedRefresh.unresolved.length > 0) {
-      return res.status(409).json({ error: 'Data pembayaran dari API resmi tidak konsisten dan belum ada data pembayaran valid untuk dipertahankan. Jalankan sync penuh agar sistem memakai data legacy.' });
-    }
 
-    const safeRows = filterSafeJamaahRows(guardedRefresh.rows, 'api-refresh-umrah');
-    const syncEvents = await detectUmrohJamaahSyncEvents(agentId, safeRows, {
-      allowNewJamaah: await hasJamaahNotificationBaseline(agentId, agent),
-    });
-    if (safeRows.length > 0) {
-      const { error } = await supabase
-        .from('jamaah')
-        .upsert(safeRows, { onConflict: 'agent_id,id_umroh,jm_id' });
-      if (error) {
-        console.error(`[Sync/api] ${slug} umrah/${idUmrah} upsert error:`, error.message);
-        return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
-      }
-    }
-    queueJamaahSyncNotifications(agentId, syncEvents, `refresh-umrah/${slug}`);
-
-    processCapiPurchases(
-      agentId,
-      slug,
-      'umroh',
-      safeRows.map((r) => ({ id_umroh: r.id_umroh, jm_id: r.jm_id, nama: r.nama }))
-    ).catch((e) => console.error('[CAPI/api] refresh umrah error:', e.message));
-
-    const source = guardedRefresh.guardedCount > 0
-      ? 'awapi-payment-preserved'
-      : guardedRefresh.neutralizedCount > 0
-        ? 'awapi-payment-neutralized'
-        : 'awapi';
-    res.json({ success: true, data: { count: safeRows.length, rows: safeRows, source } });
+    const result = await upsertTargetedAwapiUmrohRows(agentId, slug, agent, normalized, { label: 'refresh-umrah' });
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ success: true, data: { count: result.safeRows.length, rows: result.safeRows, source: result.source } });
   } catch (err) {
     if (err instanceof AwapiError) {
       return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
     }
     console.error(`[Sync/api] ${slug} umrah/${idUmrah} error:`, err.message);
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+// Sesudah pendaftaran baru id_umroh belum diketahui — tarik daftar pendaftaran
+// bulan ini (AWAPI dm, umumnya 1 halaman ±3 dtk) alih-alih sync penuh bh+dh
+// (agent besar 30–45 dtk). `written` = baris baru/berubah; 0 berarti jamaah baru
+// tak terlihat di sini → klien jatuh ke sync penuh.
+app.post('/api/laporan/umrah/refresh-recent', authMiddleware, async (req, res) => {
+  if (process.env.AWAPI_SYNC_ENABLED !== 'true') {
+    return res.status(503).json({ error: 'API resmi sedang dinonaktifkan' });
+  }
+
+  const agentId = req.user.id;
+  const slug = req.user.slug;
+  const agent = await getAgentById(agentId);
+  if (!agent?.awapi_key) {
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+  }
+  const code = agent.awapi_code || agent.awapi_key.split('-')[0];
+  const months = recentRegistrationMonths();
+  const activeYears = getActiveHijriahYears();
+  const startedAt = Date.now();
+
+  // Upstream kadang putus-sambung berjam-jam (`fetch failed`, ±1 dari 4 request)
+  // → status 0 dicoba sekali lagi; status HTTP (403 dll.) langsung gagal.
+  const fetchMonth = async ({ tahun, bulan }) => {
+    try {
+      return await awapiFetchUmrahByPendaftaran(agent.awapi_key, code, { tahun, bulan });
+    } catch (err) {
+      if (!(err instanceof AwapiError) || err.status !== 0) throw err;
+      return awapiFetchUmrahByPendaftaran(agent.awapi_key, code, { tahun, bulan });
+    }
+  };
+
+  try {
+    const lists = await Promise.all(months.map(fetchMonth));
+    const rowsByKey = new Map();
+    for (const { rows } of lists) {
+      for (const raw of rows) {
+        const norm = normalizeAwapiRow(raw, { agentId });
+        if (!norm) continue;
+        norm.hijriah_year = recentRowHijriahYear(norm, activeYears, getHijriahYear);
+        if (!norm.hijriah_year) continue;
+        rowsByKey.set(`${norm.id_umroh}_${norm.jm_id}`.toLowerCase(), {
+          ...norm,
+          raw_data: { ...(norm.raw_data || {}), sync_source: 'pendaftaran', sync_endpoint: 'dm' },
+        });
+      }
+    }
+
+    const result = await upsertTargetedAwapiUmrohRows(agentId, slug, agent, [...rowsByKey.values()], {
+      label: 'refresh-recent',
+      skipUnchanged: true,
+    });
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    const monthLabel = months.map(({ tahun, bulan }) => `${tahun}/${bulan}`).join('+');
+    console.log(`[Sync/api] ${slug} refresh-recent dm/${monthLabel}: ${result.safeRows.length} rows, ${result.writtenCount} written in ${Date.now() - startedAt}ms`);
+    res.json({ success: true, data: { count: result.safeRows.length, written: result.writtenCount, source: result.source } });
+  } catch (err) {
+    if (err instanceof AwapiError) {
+      console.warn(`[Sync/api] ${slug} refresh-recent failed: ${err.message}`);
+      return res.status(502).json({ error: `Upstream API: ${err.message}`, status: err.status });
+    }
+    console.error(`[Sync/api] ${slug} refresh-recent error:`, err.message);
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 });

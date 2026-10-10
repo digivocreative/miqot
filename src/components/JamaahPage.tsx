@@ -906,6 +906,45 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
     })();
   }, [view]);
 
+  // ── Quick refresh after a fresh registration: id_umroh is still unknown, so
+  // pull only this month's registrations from API resmi (~3 s) instead of a
+  // full sync. Nothing new found there → fall back to the full sync. ──
+  useEffect(() => {
+    if (view !== 'data' || syncing) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('refresh_recent') !== '1') return;
+
+    // Clean URL immediately to avoid re-triggering on refresh
+    params.delete('refresh_recent');
+    const newSearch = params.toString();
+    const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
+    replaceAppState({}, newUrl);
+
+    (async () => {
+      setBackgroundSyncing(true);
+      let needsFullSync = true;
+      try {
+        const res = await fetch('/api/laporan/umrah/refresh-recent', {
+          method: 'POST',
+          headers: { ...getAuthHeaders() },
+          signal: AbortSignal.timeout(60_000),
+        });
+        const result = res.ok ? await res.json() : null;
+        if (result?.success) {
+          await fetchJamaah(page);
+          needsFullSync = !result.data?.written;
+        } else {
+          console.warn('[JamaahPage] Recent refresh failed:', res.status);
+        }
+      } catch (err) {
+        console.error('[JamaahPage] Recent refresh error:', err);
+      } finally {
+        setBackgroundSyncing(false);
+      }
+      if (needsFullSync) handleSync(false, hijriahYear || DEFAULT_HIJRIAH_YEAR);
+    })();
+  }, [view]);
+
   // ── Login handler ──
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

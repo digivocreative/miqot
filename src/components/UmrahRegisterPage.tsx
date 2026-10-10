@@ -1207,12 +1207,12 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       trackEvent('action', 'register_jamaah', paketValue ? { paket: paketValue } : {});
       setTimeout(() => {
         // For idb-bound (group) registration we know the id_umroh — refresh just
-        // that booking via API resmi instead of running a full sync. Falls back
-        // to full sync for fresh registrations where the new id_umroh is unknown.
+        // that booking via API resmi instead of running a full sync. Fresh
+        // registrations (id_umroh unknown) pull only this month's registrations.
         const refreshIdUmroh = bindIdb ? bindIdb.split('.')[0] : '';
         const target = refreshIdUmroh
           ? `/dashboard/jamaah?refresh_id_umroh=${encodeURIComponent(refreshIdUmroh)}`
-          : '/dashboard/jamaah?sync=1';
+          : '/dashboard/jamaah?refresh_recent=1';
         if (onNavigate) {
           onNavigate(target);
         } else {
