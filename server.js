@@ -23297,7 +23297,7 @@ app.get('/:slug/bio', async (req, res, next) => {
     }
 
     const agent = resolved.agent;
-    const origin = `${req.protocol}://${req.get('host')}`;
+    const origin = publicOrigin(req);
     const canonicalSlug = String(agent.slug || slug).toLowerCase();
     const pageUrl = `${origin}/${canonicalSlug}/bio`;
     const html = renderBioPageHtml({ agent, slug: canonicalSlug, origin, pageUrl });
@@ -24306,7 +24306,7 @@ function injectTopPartnerMeta(html, origin) {
 }
 
 app.get('/top-partner', (req, res) => {
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = publicOrigin(req);
   const html = injectTopPartnerMeta(getIndexHtml(), origin);
   res.set('Content-Type', 'text/html');
   res.set('Cache-Control', 'no-cache');
@@ -24354,7 +24354,7 @@ function injectKloterMeta(html, origin, trip, subPath = '') {
 // segmen di luar daftar diteruskan ke rute berikutnya.
 for (const trip of KLOTER_TRIPS) {
   app.get([`/${trip.slug}`, `/${trip.slug}/`], (req, res) => {
-    const origin = `${req.protocol}://${req.get('host')}`;
+    const origin = publicOrigin(req);
     const html = injectKloterMeta(getIndexHtml(), origin, trip);
     res.set('Content-Type', 'text/html');
     res.set('Cache-Control', 'no-cache');
@@ -24363,7 +24363,7 @@ for (const trip of KLOTER_TRIPS) {
   app.get(`/${trip.slug}/:sub`, (req, res, next) => {
     const sub = String(req.params.sub || '').toLowerCase();
     if (!KLOTER_SUB_PAGES.includes(sub)) return next();
-    const origin = `${req.protocol}://${req.get('host')}`;
+    const origin = publicOrigin(req);
     const html = injectKloterMeta(getIndexHtml(), origin, trip, `/${sub}`);
     res.set('Content-Type', 'text/html');
     res.set('Cache-Control', 'no-cache');
@@ -24408,7 +24408,7 @@ app.get('/f/:code', async (req, res, next) => {
       ? (/^kloter\b/i.test(kloterValue) ? kloterValue : `Kloter ${kloterValue}`)
       : 'Kloter';
 
-    const origin = `${req.protocol}://${req.get('host')}`;
+    const origin = publicOrigin(req);
     const rawTitle = `Lacak Penerbangan ${kloterName} | ${flightNum} | ${agentName}`;
     const rawDescription = `Status penerbangan ${share.flight_number} dari ${share.dep_city || share.dep_iata} ke ${share.arr_city || share.arr_iata}. Dikelola oleh ${agentName} — Alhijaz Indowisata.`;
     const imageVersion = crypto.createHash('sha1').update(JSON.stringify([
@@ -24491,7 +24491,7 @@ app.get('/teras/:code', async (req, res, next) => {
     const preview = await loadTerasSharePreview(code);
     if (!preview) return next(); // unknown/deleted post → generic SPA meta
 
-    const origin = `${req.protocol}://${req.get('host')}`;
+    const origin = publicOrigin(req);
     const authorName = String(preview.authorName || 'Agent Alhijaz').trim() || 'Agent Alhijaz';
     const excerpt = terasPreviewExcerpt(preview.body)
       || (preview.hasMedia ? `${authorName} membagikan foto di Teras.` : `${authorName} membagikan kabar di Teras.`);
@@ -24769,8 +24769,8 @@ app.get('{*path}', async (req, res) => {
     }
 
     if (agent) {
-      pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-      ogImageOrigin = `${req.protocol}://${req.get('host')}`;
+      pageUrl = `${publicOrigin(req)}${req.originalUrl}`;
+      ogImageOrigin = publicOrigin(req);
     }
   }
 
