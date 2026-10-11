@@ -7,7 +7,6 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { parseHotelDistanceMeters, hotelAreaCity, hotelMediaCategories, HOTEL_MAX_FAQ_ITEMS } from '../../lib/hotel-directory.js';
 import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
-import { shareLinkCopyText } from '../utils/share';
 import HotelFilterSheet from './HotelFilterSheet';
 import MediaViewerModal from './MediaViewerModal';
 import { agentWatermarkText } from './PhotoWatermark';
@@ -581,22 +580,23 @@ export default function HotelPage({ onNavigate, agentSlug }: {
 
   // Link publik /:agent/hotel/:slug (HotelSharePage, isi via endpoint publik
   // berdaftar-putih). Origin = alhijaz.co seperti link itinerary; agent
-  // berdomain custom diteruskan server ke domainnya sendiri.
+  // berdomain custom diteruskan server ke domainnya sendiri. Yang dibagikan/
+  // disalin HANYA URL-nya (permintaan user 2026-10-11) — tanpa nama hotel,
+  // tanpa awalan 👉 — nama & foto hotel sudah tampil di pratinjau link.
   const shareHotel = async (hotel: HotelDetail) => {
     if (!agentSlug) return;
     const url = `${window.location.origin}/${encodeURIComponent(agentSlug)}/hotel/${encodeURIComponent(hotel.slug)}`;
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: hotel.name, text: hotel.name, url });
+        await navigator.share({ url });
         trackEvent('action', 'share_hotel_link', { slug: hotel.slug, via: 'native' });
       } catch { /* dibatalkan pengguna */ }
       return;
     }
-    const copyText = shareLinkCopyText(url);
     try {
-      await navigator.clipboard.writeText(copyText);
+      await navigator.clipboard.writeText(url);
     } catch {
-      window.prompt('Salin link:', copyText);
+      window.prompt('Salin link:', url);
       return;
     }
     trackEvent('action', 'share_hotel_link', { slug: hotel.slug, via: 'copy' });
