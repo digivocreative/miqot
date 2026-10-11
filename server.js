@@ -23345,7 +23345,9 @@ async function renderItineraryShareSSR(req, res, { agent, canonicalSlug, package
       agentName: agent.name,
     });
 
-    const origin = `${req.protocol}://${req.get('host')}`;
+    // publicOrigin, bukan req.protocol: di balik Cloudflare→nginx req.protocol
+    // selalu 'http' (lihat komentar publicOrigin).
+    const origin = req.customDomain ? `https://${req.customDomain}` : publicOrigin(req);
     const pageUrl = `${origin}${pagePath}`;
     // Bot menyimpan preview per-URL. Tanpa penanda versi, itinerary yang
     // di-resync tetap tampil dengan kartu lama sampai cache bot kedaluwarsa.
