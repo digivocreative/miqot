@@ -102,7 +102,7 @@ export const isAgentPhotoImage = ({ request, url }) =>
 // jadi entri cache tidak pernah basi.
 export const isHotelMediaImage = ({ request, url }) =>
   request.destination === 'image' &&
-  /^https:\/\/[^/]+\.b-cdn\.net\/(?:hotels|hotel-agent-media)\/.*\.(?:jpg|jpeg|png|webp)$/i.test(url.origin + url.pathname);
+  /^https:\/\/[^/]+\.b-cdn\.net\/hotels\/.*\.(?:jpg|jpeg|png|webp)$/i.test(url.origin + url.pathname);
 
 // Gambar same-origin (bendera kartu paket, logo bank, cover brosur). PDF/gambar
 // itinerary & brosur berubah isi tanpa ganti URL — jangan pernah dihidupkan lagi dari cache.

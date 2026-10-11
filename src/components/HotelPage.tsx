@@ -10,7 +10,6 @@ import { trackEvent } from '../utils/analytics';
 import PlyrVideo from './PlyrVideo';
 import HotelFilterSheet from './HotelFilterSheet';
 import MediaViewerModal from './MediaViewerModal';
-import HotelAgentGallerySection from './HotelAgentGallery';
 import { agentWatermarkText } from './PhotoWatermark';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
@@ -1184,11 +1183,6 @@ export default function HotelPage({ onNavigate, agentSlug }: {
               </div>
             </div>
           )}
-
-          {/* Galeri terpisah dari media resmi di atas: tiap agent boleh
-              menambahkan foto/video versi mereka sendiri (lihat
-              HotelAgentGallery.tsx), bukan cuma satu galeri kurasi admin. */}
-          <HotelAgentGallerySection hotelSlug={detail.slug} hotelName={detail.name} currentAgentSlug={agentSlug} />
 
           {/* Lightbox yang sama dengan halaman media — foto di galeri detail
               dibuka langsung, tanpa mampir ke halaman media dulu. */}
