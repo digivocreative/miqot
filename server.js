@@ -69,6 +69,7 @@ import {
   isStrictMaintenanceActive,
   maintenanceAccessCookieOptions,
 } from './lib/maintenance-gate.js';
+import { visitorScheme, isHttpsRequest, isHttpsOnlyPagePath } from './lib/request-scheme.js';
 import {
   UMRAH_UPSTREAM_FAILURE_STATUS,
   buildUmrahSubmitFailure,
@@ -711,6 +712,15 @@ app.use((req, res, next) => {
     }
   }
   next();
+});
+
+// 2b) Halaman Portal Jamaah & reset password: kunjungan http dinaikkan ke https
+// SEBELUM cookie sesi dipasang (alasan lengkap di lib/request-scheme.js). Hanya
+// GET/HEAD halaman — webhook & API (POST) tak pernah dialihkan.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (!isHttpsOnlyPagePath(req.path) || visitorScheme(req) !== 'http') return next();
+  return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
 });
 
 // 3) Pada alhijaz.co: redirect /{slug}/... ke custom domain kalau agent punya
@@ -3354,11 +3364,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    // Build reset URL
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    const baseUrl = `${protocol}://${host}`;
-    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+    // Build reset URL — selalu https (publicOrigin): X-Forwarded-Proto dari
+    // nginx selalu 'http', dan token reset tak boleh lewat link http.
+    const resetUrl = `${publicOrigin(req)}/reset-password?token=${resetToken}`;
 
     // Send email via Resend
     if (!resend) {
@@ -20722,11 +20730,11 @@ function isPortalStoredMagicToken(token) {
   return parts.length === 2 && isPortalMagicCode(parts[1]);
 }
 
+// Magic link selalu https (publicOrigin) — X-Forwarded-Proto dari nginx
+// selalu 'http', jadi link yang dulu dibangun darinya ikut http://.
 function resolvePortalBaseUrl(req) {
-  const protocol = req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https';
-  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host;
-  if (!host) return PORTAL_BASE_URL;
-  return `${protocol}://${host}`;
+  if (!req?.headers?.host) return PORTAL_BASE_URL;
+  return publicOrigin(req);
 }
 
 function formatPortalMagicUrl(token, req) {
@@ -20894,11 +20902,11 @@ function getPortalSessionToken(req) {
 }
 
 function getPortalCookieOptions(req, maxAge = PORTAL_SESSION_TTL_MS) {
-  const forwardedProto = req.headers?.['x-forwarded-proto'];
-  const isHttps = req.secure || forwardedProto === 'https';
   return {
     httpOnly: true,
-    secure: isHttps,
+    // Skema asli pengunjung (CF-Visitor) — X-Forwarded-Proto dari nginx selalu
+    // 'http', sehingga dulu cookie sesi portal tak pernah Secure di alhijaz.co.
+    secure: isHttpsRequest(req),
     sameSite: 'lax',
     path: '/',
     maxAge,
