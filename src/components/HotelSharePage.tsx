@@ -5,11 +5,10 @@
 // Light-only seperti share itinerary.
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { Building2, ChevronLeft, RefreshCw } from 'lucide-react';
+import { Building2, RefreshCw } from 'lucide-react';
 import logoAlhijazWhite from '@/new-logo/new-logo-alhijaz-white.png';
 import { trackPublicEvent } from '@/utils/analytics';
 import { describeLoadError } from '@/lib/loadError';
-import { canGoBackInApp } from '@/lib/appHistory';
 import { AGENTS_DATA, loadAgentsFromSupabase, type AgentData } from '@/data/agents';
 import HotelDetailContent, { type HotelDetailView } from './HotelDetailContent';
 import { HotelSkeletonDetail } from './HotelSkeletons';
@@ -29,21 +28,6 @@ async function readHotelResponse(response: Response): Promise<HotelDetailView | 
   return json?.success ? json.data : null;
 }
 
-// Tombol kembali hanya bila halaman ini dibuka dari halaman lain di situs yang
-// sama — link yang dibuka langsung dari WhatsApp tidak punya "kembali" bermakna.
-function cameFromSameSite(): boolean {
-  try {
-    if (canGoBackInApp()) return true;
-    return (
-      !!document.referrer &&
-      new URL(document.referrer).origin === window.location.origin &&
-      window.history.length > 1
-    );
-  } catch {
-    return false;
-  }
-}
-
 export default function HotelSharePage({ slug, hotelSlug }: { slug: string; hotelSlug: string }) {
   const [hotel, setHotel] = useState<HotelDetailView | null>(null);
   const [agent, setAgent] = useState<AgentData | null>(AGENTS_DATA[slug] || null);
@@ -52,7 +36,6 @@ export default function HotelSharePage({ slug, hotelSlug }: { slug: string; hote
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [viewer, setViewer] = useState<{ index: number; thumbnails: boolean } | null>(null);
-  const [canGoBack] = useState(cameFromSameSite);
 
   // Light-only — jangan warisi kelas `dark` dari sesi app agent di browser yang sama.
   useEffect(() => {
@@ -112,16 +95,6 @@ export default function HotelSharePage({ slug, hotelSlug }: { slug: string; hote
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
-              {canGoBack && (
-                <button
-                  type="button"
-                  onClick={() => window.history.back()}
-                  aria-label="Kembali"
-                  className="touch-hit relative flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-white/15 text-white transition-colors hover:bg-white/25 active:scale-95"
-                >
-                  <ChevronLeft size={18} strokeWidth={2.4} />
-                </button>
-              )}
               <a href={`/${slug}`} aria-label={`Lihat jadwal ${agent?.name || 'agent'}`}>
                 <img src={logoAlhijazWhite} alt="Alhijaz Indowisata" className="h-7 w-auto object-contain" />
               </a>
