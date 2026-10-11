@@ -23462,7 +23462,9 @@ function hotelOgVersion(hotel, agent) {
 
 function renderHotelShareSSR(req, res, { agent, canonicalSlug, hotel, pagePath }) {
   const { title, description } = buildHotelShareMeta(hotel, agent.name);
-  const origin = `${req.protocol}://${req.get('host')}`;
+  // publicOrigin, bukan req.protocol: di balik Cloudflare→nginx req.protocol
+  // selalu 'http' (lihat komentar publicOrigin).
+  const origin = req.customDomain ? `https://${req.customDomain}` : publicOrigin(req);
   const pageUrl = `${origin}${pagePath}`;
   const ogImage = `${origin}/og/hotel/${canonicalSlug}/${hotel.slug}.jpg?v=${hotelOgVersion(hotel, agent)}`;
 
