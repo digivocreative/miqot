@@ -82,6 +82,7 @@ const lazyKloterLandingPage = (slug: string) => lazy(async () => {
   }
 })
 const ItinerarySharePage = lazy(() => import('./components/itinerary/SharePage.tsx'))
+const HotelSharePage = lazy(() => import('./components/HotelSharePage.tsx'))
 const PortalShortLinkPage = lazy(() => import('./components/portal-jamaah/pages/ShortLinkConsumePage.tsx'))
 const LocalAgentation = import.meta.env.DEV && getBrowserStorage('local')
   ? lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))
@@ -339,7 +340,7 @@ import { getFilterModeFromSlug } from '@/utils'
 import { customDomainSlugFrom, isViaCustomDomain, readAgentContext } from '@/lib/agent-context'
 import { KLOTER_SLUGS, loadKloterTrip, resolveKloterSlug, resolveKloterSubPage, type KloterSubPage } from '@/lib/kloterSlugs.js'
 const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner', ...KLOTER_SLUGS]
-const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah']
+const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah', 'hotel']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
 import { isSessionValid } from './utils/authUtils'
@@ -604,6 +605,14 @@ if (isPwaHost && isSsrLandingPath) {
         return <KloterLandingRoute initialSubPage={resolveKloterSubPage(segments[1])} />
       }
       if (isPortalShortLink) return <PortalShortLinkPage token={segments[1]} />
+      // Halaman share Detail Hotel: /:slug/hotel/:hotelSlug (publik, dilihat
+      // calon jamaah). Di custom domain slug tersirat dari host → /hotel/:hotelSlug.
+      if (segments.length === 3 && segments[1]?.toLowerCase() === 'hotel' && firstSlug && !knownFirstSegments.includes(firstSlug)) {
+        return <HotelSharePage slug={firstSlug} hotelSlug={segments[2].toLowerCase()} />
+      }
+      if (isCustomDomainHost && ctxSlug && segments.length === 2 && segments[0]?.toLowerCase() === 'hotel') {
+        return <HotelSharePage slug={ctxSlug} hotelSlug={segments[1].toLowerCase()} />
+      }
       // Halaman share itinerary: /:slug/:jadwalId/itinerary (publik, dilihat jamaah)
       if (isSinglePackageWithAgent && segments[2]?.toLowerCase() === 'itinerary') {
         return <ItinerarySharePage slug={firstSlug} packageId={segments[1]} />

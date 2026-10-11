@@ -17,6 +17,10 @@ import {
   HOTEL_RATING_PLATFORMS,
   normalizeHotelRatingsInput,
   normalizeHotelAliasesInput,
+  HOTEL_PUBLIC_RATING_MIN_RATIO,
+  publicHotelRatings,
+  publicHotelDetail,
+  buildHotelShareMeta,
 } from '../lib/hotel-directory.js';
 
 const PREFIXES = ['https://cdn.example.b-cdn.net/hotels/'];
@@ -523,4 +527,77 @@ test('normalizeHotelAliasesInput: bentuk salah dan batas ditolak', () => {
   assert.equal(normalizeHotelAliasesInput(['x'.repeat(121)]).ok, false);
   assert.equal(normalizeHotelAliasesInput(Array.from({ length: 11 }, (_, i) => `Nama ${i}`)).ok, false);
   assert.equal(normalizeHotelAliasesInput(Array.from({ length: 10 }, (_, i) => `Nama ${i}`)).ok, true);
+});
+
+// ── Detail Hotel publik ──
+
+test('publicHotelRatings: hanya skor ≥80% skala platformnya yang lolos', () => {
+  assert.equal(HOTEL_PUBLIC_RATING_MIN_RATIO, 0.8);
+  const result = publicHotelRatings([
+    { platform: 'google', score: 4.0, reviews: 120, url: null },
+    { platform: 'tripadvisor', score: 3.9, reviews: 40, url: null },
+    { platform: 'booking', score: 8.0, reviews: 900, url: null },
+    { platform: 'agoda', score: 7.9, reviews: 300, url: null },
+    { platform: 'tidak-dikenal', score: 5, reviews: null, url: null },
+  ]);
+  assert.deepEqual(result.map((r) => r.platform), ['google', 'booking']);
+  assert.deepEqual(publicHotelRatings(null), []);
+});
+
+test('publicHotelDetail: daftar-putih kolom — agent_note, editor, dan video tidak ikut', () => {
+  const detail = publicHotelDetail({
+    id: 'uuid-1',
+    slug: 'anjum',
+    name: 'Anjum',
+    city: 'mekkah',
+    stars: 5,
+    distance_label: '±450m',
+    walk_label: '±7 menit jalan kaki',
+    area: null,
+    address: 'Jl. Contoh',
+    gmaps_url: 'https://maps.app.goo.gl/abc',
+    description: 'Hotel bintang 5.',
+    facilities: ['Wi-Fi'],
+    agent_note: 'jangan dijanjikan',
+    created_by: 'uuid-a',
+    updated_by: 'uuid-b',
+    media: [
+      { type: 'image', url: IMG_URL, category: 'Kamar' },
+      { type: 'video', url: VID_URL },
+      { type: 'image', url: IMG_URL_2 },
+    ],
+    faq: [{ q: 'Ada lift?', a: 'Ada.' }],
+    ratings: [{ platform: 'google', score: 3.5, reviews: 10, url: null }],
+  });
+  for (const key of ['id', 'agent_note', 'created_by', 'updated_by']) assert.equal(key in detail, false, key);
+  assert.deepEqual(detail.media, [
+    { type: 'image', url: IMG_URL, category: 'Kamar' },
+    { type: 'image', url: IMG_URL_2 },
+  ]);
+  assert.deepEqual(detail.ratings, []);
+  assert.deepEqual(detail.faq, [{ q: 'Ada lift?', a: 'Ada.' }]);
+});
+
+test('buildHotelShareMeta: kalimat pertama Tentang Hotel + nama agent, maks 160 karakter', () => {
+  const hotel = {
+    name: 'Anjum',
+    city: 'mekkah',
+    stars: 5,
+    distance_label: '±450m',
+    description: 'Hotel bintang 5 di samping Masjidil Haram, sekitar 7 menit jalan kaki. Jalannya datar.\n\nParagraf kedua.',
+  };
+  const meta = buildHotelShareMeta(hotel, 'Nikita');
+  assert.equal(meta.title, 'Anjum, Mekkah — Alhijaz Indowisata');
+  assert.equal(
+    meta.description,
+    'Hotel bintang 5 di samping Masjidil Haram, sekitar 7 menit jalan kaki. Bersama Nikita — Alhijaz Indowisata.'
+  );
+
+  // Tanpa deskripsi → kalimat dari jarak + landmark.
+  const bare = buildHotelShareMeta({ ...hotel, description: null }, '');
+  assert.equal(bare.description, 'Hotel bintang 5 ±450m dari Masjidil Haram. Alhijaz Indowisata.');
+
+  const long = buildHotelShareMeta({ ...hotel, description: `${'kata '.repeat(60)}akhir.` }, 'Nikita');
+  assert.ok(long.description.length <= 160, long.description);
+  assert.ok(long.description.endsWith('…'));
 });

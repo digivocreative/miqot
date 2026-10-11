@@ -196,6 +196,7 @@ Snapshot audit 2026-07-19:
 - Portal Jamaah (`/:slug/jamaah`) with magic-link flow.
 - Flight share page `/f/:code` memakai status, warna, progress bar, dan animasi yang sama dengan kartu Dashboard. Header hanya memuat identitas penerbangan dan tombol share; status ditampilkan sekali di hero.
 - Preview sosial flight share memakai OG PNG `1200x630` yang dibentuk dari snapshot penerbangan dan profil agent melalui `/og/flight/:code.png`.
+- Detail Hotel share `/:slug/hotel/:hotelSlug` (custom domain: `/hotel/:hotelSlug`) — dibagikan agent dari tombol **Bagikan** di Detail Hotel dashboard. Isi via `GET /api/hotels/public/:slug` yang berdaftar-putih (`publicHotelDetail` di `lib/hotel-directory.js`): tanpa `agent_note`/jejak editor, foto saja (tanpa video), rating hanya skor ≥80% skala platform (`HOTEL_PUBLIC_RATING_MIN_RATIO`, disaring di server). Semua hotel otomatis publik. Tampilan dipakai bersama dashboard lewat `HotelDetailContent.tsx`; halamannya `HotelSharePage.tsx` (light-only, lightbox tanpa unduh, watermark agent, tombol WA `wa_click_hotel`). OG meta disuntik server, kartu `/og/hotel/:slug/:hotelSlug.jpg` (JPEG — poster 2:3 utuh di panel kanan).
 - Top Partner directory `/top-partner`.
 - Special landing `/rahmah-1-juli-2026` untuk pilihan pengambilan Air Zam-zam per jamaah.
 
@@ -440,7 +441,7 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | Dev-MCP | `/dev-mcp`, `/oauth/dev/*`, `/.well-known/oauth-protected-resource/dev-mcp`, `/.well-known/oauth-authorization-server/oauth/dev` |
 | Top Partner | `/api/top-partner` |
 | Schedule cache | `/api/schedules/:yearCode` |
-| Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/top-partner`, `/f/:code`, `/og/flight/:code.png`, SPA fallback |
+| Static/proxy/public | `/itinerary/*`, `/brosur/*`, `/:slug/umroh`, `/:slug/haji`, `/:slug/bio`, `/:slug/hotel/:hotelSlug`, `/top-partner`, `/f/:code`, `/og/flight/:code.png`, `/og/hotel/:slug/:hotelSlug.jpg`, SPA fallback |
 
 Auth format for dashboard endpoints:
 

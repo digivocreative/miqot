@@ -43,7 +43,7 @@ import {
   calendarPublicFallbackOriginLookup,
   CALENDAR_PUBLIC_FALLBACK_ORIGIN_IP,
 } from './lib/calendar-public-source.js';
-import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, generateFilterOgPng, loadAgentPhotoBuffer } from './lib/og-generator.mjs';
+import { regenerateOgForAgent, generatePortalJamaahOgPng, generateFlightShareOgPng, generatePackageValueAgentCardPng, generateTerasPostOgPng, generateItineraryOgPng, generatePackageOgPng, generateFilterOgPng, generateHotelOgPng, loadAgentPhotoBuffer, loadRemoteImageBuffer } from './lib/og-generator.mjs';
 import { buildFilterShareMeta } from './lib/filter-share-meta.js';
 import { buildItineraryShareMeta, ogSegments } from './lib/itinerary-share-meta.js';
 import { PACKAGE_ID_RE, buildPackageShareMeta } from './lib/package-share-meta.js';
@@ -102,6 +102,7 @@ import { requireCommunityAccess, canModerateCommunityContent } from './lib/commu
 import {
   requireHotelDirectoryAccess, buildHotelPayload, slugifyHotelName, hotelListItem,
   normalizeHotelMediaInput, hotelMediaUrlsRemoved, HOTEL_CITIES,
+  HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, publicHotelDetail, buildHotelShareMeta,
 } from './lib/hotel-directory.js';
 import {
   unrecordedMentionRows,
@@ -7673,11 +7674,11 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
 
 // ── Direktori hotel untuk halaman jadwal PUBLIK ──
 // Rail kanan halaman jadwal menampilkan thumbnail hotel, dan pengunjungnya
-// jamaah tanpa login — seluruh /api/hotels lain ber-authMiddleware.
+// jamaah tanpa login — /api/hotels yang lain ber-authMiddleware, KECUALI
+// '/api/hotels/public/:slug' di bawah (halaman Detail Hotel yang dibagikan).
 //
-// Yang dibuka SENGAJA minimum: nama, kota, bintang, jarak, area, dan satu foto
-// sampul. Deskripsi, daftar media penuh, rating, FAQ, dan media per-agent TIDAK
-// ikut. Semuanya sudah tercetak di brosur yang memang disebar ke calon jamaah.
+// Daftar ini SENGAJA minimum: nama, kota, bintang, jarak, area, dan foto. Isi
+// lengkap satu hotel hanya lewat endpoint detail publik yang berdaftar-putih.
 //
 // Rute ini WAJIB terdaftar sebelum '/api/hotels/:slug' — kalau tidak, 'public'
 // tertangkap sebagai slug hotel. Pola yang sama dipakai '/api/hotels/banners'.
@@ -7730,6 +7731,47 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
     console.error('[hotel] public list error:', err?.message || err);
     // Rail kanan sanggup tampil tanpa foto; jangan bikin halaman publik merah.
     res.json({ success: true, data: [] });
+  }
+});
+
+// ── Detail Hotel PUBLIK — halaman /:agent/hotel/:slug yang dibagikan agent ──
+// Semua hotel otomatis publik (keputusan user 2026-10-11). Isi yang keluar
+// diatur daftar-putih publicHotelDetail (tanpa agent_note, rating hanya skor
+// ≥80%). Baris mentah di-cache per slug: SSR meta, kartu OG, dan endpoint JSON
+// membaca hotel yang sama untuk satu kunjungan; edit/hapus hotel mengosongkan
+// cache supaya admin yang baru menyunting langsung melihat hasilnya.
+const PUBLIC_HOTEL_DETAIL_CACHE_MS = 5 * 60 * 1000;
+const publicHotelDetailCache = new Map(); // slug → { at, row }
+const HOTEL_SLUG_RE = /^[a-z0-9-]{1,80}$/;
+
+async function loadPublicHotelRow(rawSlug) {
+  const slug = String(rawSlug || '').toLowerCase();
+  if (!HOTEL_SLUG_RE.test(slug)) return null;
+  const cached = publicHotelDetailCache.get(slug);
+  if (cached && Date.now() - cached.at < PUBLIC_HOTEL_DETAIL_CACHE_MS) return cached.row;
+  const { data, error } = await supabase
+    .from('hotels')
+    .select('slug, name, city, stars, distance_label, walk_label, area, address, gmaps_url, description, facilities, media, faq, ratings, updated_at')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (error) {
+    if (hotelTableMissing(error)) return null;
+    throw error;
+  }
+  // Hanya hit yang di-cache — jumlahnya dibatasi jumlah hotel. Slug ngawur
+  // tidak boleh menumbuhkan Map tanpa batas.
+  if (data) publicHotelDetailCache.set(slug, { at: Date.now(), row: data });
+  return data || null;
+}
+
+app.get('/api/hotels/public/:slug', dbLoadShedGuard, async (req, res) => {
+  try {
+    const row = await loadPublicHotelRow(req.params.slug);
+    if (!row) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
+    res.json({ success: true, data: publicHotelDetail(row) });
+  } catch (err) {
+    console.error('[hotel] public detail error:', err?.message || err);
+    res.status(500).json({ error: 'Gagal memuat detail hotel' });
   }
 });
 
@@ -7824,6 +7866,7 @@ app.put('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async (re
     if (!data) return res.status(404).json({ error: 'Hotel tidak ditemukan' });
     const removed = hotelMediaUrlsRemoved(oldRow?.media, data.media, mediaPrefixes);
     if (removed.length) void cleanupHotelMediaUrls(removed, 'edit hotel');
+    publicHotelDetailCache.clear();
     res.json({ success: true, data });
   } catch (err) {
     console.error('[hotel] update error:', err?.message || err);
@@ -7877,6 +7920,7 @@ app.delete('/api/hotels/:id', dbLoadShedGuard, authMiddleware, adminOnly, async 
     // Best-effort: bersihkan file Bunny milik hotel ini (kaskade media).
     const removed = hotelMediaUrlsRemoved(row.media, [], hotelMediaPublicPrefixes());
     if (removed.length) void cleanupHotelMediaUrls(removed, 'hapus hotel');
+    publicHotelDetailCache.clear();
     res.json({ success: true });
   } catch (err) {
     console.error('[hotel] delete error:', err?.message || err);
@@ -19154,6 +19198,8 @@ const VALID_PUBLIC_EVENTS = [
   'view_portal_doc', 'open_quran_surah',
   // Halaman share itinerary /:slug/:packageId/itinerary (publik, keyed by agent slug)
   'open_itinerary_share', 'wa_click_itinerary',
+  // Halaman share Detail Hotel /:slug/hotel/:hotelSlug, metadata { hotel }
+  'open_hotel_share', 'wa_click_hotel',
   // Unduh PDF itinerary kantor dari tombol JourneyStrip. Dipisah per permukaan
   // karena populasinya beda: share = calon jamaah, portal = jamaah yang sudah
   // berangkat/terdaftar. Keduanya BUKAN 'action' — yang mengunduh bukan agen,
@@ -19169,7 +19215,7 @@ const VALID_PUBLIC_EVENTS = [
   'landing_view',
 ];
 // Every event_name that counts as a "WhatsApp click" for the overview + per-agent + drill-down WA metrics.
-const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal', 'wa_click_itinerary'];
+const WA_CLICK_EVENTS = ['wa_click_public', 'wa_click_jamaah', 'wa_click_haji', 'wa_click_portal', 'wa_click_itinerary', 'wa_click_hotel'];
 
 // Shared label dictionaries (used by /summary + /agent/:slug drill-down)
 const FEATURE_LABELS = {
@@ -19202,6 +19248,7 @@ const FEATURE_LABELS = {
   open_portal_doa_dzikir: 'Portal: Doa & Dzikir', open_portal_faq: 'Portal: FAQ',
   // Itinerary web/share
   open_itinerary_share: 'Itinerary Share',
+  open_hotel_share: 'Detail Hotel Share',
   // Audit tracking 2026-10
   open_dashboard: 'Beranda Dashboard', open_from_telegram: 'Buka dari Notif Telegram',
   open_calendar_day: 'Kalender: Detail Tanggal', open_berangkat_detail: 'Detail Keberangkatan/Manasik',
@@ -19210,7 +19257,7 @@ const FEATURE_LABELS = {
   open_sticker_studio: 'Studio Sticker', open_caption_ai: 'Caption AI',
   open_brochure_prompt: 'Prompt Brosur AI', open_package_value: 'Nilai Plus Paket',
   open_bio_editor: 'Editor Bio', open_hotel_media: 'Semua Media Hotel',
-  open_hotel_agent_media: 'Foto Saya (Hotel)', open_teras_notifications: 'Notifikasi Teras', // fitur dihapus Okt 2026; label untuk riwayat
+  open_hotel_agent_media: 'Foto Saya (Hotel, dihapus)', open_teras_notifications: 'Notifikasi Teras',
   open_teras_notif_settings: 'Pengaturan Notifikasi Teras', open_teras_composer: 'Komposer Teras',
   open_capi_log: 'CAPI Event Log',
 };
@@ -19226,6 +19273,7 @@ const ACTION_LABELS = {
   download_itinerary: 'Buka Itinerary', wa_click_jamaah: 'WA Click Jamaah',
   view_itinerary_web: 'Lihat Itinerary Web', copy_itinerary_link: 'Salin Link Itinerary',
   wa_click_itinerary: 'WA dari Itinerary Share',
+  wa_click_hotel: 'WA dari Detail Hotel Share',
   // Dua berkas berbeda dari satu tombol "Unduh PDF" di ItineraryModal — sengaja
   // dipisah agar terlihat versi mana yang benar-benar dipakai agen.
   itinerary_own_pdf_download: 'Unduh Itinerary (Versi Kita)',
@@ -19269,7 +19317,7 @@ const ACTION_LABELS = {
   brochure_prompt_open_chatgpt: 'Buka ChatGPT (Brosur)',
   landing_config_saved: 'Simpan Konfigurasi Landing',
   portal_magic_link_generated: 'Buat Magic Link Portal',
-  hotel_view: 'Lihat Detail Hotel',
+  hotel_view: 'Lihat Detail Hotel', share_hotel_link: 'Bagikan Link Detail Hotel',
   // Teras community suite
   create_post: 'Buat Kiriman Teras', add_comment: 'Komentar Teras',
   react_post: 'Suka Kiriman Teras', react_comment: 'Suka Komentar Teras',
@@ -23399,6 +23447,118 @@ app.get('/:packageId/itinerary', async (req, res, next) => {
 });
 
 // ──────────────────────────────────────────────
+// Detail Hotel share: /:slug/hotel/:hotelSlug — SSR OG meta (SPA merender isi).
+// Pola sama dengan itinerary share di atas. Data hotel lewat loadPublicHotelRow
+// (cache + daftar-putih yang sama dengan /api/hotels/public/:slug).
+// ──────────────────────────────────────────────
+
+// Bot menyimpan preview per-URL: hotel yang disunting (updated_at) atau agent
+// yang ganti foto/nama harus menghasilkan URL kartu baru.
+function hotelOgVersion(hotel, agent) {
+  return crypto.createHash('sha1')
+    .update(JSON.stringify([hotel.updated_at || '', agent?.slug || '', agent?.name || '', agent?.photo || '']))
+    .digest('hex').slice(0, 10);
+}
+
+function renderHotelShareSSR(req, res, { agent, canonicalSlug, hotel, pagePath }) {
+  const { title, description } = buildHotelShareMeta(hotel, agent.name);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const pageUrl = `${origin}${pagePath}`;
+  const ogImage = `${origin}/og/hotel/${canonicalSlug}/${hotel.slug}.jpg?v=${hotelOgVersion(hotel, agent)}`;
+
+  let html = getIndexHtml();
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtmlAttr(title)}</title>`);
+  html = html.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${escapeHtmlAttr(description)}" />`
+  );
+  html = html.replace(
+    /<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:title" content="${escapeHtmlAttr(title)}" />`
+  );
+  html = html.replace(
+    /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:description" content="${escapeHtmlAttr(description)}" />`
+  );
+  html = html.replace(
+    /<meta\s+property="og:type"\s+content="[^"]*"\s*\/?>/i,
+    '<meta property="og:type" content="article" />'
+  );
+
+  // og:image, canonical, twitter:* tidak ada di index.html → disisipkan (lihat
+  // renderItineraryShareSSR). Custom domain butuh __AGENT_CONTEXT__ karena
+  // slug agent tersirat dari host (/hotel/:hotelSlug).
+  const agentContextScript = req.customDomain
+    ? `\n    <script>window.__AGENT_CONTEXT__ = ${serializeInlineJson(buildAgentContextPayload(agent, req.customDomain))};</script>`
+    : '';
+  const extraTags = `${agentContextScript}
+    <link rel="canonical" href="${escapeHtmlAttr(pageUrl)}" />
+    <meta property="og:url" content="${escapeHtmlAttr(pageUrl)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtmlAttr(title)}" />
+    <meta name="twitter:description" content="${escapeHtmlAttr(description)}" />
+    <meta property="og:image" content="${escapeHtmlAttr(ogImage)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />
+    `;
+  html = html.replace('</head>', `${extraTags}</head>`);
+
+  res.set({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'public, max-age=300',
+  }).send(html);
+}
+
+app.get('/:slug/hotel/:hotelSlug', async (req, res, next) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  // /dashboard/hotel/:city juga berbentuk 3 segmen — jangan sampai jadi lookup agent.
+  if (RESERVED_SPA_SLUGS.has(slug)) return next();
+  const hotelSlug = String(req.params.hotelSlug || '').toLowerCase();
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved) return next(); // slug tak dikenal → SPA fallback
+    if (resolved.redirect) {
+      return res.redirect(301, `/${resolved.redirect}/hotel/${encodeURIComponent(hotelSlug)}`);
+    }
+    const hotel = await loadPublicHotelRow(hotelSlug);
+    if (!hotel) return next(); // SPA menampilkan "Hotel tidak ditemukan"
+    const canonicalSlug = String(resolved.agent.slug || slug).toLowerCase();
+    renderHotelShareSSR(req, res, {
+      agent: resolved.agent,
+      canonicalSlug,
+      hotel,
+      pagePath: `/${canonicalSlug}/hotel/${hotel.slug}`,
+    });
+  } catch (err) {
+    console.error('[hotel-share] SSR error:', slug, hotelSlug, err.message);
+    next(); // fallback ke SPA tanpa OG
+  }
+});
+
+// Custom domain: canonicalize membuang slug agent dari path, jadi link
+// alhijaz.co/:slug/hotel/:hotelSlug milik agent berdomain custom mendarat di sini.
+app.get('/hotel/:hotelSlug', async (req, res, next) => {
+  if (!req.customDomainAgent) return next();
+  const agent = req.customDomainAgent;
+  const hotelSlug = String(req.params.hotelSlug || '').toLowerCase();
+  try {
+    const hotel = await loadPublicHotelRow(hotelSlug);
+    if (!hotel) return next();
+    renderHotelShareSSR(req, res, {
+      agent,
+      canonicalSlug: String(agent.slug || '').toLowerCase(),
+      hotel,
+      pagePath: `/hotel/${hotel.slug}`,
+    });
+  } catch (err) {
+    console.error('[hotel-share] SSR error (custom domain):', hotelSlug, err.message);
+    next();
+  }
+});
+
+// ──────────────────────────────────────────────
 // Haji Plus: Scrape + Sync + API
 // ──────────────────────────────────────────────
 
@@ -23899,6 +24059,48 @@ app.get('/og/paket/:packageId.png', async (req, res) => {
     return await sendPackageOgPng(res, { agent: null, packageId });
   } catch (err) {
     console.error('[og/paket] generation failed (tanpa slug):', packageId, err.message);
+    return res.status(500).type('text/plain').send('og generation failed');
+  }
+});
+
+// Kartu OG Detail Hotel share: /og/hotel/:slug/:hotelSlug.jpg. Slug agent WAJIB
+// ada di path — middleware custom domain melewati path berekstensi gambar,
+// jadi req.customDomainAgent selalu kosong di sini (sama dengan /og/paket).
+app.get('/og/hotel/:slug/:hotelSlug.jpg', async (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+  const hotelSlug = String(req.params.hotelSlug || '').toLowerCase();
+  if (!/^[a-z0-9-]{1,64}$/.test(slug) || !HOTEL_SLUG_RE.test(hotelSlug)) {
+    return res.status(404).type('text/plain').send('not found');
+  }
+  try {
+    const resolved = await resolveSlug(slug);
+    if (!resolved?.agent) return res.status(404).type('text/plain').send('not found');
+    const hotel = await loadPublicHotelRow(hotelSlug);
+    if (!hotel) return res.status(404).type('text/plain').send('not found');
+    const agent = resolved.agent;
+    const cover = publicHotelDetail(hotel).media[0]?.url || null;
+    const [coverBuffer, agentPhotoBuffer] = await Promise.all([
+      cover ? loadRemoteImageBuffer(cover) : null,
+      loadAgentPhotoBuffer(agent.photo, agent.slug),
+    ]);
+    const jpg = await generateHotelOgPng({
+      hotelName: hotel.name,
+      cityLabel: HOTEL_CITY_LABELS[hotel.city] || '',
+      stars: hotel.stars,
+      distanceLabel: hotel.distance_label,
+      landmark: HOTEL_CITY_LANDMARKS[hotel.city] || '',
+      walkLabel: hotel.walk_label,
+      area: hotel.area,
+      coverBuffer,
+      agentName: agent.name || '',
+      agentPhotoBuffer,
+    });
+    return res.set({
+      'Content-Type': 'image/jpeg',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    }).send(jpg);
+  } catch (err) {
+    console.error('[og/hotel] generation failed:', slug, hotelSlug, err.message);
     return res.status(500).type('text/plain').send('og generation failed');
   }
 });

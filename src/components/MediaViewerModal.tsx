@@ -35,6 +35,11 @@ interface MediaViewerModalProps {
    * ruang gambar. Dipakai galeri hotel di rail jadwal.
    */
   showThumbnails?: boolean;
+  /**
+   * false = sembunyikan tombol Download & Bagikan. Dipakai halaman Detail Hotel
+   * publik: pengunjung cukup melihat foto, bukan menyimpannya.
+   */
+  allowSave?: boolean;
   /** Dipanggil setelah berkas berhasil tersimpan ke perangkat (analitik pemanggil). */
   onDownloaded?: () => void;
   /** Dipanggil setelah share sheet selesai tanpa batal/galat (analitik pemanggil). */
@@ -96,7 +101,7 @@ function isAbortError(err: unknown): boolean {
 /** Hasil penyiapan berkas: `stamped` false = watermark TIDAK jadi tercetak. */
 interface PreparedMedia { blob: Blob; stamped: boolean }
 
-export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, showThumbnails, onDownloaded, onShared, onClose }: MediaViewerModalProps) {
+export default function MediaViewerModal({ media, initialIndex = 0, label, watermark, showThumbnails, allowSave = true, onDownloaded, onShared, onClose }: MediaViewerModalProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(() => Math.max(0, Math.min(media.length - 1, initialIndex)));
@@ -189,7 +194,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
   const activeUrl = media[index]?.url;
   const activeType = media[index]?.type;
   useEffect(() => {
-    if (!activeUrl || activeType !== 'image') return;
+    if (!allowSave || !activeUrl || activeType !== 'image') return;
     if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return;
     const timer = window.setTimeout(() => {
       prepareMedia({ type: 'image', url: activeUrl }).catch(() => {
@@ -197,7 +202,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
       });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [activeUrl, activeType, prepareMedia]);
+  }, [allowSave, activeUrl, activeType, prepareMedia]);
 
   const handleDownload = useCallback(async () => {
     const item = media[index];
@@ -357,6 +362,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
           {index + 1}/{media.length}
         </span>
         <div className="pointer-events-auto flex items-center gap-2">
+          {allowSave && (<>
           <button
             type="button"
             onClick={handleDownload}
@@ -377,6 +383,7 @@ export default function MediaViewerModal({ media, initialIndex = 0, label, water
           >
             {busy === 'share' ? <Loader2 size={19} className="animate-spin" /> : <Share2 size={19} />}
           </button>
+          </>)}
           <button
             type="button"
             data-media-viewer-close

@@ -21,6 +21,7 @@ import {
   generatePackageValueAgentCardPng,
   generatePortalJamaahOgPng,
   generateFlightShareOgPng,
+  generateHotelOgPng,
 } from '../lib/og-generator.mjs';
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
@@ -94,4 +95,21 @@ test('generateFlightShareOgPng survives emoji in agent, tour leader and airline'
     agentName: EMOJI_NAME,
     agentPhotoBuffer: null,
   }));
+});
+
+test('generateHotelOgPng survives emoji in every free-text field', async () => {
+  const jpg = await generateHotelOgPng({
+    hotelName: 'Movenpick 🕋 Hajar Tower ⭐',
+    cityLabel: 'Mekkah',
+    stars: 5,
+    distanceLabel: '±100m 🚶',
+    landmark: 'Masjidil Haram',
+    walkLabel: '±4 menit jalan kaki ✨ via Gerbang King Abdul Aziz',
+    area: 'Ajyad 🌙',
+    coverBuffer: null,
+    agentName: EMOJI_NAME,
+    agentPhotoBuffer: null,
+  });
+  assert.ok(Buffer.isBuffer(jpg));
+  assert.ok(jpg.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])), 'output is a JPEG');
 });
