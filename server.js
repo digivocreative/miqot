@@ -168,6 +168,9 @@ import {
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
 import { flightItineraryFields } from './lib/flight-itinerary-link.js';
 import { WEATHER_CITIES } from './lib/weather-cities.js';
+import { buildCuacaShareProps, resolveCuacaShareCity } from './lib/cuaca-share-data.js';
+import { loadCuacaShareAssets, renderCuacaShareJpeg } from './lib/cuaca-share-render.js';
+import { cleanupCuacaShareCache, getOrCreateCuacaShareImage } from './lib/cuaca-share-cache.mjs';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
   isExpiredActiveProviderClaim,
@@ -1032,9 +1035,24 @@ async function runKursShareCacheCleanup(reason = 'scheduled') {
   }
 }
 
+async function runCuacaShareCacheCleanup(reason = 'scheduled') {
+  try {
+    const stats = await cleanupCuacaShareCache();
+    console.log(
+      `[CuacaShareCache] Cleanup ${reason}: scanned=${stats.scanned}, ` +
+      `expired=${stats.deletedExpired}, size=${stats.deletedForSize}, ` +
+      `freed=${Math.round(stats.freedBytes / 1024)}KB, remaining=${Math.round(stats.remainingBytes / 1024)}KB`
+    );
+  } catch (err) {
+    console.warn('[CuacaShareCache] Cleanup failed:', err.message);
+  }
+}
+
 runKursShareCacheCleanup('startup');
+runCuacaShareCacheCleanup('startup');
 cron.schedule('30 3 * * *', () => {
   runKursShareCacheCleanup('daily');
+  runCuacaShareCacheCleanup('daily');
 }, { timezone: 'Asia/Jakarta' });
 
 function scheduleAnalyticsMaintenanceCron() {
@@ -19243,7 +19261,7 @@ const FEATURE_LABELS = {
   open_kurs: 'Kurs',
   // Previously fired but unlabeled (rendered as raw slugs before)
   open_brosur: 'Brosur', open_landing_page: 'Landing Page',
-  open_mcp_integration: 'AI Assistant (MCP)', open_share_kurs: 'Bagikan Kurs',
+  open_mcp_integration: 'AI Assistant (MCP)', open_share_kurs: 'Bagikan Kurs', open_share_cuaca: 'Bagikan Cuaca',
   open_birthday_sheet: 'Ulang Tahun Jamaah', open_agents: 'Kelola Agen',
   // Sub-tabs / navigable surfaces newly instrumented
   open_telegram: 'Telegram', open_statistik_haji: 'Statistik Haji',
@@ -19314,6 +19332,8 @@ const ACTION_LABELS = {
   mcp_generate_key: 'Buat Kunci MCP', mcp_revoke_key: 'Cabut Kunci MCP',
   download_share_kurs: 'Unduh Gambar Kurs', share_kurs: 'Bagikan Kurs',
   copy_kurs_caption: 'Salin Caption Kurs',
+  download_share_cuaca: 'Unduh Gambar Cuaca', share_cuaca: 'Bagikan Cuaca',
+  copy_cuaca_caption: 'Salin Caption Cuaca',
   register_jamaah: 'Daftarkan Jamaah',
   // Recategorized from 'feature' → 'action' (generate/copy/share/download/save are actions)
   package_value_generate: 'Buat Nilai Paket', package_value_error: 'Error Nilai Paket',
@@ -20654,6 +20674,56 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
       return res.json({ success: true, data: weatherMemory.cities, cached: true, stale: true, syncedAt: weatherMemory.syncedAt });
     }
     res.status(500).json({ error: 'Gagal mengambil data cuaca' });
+  }
+});
+
+// GET /api/weather/share-image?city=makkah — banner Share Cuaca 4:5 per agent
+// (spec 2026-10-12). Identitas agent HANYA dari sesi; data dari cache cuaca.
+app.get('/api/weather/share-image', authMiddleware, async (req, res) => {
+  try {
+    const now = Date.now();
+    if (!weatherMemory || now - weatherDbReadAt >= WEATHER_DB_READ_TTL_MS) {
+      await loadWeatherFromSupabase();
+      weatherDbReadAt = now;
+    }
+    if (!weatherMemory) {
+      return res.status(503).json({ success: false, error: 'Data cuaca belum tersedia' });
+    }
+    const resolved = resolveCuacaShareCity(req.query.city, weatherMemory.cities);
+    if (resolved.status !== 200) {
+      return res.status(resolved.status).json({ success: false, error: resolved.error });
+    }
+
+    const agent = await getAgentById(req.user.id);
+    if (!agent) return res.status(404).json({ success: false, error: 'Agent not found' });
+    const identity = {
+      name: agent.name || '',
+      phone: agent.phone || '',
+      photo: agent.photo || '',
+      slug: agent.slug || req.user.slug,
+    };
+    const { syncedAt } = weatherMemory;
+    const data = buildCuacaShareProps(resolved.city, identity, { syncedAt });
+    const result = await getOrCreateCuacaShareImage({
+      cityKey: data.cityKey,
+      syncedAt,
+      agent: identity,
+      dateKey: data.dateKey,
+      render: async () => renderCuacaShareJpeg({ data, assets: await loadCuacaShareAssets(data, identity.photo) }),
+    });
+
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Content-Length': String(result.buffer.length),
+      'Content-Disposition': `inline; filename="cuaca-${data.cityKey}-${data.dateKey}.jpg"`,
+      'Cache-Control': 'no-store',
+      'X-Cuaca-Image-Cache': result.cacheHit ? 'HIT' : 'MISS',
+    });
+    res.send(result.buffer);
+  } catch (err) {
+    console.error('[CuacaShare] Generate error:', err.message);
+    try { Sentry.captureException(err); } catch { /* noop */ }
+    res.status(500).json({ success: false, error: 'Gagal membuat gambar cuaca' });
   }
 });
 
