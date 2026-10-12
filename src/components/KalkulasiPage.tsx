@@ -819,7 +819,8 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
                 <SectionDivider />
                 <div className="py-6">
                   <SectionHeader icon={Tag} label="Tipe Paket" />
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Satu kolom: paket bisa punya 3 tipe — kiri-kanan jadi timpang. */}
+                  <div className="space-y-2">
                     {tierKeys.map((tierKey) => {
                       const isSelected = selectedTier === tierKey;
                       const tierHotel = tierHotelInfo(selectedPkg, tierKey);
@@ -831,50 +832,49 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
                           key={tierKey}
                           type="button"
                           onClick={() => setSelectedTier(tierKey)}
-                          className={`relative text-left rounded-2xl border-2 p-3.5 transition-all duration-300 active:scale-[0.98] ${
+                          aria-pressed={isSelected}
+                          className={`w-full flex items-center justify-between gap-3 text-left rounded-2xl border-2 px-4 py-3 transition-all duration-300 active:scale-[0.98] ${
                             isSelected
                               ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-900/25 shadow-sm'
                               : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-emerald-300 dark:hover:border-emerald-500'
                           }`}
                         >
-                          {isSelected && (
-                            <CheckCircle2 size={16} className="absolute top-2.5 right-2.5 text-emerald-600" />
-                          )}
-                          <p className={`text-sm font-bold tracking-tight ${
-                            isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'
-                          }`}>
-                            {tierKey}
-                          </p>
-                          {(mekkahStar > 0 || madinahStar > 0) && (
-                            <div className="mt-2 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                              {mekkahStar > 0 && (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span>Mekkah</span>
-                                  <span className="flex tracking-tight">
-                                    {Array.from({ length: mekkahStar }).map((_, i) => (
-                                      <span key={i} className="text-amber-400 leading-none">★</span>
-                                    ))}
-                                  </span>
-                                </div>
-                              )}
-                              {madinahStar > 0 && (
-                                <div className="flex items-center justify-between gap-2">
-                                  <span>Madinah</span>
-                                  <span className="flex tracking-tight">
-                                    {Array.from({ length: madinahStar }).map((_, i) => (
-                                      <span key={i} className="text-amber-400 leading-none">★</span>
-                                    ))}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {startingFrom > 0 && (
-                            <div className={`mt-2 pt-2 border-t border-dashed ${
-                              isSelected ? 'border-emerald-200 dark:border-emerald-800/50' : 'border-slate-200 dark:border-slate-700'
+                          <div className="min-w-0">
+                            <p className={`flex items-center gap-1.5 text-sm font-bold tracking-tight ${
+                              isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'
                             }`}>
+                              {tierKey}
+                              {isSelected && <CheckCircle2 size={15} className="flex-shrink-0 text-emerald-600" />}
+                            </p>
+                            {(mekkahStar > 0 || madinahStar > 0) && (
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                {mekkahStar > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    Mekkah
+                                    <span className="flex tracking-tight">
+                                      {Array.from({ length: mekkahStar }).map((_, i) => (
+                                        <span key={i} className="text-amber-400 leading-none">★</span>
+                                      ))}
+                                    </span>
+                                  </span>
+                                )}
+                                {madinahStar > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    Madinah
+                                    <span className="flex tracking-tight">
+                                      {Array.from({ length: madinahStar }).map((_, i) => (
+                                        <span key={i} className="text-amber-400 leading-none">★</span>
+                                      ))}
+                                    </span>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {startingFrom > 0 && (
+                            <div className="flex-shrink-0 text-right">
                               <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-0.5">Mulai dari</p>
-                              <p className={`text-[12px] font-bold tabular-nums leading-tight ${
+                              <p className={`text-[13px] font-bold tabular-nums leading-tight ${
                                 isSelected ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-200'
                               }`}>
                                 {formatRupiah(startingFrom)}
