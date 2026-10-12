@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, IdCard, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import KaabaIcon from './bio/KaabaIcon';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getAuthHeaders } from '../lib/authSession';
@@ -729,6 +729,10 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                       const tourLeader = formatCalendarPrimaryPerson(detail.tour_leader);
                       const hasTourLeader = !!tourLeader;
                       const mutawif = formatCalendarPrimaryPerson(detail.mutawif);
+                      // Kolom STAFF kepulangan = satu orang kantor yang menjemput
+                      // di bandara. Di keberangkatan isinya 4–5 nama tim bandara,
+                      // jadi sengaja hanya ditampilkan di tab Pulang.
+                      const staff = activeTab === 'kepulangan' ? formatCalendarPrimaryPerson(detail.staff) : '';
                       const meetingPoint = formatCalendarMeetingPoint(detail.titik_kumpul);
                       const airportTerminalText = airportTerminalLabel(detail, activeTab);
                       return (
@@ -835,7 +839,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                         </div>
 
                         {/* Pendamping rombongan — satu baris rapat tanpa teks saling menimpa */}
-                        {(hasTourLeader || activeTab === 'keberangkatan') && (
+                        {(hasTourLeader || activeTab === 'keberangkatan' || staff) && (
                           <div className="col-span-2 mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[10px] leading-relaxed text-gray-600 dark:text-slate-300">
                             {hasTourLeader && (
                               <span className="flex min-w-0 items-center gap-1 overflow-hidden">
@@ -853,6 +857,16 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                                   {mutawif ? <>UST. {mutawif}</> : 'Belum ditentukan'}
                                 </span>
                               </span>
+                            )}
+                            {staff && (
+                              <>
+                                {hasTourLeader && <span className="shrink-0 text-gray-300 dark:text-slate-600">·</span>}
+                                <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                  <IdCard size={10} className={`shrink-0 ${tabConfig.textColor} ${tabConfig.textColorDark}`} />
+                                  <span className="shrink-0 text-gray-400 dark:text-slate-500">Staff</span>
+                                  <span className="truncate font-medium">{staff}</span>
+                                </span>
+                              </>
                             )}
                           </div>
                         )}

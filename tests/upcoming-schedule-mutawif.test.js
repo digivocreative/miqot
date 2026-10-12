@@ -61,6 +61,13 @@ test('tour leader and mutawif share one compact metadata row', () => {
   assert.match(schedulePage, /truncate font-medium/);
 });
 
+test('return cards show the airport staff beside the tour leader', () => {
+  assert.match(schedulePage, /const staff = activeTab === 'kepulangan' \? formatCalendarPrimaryPerson\(detail\.staff\) : ''/);
+  assert.match(schedulePage, /\(hasTourLeader \|\| activeTab === 'keberangkatan' \|\| staff\) &&/);
+  assert.match(schedulePage, /\{staff && \([\s\S]*hasTourLeader && <span[^>]*>·<\/span>[\s\S]*<IdCard size=\{10\}[\s\S]*>Staff<\/span>[\s\S]*\{staff\}/);
+  assert.match(server, /staff: ev\.staff,/);
+});
+
 test('departure detail separates meeting point from takeoff and terminal', () => {
   assert.match(schedulePage, /mt-1\.5 space-y-1[\s\S]*Kumpul[\s\S]*\{meetingPoint\}[\s\S]*<\/div>[\s\S]*<div className="flex flex-wrap items-center gap-1">[\s\S]*Take off[\s\S]*airportTerminalText/);
 });
