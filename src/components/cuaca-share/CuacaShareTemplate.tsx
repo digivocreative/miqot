@@ -7,7 +7,7 @@ import {
   Droplets, MapPin, Snowflake, Sun, SunMedium, Thermometer, Wind,
 } from 'lucide-react';
 import type { CuacaIconKey, CuacaShareProps } from '../../../lib/cuaca-share-data.js';
-import { CUACA_SHARE_H, CUACA_SHARE_W, formatDeg, formatTemp } from '../../../lib/cuaca-share-data.js';
+import { CUACA_SHARE_H, CUACA_SHARE_W, formatDeg, formatRange } from '../../../lib/cuaca-share-data.js';
 import { CuacaOrnament, KhatamPanel } from './CuacaOrnament';
 
 export interface CuacaShareAssets {
@@ -124,7 +124,7 @@ export function CuacaShareTemplate({ data, assets }: { data: CuacaShareProps; as
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ width: 44, height: 4, borderRadius: 2, background: GOLD, flexShrink: 0 }} />
               <span style={{ fontSize: 30, fontWeight: 600, color: MINT, whiteSpace: 'nowrap' }}>
-                {`terasa ${formatDeg(data.feelsLike)} · ${formatTemp(data.tempMin)}–${formatDeg(data.tempMax)}`}
+                {`terasa ${formatDeg(data.feelsLike)} · ${formatRange(data.tempMin, data.tempMax)}`}
               </span>
             </div>
           </div>

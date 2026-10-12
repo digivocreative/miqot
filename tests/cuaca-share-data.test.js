@@ -7,6 +7,7 @@ import {
   cityLocalDate,
   conditionFontSize,
   formatDeg,
+  formatRange,
   resolveCuacaShareCity,
   tempFontSize,
   uvLabelFull,
@@ -57,6 +58,14 @@ test('labels, temperatures and font steps', () => {
   assert.equal(agentNameFontSize('Bagas Pramudita'), 34);
   assert.equal(agentNameFontSize('Muhammad Abdurrahman Hafidz'), 30);
   assert.equal(agentNameFontSize('Muhammad Abdurrahman Al-Hafidz Indonesia'), 26);
+});
+
+test('temperature range stays readable when a bound is negative', () => {
+  assert.equal(formatRange(27, 38), '27–38°');
+  assert.equal(formatRange(-15, -8), '−15° / −8°');
+  assert.equal(formatRange(-3, 4), '−3° / 4°');
+  const p = buildCuacaShareProps({ ...makkah, key: 'cappadocia', name: 'Cappadocia', tempMin: -5, tempMax: 4 }, agent, { syncedAt: SYNC });
+  assert.match(buildCuacaCaption(p, { waNumber: null }), /· −5° \/ 4°C$/m);
 });
 
 test('date label follows the city timezone, not WIB', () => {

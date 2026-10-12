@@ -60,6 +60,7 @@ export function weatherIconKey(input?: { weatherCode?: number | null; icon?: str
 export function uvLabelFull(label: string | null | undefined): string;
 export function formatTemp(n: number): string;
 export function formatDeg(n: number): string;
+export function formatRange(min: number, max: number): string;
 export function cityLocalDate(syncedAt: string | null | undefined, tz: string | undefined, now?: number): { dateKey: string; monthIndex: number; label: string };
 export function agentInitials(name: string | null | undefined): string;
 export function agentNameFontSize(name: string | null | undefined): number;

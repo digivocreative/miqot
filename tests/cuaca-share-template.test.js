@@ -50,6 +50,7 @@ test('long name, negative temp and long condition shrink instead of overflowing'
   const html = render(props, { ...assets, photoSrc: '/cuaca-share/cappadocia.jpg', agentPhotoSrc: 'https://sb.alhijaz.co/a.jpg' });
   assert.match(html, /font-size:190px[^"]*">−12°/);
   assert.match(html, /font-size:50px[^"]*">Cerah berawan/);
+  assert.ok(html.includes('terasa −17° · −15° / −8°'), 'rentang negatif terbaca');
   assert.match(html, /font-size:26px[^"]*text-overflow:ellipsis[^"]*">Muhammad Abdurrahman Al-Hafidz Indonesia/);
   assert.match(html, /src="https:\/\/sb\.alhijaz\.co\/a\.jpg"/);
 });
