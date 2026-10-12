@@ -1,22 +1,24 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
+import { Share2 } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
 import { cityTemperatureData } from '../data/temperatureData';
 import { SEASONAL_NOTES } from '../../lib/weather-seasonal-notes.js';
+import type { CuacaShareCity } from '../../lib/cuaca-share-data.js';
+import type { CuacaShareAgent } from './ShareCuacaModal';
+
+const ShareCuacaModal = lazy(() => import('./ShareCuacaModal'));
 
 // ─── Types ───────────────────────────────────────────────────────
-interface CityWeather {
-  key: string; name: string; country: string; flag: string;
-  temp: number; feelsLike: number; humidity: number; windSpeed: number;
-  uvIndex: number; uvLabel: string; label: string; icon: string;
-  tempMin: number; tempMax: number;
-  forecast: { day: string; icon: string; tempMin: number; tempMax: number }[];
-}
+type CityWeather = CuacaShareCity & { flag: string };
 
 // ─── Helper ───────────────────────────────────────────────────────
 const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agt','Sep','Okt','Nov','Des'];
 
-export default function CuacaWidget() {
+export default function CuacaWidget({ agent }: { agent?: CuacaShareAgent }) {
   const [cities, setCities] = useState<CityWeather[]>([]);
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareMounted, setShareMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -31,6 +33,7 @@ export default function CuacaWidget() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       setCities(json.data);
+      setSyncedAt(json.syncedAt ?? null);
       setError('');
     } catch (e: any) {
       setError('Gagal memuat data cuaca');
@@ -94,10 +97,20 @@ export default function CuacaWidget() {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50">
+      <div className="px-5 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
         <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Cuaca Kota Tujuan
         </h3>
+        {agent && (
+          <button
+            onClick={() => { setShareMounted(true); setShareOpen(true); }}
+            aria-label="Bagikan cuaca"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
+          >
+            <Share2 size={10} strokeWidth={2.5} />
+            Share
+          </button>
+        )}
       </div>
 
       <div className="p-4 space-y-3">
@@ -239,6 +252,18 @@ export default function CuacaWidget() {
         )}
 
       </div>
+
+      {agent && shareMounted && (
+        <Suspense fallback={null}>
+          <ShareCuacaModal
+            open={shareOpen}
+            onClose={() => setShareOpen(false)}
+            city={city}
+            syncedAt={syncedAt}
+            agent={agent}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

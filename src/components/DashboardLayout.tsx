@@ -1541,7 +1541,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <Suspense fallback={null}><UpcomingSchedule agentSlug={agentData.slug} /></Suspense>
           </div>
           <div style={{ order: 4 }}>
-            <Suspense fallback={null}><CuacaWidget /></Suspense>
+            <Suspense fallback={null}><CuacaWidget agent={{ name: agentData.name, phone: agentData.phone, photo: agentData.photo, slug: agentData.slug }} /></Suspense>
           </div>
 
           {/* ── Kurs Hari Ini Widget ── */}
