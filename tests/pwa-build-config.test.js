@@ -173,14 +173,24 @@ test('matcher rute runtime: aset ber-hash dan font same-origin', () => {
 // Audit: pola lama `(?:^\/agents\/|…)` tak pernah cocok (Workbox mencocokkan url.href,
 // dan kecocokan lintas-origin wajib mulai di index 0) → cache agent-photos tak pernah ada.
 test('matcher foto agent cocok untuk <img> lokal & Supabase, tidak untuk fetch()', () => {
-  const img = req({ destination: 'image' });
-  const fetchReq = req({ destination: '' });
+  const img = req({ destination: 'image', mode: 'no-cors' });
+  const fetchReq = req({ destination: '', mode: 'cors' });
   assert.equal(isAgentPhotoImage({ request: img, url: u('https://sb.alhijaz.co/storage/v1/object/public/agent-photos/bagas.jpg?v=1784597736198') }), true);
   assert.equal(isAgentPhotoImage({ request: img, url: u('https://abcd.supabase.co/storage/v1/object/public/agent-photos/nikita.webp') }), true);
   assert.equal(isAgentPhotoImage({ request: img, url: u('https://alhijaz.co/agents/bagas.jpg') }), true);
   // fetch() mode cors (ekspor brosur/foto via blob) tidak boleh diberi respons opaque dari cache.
   assert.equal(isAgentPhotoImage({ request: fetchReq, url: u('https://sb.alhijaz.co/storage/v1/object/public/agent-photos/bagas.jpg') }), false);
   assert.equal(isAgentPhotoImage({ request: img, url: u('https://sb.alhijaz.co/storage/v1/object/public/hotel-media/a.jpg') }), false);
+});
+
+// 2026-10-12: foto agent sering hilang di PDF Kalkulasi/Compare/Itinerary. Loader PDF
+// memakai `new Image()` + crossOrigin='anonymous' → destination 'image' tapi mode cors.
+// Cache sudah berisi respons opaque dari avatar <img> biasa → SW menyodorkannya ke
+// permintaan cors → onerror → PDF terbit tanpa foto (terbukti di Chromium + SW asli).
+test('matcher foto agent melewatkan <img crossOrigin> (loader canvas PDF)', () => {
+  const corsImg = req({ destination: 'image', mode: 'cors' });
+  assert.equal(isAgentPhotoImage({ request: corsImg, url: u('https://sb.alhijaz.co/storage/v1/object/public/agent-photos/bagas.jpg?v=1784597736198') }), false);
+  assert.equal(isAgentPhotoImage({ request: corsImg, url: u('https://alhijaz.co/agents/bagas.jpg') }), false);
 });
 
 test('matcher media hotel dan gambar same-origin', () => {
@@ -205,5 +215,5 @@ test('callback matcher mandiri (aman diserialisasi ke sw.js)', () => {
     assert.equal(typeof rebuilt, 'function', fn.name);
   }
   const rebuilt = new Function(`return (${isAgentPhotoImage.toString()})`)();
-  assert.equal(rebuilt({ request: { destination: 'image' }, url: u('https://alhijaz.co/agents/bagas.jpg') }), true);
+  assert.equal(rebuilt({ request: { destination: 'image', mode: 'no-cors' }, url: u('https://alhijaz.co/agents/bagas.jpg') }), true);
 });

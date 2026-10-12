@@ -89,11 +89,14 @@ export const isHashedAsset = ({ url, sameOrigin }) =>
 export const isFontRequest = ({ url, sameOrigin }) =>
   sameOrigin && url.pathname.startsWith('/fonts/');
 
-// Hanya muatan <img> (destination 'image'). Respons <img> lintas-origin bersifat opaque;
-// kalau fetch() dari JS (ekspor brosur/kartu memakai blob, mode cors) ikut tertangkap,
-// SW menyodorkan respons opaque ke permintaan cors dan fetch-nya ditolak peramban.
+// Hanya muatan <img> biasa (destination 'image', mode no-cors). Respons <img> lintas-origin
+// bersifat opaque; kalau permintaan mode cors ikut tertangkap, SW menyodorkan respons opaque
+// itu dan peramban menolaknya. Mode cors datang dari fetch() (ekspor brosur/kartu via blob)
+// DAN dari `new Image()` + crossOrigin — loader foto agent di PDF Kalkulasi/Compare/Itinerary
+// juga ber-destination 'image', jadi menyaring destination saja tidak cukup.
 export const isAgentPhotoImage = ({ request, url }) =>
   request.destination === 'image' &&
+  request.mode === 'no-cors' &&
   (url.pathname.startsWith('/agents/') ||
     /\/storage\/v1\/object\/public\/agent-photos\//.test(url.pathname)) &&
   /\.(?:jpe?g|png|webp)$/i.test(url.pathname);
