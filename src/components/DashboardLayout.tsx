@@ -1532,7 +1532,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">
           <div style={{ order: flightCount > 0 ? 0 : 5 }}>
-            <Suspense fallback={null}><FlightStatusCard onFlightCount={setFlightCount} /></Suspense>
+            <Suspense fallback={null}><FlightStatusCard onFlightCount={setFlightCount} agentSlug={agentData.slug} /></Suspense>
           </div>
           <div style={{ order: 1 }} className="empty:hidden">
             <Suspense fallback={null}><BirthdayWidget onSelectJamaah={setSelectedBirthday} /></Suspense>

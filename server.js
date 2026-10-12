@@ -166,6 +166,7 @@ import {
   scheduledSnapshotDisplayStatus,
 } from './lib/flight-fallback-state.js';
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
+import { flightItineraryFields } from './lib/flight-itinerary-link.js';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
   isExpiredActiveProviderClaim,
@@ -15529,6 +15530,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             group: event.group_number || '',
             pax: event.pax_terisi ?? event.pax ?? 0,
             tourLeader: event.tour_leader || '',
+            ...flightItineraryFields(event, scheduleById.get(String(event.jadwal_id))),
             jamaah: jamaahForFlightCard(jamaahIndex, {
               eventType: event.event_type,
               eventDate: event.event_date,
@@ -15607,6 +15609,7 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
             arrDate: reliableTimes ? `${times.arrDateLocal}T00:00:00` : null,
             pax: event.pax_terisi ?? event.pax ?? 0,
             tourLeader: event.tour_leader || '',
+            ...flightItineraryFields(event, scheduleById.get(String(event.jadwal_id))),
             jamaah: jamaahForFlightCard(jamaahIndex, {
               eventType: event.event_type,
               eventDate: event.event_date,

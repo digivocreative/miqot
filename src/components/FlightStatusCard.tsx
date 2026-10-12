@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2 } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Users, MapPin, ChevronDown, Clock, BaggageClaim, ArrowUp, Zap, Calendar, Radio, Share2, Check, Lock, Loader2, FileText } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
 import { normalizeWaNumber } from '../utils/phone';
@@ -12,10 +12,13 @@ import { formatFlightNumberCompact } from '../lib/flightNumberFormat';
 import { isReturnFlight } from '../lib/flightDirection';
 import FlightRouteLine from './FlightRouteLine';
 import { compareFlightDepartureTimestamp } from '../../lib/flight-entry-merge.js';
+import { flightCardItineraries } from '../../lib/flight-itinerary-link.js';
+import type { FlightCardItinerary } from '../../lib/flight-itinerary-link.js';
 import { pushAppState } from '../lib/appHistory';
 import { useBackToClose } from '../hooks/useBackToClose';
 
 const FlightMap = lazy(() => import('./FlightMap'));
+const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
 /**
  * Bentuk tunggal untuk semua badge di baris judul kartu penerbangan (status,
@@ -84,6 +87,9 @@ interface FlightData extends FlightSegmentData {
   arrDelayed?: number;
   arrBaggage?: string | null;
   jamaah?: { nama: string; jk: string | null; wa: string | null }[];
+  jadwalId?: string | null;
+  itineraryUrl?: string | null;
+  itineraryTitle?: string | null;
   calendarDepTime?: string;  // calendar-derived dep time (if differs from airline schedule)
   calendarArrTime?: string;  // calendar-derived arr time (if differs from airline schedule)
   routeLabel?: string | null; // multi-leg route label, e.g. JED-DXB / DXB-CGK
@@ -266,7 +272,7 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
 
 // ── Expanded detail panel for a single kloter ──
 
-function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, hasInternalAuth, onAuthRequired }: {
+function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, hasInternalAuth, onAuthRequired, itineraries, onOpenItinerary }: {
   flight: FlightData;
   shareUrl: string | null;
   shareCopied: boolean;
@@ -274,8 +280,14 @@ function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, has
   onShare: () => void;
   hasInternalAuth: boolean;
   onAuthRequired: () => void;
+  itineraries: FlightCardItinerary[];
+  onOpenItinerary: (itinerary: FlightCardItinerary) => void;
 }) {
   const tlClean = cleanTourLeader(flight.tourLeader);
+  // Kloter se-penerbangan bisa beda jadwal → beda itinerary. Satu link langsung
+  // membuka modal; lebih dari satu membuka daftar pilihan per kloter di bawah tombol.
+  const [itineraryPickerOpen, setItineraryPickerOpen] = useState(false);
+  const hasItineraryChoice = itineraries.length > 1;
 
   return (
     <div className="px-3 pb-3 pt-2 space-y-2.5">
@@ -466,7 +478,8 @@ function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, has
         </div>
       )}
 
-      {/* Share button — prominent, at bottom of detail */}
+      {/* Share + Itinerary — prominent, at bottom of detail */}
+      <div className={itineraries.length > 0 ? 'grid grid-cols-2 gap-2' : undefined}>
       <button
         onClick={hasInternalAuth ? onShare : onAuthRequired}
         disabled={hasInternalAuth && !shareUrl && !shareCopied && !shareFailed}
@@ -479,18 +492,55 @@ function KloterDetail({ flight, shareUrl, shareCopied, shareFailed, onShare, has
         {shareCopied ? (
           <><Check size={13} strokeWidth={2.5} />Berhasil copy link!</>
         ) : shareUrl || shareFailed || !hasInternalAuth ? (
-          <><Share2 size={13} strokeWidth={2} />Share ke Jamaah</>
+          <><Share2 size={13} strokeWidth={2} />Copy Link</>
         ) : (
           <><Loader2 size={13} strokeWidth={2} className="animate-spin" />Sebentar...</>
         )}
       </button>
+      {itineraries.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            if (hasItineraryChoice) setItineraryPickerOpen(open => !open);
+            else onOpenItinerary(itineraries[0]);
+          }}
+          aria-expanded={hasItineraryChoice ? itineraryPickerOpen : undefined}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-[0.97] bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-200 dark:hover:border-emerald-800/40"
+        >
+          <FileText size={13} strokeWidth={2} />Itinerary
+          {hasItineraryChoice && (
+            <ChevronDown size={13} strokeWidth={2} className={`transition-transform ${itineraryPickerOpen ? 'rotate-180' : ''}`} />
+          )}
+        </button>
+      )}
+      </div>
+
+      {hasItineraryChoice && itineraryPickerOpen && (
+        <div className="flex flex-col gap-1">
+          {itineraries.map(itinerary => (
+            <button
+              key={itinerary.key}
+              type="button"
+              onClick={() => onOpenItinerary(itinerary)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-slate-900 text-left text-[11px] text-gray-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 active:scale-[0.98] transition-colors"
+            >
+              <FileText size={12} strokeWidth={2} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              {itinerary.group && (
+                <span className="shrink-0 font-semibold text-emerald-700 dark:text-emerald-400">Kloter {itinerary.group}</span>
+              )}
+              <span className="min-w-0 truncate">{itinerary.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
     </div>
   );
 }
 
 
-export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (count: number) => void }) {
+export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFlightCount?: (count: number) => void; agentSlug?: string | null }) {
+  const [activeItinerary, setActiveItinerary] = useState<FlightCardItinerary | null>(null);
   const [flights, setFlights] = useState<FlightData[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedFlight, setExpandedFlight] = useState<string | null>(null);
@@ -771,6 +821,7 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
             const groupKey = `${first.flightNumber}-${flightCardDateKey(first)}`;
             const flightKey = `${summaryFlight.flightNumber}_${flightCardDateKey(summaryFlight)}`;
             const isExpanded = expandedFlight === groupKey;
+            const itineraries = flightCardItineraries(group);
 
             return (
               <div
@@ -1033,6 +1084,11 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
                           }}
                           hasInternalAuth={hasInternalAuth}
                           onAuthRequired={() => setShowAuthAlert(true)}
+                          itineraries={itineraries}
+                          onOpenItinerary={(itinerary) => {
+                            setActiveItinerary(itinerary);
+                            trackEvent('action', 'download_itinerary', { source: 'flight', paket: itinerary.title });
+                          }}
                         />
                       </div>
                     </motion.div>
@@ -1234,6 +1290,19 @@ export default function FlightStatusCard({ onFlightCount }: { onFlightCount?: (c
         :root { --jamaah-fade: #ffffff; }
         .dark { --jamaah-fade: #1e293b; }
       `}</style>
+
+      {activeItinerary && (
+        <Suspense fallback={null}>
+          <ItineraryModal
+            isOpen={true}
+            onClose={() => setActiveItinerary(null)}
+            fileUrl={activeItinerary.url}
+            title={activeItinerary.title}
+            jadwalId={activeItinerary.jadwalId}
+            agentSlug={agentSlug}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
