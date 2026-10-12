@@ -18,6 +18,8 @@ import {
   Minus,
   Plus,
   Tag,
+  PackagePlus,
+  Trash2,
   FileText,
   Calendar,
   CheckCircle2,
@@ -96,6 +98,16 @@ const ROOM_PRICES_FALLBACK = {
 const ANAK_TANPA_KASUR_DISC_NORMAL = 3_500_000;
 const ANAK_TANPA_KASUR_DISC_PROMO  = 3_000_000;
 const ANAK_TANPA_KASUR_DISC_RAHMAH = 5_500_000;
+
+// Add-on manual agent: keterangan + harga, masuk subtotal sebelum diskon.
+// Pax 0/kosong = harga flat (tanpa perkalian); pax ≥ 1 = harga × pax.
+const MAX_ADDONS = 5;
+const ADDON_PRICE_MIN = 1_000;
+const ADDON_PRICE_MAX = 999_999_999;
+const ADDON_PAX_MAX = 99;
+// Label panjang memecah baris tabel PDF, padahal tinggi halamannya diestimasi
+// satu baris per item (QuotationDocument).
+const ADDON_LABEL_MAX = 50;
 
 
 // ============================================
@@ -298,14 +310,43 @@ function SectionDivider() {
 // ============================================
 // Section Header
 // ============================================
-function SectionHeader({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
-  return (
-    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 tracking-tight mb-3 flex items-center gap-2.5">
+function SectionHeader({ icon: Icon, label, action, flush = false }: { icon: React.ElementType; label: string; action?: React.ReactNode; flush?: boolean }) {
+  const heading = (
+    <h2 className={`text-sm font-bold text-slate-800 dark:text-slate-200 tracking-tight flex items-center gap-2.5 ${action ? '' : 'mb-3'}`}>
       <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center border border-amber-100/80 dark:border-amber-700/50">
         <Icon size={14} className="text-amber-600" />
       </div>
       {label}
     </h2>
+  );
+  if (!action) return heading;
+  // flush: section yang isinya tersembunyi (toggle mati) tak butuh jarak bawah.
+  return (
+    <div className={`flex items-center justify-between gap-3 ${flush ? '' : 'mb-3'}`}>
+      {heading}
+      {action}
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+        checked ? 'bg-emerald-600' : 'bg-slate-200 dark:bg-slate-600'
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-300 ease-in-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
   );
 }
 
@@ -457,6 +498,14 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
   const [discountType, setDiscountType] = useState<'per-pax' | 'flat'>('per-pax');
   const [isManualDiscount, setIsManualDiscount] = useState(false);
   const [discountLabel, setDiscountLabel] = useState('');
+  const [isAddonActive, setIsAddonActive] = useState(false);
+  const [addons, setAddons] = useState<{ id: number; label: string; price: number; pax: number }[]>([]);
+  const addonIdRef = useRef(0);
+  const addAddonRow = useCallback(() => {
+    addonIdRef.current += 1;
+    const id = addonIdRef.current;
+    setAddons((prev) => (prev.length >= MAX_ADDONS ? prev : [...prev, { id, label: '', price: 0, pax: 0 }]));
+  }, []);
   const [catatan, setCatatan] = useState('');
   const [showResultModal, setShowResultModal] = useState(false);
   const [autoFillFlash, setAutoFillFlash] = useState(false);
@@ -521,7 +570,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
 
   // --- Summary Calculation ---
   const summary = useMemo(() => {
-    const items: { label: string; qty: number; unitPrice: number; total: number; note?: string }[] = [];
+    const items: { label: string; qty: number; unitPrice: number; total: number; note?: string; addon?: boolean; flat?: boolean }[] = [];
 
     if (rooms.quad > 0 && roomPrices.quad > 0) {
       items.push({ label: 'Dewasa Quad Room', qty: rooms.quad, unitPrice: roomPrices.quad, total: rooms.quad * roomPrices.quad });
@@ -554,6 +603,22 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
       const infantPrice = roomPrices.infant;
       items.push({ label: 'Infant (0-23 bln)', qty: jamaah.infant, unitPrice: infantPrice, total: jamaah.infant * infantPrice });
     }
+    // Add-on hanya untuk agent login — sama dengan Diskon (hideDiscount).
+    if (!hideDiscount && isAddonActive) {
+      for (const addon of addons) {
+        // Di bawah minimum (termasuk kosong) tidak dihitung; inputnya ditandai merah.
+        if (addon.price < ADDON_PRICE_MIN) continue;
+        const flat = addon.pax === 0;
+        items.push({
+          label: addon.label.trim() || 'Add-on',
+          qty: flat ? 1 : addon.pax,
+          unitPrice: addon.price,
+          total: flat ? addon.price : addon.price * addon.pax,
+          addon: true,
+          flat,
+        });
+      }
+    }
 
     const subtotal = items.reduce((sum, i) => sum + i.total, 0);
     const totalJamaah = jamaah.dewasa + jamaah.balitaKasur + jamaah.balitaTanpaKasur; // Infant excluded from discount
@@ -563,7 +628,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
     const grandTotal = Math.max(0, subtotal - discount);
 
     return { items, subtotal, discount, grandTotal };
-  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices, selectedPkg, selectedTier]);
+  }, [rooms, jamaah, isDiscountActive, discountAmount, discountType, roomPrices, selectedPkg, selectedTier, isAddonActive, addons, hideDiscount]);
 
   // --- Room / Jamaah balance validation ---
   // Anak dengan kasur = counted as dewasa (needs bed)
@@ -573,7 +638,12 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
   const roomDiff = totalJamaahNeedRoom - totalRoomPax; // positive = need more rooms
   const roomBalanced = totalJamaahNeedRoom > 0 && roomDiff === 0;
 
-  const hasSelection = summary.items.length > 0 && roomBalanced;
+  // Add-on aktif tapi ada baris belum lengkap → jangan sampai quotation
+  // terkirim tanpa add-on yang dimaksud agent.
+  const addonIncomplete = !hideDiscount && isAddonActive
+    && addons.some((a) => !a.label.trim() || a.price < ADDON_PRICE_MIN);
+
+  const hasSelection = summary.items.length > 0 && roomBalanced && !addonIncomplete;
 
   // --- Smart Room Suggestion ---
   const handleAutoCalculateRooms = useCallback(() => {
@@ -600,6 +670,13 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
   const [pdfLoading, setPdfLoading] = useState(false);
   const handleDownloadPDF = useCallback(async () => {
     setPdfLoading(true);
+    // Buang PDF lama dulu: kalau pembuatan gagal, modal menampilkan galat,
+    // bukan quotation basi dari kalkulasi sebelumnya.
+    pdfBlobRef.current = null;
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     try {
       const blob = await generateQuotationPdfBlob({
         pkg: selectedPkg,
@@ -613,7 +690,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
       const url = URL.createObjectURL(blob);
       setPdfNumPages(null);
       setPdfPreviewUrl(url);
-      // Agent sudah tercatat generate_pdf di modal; ini khusus pengunjung.
+      // Agent sudah tercatat generate_pdf di handleOpenQuotation; ini khusus pengunjung.
       if (!getStoredSession()?.token && agentSlug) {
         trackPublicEvent(agentSlug, 'quotation_pdf_public', { source: 'kalkulasi' });
       }
@@ -623,6 +700,13 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
       setPdfLoading(false);
     }
   }, [summary, selectedPkg, selectedTier, namaLengkap, agent, discountLabel, agentSlug]);
+
+  // Tombol Kalkulasi langsung ke Preview Quotation (halaman Hasil dihapus).
+  const handleOpenQuotation = useCallback(() => {
+    trackEvent('action', 'generate_pdf', { paket: selectedPkg?.nama || '' });
+    setShowResultModal(true);
+    handleDownloadPDF();
+  }, [selectedPkg, handleDownloadPDF]);
 
   // ============================================
   // Render
@@ -931,7 +1015,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
                 return (
                   <div
                     key={room.key}
-                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100 dark:border-slate-700/50' : ''} ${isSelected ? 'bg-emerald-50/40 dark:bg-emerald-900/20 -mx-5 px-5 rounded-lg' : ''} ${autoFillFlash && isSelected ? 'animate-pulse' : ''}`}
+                    className={`flex items-center justify-between py-3 transition-all duration-300 ${!isLast ? 'border-b border-slate-100 dark:border-slate-700/50' : ''} ${isSelected ? 'bg-emerald-50/40 dark:bg-emerald-900/20 -mx-3 px-3 rounded-lg' : ''} ${autoFillFlash && isSelected ? 'animate-pulse' : ''}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${room.color}`}>
@@ -978,7 +1062,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
             </motion.div>
 
             {/* ══════════════════════════════ */}
-            {/* SECTION: Diskon & Catatan     */}
+            {/* SECTION: Add-on               */}
             {/* ══════════════════════════════ */}
             {!hideDiscount && (
             <motion.div
@@ -989,30 +1073,139 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
             >
           <SectionDivider />
           <div className="py-6">
-            <SectionHeader icon={Tag} label="Diskon" />
-            <div className="space-y-4">
-              {/* Toggle Diskon */}
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Aktifkan Diskon
-                </label>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isDiscountActive}
-                  onClick={() => setIsDiscountActive(!isDiscountActive)}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
-                    isDiscountActive ? 'bg-emerald-600' : 'bg-slate-200 dark:bg-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-300 ease-in-out ${
-                      isDiscountActive ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
+            <SectionHeader
+              icon={PackagePlus}
+              label="Add-on"
+              flush={!isAddonActive}
+              action={
+                <ToggleSwitch
+                  checked={isAddonActive}
+                  label="Aktifkan Add-on"
+                  onChange={() => {
+                    // Nyala pertama langsung menyediakan satu baris kosong.
+                    if (!isAddonActive && addons.length === 0) addAddonRow();
+                    setIsAddonActive(!isAddonActive);
+                  }}
+                />
+              }
+            />
+            <div>
+              {isAddonActive && (
+                <div className="space-y-3">
+                  {/* divide-y: garis hanya ANTAR add-on, tidak sebelum tombol Tambah */}
+                  {addons.length > 0 && (
+                    <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {addons.map((addon, idx) => (
+                        <div key={addon.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
+                          <input
+                            type="text"
+                            value={addon.label}
+                            maxLength={ADDON_LABEL_MAX}
+                            onChange={(e) => {
+                              const label = e.target.value;
+                              setAddons((prev) => prev.map((a) => (a.id === addon.id ? { ...a, label } : a)));
+                            }}
+                            placeholder={idx === 0 ? 'Upgrade Business Class' : 'Keterangan'}
+                            aria-label={`Keterangan add-on ${idx + 1}`}
+                            className="w-full py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-[13px] text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all duration-300"
+                          />
+                          <div className="flex items-center gap-2">
+                            <div className={`flex-1 min-w-0 flex items-center rounded-xl border bg-slate-50 dark:bg-slate-800 overflow-hidden transition-all duration-300 focus-within:ring-2 ${
+                              addon.price > 0 && addon.price < ADDON_PRICE_MIN
+                                ? 'border-red-400 dark:border-red-500 focus-within:ring-red-500/20'
+                                : 'border-slate-200 dark:border-slate-600 focus-within:ring-emerald-500/20 focus-within:border-emerald-400'
+                            }`}>
+                              <span className="pl-3 pr-1 text-xs font-semibold text-slate-400 select-none">Rp</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={addon.price ? addon.price.toLocaleString('id-ID') : ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/\D/g, '');
+                                  const price = Math.min(parseInt(raw) || 0, ADDON_PRICE_MAX);
+                                  setAddons((prev) => prev.map((a) => (a.id === addon.id ? { ...a, price } : a)));
+                                }}
+                                placeholder="0"
+                                aria-label={`Harga add-on ${idx + 1}`}
+                                className="flex-1 min-w-0 py-2.5 pr-3 bg-transparent text-[13px] text-right text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none tabular-nums"
+                              />
+                            </div>
+                            <div className="w-20 flex-shrink-0 flex items-center rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 overflow-hidden transition-all duration-300 focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-400">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={String(addon.pax)}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/\D/g, '');
+                                  const pax = Math.min(parseInt(raw) || 0, ADDON_PAX_MAX);
+                                  setAddons((prev) => prev.map((a) => (a.id === addon.id ? { ...a, pax } : a)));
+                                }}
+                                aria-label={`Jumlah pax add-on ${idx + 1} (0 = harga flat)`}
+                                className="flex-1 min-w-0 py-2.5 pl-3 bg-transparent text-[13px] text-right text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none tabular-nums"
+                              />
+                              <span className="pl-1 pr-3 text-xs font-semibold text-slate-400 select-none">pax</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setAddons((prev) => prev.filter((a) => a.id !== addon.id))}
+                              aria-label={`Hapus add-on ${idx + 1}`}
+                              className="flex-shrink-0 w-6 h-10 flex items-center justify-end text-slate-400 hover:text-red-500 transition-colors duration-200"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
+                  {addons.length < MAX_ADDONS && (
+                    <button
+                      type="button"
+                      onClick={addAddonRow}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200"
+                    >
+                      <Plus size={14} />
+                      Tambah Add-on
+                    </button>
+                  )}
+                  {addons.some((a) => a.price > 0 && a.price < ADDON_PRICE_MIN) && (
+                    <p className="text-[10px] text-red-500 ml-0.5">
+                      Harga add-on minimal {formatRupiah(ADDON_PRICE_MIN)}.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+            </motion.div>
+            )}
+
+            {/* ══════════════════════════════ */}
+            {/* SECTION: Diskon & Catatan     */}
+            {/* ══════════════════════════════ */}
+            {!hideDiscount && (
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0.25 }}
+            >
+          <SectionDivider />
+          <div className="py-6">
+            <SectionHeader
+              icon={Tag}
+              label="Diskon"
+              flush={!isDiscountActive}
+              action={
+                <ToggleSwitch
+                  checked={isDiscountActive}
+                  label="Aktifkan Diskon"
+                  onChange={() => setIsDiscountActive(!isDiscountActive)}
+                />
+              }
+            />
+            <div>
               {isDiscountActive && (
                 <div className="space-y-4">
                   {/* Discount Type Selector */}
@@ -1150,7 +1343,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
                     <div key={i}>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-600 dark:text-slate-400">
-                          {item.qty}× {item.label}
+                          {item.flat ? item.label : `${item.qty}× ${item.label}`}
                         </span>
                         <span className="text-slate-800 dark:text-slate-100 font-medium tabular-nums">
                           {formatRupiah(item.total)}
@@ -1196,9 +1389,15 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
             )}
             {/* Action Button */}
             <div className="mt-6">
+              {addonIncomplete && (
+                <p className="mb-2 flex items-center justify-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <AlertCircle size={14} />
+                  Lengkapi keterangan & harga add-on dulu.
+                </p>
+              )}
               <button
                 type="button"
-                onClick={() => setShowResultModal(true)}
+                onClick={handleOpenQuotation}
                 disabled={!hasSelection}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-lg shadow-emerald-600/25 transition-all duration-200 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
               >
@@ -1219,15 +1418,12 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
         tier={selectedTier}
         summary={summary}
         catatan={catatan}
-        namaLengkap={namaLengkap}
         discountLabel={discountLabel}
-        onGeneratePDF={handleDownloadPDF}
         pdfBlobRef={pdfBlobRef}
         pdfPreviewUrl={pdfPreviewUrl}
         pdfLoading={pdfLoading}
         pdfNumPages={pdfNumPages}
         setPdfNumPages={setPdfNumPages}
-        pdfEnabled={true}
       />
 
     </div>

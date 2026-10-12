@@ -22,6 +22,8 @@ interface SummaryItem {
   unitPrice: number;
   total: number;
   note?: string;
+  /** Add-on pax 0: harga flat, kolom PAX dikosongkan. */
+  flat?: boolean;
 }
 
 export interface QuotationProps {
@@ -341,7 +343,7 @@ export function QuotationDocument({ pkg, tier, summary, namaLengkap, agent, agen
                 <Text style={s.tdBold}>{item.label}</Text>
                 {item.note && <Text style={s.tdNote}>{item.note}</Text>}
               </View>
-              <View style={s.colPax}><Text style={s.tdText}>{item.qty}</Text></View>
+              <View style={s.colPax}><Text style={s.tdText}>{item.flat ? '-' : item.qty}</Text></View>
               <View style={s.colPrice}><Text style={s.tdText}>{fmtRp(item.unitPrice)}</Text></View>
               <View style={s.colTotal}><Text style={s.tdBold}>{fmtRp(item.total)}</Text></View>
             </View>
