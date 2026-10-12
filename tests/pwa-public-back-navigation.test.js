@@ -167,6 +167,7 @@ test('chrome fixed/sticky di halaman publik membawa safe-area inset', () => {
     'src/components/FloatingAgentBar.tsx',
     'src/components/FilterModal.tsx',
     'src/components/FlightSharePage.tsx',
+    'src/components/CompactDetailOverlay.tsx',
   ];
   let topChrome = 0;
   let bottomChrome = 0;
@@ -193,5 +194,6 @@ test('chrome fixed/sticky di halaman publik membawa safe-area inset', () => {
   assert.match(read('src/components/FilterModal.tsx'), /Footer Actions[\s\S]*?className="[^"]*safe-area-inset-bottom[^"]*"/);
   assert.match(read('src/components/ComparePage.tsx'), /Modal Footer[\s\S]*?className="[^"]*safe-area-inset-bottom[^"]*"/);
   assert.match(read('src/components/ComparePage.tsx'), /Kepala Modal[\s\S]*?className="[^"]*safe-area-inset-top[^"]*"/);
-  assert.match(read('src/App.tsx'), /Floating Close Button[\s\S]*?className="[^"]*safe-area-inset-bottom[^"]*"/);
+  // Detail Tampilan Ringkas (dulu inline di App.tsx).
+  assert.match(read('src/components/CompactDetailOverlay.tsx'), /Floating Close Button[\s\S]*?className="[^"]*safe-area-inset-bottom[^"]*"/);
 });

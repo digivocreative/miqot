@@ -26,6 +26,7 @@ import { initFromCache, buildDatabaseFromPackages } from '@/data/hotelService';
 import { beginProgrammaticScroll, endProgrammaticScroll } from '@/lib/programmatic-scroll';
 import { captureListAnchor, restoreListAnchor, type ListAnchor } from '@/lib/list-scroll-anchor';
 import FloatingAgentBar from '@/components/FloatingAgentBar';
+import { CompactDetailOverlay, measureCompactCard, type CardRect } from '@/components/CompactDetailOverlay';
 import { isOwnerOrAdminViewer } from '@/components/AgentProfile';
 import { AnimatePresence } from 'framer-motion';
 import { useWideLayout } from '@/hooks/useWideLayout';
@@ -179,6 +180,12 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
   // Urutan hidup di sheet Filter dan berlaku lintas mode — tak pernah null.
   const [sortOrder, setSortOrder] = useState<SortOrder>(DEFAULT_SORT);
   const [compactDetailId, setCompactDetailId] = useState<string | null>(null);
+  // Kotak kartu ringkas saat detail dibuka / ditutup — asal & tujuan animasi overlay.
+  const [compactOrigin, setCompactOrigin] = useState<CardRect | null>(null);
+  const [compactCloseRect, setCompactCloseRect] = useState<CardRect | null>(null);
+  const compactListRef = useRef<HTMLDivElement>(null);
+  const compactDetailIdRef = useRef(compactDetailId);
+  compactDetailIdRef.current = compactDetailId;
   const [isGoingBack, setIsGoingBack] = useState(false);
   const [isCompactView, setIsCompactView] = useState(() => {
     return getLocalStorageItem('compactView') === 'true';
@@ -974,7 +981,16 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
   // Detail Tampilan Ringkas menutupi seluruh layar: back Android/iOS menutupnya,
   // bukan meninggalkan halaman jadwal di baliknya.
-  const closeCompactDetail = useCallback(() => setCompactDetailId(null), []);
+  // Stabil (deps kosong): CompactCard memo mengabaikan onToggle, jadi closure lama
+  // yang dipegang kartu harus tetap benar — semua baca lewat ref.
+  const openCompactDetail = useCallback((jadwalId: string) => {
+    setCompactOrigin(measureCompactCard(compactListRef.current, jadwalId));
+    setCompactDetailId(jadwalId);
+  }, []);
+  const closeCompactDetail = useCallback(() => {
+    setCompactCloseRect(measureCompactCard(compactListRef.current, compactDetailIdRef.current));
+    setCompactDetailId(null);
+  }, []);
   useBackToClose(compactDetailId !== null, closeCompactDetail);
 
   // Dipulihkan dari back-forward cache (back Android/iOS, atau tombol Kembali
@@ -1293,7 +1309,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
         {/* Package List */}
         {!loading && !error && (
-          <div className={isCompactView ? '-mx-2 space-y-1.5' : '-mx-4 space-y-2 [overflow-anchor:none]'}>
+          <div ref={compactListRef} className={isCompactView ? '-mx-2 space-y-1.5' : '-mx-4 space-y-2 [overflow-anchor:none]'}>
             {/* [overflow-anchor:none] — matikan scroll anchoring bawaan browser; saat panel
                 collapse+expand bersamaan, browser bisa memilih anchor node di dalam panel yang
                 membuka dan ikut men-scroll halaman. Kompensasi ditangani anchorCardDuringToggle. */}
@@ -1303,7 +1319,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
                 <CompactCard
                   key={pkg.jadwalId}
                   package={pkg}
-                  onToggle={() => setCompactDetailId(pkg.jadwalId)}
+                  onToggle={() => openCompactDetail(pkg.jadwalId)}
                   agent={currentAgent}
                 />
               ) : (
@@ -1426,51 +1442,22 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
       {/* ============================================ */}
       {/* COMPACT DETAIL MODAL */}
       {/* ============================================ */}
-      {compactDetailId && (() => {
-        const detailPkg = filteredPackages.find(p => p.jadwalId === compactDetailId);
-        if (!detailPkg) return null;
+      {(() => {
+        const detailPkg = compactDetailId
+          ? filteredPackages.find(p => p.jadwalId === compactDetailId)
+          : undefined;
         return createPortal(
-          <div
-            className="fixed inset-0 z-[9999] flex flex-col"
-          >
-            {/* Full Screen Container */}
-            <div className="relative flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950">
-              {/* Full PackageCard — tanpa px-4 agar kartu full-bleed.
-                  Safe-area: layar penuh di app terpasang iOS menyentuh status bar & home indicator. */}
-              <div className="max-w-lg mx-auto pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(6rem+env(safe-area-inset-bottom))]">
-                <PackageCard
-                  package={detailPkg}
-                  isExpanded={true}
-                  onToggle={closeCompactDetail}
-                  agent={currentAgent}
-                />
-              </div>
-            </div>
-
-            {/* Floating Close Button — Bottom Center */}
-            <div className="absolute bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center z-20 pointer-events-none">
-              <button
-                onClick={closeCompactDetail}
-                className="
-                  pointer-events-auto
-                  flex items-center gap-2
-                  px-6 py-3 rounded-full
-                  bg-gray-900/90 dark:bg-white/90
-                  text-white dark:text-gray-900
-                  font-semibold text-sm
-                  shadow-lg shadow-black/20
-                  hover:bg-gray-800 dark:hover:bg-white
-                  active:scale-95
-                  transition-all duration-200
-                  backdrop-blur-sm
-                "
-                aria-label="Tutup"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                Tutup
-              </button>
-            </div>
-          </div>,
+          <AnimatePresence custom={compactCloseRect}>
+            {detailPkg && (
+              <CompactDetailOverlay
+                key={detailPkg.jadwalId}
+                package={detailPkg}
+                agent={currentAgent}
+                origin={compactOrigin}
+                onClose={closeCompactDetail}
+              />
+            )}
+          </AnimatePresence>,
           document.body
         );
       })()}
