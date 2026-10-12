@@ -211,6 +211,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { normalizeTrackingScript } from './lib/landing-tracking-script.js';
+import { fillPackageHotelStars } from './lib/hotel-stars.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import {
   inferJourneyOrderFromItinerary,
@@ -21932,10 +21933,53 @@ async function fetchScheduleYear(year) {
   throw lastError || new Error(`No schedule source available for ${year}`);
 }
 
+// Direktori Hotel terakhir yang berhasil dibaca. Kalau pembacaan gagal sesaat,
+// sync memakai salinan ini — tanpanya semua bintang hasil direktori lenyap dari
+// paket sampai siklus berikutnya.
+let scheduleHotelDirectory = [];
+// Hotel tanpa bintang yang sudah dilaporkan ke admin di proses ini, supaya
+// sync 30 menitan tidak mengirim pesan yang sama berulang-ulang.
+const reportedHotelsWithoutStars = new Set();
+
+async function loadScheduleHotelDirectory() {
+  const { data, error } = await supabase.from('hotels').select('name, aliases, city, stars');
+  if (error) {
+    if (!hotelTableMissing(error)) console.warn('[ScheduleSync] Direktori Hotel gagal dibaca:', error.message);
+    return scheduleHotelDirectory;
+  }
+  scheduleHotelDirectory = data || [];
+  return scheduleHotelDirectory;
+}
+
+async function reportHotelsWithoutStars(missingByKey) {
+  const fresh = [...missingByKey.entries()].filter(([key]) => !reportedHotelsWithoutStars.has(key));
+  if (!fresh.length) return;
+  const lines = fresh.map(([, m]) => `• ${escapeHtml(m.name)} (${escapeHtml(m.city)}) — ${[...m.jadwalIds].slice(0, 3).join(', ')}`);
+  console.warn(`[ScheduleSync] Hotel tanpa bintang (tidak dikenal Direktori Hotel): ${fresh.map(([, m]) => m.name).join(', ')}`);
+  const { data: admins, error } = await supabase
+    .from('agents')
+    .select('telegram_chat_id')
+    .eq('role', 'admin')
+    .not('telegram_chat_id', 'is', null);
+  if (error) {
+    console.warn('[ScheduleSync] Gagal membaca admin untuk laporan hotel:', error.message);
+    return;
+  }
+  const text = `<b>Hotel paket tanpa bintang</b>\n\nHotel berikut muncul di jadwal tapi belum dikenal Direktori Hotel, jadi bintangnya kosong di paket:\n${lines.join('\n')}\n\nTambahkan hotelnya (beserta bintang) di Direktori Hotel, atau isi "Nama lain" hotel yang sudah ada dengan ejaan di atas. Bintang terisi otomatis di sync berikutnya.`;
+  let delivered = false;
+  for (const admin of admins || []) {
+    if (await sendTelegramMessageDirect(admin.telegram_chat_id, text).catch(() => false)) delivered = true;
+  }
+  // Ditandai terlapor hanya bila pesan benar-benar sampai ke minimal satu admin.
+  if (delivered) fresh.forEach(([key]) => reportedHotelsWithoutStars.add(key));
+}
+
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
   const startTime = Date.now();
   let totalSynced = 0;
+  const hotelDirectory = await loadScheduleHotelDirectory();
+  const hotelsWithoutStars = new Map();
 
   for (const year of SCHEDULE_YEAR_CODES) {
     try {
@@ -21980,6 +22024,13 @@ async function syncUmrohSchedules() {
       const brochureCacheResets = new Map();
 
       const rows = includedPackages.map(p => {
+        // Hulu jarang menyertakan bintang hotel; isi yang kosong dari Direktori Hotel.
+        const { paketHotel, missing } = fillPackageHotelStars(p.paket_hotel, hotelDirectory);
+        for (const m of missing) {
+          const key = `${m.city}|${m.name.toUpperCase()}`;
+          if (!hotelsWithoutStars.has(key)) hotelsWithoutStars.set(key, { ...m, jadwalIds: new Set() });
+          hotelsWithoutStars.get(key).jadwalIds.add(p.jadwal_id);
+        }
         const brochureSource = resolveScheduleBrochureSource(p);
         const brochureReset = buildBrochureCacheReset(previousById.get(String(p.jadwal_id)), brochureSource);
         if (Object.keys(brochureReset).length) brochureCacheResets.set(p.jadwal_id, brochureReset);
@@ -22005,7 +22056,7 @@ async function syncUmrohSchedules() {
           itinerary: p.itinerary,
           perlengkapan_harga: p.perlengkapan_harga,
           paket_harga: p.paket_harga,
-          paket_hotel: p.paket_hotel,
+          paket_hotel: paketHotel,
           synced_at: new Date().toISOString(),
         };
       });
@@ -22074,6 +22125,12 @@ async function syncUmrohSchedules() {
     } catch (err) {
       console.error(`[ScheduleSync] Year ${year} failed:`, err.message);
     }
+  }
+
+  try {
+    await reportHotelsWithoutStars(hotelsWithoutStars);
+  } catch (e) {
+    console.warn('[ScheduleSync] Laporan hotel tanpa bintang gagal:', e.message);
   }
 
   // Reap rows for decommissioned year_codes (years no longer in SCHEDULE_YEAR_CODES).
