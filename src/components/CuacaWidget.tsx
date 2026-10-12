@@ -36,7 +36,9 @@ export default function CuacaWidget({ agent }: { agent?: CuacaShareAgent }) {
       setSyncedAt(json.syncedAt ?? null);
       setError('');
     } catch (e: any) {
-      setError('Gagal memuat data cuaca');
+      // Refresh (mis. saat Share diketuk) yang gagal tetap memakai data lama —
+      // jangan ganti widget (dan sheet Share di dalamnya) dengan layar galat.
+      if (!isRefresh) setError('Gagal memuat data cuaca');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -103,7 +105,7 @@ export default function CuacaWidget({ agent }: { agent?: CuacaShareAgent }) {
         </h3>
         {agent && (
           <button
-            onClick={() => { setShareMounted(true); setShareOpen(true); }}
+            onClick={() => { fetchWeather(true); setShareMounted(true); setShareOpen(true); }}
             aria-label="Bagikan cuaca"
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors active:scale-95"
           >

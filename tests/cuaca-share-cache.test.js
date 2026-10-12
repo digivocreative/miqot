@@ -40,6 +40,19 @@ test('second request is a cache hit; concurrent requests share one render', asyn
   assert.deepEqual(await readdir(cacheDir), ['2026-10-12']);
 });
 
+test('render may opt out of caching (e.g. agent photo fetch failed)', async () => {
+  const cacheDir = await tempDir();
+  let calls = 0;
+  const render = async () => { calls += 1; return { buffer: Buffer.from('img'), cache: false }; };
+  const args = { cityKey: 'makkah', syncedAt: SYNC, agent, dateKey: '20261012', render, cacheDir };
+  const first = await getOrCreateCuacaShareImage(args);
+  assert.equal(first.buffer.toString(), 'img');
+  assert.equal(first.cacheHit, false);
+  await getOrCreateCuacaShareImage(args);
+  assert.equal(calls, 2);
+  assert.deepEqual(await readdir(cacheDir), []);
+});
+
 test('empty render result is rejected and not cached', async () => {
   const cacheDir = await tempDir();
   await assert.rejects(

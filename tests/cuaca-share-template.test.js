@@ -32,6 +32,14 @@ test('banner renders the agreed C2 content without emoji', async () => {
   assert.match(html, />BP</, 'inisial saat agent tanpa foto');
 });
 
+test('agent panel sits at the bottom via margin, not an extra flex spacer; long site labels ellipsize', async () => {
+  const { render } = await loadCuacaTemplateRenderer();
+  const html = render(buildCuacaShareProps(base, { name: 'Bagas', slug: 'agen-dengan-slug-yang-sangat-panjang-sekali' }, { syncedAt: SYNC }), assets);
+  assert.doesNotMatch(html, /<div style="flex:1"><\/div>/);
+  assert.match(html, /margin-top:auto/);
+  assert.match(html, /white-space:nowrap;overflow:hidden;text-overflow:ellipsis[^"]*">alhijaz\.co\/agen-dengan-slug/);
+});
+
 test('city without photo renders the pattern panel', async () => {
   const { render } = await loadCuacaTemplateRenderer();
   const props = buildCuacaShareProps({ ...base, key: 'hainan', name: 'Hainan', country: 'China' }, { name: 'A', slug: 'a' }, { syncedAt: SYNC });

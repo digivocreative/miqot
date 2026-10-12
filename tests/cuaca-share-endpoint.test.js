@@ -35,3 +35,12 @@ test('analytics events are registered so they are not dropped', () => {
   assert.match(server, /share_cuaca: 'Bagikan Cuaca'/);
   assert.match(server, /copy_cuaca_caption: 'Salin Caption Cuaca'/);
 });
+
+test('rendered banners (agent names + photos) never reach the public repo', () => {
+  const gitignore = readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  assert.match(gitignore, /^data\/cuaca-share-cache\/$/m);
+});
+
+test('a failed agent-photo fetch is not cached for the whole sync window', () => {
+  assert.match(route, /cache: !\(isAllowedAgentPhotoUrl\(identity\.photo\) && !assets\.agentPhotoSrc\)/);
+});

@@ -169,7 +169,7 @@ import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js
 import { flightItineraryFields } from './lib/flight-itinerary-link.js';
 import { WEATHER_CITIES } from './lib/weather-cities.js';
 import { buildCuacaShareProps, resolveCuacaShareCity } from './lib/cuaca-share-data.js';
-import { loadCuacaShareAssets, renderCuacaShareJpeg } from './lib/cuaca-share-render.js';
+import { isAllowedAgentPhotoUrl, loadCuacaShareAssets, renderCuacaShareJpeg } from './lib/cuaca-share-render.js';
 import { cleanupCuacaShareCache, getOrCreateCuacaShareImage } from './lib/cuaca-share-cache.mjs';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
@@ -20709,7 +20709,12 @@ app.get('/api/weather/share-image', authMiddleware, async (req, res) => {
       syncedAt,
       agent: identity,
       dateKey: data.dateKey,
-      render: async () => renderCuacaShareJpeg({ data, assets: await loadCuacaShareAssets(data, identity.photo) }),
+      render: async () => {
+        const assets = await loadCuacaShareAssets(data, identity.photo);
+        const buffer = await renderCuacaShareJpeg({ data, assets });
+        // Foto agent gagal diambil sesaat → jangan dikunci di cache sampai sinkron berikutnya.
+        return { buffer, cache: !(isAllowedAgentPhotoUrl(identity.photo) && !assets.agentPhotoSrc) };
+      },
     });
 
     res.set({

@@ -68,7 +68,7 @@ function Stat({ icon, value, label }: { icon: typeof Sun; value: string; label: 
 function AgentPanel({ data, photoSrc }: { data: CuacaShareProps; photoSrc: string | null }) {
   const { agent } = data;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, padding: '24px 28px', borderRadius: 32, background: 'rgba(5,38,29,0.5)', border: '1px solid rgba(255,255,255,0.12)' }}>
+    <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, padding: '24px 28px', borderRadius: 32, background: 'rgba(5,38,29,0.5)', border: '1px solid rgba(255,255,255,0.12)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0, flex: 1 }}>
         <div style={{ width: 88, height: 88, flexShrink: 0, borderRadius: 44, border: `4px solid ${GOLD}`, overflow: 'hidden', background: '#2F5FA8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {photoSrc
@@ -80,7 +80,7 @@ function AgentPanel({ data, photoSrc }: { data: CuacaShareProps; photoSrc: strin
             <span style={{ fontSize: agent.nameFontSize, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{agent.name}</span>
             <BadgeCheck size={32} color="#1D9BF0" strokeWidth={2} style={{ flexShrink: 0 }} />
           </div>
-          <span style={{ fontSize: 24, fontWeight: 600, color: MINT }}>{agent.siteLabel}</span>
+          <span style={{ fontSize: 24, fontWeight: 600, color: MINT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{agent.siteLabel}</span>
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, padding: '16px 22px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}>
@@ -154,7 +154,8 @@ export function CuacaShareTemplate({ data, assets }: { data: CuacaShareProps; as
           )}
         </div>
 
-        <div style={{ flex: 1 }} />
+        {/* marginTop:auto di AgentPanel (bukan spacer flex:1) — spacer ikut memakan
+            gap 30px dan membuat panel menempel ke tepi bawah saat catatan musim 2 baris. */}
         <AgentPanel data={data} photoSrc={assets.agentPhotoSrc} />
       </div>
     </div>

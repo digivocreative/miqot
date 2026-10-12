@@ -9,6 +9,7 @@ functions/umroh-landing.mjs
 functions/haji-landing.mjs
 data/*.json
 data/kurs-share-cache/
+data/cuaca-share-cache/
 data/backups/
 exports/
 .superpowers/

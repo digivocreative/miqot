@@ -32,6 +32,12 @@ test('agent photo fetch degrades to null instead of failing the render', async (
   assert.equal(await fetchAgentPhotoDataUri(url, { fetchImpl: async () => { throw new Error('timeout'); } }), null);
 });
 
+test('agent photo fetch refuses redirects (allow-list cannot be bypassed)', async () => {
+  let opts = null;
+  await fetchAgentPhotoDataUri('https://sb.alhijaz.co/a.jpg', { fetchImpl: async (_u, o) => { opts = o; return { ok: false, headers: { get: () => '' } }; } });
+  assert.equal(opts.redirect, 'error');
+});
+
 test('assets embed the city photo and logo as data URIs; Hainan has no photo', async () => {
   const withPhoto = await loadCuacaShareAssets({ photo: 'makkah.jpg' }, '', {});
   assert.match(withPhoto.photoSrc, /^data:image\/jpeg;base64,/);

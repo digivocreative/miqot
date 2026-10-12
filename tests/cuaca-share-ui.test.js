@@ -31,6 +31,10 @@ test('modal closes on Android back and has a retry path', () => {
   assert.match(modal, /Coba lagi/);
 });
 
+test('tapping Share refreshes the weather so preview, caption and file use the same sync', () => {
+  assert.match(widget, /onClick=\{\(\) => \{ fetchWeather\(true\); setShareMounted\(true\); setShareOpen\(true\); \}\}/);
+});
+
 test('widget shows the Share pill only with data and an agent, and passes syncedAt', () => {
   assert.match(widget, /setSyncedAt\(json\.syncedAt \?\? null\)/);
   assert.match(widget, /\{agent && \(\s*<button[\s\S]*aria-label="Bagikan cuaca"/);
