@@ -167,6 +167,7 @@ import {
 } from './lib/flight-fallback-state.js';
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
 import { flightItineraryFields } from './lib/flight-itinerary-link.js';
+import { WEATHER_CITIES } from './lib/weather-cities.js';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
   isExpiredActiveProviderClaim,
@@ -20444,14 +20445,6 @@ app.get('/api/haji-plus/data', authMiddleware, async (req, res) => {
 });
 
 // ─── WEATHER ENDPOINT ────────────────────────────────────────────
-const WEATHER_CITIES = [
-  { key: 'makkah',     name: 'Mekkah',     country: 'Arab Saudi', flag: '🇸🇦', lat: 21.3891, lon: 39.8579, tz: 'Asia/Riyadh' },
-  { key: 'madinah',    name: 'Madinah',    country: 'Arab Saudi', flag: '🇸🇦', lat: 24.5247, lon: 39.5692, tz: 'Asia/Riyadh' },
-  { key: 'istanbul',   name: 'Istanbul',   country: 'Türkiye',    flag: '🇹🇷', lat: 41.0082, lon: 28.9784, tz: 'Europe/Istanbul' },
-  { key: 'cappadocia', name: 'Cappadocia', country: 'Türkiye',    flag: '🇹🇷', lat: 38.6431, lon: 34.8287, tz: 'Europe/Istanbul' },
-  { key: 'dubai',      name: 'Dubai',      country: 'UAE',        flag: '🇦🇪', lat: 25.2048, lon: 55.2708, tz: 'Asia/Dubai' },
-  { key: 'hainan',     name: 'Hainan',     country: 'China',      flag: '🇨🇳', lat: 18.2528, lon: 109.5120, tz: 'Asia/Shanghai' },
-];
 
 // DB-backed cache (pola kurs): server production fetch tiap 3 jam via cron →
 // tabel weather_cache; endpoint murni baca. Local (ENABLE_BACKGROUND_JOBS=false)
@@ -20496,6 +20489,7 @@ async function fetchCityWeather(city) {
     return {
       day: DAYS_ID[d.getDay()],
       icon: wmoMap(daily.weather_code[i + 1]).icon,
+      weatherCode: daily.weather_code[i + 1],
       tempMin: Math.round(daily.temperature_2m_min[i + 1]),
       tempMax: Math.round(daily.temperature_2m_max[i + 1]),
     };

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getAuthHeaders } from '../lib/authSession';
 import { cityTemperatureData } from '../data/temperatureData';
+import { SEASONAL_NOTES } from '../../lib/weather-seasonal-notes.js';
 
 // ─── Types ───────────────────────────────────────────────────────
 interface CityWeather {
@@ -10,94 +11,6 @@ interface CityWeather {
   tempMin: number; tempMax: number;
   forecast: { day: string; icon: string; tempMin: number; tempMax: number }[];
 }
-
-// ─── Seasonal notes per kota per bulan (0=Jan, 11=Des) ───────────
-const SEASONAL_NOTES: Record<string, string[]> = {
-  makkah: [
-    'Januari sejuk relatif — suhu malam bisa 16°C. Nyaman untuk tawaf.',
-    'Februari masih hangat, angin utara sesekali kencang.',
-    'Maret mulai menghangat — siapkan tabir surya SPF tinggi.',
-    'April sudah awal musim panas. Suhu siang bisa 42°C — rekomendasikan hotel bintang 5 terdekat Masjidil Haram.',
-    'Mei sangat panas. Hindari aktivitas luar ruangan pukul 10–15.',
-    'Juni puncak panas awal. Hidrasi sangat penting, bawa mist spray.',
-    'Juli–Agustus terpanas, bisa 45°C. Waktu ibadah malam lebih disarankan.',
-    'Agustus masih puncak panas. Waspada heat stroke.',
-    'September mulai menurun tapi masih panas di atas 38°C siang.',
-    'Oktober nyaman untuk siang — mulai cocok aktivitas di luar.',
-    'November sejuk menyenangkan, terbaik untuk umroh perdana jamaah.',
-    'Desember paling sejuk dalam setahun. Bawa jaket tipis untuk malam.',
-  ],
-  madinah: [
-    'Januari malam bisa 10°C — lebih dingin dari Mekkah. Jaket wajib malam hari.',
-    'Februari angin utara terasa. Bawa syal tipis.',
-    'Maret mulai hangat, nyaman untuk ziarah pagi.',
-    'April lebih sejuk dari Mekkah. Cocok aktivitas pagi di Raudhah.',
-    'Mei panas namun lebih kering dari Mekkah. Tetap jaga hidrasi.',
-    'Juni sangat panas. Ziarah pagi hari lebih disarankan.',
-    'Juli terpanas — 40°C siang. Perbanyak istirahat di dalam hotel.',
-    'Agustus sama panas, angin barat laut membantu sedikit.',
-    'September mulai turun. Madinah lebih cepat sejuk dari Mekkah.',
-    'Oktober nyaman, angin sepoi di malam hari.',
-    'November terbaik untuk Madinah — suhu ideal siang dan malam.',
-    'Desember sejuk, bawa jaket. Malam bisa di bawah 8°C.',
-  ],
-  istanbul: [
-    'Januari dingin & hujan. Suhu bisa di bawah 0°C malam hari — jaket tebal wajib.',
-    'Februari masih dingin, kemungkinan salju ringan.',
-    'Maret mulai cair, tapi masih dingin. Musim semi belum penuh.',
-    'April musim semi — hujan masih sering. Bawa jaket ringan & payung lipat.',
-    'Mei indah, bunga bermekaran. Musim terbaik untuk tur kota.',
-    'Juni hangat dan nyaman. Mulai ramai turis.',
-    'Juli–Agustus puncak musim panas, panas tapi tidak sepanas Timur Tengah.',
-    'Agustus ramai, panas — rekomendasikan kunjungan pagi ke tempat wisata.',
-    'September nyaman — musim terbaik kedua setelah Mei.',
-    'Oktober mulai mendingin, daun mulai gugur — pemandangan indah.',
-    'November hujan lebih sering, angin kencang dari Bosphorus.',
-    'Desember dingin dan lembap. Bisa gerimis atau salju ringan.',
-  ],
-  cappadocia: [
-    'Januari bersalju — pemandangan peri chimney tertutup salju, sangat fotogenik!',
-    'Februari salju masih mungkin. Balon udara sering dibatalkan.',
-    'Maret mulai mencair tapi masih dingin. Angin kencang masih sering.',
-    'April masih dingin & berangin. Balon mungkin ditunda jika angin >30 km/j — beri ekspektasi ke jamaah.',
-    'Mei mulai hangat, bunga mulai. Probabilitas balon terbang mulai naik.',
-    'Juni terbaik untuk balon — cuaca stabil, angin normal.',
-    'Juli–Agustus panas di siang (30°C) tapi malam masih sejuk.',
-    'Agustus paling panas & paling stabil untuk balon udara.',
-    'September sempurna — hangat siang, sejuk malam, langit biru.',
-    'Oktober mulai mendingin, pemandangan musim gugur menakjubkan.',
-    'November cuaca tak menentu. Balon sering dibatalkan.',
-    'Desember sangat dingin, kemungkinan salju tinggi. Jaket bulu angsa wajib.',
-  ],
-  dubai: [
-    'Januari sejuk & nyaman — terbaik untuk outdoor. Suhu 20-an.',
-    'Februari nyaman, sedikit lebih hangat. Masih terbaik untuk aktivitas siang.',
-    'Maret mulai menghangat. Desert safari masih enak.',
-    'April nyaman sebelum musim panas. Paket tour outdoor masih aman sepenuhnya.',
-    'Mei mulai terasa panas. Waktu outdoor sebaiknya pagi/sore hari.',
-    'Juni panas mulai menyengat. Air laut justru nyaman.',
-    'Juli puncak panas (45°C) — aktivitas outdoor siang sangat tidak disarankan.',
-    'Agustus sama panasnya, lembap dari laut. Mall & indoor sangat disarankan.',
-    'September masih panas tapi mulai turun. Malam mulai nyaman.',
-    'Oktober nyaman kembali. Salah satu bulan terbaik untuk Dubai.',
-    'November sempurna — seperti musim semi Indonesia tapi lebih kering.',
-    'Desember nyaman & ramai. New Year Eve di Dubai sangat meriah.',
-  ],
-  hainan: [
-    'Januari musim kering — terbaik untuk pantai. Suhu 20-an.',
-    'Februari masih kering & cerah. Menjelang Imlek ramai.',
-    'Maret mulai lembap, masih nyaman untuk wisata.',
-    'April mulai memasuki musim hujan. Bawa jas hujan tipis & pakaian menyerap keringat.',
-    'Mei musim hujan penuh. Hujan siang masih bisa wisata pagi.',
-    'Juni panas & lembap. Wisata pantai tetap populer.',
-    'Juli–Agustus potensi topan. Cek prakiraan cuaca sebelum keberangkatan.',
-    'Agustus waspadai topan — rekomendasikan asuransi perjalanan.',
-    'September masih musim hujan tapi intensitas mulai turun.',
-    'Oktober musim hujan berakhir. Mulai nyaman kembali.',
-    'November kering & nyaman — terbaik setelah Januari.',
-    'Desember musim kering, sejuk relatif. Destinasi populer wisatawan dari utara China.',
-  ],
-};
 
 // ─── Helper ───────────────────────────────────────────────────────
 const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agt','Sep','Okt','Nov','Des'];
