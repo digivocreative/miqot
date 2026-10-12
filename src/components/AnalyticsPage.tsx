@@ -71,6 +71,7 @@ const ACTION_ICONS: Record<string, string> = {
   birthday_download: '🎂', birthday_send: '🎉', set_email_alias: '📧',
   mcp_generate_key: '🔑', mcp_revoke_key: '🔌', mcp_oauth_connect: '🤝', mcp_oauth_revoke: '🔌',
   download_share_kurs: '📥', share_kurs: '🔗', copy_kurs_caption: '📋',
+  download_share_cuaca: '📥', share_cuaca: '🔗', copy_cuaca_caption: '📋',
   register_jamaah: '📝',
   // Package value / brochure (recategorized to actions)
   package_value_generate: '💎', package_value_error: '⚠️',

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getEmbeddedFontCss, withRenderLock } from '../lib/headless-render.js';
+import { getEmbeddedFontCss, isAllowedAgentPhotoUrl, withRenderLock } from '../lib/headless-render.js';
 
 const cardExport = readFileSync(new URL('../lib/card-export.js', import.meta.url), 'utf8');
 
@@ -31,4 +31,16 @@ test('card export uses the shared lock and font helper', () => {
   assert.match(cardExport, /from '\.\/headless-render\.js'/);
   assert.match(cardExport, /return withRenderLock\(run\);/);
   assert.doesNotMatch(cardExport, /let renderLock/);
+});
+
+test('agent photo host allow-list lives in one place for both renderers', () => {
+  const cuacaRender = readFileSync(new URL('../lib/cuaca-share-render.js', import.meta.url), 'utf8');
+  for (const [name, src] of [['card-export', cardExport], ['cuaca-share-render', cuacaRender]]) {
+    assert.doesNotMatch(src, /new Set\(\['sb\.alhijaz\.co'/, `${name} menyimpan daftar host sendiri`);
+    assert.match(src, /isAllowedAgentPhotoUrl/, `${name} tidak memakai pemeriksa bersama`);
+  }
+  assert.equal(isAllowedAgentPhotoUrl('https://sb.alhijaz.co/a.jpg'), true);
+  assert.equal(isAllowedAgentPhotoUrl('https://ui-avatars.com/api/?name=A'), true);
+  assert.equal(isAllowedAgentPhotoUrl('http://sb.alhijaz.co/a.jpg'), false);
+  assert.equal(isAllowedAgentPhotoUrl('https://evil.example/a.jpg'), false);
 });

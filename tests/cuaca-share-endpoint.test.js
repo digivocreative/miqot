@@ -44,3 +44,10 @@ test('rendered banners (agent names + photos) never reach the public repo', () =
 test('a failed agent-photo fetch is not cached for the whole sync window', () => {
   assert.match(route, /cache: !\(isAllowedAgentPhotoUrl\(identity\.photo\) && !assets\.agentPhotoSrc\)/);
 });
+
+test('unknown city gets 400 before the weather DB is touched (not 503 on a cold start)', () => {
+  const check = route.indexOf('isCuacaShareCityKey(req.query.city)');
+  assert.ok(check > 0, 'route memvalidasi kunci kota lebih dulu');
+  assert.ok(check < route.indexOf('loadWeatherFromSupabase()'));
+  assert.match(route, /if \(!isCuacaShareCityKey\(req\.query\.city\)\) \{\n\s+return res\.status\(400\)/);
+});

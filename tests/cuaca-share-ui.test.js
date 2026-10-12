@@ -41,3 +41,18 @@ test('widget shows the Share pill only with data and an agent, and passes synced
   assert.match(widget, /<ShareCuacaModal[\s\S]*city=\{city\}[\s\S]*syncedAt=\{syncedAt\}[\s\S]*agent=\{agent\}/);
   assert.match(dashboard, /<CuacaWidget agent=\{\{ name: agentData\.name, phone: agentData\.phone, photo: agentData\.photo, slug: agentData\.slug \}\} \/>/);
 });
+
+test('a 200 response that is not an image shows the error state, not a broken .jpg', () => {
+  const guard = modal.indexOf("if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error(");
+  assert.ok(guard > 0, 'blob diperiksa jenisnya');
+  assert.ok(guard < modal.indexOf('blobRef.current = blob;'));
+});
+
+test('cuaca share actions get their own icons in Analytics', () => {
+  const analytics = read('src/components/AnalyticsPage.tsx');
+  const icons = analytics.match(/const ACTION_ICONS: Record<string, string> = \{[\s\S]*?\n\};/)?.[0] ?? '';
+  assert.notEqual(icons, '', 'ACTION_ICONS tidak ditemukan');
+  for (const name of ['download_share_cuaca', 'share_cuaca', 'copy_cuaca_caption']) {
+    assert.match(icons, new RegExp(`\\b${name}: '[^']+'`), `${name} jatuh ke ikon default`);
+  }
+});

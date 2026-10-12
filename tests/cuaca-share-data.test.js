@@ -8,6 +8,7 @@ import {
   conditionFontSize,
   formatDeg,
   formatRange,
+  isCuacaShareCityKey,
   resolveCuacaShareCity,
   tempFontSize,
   uvLabelFull,
@@ -118,5 +119,13 @@ test('share city validation rejects unknown keys before looking at data', () => 
   assert.equal(resolveCuacaShareCity('madinah', cities).status, 404);
   for (const bad of ['../../etc', '', undefined, ['makkah', 'dubai'], 'MAKKAH']) {
     assert.equal(resolveCuacaShareCity(bad, cities).status, 400, String(bad));
+  }
+});
+
+test('city key check needs no weather data (route rejects junk before loading the DB)', () => {
+  assert.equal(isCuacaShareCityKey('makkah'), true);
+  assert.equal(isCuacaShareCityKey('hainan'), true);
+  for (const bad of ['', '../../etc', 'MAKKAH', 'tokyo', undefined, ['makkah']]) {
+    assert.equal(isCuacaShareCityKey(bad), false, String(bad));
   }
 });

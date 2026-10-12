@@ -168,7 +168,7 @@ import {
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
 import { flightItineraryFields } from './lib/flight-itinerary-link.js';
 import { WEATHER_CITIES } from './lib/weather-cities.js';
-import { buildCuacaShareProps, resolveCuacaShareCity } from './lib/cuaca-share-data.js';
+import { buildCuacaShareProps, isCuacaShareCityKey, resolveCuacaShareCity } from './lib/cuaca-share-data.js';
 import { isAllowedAgentPhotoUrl, loadCuacaShareAssets, renderCuacaShareJpeg } from './lib/cuaca-share-render.js';
 import { cleanupCuacaShareCache, getOrCreateCuacaShareImage } from './lib/cuaca-share-cache.mjs';
 import { operationalFlightDate } from './lib/flight-marker-date.js';
@@ -20680,6 +20680,10 @@ app.get('/api/weather/cities', authMiddleware, async (req, res) => {
 // GET /api/weather/share-image?city=makkah — banner Share Cuaca 4:5 per agent
 // (spec 2026-10-12). Identitas agent HANYA dari sesi; data dari cache cuaca.
 app.get('/api/weather/share-image', authMiddleware, async (req, res) => {
+  // Kota asing ditolak sebelum DB cuaca disentuh (server baru nyala tetap 400, bukan 503).
+  if (!isCuacaShareCityKey(req.query.city)) {
+    return res.status(400).json({ success: false, error: 'Kota tidak dikenal' });
+  }
   try {
     const now = Date.now();
     if (!weatherMemory || now - weatherDbReadAt >= WEATHER_DB_READ_TTL_MS) {

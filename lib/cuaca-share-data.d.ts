@@ -72,6 +72,7 @@ export function buildCuacaShareProps(
   opts?: { syncedAt?: string | null; now?: number },
 ): CuacaShareProps;
 export function buildCuacaCaption(props: CuacaShareProps, opts?: { waNumber?: string | null }): string;
+export function isCuacaShareCityKey(cityKey: unknown): boolean;
 export function resolveCuacaShareCity(
   cityKey: unknown,
   cities: CuacaShareCity[] | null | undefined,

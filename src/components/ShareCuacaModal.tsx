@@ -91,6 +91,8 @@ export default function ShareCuacaModal({ open, onClose, city, syncedAt, agent }
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
+        // Proxy/server basi bisa menjawab 200 berisi HTML → tampilkan galat, bukan .jpg rusak.
+        if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error(`Bukan gambar: ${blob.type || 'tanpa tipe'}`);
         if (cancelled) return;
         blobRef.current = blob;
         setImageState('ready');
