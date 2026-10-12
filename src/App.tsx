@@ -1293,7 +1293,7 @@ function App({ singlePackageId }: { singlePackageId?: string | null }) {
 
         {/* Package List */}
         {!loading && !error && (
-          <div className={isCompactView ? 'space-y-1.5' : '-mx-4 space-y-2 [overflow-anchor:none]'}>
+          <div className={isCompactView ? '-mx-2 space-y-1.5' : '-mx-4 space-y-2 [overflow-anchor:none]'}>
             {/* [overflow-anchor:none] — matikan scroll anchoring bawaan browser; saat panel
                 collapse+expand bersamaan, browser bisa memilih anchor node di dalam panel yang
                 membuka dan ikut men-scroll halaman. Kompensasi ditangani anchorCardDuringToggle. */}
