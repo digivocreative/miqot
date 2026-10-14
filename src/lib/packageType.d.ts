@@ -48,7 +48,7 @@ export function getMusimDinginWindow(today?: Date): MusimDinginWindow;
 export function isMusimDinginDeparture(iso: string | undefined | null, musimDinginWindow: MusimDinginWindow): boolean;
 
 /**
- * Jendela Ramadhan berpadding (7 hari sebelum s/d 5 hari sesudah), batas
+ * Jendela Ramadhan berpadding 7 hari sebelum (tanpa padding sesudah), batas
  * inklusif, per tahun Hijriah yang terdaftar. Tidak bergeser menurut "hari ini",
  * jadi tidak ada parameter window seperti musim dingin.
  */

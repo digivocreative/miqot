@@ -129,15 +129,15 @@ test('Kereta Cepat itu fasilitas: satu paket bisa sekaligus Plus Turki', () => {
   assert.equal(PACKAGE_TYPES.some(t => t.value === PACKAGE_TYPE_KERETA_CEPAT), false);
 });
 
-test('isRamadhanDeparture: jendela Ramadhan 1448 H, 7 hari sebelum s/d 5 hari sesudah', () => {
+test('isRamadhanDeparture: jendela Ramadhan 1448 H, 7 hari sebelum, tanpa padding sesudah', () => {
   // Ramadhan 1448 H (Umm al-Qura) = 8 Feb 2027 s/d 8 Mar 2027, jadi jendela
-  // berpaddingnya 1 Feb 2027 s/d 13 Mar 2027. Batasnya INKLUSIF di dua sisi.
+  // berpaddingnya 1 Feb 2027 s/d 8 Mar 2027. Batasnya INKLUSIF di dua sisi.
   assert.equal(isRamadhanDeparture('2027-01-31'), false);
   assert.equal(isRamadhanDeparture('2027-02-01'), true);
   assert.equal(isRamadhanDeparture('2027-02-08'), true);  // 1 Ramadhan
   assert.equal(isRamadhanDeparture('2027-03-08'), true);  // 29 Ramadhan (hari terakhir)
-  assert.equal(isRamadhanDeparture('2027-03-13'), true);
-  assert.equal(isRamadhanDeparture('2027-03-14'), false);
+  assert.equal(isRamadhanDeparture('2027-03-09'), false); // 1 Syawal
+  assert.equal(isRamadhanDeparture('2027-03-12'), false); // 4 Syawal: trip-nya nol hari Ramadhan
 
   // Tabel jendelanya hanya memuat 1448 H. Ramadhan 1449 (~28 Jan 2028) belum
   // terdaftar, jadi paket 2028 TIDAK ikut — sengaja, supaya tidak ada tahun yang
@@ -217,7 +217,7 @@ test('Umroh Syawal itu jendela tanggal, bukan nama paket', () => {
   assert.ok(syawal(false)(subject('UMRAH SYAWAL 9HR', { departureIso: '2026-10-01' })));
 });
 
-test('Umroh Syawal tidak eksklusif: Jum\'atain + Plus Taif, dan 1–5 Syawal juga Ramadhan', () => {
+test('Umroh Syawal tidak eksklusif: Jum\'atain + Plus Taif, tapi tidak tumpang-tindih dengan Ramadhan', () => {
   const both = subject("UMRAH SYAWAL JUM'ATAIN PLUS TAIF+BADAR 12HR ( KERETA CEPAT)", { departureIso: '2027-03-16' });
   assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_SYAWAL, WIN_2026), true);
   assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_JUMATAIN, WIN_2026), true);
@@ -226,10 +226,18 @@ test('Umroh Syawal tidak eksklusif: Jum\'atain + Plus Taif, dan 1–5 Syawal jug
   assert.equal(matchesPackageType(both, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), false);
   assert.equal(PACKAGE_TYPES.some(t => t.value === PACKAGE_TYPE_UMROH_SYAWAL), false);
 
-  // Padding +5 hari Ramadhan menjangkau 1–5 Syawal: di sana paketnya ada di dua opsi.
-  const lebaran = subject('UMRAH 9HR', { departureIso: '2027-03-12' });
-  assert.equal(matchesPackageType(lebaran, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), true);
+  // Jendela Ramadhan berakhir 29 Ramadhan, Syawal mulai 1 Syawal: bersambung
+  // tanpa celah dan tanpa tumpang-tindih. Kasus nyata 1448: "UMRAH HEMAT PLUS
+  // TAIF+BADAR 13HR" berangkat 12 Mar (4 Syawal) dulu ikut tampil di Ramadhan.
+  const lebaran = subject('UMRAH HEMAT PLUS TAIF+BADAR 13HR', { departureIso: '2027-03-12' });
+  assert.equal(matchesPackageType(lebaran, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), false);
   assert.equal(matchesPackageType(lebaran, PACKAGE_TYPE_UMROH_SYAWAL, WIN_2026), true);
+  const akhirRamadhan = subject('UMRAH 9HR', { departureIso: '2027-03-08' });
+  assert.equal(matchesPackageType(akhirRamadhan, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), true);
+  assert.equal(matchesPackageType(akhirRamadhan, PACKAGE_TYPE_UMROH_SYAWAL, WIN_2026), false);
+  const lebaranHari1 = subject('UMRAH 9HR', { departureIso: '2027-03-09' });
+  assert.equal(matchesPackageType(lebaranHari1, PACKAGE_TYPE_UMROH_RAMADHAN, WIN_2026), false);
+  assert.equal(matchesPackageType(lebaranHari1, PACKAGE_TYPE_UMROH_SYAWAL, WIN_2026), true);
 });
 
 test('Umroh Syawal duduk tepat setelah Umroh Ramadhan di roster', () => {

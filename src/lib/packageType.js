@@ -154,9 +154,16 @@ const RAMADHAN_MASEHI = {
   1448: { mulai: '2027-02-08', akhir: '2027-03-08' },
 };
 
-/** Padding jendela: paket yang berangkat sedikit sebelum/sesudah tetap "Ramadhan". */
+/**
+ * Padding jendela HANYA ke belakang: paket yang berangkat akhir Sya'ban masih
+ * menjalani sebagian perjalanannya di Ramadhan, jadi tetap "Ramadhan". Tidak
+ * ada padding sesudah: paket yang berangkat setelah Ramadhan habis tidak
+ * mengalami Ramadhan sama sekali — dulu +5 hari, dan "UMRAH HEMAT PLUS
+ * TAIF+BADAR 13HR" (berangkat 12 Mar 2027 = 4 Syawal, pulang 24 Mar) ikut
+ * tampil di opsi Umroh Ramadhan.
+ */
 const RAMADHAN_PAD_SEBELUM_HARI = 7;
-const RAMADHAN_PAD_SESUDAH_HARI = 5;
+const RAMADHAN_PAD_SESUDAH_HARI = 0;
 
 const SATU_HARI_MS = 24 * 60 * 60 * 1000;
 
@@ -168,7 +175,7 @@ function geserIsoHari(iso, hari) {
 
 /**
  * Jendela berpadding per tahun Hijriah, dihitung sekali saat modul dimuat.
- * Batas INKLUSIF di dua sisi. Untuk 1448: 2027-02-01 s/d 2027-03-13.
+ * Batas INKLUSIF di dua sisi. Untuk 1448: 2027-02-01 s/d 2027-03-08.
  */
 export const RAMADHAN_WINDOWS = Object.entries(RAMADHAN_MASEHI)
   .map(([tahunHijriah, bulan]) => ({
@@ -203,9 +210,9 @@ export function isRamadhanDeparture(iso) {
 //
 // Jendelanya bulan Syawal itu sendiri, TANPA padding: paket yang berangkat
 // menjelang Syawal adalah paket Ramadhan/Lailatul Qadr, yang berangkat awal
-// Dzulqaidah bukan lagi Syawal. Akibatnya tumpang-tindih dengan padding +5
-// hari Ramadhan (1–5 Syawal) — paket yang berangkat di sana muncul di DUA
-// opsi. Itu disengaja: tipe non-destinasi memang tidak eksklusif.
+// Dzulqaidah bukan lagi Syawal. Jendela Ramadhan berakhir tepat sehari
+// sebelumnya, jadi keduanya bersambung tanpa celah dan tanpa tumpang-tindih:
+// paket yang berangkat 1–5 Syawal hanya Syawal, bukan juga Ramadhan.
 //
 // Umm al-Qura: 1 Syawal 1448 = 9 Mar 2027 (sehari setelah akhir RAMADHAN_MASEHI
 // 1448), 30 Syawal = 7 Apr 2027, 1 Dzulqaidah = 8 Apr 2027.
