@@ -22,6 +22,7 @@ import {
 import type { BerangkatItem } from '../../lib/berangkat-groups.js';
 import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
 import { lockDocumentScroll } from '../lib/scrollLock';
+import { useNikitaFocusMode } from '../lib/nikitaFocusMode';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
@@ -384,10 +385,14 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     const t = setTimeout(() => setTrenUnhidden(true), Math.max(0, TREN_HIDDEN_UNTIL - Date.now()));
     return () => clearTimeout(t);
   }, [trenUnhidden]);
-  const showTren = isAdmin && trenUnhidden;
+  const nikitaFocus = useNikitaFocusMode(agentSlug);
+  const showTren = isAdmin && trenUnhidden && !nikitaFocus;
   // Coerce landing on 'tren' (admin-only, or temporarily hidden) to 'umroh'
   const safeInitialTab = initialStatTab === 'tren' && !showTren ? 'umroh' : (initialStatTab || 'umroh');
   const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(safeInitialTab);
+  useEffect(() => {
+    if (statTab === 'tren' && !showTren) setStatTab('umroh');
+  }, [statTab, showTren]);
   // Year state split: hijriah for Umroh+Tren, masehi for Haji
   const [selectedYearMasehi, setSelectedYearMasehi] = useState('');
   const [hajiStatsMode, setHajiStatsMode] = useState<'pendaftaran' | 'keberangkatan'>('pendaftaran');

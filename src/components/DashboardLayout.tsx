@@ -28,6 +28,7 @@ import { isStandaloneDisplay } from '../lib/pwa/launch';
 import PullToRefreshHost from './pwa/PullToRefreshHost';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { hasUnsavedChanges } from '../lib/unsavedChanges';
+import { useNikitaFocusMode, NIKITA_FOCUS_HIDDEN_TABS } from '../lib/nikitaFocusMode';
 
 const DASHBOARD_OPEN_TRACKED_KEY = 'analytics-open-dashboard-tracked';
 
@@ -852,6 +853,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   useEffect(() => {
     if (activeTab === 'hotel' && !hotelEnabled) navigateTab('home', true);
   }, [activeTab, hotelEnabled, navigateTab]);
+  // Mode khusus nikita (src/lib/nikitaFocusMode.ts): menu admin tertentu
+  // disembunyikan; akses URL langsung dipulangkan ke dashboard.
+  const nikitaFocus = useNikitaFocusMode(agentData.slug);
+  useEffect(() => {
+    if (nikitaFocus && NIKITA_FOCUS_HIDDEN_TABS.has(activeTab)) navigateTab('home', true);
+  }, [activeTab, nikitaFocus, navigateTab]);
   const notifPrefs = useTerasNotificationPrefs(terasEnabled);
 
   // ── Tarik-untuk-segarkan (app terpasang) ──
@@ -893,7 +900,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     && (c.id !== 'hotel' || hotelEnabled)
     && (c.id !== 'settings' || !terasEnabled));
   const settingsCard = MENU_CARDS.find(c => c.id === 'settings');
-  const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)) : [];
+  const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)
+    && !(nikitaFocus && NIKITA_FOCUS_HIDDEN_TABS.has(c.id))) : [];
 
   // Link /teras/<slug> pasti beredar antar-agent lewat WhatsApp. Agent yang
   // login tapi bukan anggota Teras harus melihat pesan "tidak tersedia"
@@ -1242,7 +1250,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               onNavigate={navigatePath}
             />
           )}
-          {activeTab === 'agents' && isAdmin && (
+          {activeTab === 'agents' && isAdmin && !nikitaFocus && (
             <div className="px-4 pt-4">
               <AgentManagementPage />
             </div>
@@ -1298,7 +1306,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             )
           )}
 
-          {activeTab === 'analytics' && isAdmin && (
+          {activeTab === 'analytics' && isAdmin && !nikitaFocus && (
             <AnalyticsPage onHeaderRight={setAnalyticsHeaderRight} />
           )}
 
@@ -1306,7 +1314,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <HotelPage onNavigate={navigatePath} agentSlug={agentData.slug} />
           )}
 
-          {activeTab === 'hotels' && isAdmin && hotelEnabled && (
+          {activeTab === 'hotels' && isAdmin && hotelEnabled && !nikitaFocus && (
             <HotelKelolaPage onNavigate={navigatePath} />
           )}
 
