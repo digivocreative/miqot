@@ -179,6 +179,8 @@ import {
   providerBackedDisplayStatus,
 } from './lib/flight-provider-freshness.js';
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
+import { isNikitaFocusModeActive } from './lib/nikita-focus-mode.js';
+import { buildNikitaDemoFlights } from './lib/demo-flights.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
 import { KLOTER_TRIPS, findKloterTripBySlug } from './src/lib/kloterTrips.js';
@@ -15341,8 +15343,38 @@ function calendarAirportInfoForEvent(event, scheduleById = new Map(), flightStat
 }
 
 // GET /api/flights/status — all flights within H-1 to H+1 window
+// Demo Alhijaz.co (akun nikita, 17–21 Okt 2026): penerbangan dummy
+// menggantikan yang asli. Itinerary diambil dari paket asli mendatang agar
+// tombol Itinerary benar-benar terbuka; WA jamaah dummy = nomor agent sendiri.
+async function loadNikitaDemoFlights(user) {
+  const today = getWIBDateStr();
+  const [{ data: agent }, { data: schedules }] = await Promise.all([
+    supabase.from('agents').select('phone').eq('id', user.id).maybeSingle(),
+    supabase
+      .from('umroh_schedules')
+      .select('jadwal_id, jadwal_nama, maskapai, berangkat_tgl, itinerary, itinerary_cdn, itinerary_source_sha256')
+      .gte('berangkat_tgl', today)
+      .not('itinerary_cdn', 'is', null)
+      .order('berangkat_tgl', { ascending: true })
+      .limit(60),
+  ]);
+  const pick = (airline) => {
+    const schedule = (schedules || []).find(s => String(s.maskapai || '').toUpperCase().includes(airline))
+      || (schedules || [])[0];
+    return schedule ? flightItineraryFields({ jadwal_id: schedule.jadwal_id }, schedule) : null;
+  };
+  return buildNikitaDemoFlights({
+    itineraries: { saudia: pick('SAUDIA'), garuda: pick('GARUDA') },
+    waNumber: String(agent?.phone || '').replace(/\D/g, '') || null,
+  });
+}
+
 app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
+    if (isNikitaFocusModeActive(req.user?.slug)) {
+      return res.json({ success: true, data: await loadNikitaDemoFlights(req.user) });
+    }
+
     maybeResetQuotaCounter();
 
     // Use WIB dates for consistent window regardless of server timezone
