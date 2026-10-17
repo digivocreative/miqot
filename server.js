@@ -20327,9 +20327,10 @@ app.get('/api/flight-share/:code', async (req, res) => {
     let liveArrTime = share.arr_time;
     let liveDuration = share.duration;
     // A share snapshot has no provider timestamp/provenance. Without a matching
-    // live row its status follows the snapshot clocks: scheduled before
-    // takeoff, in flight by schedule, then landed — never "Perlu Cek"
-    // (user 2026-10-17).
+    // live row it keeps the status confirmed at share time (scheduled unless a
+    // tracker had confirmed otherwise) until well past the snapshot arrival,
+    // then presumes landed — never "Perlu Cek" (user 2026-10-17).
+    const snapshotStatus = share.flight_status;
     const snapshotUTC = (clockRaw, airportRaw) => {
       const clock = normalizeCalendarJam(clockRaw);
       const airport = String(airportRaw || '').toUpperCase();
@@ -20345,8 +20346,15 @@ app.get('/api/flight-share/:code', async (req, res) => {
       snapshotArrUTC += 24 * 60 * 60 * 1000;
     }
     const snapshotState = scheduleWindowFlightState(snapshotDepUTC, snapshotArrUTC);
-    let liveStatus = snapshotState.status;
-    let liveProgress = snapshotState.progress;
+    let liveStatus = snapshotState.status === 'landed' ? 'landed'
+      : ['en-route', 'delayed', 'landed', 'cancelled'].includes(snapshotStatus) ? snapshotStatus
+      : 'scheduled';
+    let liveProgress = computeFlightProgress(
+      liveStatus,
+      Number.isFinite(snapshotDepUTC) ? snapshotDepUTC / 1000 : null,
+      Number.isFinite(snapshotArrUTC) ? snapshotArrUTC / 1000 : null,
+      0,
+    );
     let isLive = false;
 
     const { data: liveRow } = await supabase

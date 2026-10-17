@@ -111,8 +111,8 @@ test('share regeneration refreshes route and derives SV from flight number', () 
 });
 
 test('public share follows the snapshot schedule window and never overwrites its base snapshot', () => {
-  // User 2026-10-17: tanpa baris live, status share mengikuti jam snapshot
-  // (terjadwal → terbang → mendarat), tak pernah "Perlu Cek".
+  // User 2026-10-17: tanpa baris live, share memakai status snapshot (terjadwal
+  // kecuali pelacak sudah mengonfirmasi) sampai lewat jam tiba, tak pernah "Perlu Cek".
   assert.match(publicShareHandler, /scheduleWindowFlightState\(snapshotDepUTC, snapshotArrUTC\)/);
   assert.doesNotMatch(publicShareHandler, /'unverified'/);
   assert.doesNotMatch(publicShareHandler, /\.from\('flight_shares'\)[\s\S]*\.update\(/);

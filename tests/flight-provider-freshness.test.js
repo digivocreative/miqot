@@ -162,7 +162,7 @@ test('SV819 13 Aug 2026: frozen Saudia record is presumed landed, never an etern
   assert.equal(isLiveProviderFlight(row, bugNow), false);
 });
 
-test('provider scheduled claim turns into Terbang by schedule at departure, then Mendarat', () => {
+test('provider scheduled claim stays Terjadwal past departure until tracker confirms, then presumes Mendarat', () => {
   const base = {
     status: 'scheduled',
     synced_at: '2026-07-10T12:30:00Z',
@@ -171,17 +171,16 @@ test('provider scheduled claim turns into Terbang by schedule at departure, then
     ...base,
     raw_api: { dep_time_ts: Date.parse('2026-07-10T14:00:00Z') / 1000 },
   }, now), 'scheduled');
+  // Jam berangkat lewat tanpa konfirmasi terbang: tetap terjadwal (user 2026-10-17).
   assert.equal(providerBackedDisplayStatus({
     ...base,
-    raw_api: { dep_time_ts: now / 1000 },
-  }, now), 'en-route');
+    raw_api: { dep_time_ts: now / 1000, arr_time_ts: seconds('2026-07-10T18:00:00Z') },
+  }, now), 'scheduled');
   assert.equal(providerBackedDisplayStatus({
     ...base,
     raw_api: { dep_time_ts: seconds('2026-07-10T08:00:00Z'), arr_time_ts: seconds('2026-07-10T11:00:00Z') },
   }, now), 'landed');
-  // Tanpa jam berangkat tak ada dasar untuk mengarang lepas landas.
   assert.equal(providerBackedDisplayStatus(base, now), 'scheduled');
-  // Bukan LIVE: ini perkiraan jadwal, bukan pelacakan.
   assert.equal(isLiveProviderFlight({ ...base, raw_api: { dep_time_ts: now / 1000 } }, now), false);
 });
 
