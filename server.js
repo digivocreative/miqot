@@ -163,7 +163,7 @@ import {
 import {
   computeFallbackFlightState,
   hasReliableFlightTimes,
-  scheduledSnapshotDisplayStatus,
+  scheduleWindowFlightState,
 } from './lib/flight-fallback-state.js';
 import { verifiedItineraryFlightTime } from './lib/flight-itinerary-overrides.js';
 import { flightItineraryFields } from './lib/flight-itinerary-link.js';
@@ -174,7 +174,6 @@ import { cleanupCuacaShareCache, getOrCreateCuacaShareImage } from './lib/cuaca-
 import { operationalFlightDate } from './lib/flight-marker-date.js';
 import {
   isExpiredActiveProviderClaim,
-  isFreshProviderFlight,
   isLiveProviderFlight,
   projectProviderEvidence,
   providerBackedDisplayStatus,
@@ -14998,7 +14997,9 @@ function formatFlightForFrontend(row) {
   // detail operasional klaim itu: progress & delay-nya bukan fakta. 'landed'
   // hasil presumsi berarti perjalanan selesai — progress 100 tanpa badge delay.
   const claimOverridden = displayStatus !== row.status;
-  const detailsUsable = isFreshProviderFlight(row)
+  // Klaim yang masih dipakai apa adanya (walau basi) membawa detail terakhirnya
+  // — data lama dipakai sampai ada data baru (user 2026-10-17).
+  const detailsUsable = !claimOverridden
     || row?.status === 'landed'
     || row?.status === 'cancelled';
   return {
@@ -15088,32 +15089,16 @@ function getCachedFlight(flightId) {
     raw_api: cached.providerRaw,
   };
   const status = providerBackedDisplayStatus(providerRow);
-  if (cached.providerStatus === 'scheduled' && status !== 'scheduled') {
-    flightCache.delete(flightId);
-    return null;
-  }
+  const isLive = isLiveProviderFlight(providerRow);
   const refreshed = {
     ...cached.data,
     status,
-    isLive: isLiveProviderFlight(providerRow),
-    progress: status === 'unverified' ? 0 : cached.data.progress,
+    isLive,
+    progress: status === 'landed' ? 100 : cached.data.progress,
   };
-  if (status === 'unverified') {
-    Object.assign(refreshed, {
-      depActual: null,
-      arrEstimated: null,
-      lat: null,
-      lng: null,
-      alt: null,
-      speed: null,
-      direction: null,
-      depTs: null,
-      arrTs: null,
-      delayed: 0,
-      depDelayed: 0,
-      arrDelayed: 0,
-    });
-  }
+  // Posisi pesawat hanya berarti selama pelacakan LIVE; status & jam terakhir
+  // tetap dipakai walau basi (user 2026-10-17: tak ada lagi "Perlu Cek").
+  if (!isLive) Object.assign(refreshed, { lat: null, lng: null, alt: null, speed: null, direction: null });
   return refreshed;
 }
 
@@ -15523,11 +15508,6 @@ app.get('/api/flights/status', dbLoadShedGuard, authMiddleware, async (req, res)
 
             if (existing) {
               if (!flightStatusRowMatchesSegment(existing, segment)) {
-                await supabase.from('flight_status').delete().eq('id', flightId);
-              } else if (existing.status === 'scheduled'
-                  && providerBackedDisplayStatus(existing) !== 'scheduled') {
-                // Ignore an expired provider schedule and let the calendar
-                // fallback decide scheduled vs unverified from trusted time.
                 await supabase.from('flight_status').delete().eq('id', flightId);
               } else {
                 const formatted = formatFlightForFrontend(existing);
@@ -20343,24 +20323,30 @@ app.get('/api/flight-share/:code', async (req, res) => {
     const flightIata = share.flight_number.replace(/\s+/g, '');
     const liveId = `${share.flight_date}_${flightIata}`;
 
-    const snapshotStatus = share.flight_status || 'scheduled';
-    const snapshotIsSchedule = snapshotStatus === 'scheduled';
-    let liveDepTime = snapshotIsSchedule ? share.dep_time : null;
-    let liveArrTime = snapshotIsSchedule ? share.arr_time : null;
+    let liveDepTime = share.dep_time;
+    let liveArrTime = share.arr_time;
     let liveDuration = share.duration;
-    // A share snapshot has no provider timestamp/provenance. Never preserve an
-    // operational claim indefinitely after the matching live row disappears.
-    // Even a scheduled snapshot expires at its planned local takeoff.
-    const snapshotClock = normalizeCalendarJam(share.dep_time);
-    const snapshotAirport = String(share.dep_iata || '').toUpperCase();
-    const snapshotDepUTC = snapshotClock
-      && Number.isFinite(AIRPORT_TZ_OFFSETS[snapshotAirport])
-      ? airportLocalDateTimeToUTC(share.flight_date, snapshotClock, snapshotAirport)
-      : null;
-    let liveStatus = snapshotIsSchedule
-      ? scheduledSnapshotDisplayStatus(snapshotDepUTC)
-      : 'unverified';
-    let liveProgress = 0;
+    // A share snapshot has no provider timestamp/provenance. Without a matching
+    // live row its status follows the snapshot clocks: scheduled before
+    // takeoff, in flight by schedule, then landed — never "Perlu Cek"
+    // (user 2026-10-17).
+    const snapshotUTC = (clockRaw, airportRaw) => {
+      const clock = normalizeCalendarJam(clockRaw);
+      const airport = String(airportRaw || '').toUpperCase();
+      return clock && Number.isFinite(AIRPORT_TZ_OFFSETS[airport])
+        ? airportLocalDateTimeToUTC(share.flight_date, clock, airport)
+        : null;
+    };
+    const snapshotDepUTC = snapshotUTC(share.dep_time, share.dep_iata);
+    let snapshotArrUTC = snapshotUTC(share.arr_time, share.arr_iata);
+    // Jam tiba lokal bisa jatuh di hari berikutnya (penerbangan lewat tengah malam).
+    for (let i = 0; i < 2 && Number.isFinite(snapshotDepUTC) && Number.isFinite(snapshotArrUTC)
+      && snapshotArrUTC <= snapshotDepUTC; i++) {
+      snapshotArrUTC += 24 * 60 * 60 * 1000;
+    }
+    const snapshotState = scheduleWindowFlightState(snapshotDepUTC, snapshotArrUTC);
+    let liveStatus = snapshotState.status;
+    let liveProgress = snapshotState.progress;
     let isLive = false;
 
     const { data: liveRow } = await supabase
@@ -20372,23 +20358,20 @@ app.get('/api/flight-share/:code', async (req, res) => {
     // a flight timetabled just before midnight keeps its scheduled clock on
     // the day before. The row was fetched by that exact key, so a day of
     // tolerance cannot reach another instance of the flight number.
-    const matchedLiveData = flightStatusRowMatchesSegment(liveRow, {
+    const liveData = flightStatusRowMatchesSegment(liveRow, {
       flightIata,
       flightDate: share.flight_date,
       route: { dep: share.dep_iata, arr: share.arr_iata },
     }, { dateToleranceDays: 1 }) ? liveRow : null;
-    const liveData = matchedLiveData?.status === 'scheduled'
-      && providerBackedDisplayStatus(matchedLiveData) !== 'scheduled'
-      ? null
-      : matchedLiveData;
 
     if (liveData) {
-      const providerIsFresh = isFreshProviderFlight(liveData);
-      const providerDetailsUsable = providerIsFresh
-        || liveData.status === 'landed'
-        || liveData.status === 'cancelled';
       isLive = isLiveProviderFlight(liveData);
       if (liveData.status) liveStatus = providerBackedDisplayStatus(liveData);
+      // Sama dengan formatFlightForFrontend: klaim yang dipakai apa adanya
+      // (walau basi) membawa jam terakhirnya; klaim yang digugurkan penjaga tidak.
+      const providerDetailsUsable = liveStatus === liveData.status
+        || liveData.status === 'landed'
+        || liveData.status === 'cancelled';
 
       // Active actual/estimated values expire with their provider snapshot.
       // Confirmed terminal history may keep its final times.
@@ -20400,9 +20383,7 @@ app.get('/api/flight-share/:code', async (req, res) => {
       }
 
       const { depTs, arrTs } = flightProgressTs(liveData.raw_api);
-      liveProgress = isLive || liveStatus === 'landed'
-        ? computeFlightProgress(liveStatus, depTs, arrTs, liveData.progress || 0)
-        : 0;
+      liveProgress = computeFlightProgress(liveStatus, depTs, arrTs, liveStatus === liveData.status ? liveData.progress || 0 : 0);
 
       // Format duration from minutes to human-readable
       if (providerDetailsUsable && liveData.duration && liveData.duration > 0) {

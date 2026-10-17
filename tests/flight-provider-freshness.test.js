@@ -18,11 +18,12 @@ test('fresh en-route provider row remains live', () => {
   assert.equal(providerBackedDisplayStatus(row, now), 'en-route');
 });
 
-test('stale active provider row becomes unverified, never a stale operational claim', () => {
+test('stale active provider row keeps its last status but loses LIVE (user 2026-10-17: no "Perlu Cek")', () => {
   for (const status of ['en-route', 'delayed']) {
     const row = { status, synced_at: '2026-07-10T10:00:00Z' };
     assert.equal(isFreshProviderFlight(row, now), false);
-    assert.equal(providerBackedDisplayStatus(row, now), 'unverified');
+    assert.equal(isLiveProviderFlight(row, now), false);
+    assert.equal(providerBackedDisplayStatus(row, now), status);
   }
 });
 
@@ -41,14 +42,14 @@ test('recent scheduled and terminal provider rows are evidence, never LIVE track
   }
 });
 
-test('stale provider schedule cannot remain a current scheduled claim', () => {
+test('stale provider schedule before departure keeps its scheduled claim', () => {
   const row = {
     status: 'scheduled',
     synced_at: '2026-07-10T06:00:00Z',
     raw_api: { dep_time_ts: Date.parse('2026-07-10T14:00:00Z') / 1000 },
   };
   assert.equal(isFreshProviderFlight(row, now), false);
-  assert.equal(providerBackedDisplayStatus(row, now), 'unverified');
+  assert.equal(providerBackedDisplayStatus(row, now), 'scheduled');
 });
 
 test('re-fetching a frozen provider record cannot keep its in-flight claim alive', () => {
@@ -61,7 +62,27 @@ test('re-fetching a frozen provider record cannot keep its in-flight claim alive
   };
   assert.equal(isFreshProviderFlight(row, now), false);
   assert.equal(isLiveProviderFlight(row, now), false);
-  assert.equal(providerBackedDisplayStatus(row, now), 'unverified');
+  // Status terakhir tetap dipakai sampai data baru datang (user 2026-10-17).
+  assert.equal(providerBackedDisplayStatus(row, now), 'en-route');
+});
+
+test('SV821 17 Oct 2026: provider stopped updating mid-flight — card stays Terbang, not Perlu Cek', () => {
+  // AirLabs terakhir memperbarui 14:02 WIB (07:02Z); poller per jam tetap
+  // menstempel synced_at. Tiba diperkirakan 17:37 MED (14:37Z).
+  const at = Date.parse('2026-10-17T12:45:00Z');
+  const row = {
+    status: 'en-route',
+    synced_at: '2026-10-17T12:00:19.887Z',
+    raw_api: {
+      updated: seconds('2026-10-17T07:02:36Z'),
+      dep_actual_ts: seconds('2026-10-17T05:04:00Z'),
+      arr_estimated_ts: seconds('2026-10-17T14:37:00Z'),
+    },
+  };
+  assert.equal(isLiveProviderFlight(row, at), false);
+  assert.equal(providerBackedDisplayStatus(row, at), 'en-route');
+  // Lewat tiba + 90 menit tetap gugur jadi Mendarat.
+  assert.equal(providerBackedDisplayStatus(row, Date.parse('2026-10-17T16:07:00Z')), 'landed');
 });
 
 test('an in-flight claim well past its own arrival estimate is presumed landed', () => {
@@ -141,7 +162,7 @@ test('SV819 13 Aug 2026: frozen Saudia record is presumed landed, never an etern
   assert.equal(isLiveProviderFlight(row, bugNow), false);
 });
 
-test('provider scheduled claim expires at departure even while its sync is fresh', () => {
+test('provider scheduled claim turns into Terbang by schedule at departure, then Mendarat', () => {
   const base = {
     status: 'scheduled',
     synced_at: '2026-07-10T12:30:00Z',
@@ -153,8 +174,15 @@ test('provider scheduled claim expires at departure even while its sync is fresh
   assert.equal(providerBackedDisplayStatus({
     ...base,
     raw_api: { dep_time_ts: now / 1000 },
-  }, now), 'unverified');
-  assert.equal(providerBackedDisplayStatus(base, now), 'unverified');
+  }, now), 'en-route');
+  assert.equal(providerBackedDisplayStatus({
+    ...base,
+    raw_api: { dep_time_ts: seconds('2026-07-10T08:00:00Z'), arr_time_ts: seconds('2026-07-10T11:00:00Z') },
+  }, now), 'landed');
+  // Tanpa jam berangkat tak ada dasar untuk mengarang lepas landas.
+  assert.equal(providerBackedDisplayStatus(base, now), 'scheduled');
+  // Bukan LIVE: ini perkiraan jadwal, bukan pelacakan.
+  assert.equal(isLiveProviderFlight({ ...base, raw_api: { dep_time_ts: now / 1000 } }, now), false);
 });
 
 /**
@@ -281,14 +309,14 @@ test('a delay announced before departure stays a delay on the scheduled window a
   // Our own sync stamp still expires it on the scheduled window.
   const staleSync = { ...preDepartureDelay, synced_at: '2026-07-10T06:00:00Z' };
   assert.equal(isFreshProviderFlight(staleSync, now), false);
-  assert.equal(providerBackedDisplayStatus(staleSync, now), 'unverified');
+  assert.equal(providerBackedDisplayStatus(staleSync, now), 'delayed');
 });
 
 test('once its estimated departure has passed, a delay claim is judged like any airborne claim', () => {
   const afterDeparture = Date.parse('2026-07-10T14:30:00Z');
   // No actual departure, provider evidence frozen since the morning.
   assert.equal(isLiveProviderFlight(preDepartureDelay, afterDeparture), false);
-  assert.equal(providerBackedDisplayStatus(preDepartureDelay, afterDeparture), 'unverified');
+  assert.equal(providerBackedDisplayStatus(preDepartureDelay, afterDeparture), 'delayed');
   // An actual departure makes it airborne: fresh evidence keeps it delayed and LIVE.
   const departed = {
     ...preDepartureDelay,

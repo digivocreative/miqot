@@ -110,7 +110,10 @@ test('share regeneration refreshes route and derives SV from flight number', () 
   assert.match(card, /flight\.flightNumber\?\.replace\(\/\\s\+\/g, ''\)\.match/);
 });
 
-test('public share enrichment expires schedule claims and never overwrites its base snapshot', () => {
-  assert.match(publicShareHandler, /scheduledSnapshotDisplayStatus\(snapshotDepUTC\)/);
+test('public share follows the snapshot schedule window and never overwrites its base snapshot', () => {
+  // User 2026-10-17: tanpa baris live, status share mengikuti jam snapshot
+  // (terjadwal → terbang → mendarat), tak pernah "Perlu Cek".
+  assert.match(publicShareHandler, /scheduleWindowFlightState\(snapshotDepUTC, snapshotArrUTC\)/);
+  assert.doesNotMatch(publicShareHandler, /'unverified'/);
   assert.doesNotMatch(publicShareHandler, /\.from\('flight_shares'\)[\s\S]*\.update\(/);
 });
