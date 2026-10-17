@@ -23,6 +23,7 @@ import type { BerangkatItem } from '../../lib/berangkat-groups.js';
 import { BerangkatGroupSummaryRow, BerangkatGroupDetail } from './berangkat/BerangkatGroupViews';
 import { lockDocumentScroll } from '../lib/scrollLock';
 import { useNikitaFocusMode } from '../lib/nikitaFocusMode';
+import { Blur, StatBlurProvider, axisTickFormatter } from './statistik/StatBlur';
 
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
@@ -152,8 +153,8 @@ function bulanFull(ym: string): string {
 // ── Comparison indicator ──
 function DiffBadge({ diff }: { diff: number | null }) {
   if (diff === null || diff === undefined) return null;
-  if (diff > 0) return <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">↑ {diff} dari bulan lalu</p>;
-  if (diff < 0) return <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mt-0.5">↓ {Math.abs(diff)} dari bulan lalu</p>;
+  if (diff > 0) return <p className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">↑ <Blur>{diff}</Blur> dari bulan lalu</p>;
+  if (diff < 0) return <p className="text-[9px] font-semibold text-red-500 dark:text-red-400 mt-0.5">↓ <Blur>{Math.abs(diff)}</Blur> dari bulan lalu</p>;
   return <p className="text-[9px] font-semibold text-gray-400 mt-0.5">= sama dengan bulan lalu</p>;
 }
 
@@ -168,7 +169,7 @@ function WaIcon({ size = 14 }: { size?: number }) {
 
 // ── Reusable modal ──
 function StatListModal({ isOpen, onClose, title, subtitle, children }: {
-  isOpen: boolean; onClose: () => void; title: string; subtitle: string; children: React.ReactNode;
+  isOpen: boolean; onClose: () => void; title: string; subtitle: React.ReactNode; children: React.ReactNode;
 }) {
   useEffect(() => (isOpen ? lockDocumentScroll() : undefined), [isOpen]);
   if (!isOpen) return null;
@@ -198,7 +199,7 @@ function TrendTooltip({ active, payload, label }: any) {
   return (
     <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2 text-xs">
       <p className="font-bold text-gray-700 dark:text-white">{bulanLabel(label)} {label.split('-')[0]}</p>
-      <p className="text-emerald-600 dark:text-emerald-400 font-semibold">{payload[0].value} jamaah baru</p>
+      <p className="text-emerald-600 dark:text-emerald-400 font-semibold"><Blur>{payload[0].value}</Blur> jamaah baru</p>
     </div>
   );
 }
@@ -209,8 +210,8 @@ function KomisiTooltip({ active, payload }: any) {
   return (
     <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2">
       <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">{bulanFull(raw.bulan)}</p>
-      <p className="text-sm font-bold text-gray-800 dark:text-white">{fmtRp(payload[0].value)}</p>
-      <p className="text-[10px] text-gray-400 dark:text-slate-400">{raw.count} jamaah</p>
+      <p className="text-sm font-bold text-gray-800 dark:text-white"><Blur>{fmtRp(payload[0].value)}</Blur></p>
+      <p className="text-[10px] text-gray-400 dark:text-slate-400"><Blur>{raw.count}</Blur> jamaah</p>
     </div>
   );
 }
@@ -254,11 +255,11 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
       <div className="flex-1 min-w-0">
         <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
           {item.nama}
-          {isGroup && <span className="ml-1 font-semibold text-gray-400 dark:text-slate-500">+{(item.pax as number) - 1}</span>}
+          {isGroup && <span className="ml-1 font-semibold text-gray-400 dark:text-slate-500">+<Blur>{(item.pax as number) - 1}</Blur></span>}
         </p>
-        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}{isGroup ? ` · ${item.pax} pax` : ''} · ✈ {daysLabel}</p>
+        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{item.paket || '-'}{isGroup && <> · <Blur>{item.pax}</Blur> pax</>} · ✈ {daysLabel}</p>
       </div>
-      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">{fmtRpShort(item.sisa)}</span>
+      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0"><Blur>{fmtRpShort(item.sisa)}</Blur></span>
       {waUrl && (
         <a href={waUrl} target="_blank" rel="noopener noreferrer"
           onClick={() => trackEvent('action', 'wa_click_jamaah', { source: 'belum_lunas' })}
@@ -756,6 +757,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   usePullRefreshHandler(() => fetchStats(selectedYear), !pinGateActive);
 
   return (
+    <StatBlurProvider value={nikitaFocus}>
     <div className="max-w-lg mx-auto">
 
       {pinGateActive ? (
@@ -878,7 +880,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             iconWrapClassName="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40"
             valueClassName="text-gray-800 dark:text-white"
           >
-            {data.totalJamaah}
+            <Blur>{data.totalJamaah}</Blur>
           </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Jamaah</p>
           <DiffBadge diff={data.comparison.totalJamaah.diff} />
@@ -891,7 +893,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             iconWrapClassName="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/40"
             valueClassName="text-emerald-600 dark:text-emerald-400"
           >
-            {fmtRpShort(data.komisi.sudahCair)}
+            <Blur>{fmtRpShort(data.komisi.sudahCair)}</Blur>
           </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair</p>
         </div>
@@ -903,7 +905,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             iconWrapClassName="bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800/40"
             valueClassName="text-gray-800 dark:text-white"
           >
-            {data.berangkatSegera}
+            <Blur>{data.berangkatSegera}</Blur>
           </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Berangkat Segera</p>
           {data.berangkatBulan && (
@@ -918,7 +920,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             iconWrapClassName="bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/40"
             valueClassName="text-violet-600 dark:text-violet-400"
           >
-            +{data.jamaahBaru}
+            <Blur>+{data.jamaahBaru}</Blur>
           </HeadlineValueRow>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Jamaah Baru · bulan ini</p>
           <DiffBadge diff={data.comparison.jamaahBaru.diff} />
@@ -943,7 +945,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           </button>
         </div>
         <div className="px-4 pb-3">
-          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(data.komisi.totalKomisi)}</p>
+          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400"><Blur>{fmtRp(data.komisi.totalKomisi)}</Blur></p>
           <p className="text-[10px] text-gray-400 dark:text-slate-400 mt-0.5">Total estimasi komisi</p>
         </div>
         <div id="estimasi-komisi-detail" className={komisiExpanded ? 'block' : 'hidden'}>
@@ -967,27 +969,27 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           <div className="px-4 pb-3 space-y-2">
             <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
+                Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">(<Blur>{data.komisi.sudahCairCount}</Blur> jamaah)</span>
               </span>
-              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtRp(data.komisi.sudahCair)}</span>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400"><Blur>{fmtRp(data.komisi.sudahCair)}</Blur></span>
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5 flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-                  Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
+                  Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">(<Blur>{data.komisi.belumCairCount}</Blur> jamaah)</span>
                 </span>
                 <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">Lunas, menunggu keberangkatan</p>
               </div>
-              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtRp(data.komisi.belumCair)}</span>
+              <span className="text-sm font-bold text-blue-600 dark:text-blue-400"><Blur>{fmtRp(data.komisi.belumCair)}</Blur></span>
             </div>
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5 flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                  Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">({data.komisi.potensiCount} jamaah)</span>
+                  Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">(<Blur>{data.komisi.potensiCount}</Blur> jamaah)</span>
                 </span>
                 <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">Jika jamaah melunasi pembayaran</p>
               </div>
-              <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtRp(data.komisi.potensi)}</span>
+              <span className="text-sm font-bold text-amber-600 dark:text-amber-400"><Blur>{fmtRp(data.komisi.potensi)}</Blur></span>
             </div>
           </div>
           {/* Komisi Cair per Bulan chart */}
@@ -1007,7 +1009,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                      tickFormatter={(v: number) => v >= 1000000 ? `${v / 1000000}jt` : String(v)} />
+                      tickFormatter={axisTickFormatter(nikitaFocus, (v: number) => v >= 1000000 ? `${v / 1000000}jt` : String(v))} />
                     <Tooltip content={<KomisiTooltip />} />
                     <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
                   </BarChart>
@@ -1024,7 +1026,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           <div>
             <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Berangkat Mendatang</p>
             {data.berangkatBulanIni.length > 0 && (
-              <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.berangkatBulanIni.length} jamaah · {berangkatGroups.length} paket · {berangkatRangeLabel}</p>
+              <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5"><Blur>{data.berangkatBulanIni.length}</Blur> jamaah · <Blur>{berangkatGroups.length}</Blur> paket · {berangkatRangeLabel}</p>
             )}
           </div>
           <Plane size={16} className="text-blue-500 dark:text-blue-400" />
@@ -1068,7 +1070,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
                 </defs>
                 <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={gridStroke} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false}
+                  tickFormatter={axisTickFormatter(nikitaFocus)} />
                 <Tooltip content={<TrendTooltip />} />
                 <Area type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2.5} fill="url(#emeraldGrad)"
                   dot={{ r: 3.5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
@@ -1084,9 +1087,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         <div className="px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Jamaah Belum Lunas</p>
-            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">{data.outstandingList.length} booking belum lunas</p>
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5"><Blur>{data.outstandingList.length}</Blur> booking belum lunas</p>
           </div>
-          <span className="text-xs font-bold text-amber-600 dark:text-amber-400">{fmtRpShort(data.totalOutstanding)}</span>
+          <span className="text-xs font-bold text-amber-600 dark:text-amber-400"><Blur>{fmtRpShort(data.totalOutstanding)}</Blur></span>
         </div>
         {data.outstandingList.length === 0 ? (
           <div className="px-4 py-6 text-center"><p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">Semua jamaah sudah lunas ✓</p></div>
@@ -1098,7 +1101,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             {data.outstandingList.length > 3 && (
               <button onClick={() => setShowOutstandingModal(true)}
                 className="w-full py-2.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-colors border-t border-gray-50 dark:border-slate-700/50 flex items-center justify-center gap-1">
-                Lihat semua {data.outstandingList.length} booking <ChevronDown size={12} />
+                Lihat semua <Blur>{data.outstandingList.length}</Blur> booking <ChevronDown size={12} />
               </button>
             )}
           </>
@@ -1109,23 +1112,23 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Status Pembayaran</span>
-          <span className="text-[10px] text-gray-400 dark:text-slate-500">{data.totalJamaah} jamaah</span>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500"><Blur>{data.totalJamaah}</Blur> jamaah</span>
         </div>
         <div className="h-3 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden">
           <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-500" style={{ width: `${data.lunasPercent}%` }} />
         </div>
         <div className="flex items-center justify-between mt-2">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />{data.lunas} Lunas ({data.lunasPercent}%)
+            <span className="w-2 h-2 rounded-full bg-emerald-500" /><Blur>{data.lunas}</Blur> Lunas (<Blur>{data.lunasPercent}%</Blur>)
           </span>
           <span className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-slate-600" />{data.belumLunas} Belum ({100 - data.lunasPercent}%)
+            <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-slate-600" /><Blur>{data.belumLunas}</Blur> Belum (<Blur>{100 - data.lunasPercent}%</Blur>)
           </span>
         </div>
         {data.totalOutstanding > 0 && (
           <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 flex items-center justify-between">
             <span className="text-[11px] font-semibold text-gray-600 dark:text-slate-300">Jumlah Belum Lunas</span>
-            <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtRp(data.totalOutstanding)}</span>
+            <span className="text-sm font-bold text-amber-600 dark:text-amber-400"><Blur>{fmtRp(data.totalOutstanding)}</Blur></span>
           </div>
         )}
       </div>
@@ -1142,7 +1145,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── Modals ── */}
       <StatListModal isOpen={showBerangkatGroupsModal} onClose={() => setShowBerangkatGroupsModal(false)}
-        title="Berangkat Mendatang" subtitle={`${berangkatGroups.length} paket · ${berangkatRangeLabel}`}>
+        title="Berangkat Mendatang" subtitle={<><Blur>{berangkatGroups.length}</Blur> paket · {berangkatRangeLabel}</>}>
         <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
           {berangkatGroups.map(group => (
             <BerangkatGroupSummaryRow key={group.key} group={group} onSelect={handleSelectBerangkatGroup} />
@@ -1155,14 +1158,14 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           isOpen={!!selectedBerangkatGroup}
           onClose={() => setSelectedBerangkatGroupKey(null)}
           title="Detail Keberangkatan"
-          subtitle={`${selectedBerangkatGroup.count} jamaah · ${fmtTglLong(selectedBerangkatGroup.tgl_berangkat)}`}
+          subtitle={<><Blur>{selectedBerangkatGroup.count}</Blur> jamaah · {fmtTglLong(selectedBerangkatGroup.tgl_berangkat)}</>}
         >
           <BerangkatGroupDetail group={selectedBerangkatGroup} agentSlug={agentSlug} />
         </StatListModal>
       )}
 
       <StatListModal isOpen={showOutstandingModal} onClose={() => setShowOutstandingModal(false)}
-        title="Jamaah Belum Lunas" subtitle={`${data.outstandingList.length} booking · ${fmtRpShort(data.totalOutstanding)}`}>
+        title="Jamaah Belum Lunas" subtitle={<><Blur>{data.outstandingList.length}</Blur> booking · <Blur>{fmtRpShort(data.totalOutstanding)}</Blur></>}>
         <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
           {data.outstandingList.map((item, i) => <OutstandingRow key={i} item={item} />)}
         </div>
@@ -1216,5 +1219,6 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       </div>
       )}
     </div>
+    </StatBlurProvider>
   );
 }
