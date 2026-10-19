@@ -1,5 +1,6 @@
-// Mode khusus akun admin nikita, 17–21 Okt 2026 (WIB): menu Agents, Analytics,
-// Hotels dan tab Statistik → Tren Daftar disembunyikan. Hanya tampilan — API
+// Mode khusus akun admin nikita, 17–21 Okt 2026 (WIB): menu Analytics,
+// Hotels dan tab Statistik → Tren Daftar disembunyikan (Agents dimunculkan lagi
+// 19 Okt atas permintaan user). Hanya tampilan — API
 // tidak dikunci. Berakhir sendiri 22 Okt 00:00 WIB tanpa deploy ulang.
 // Jendela waktunya di lib/nikita-focus-mode.js (dipakai server juga).
 import { useEffect, useState } from 'react';
@@ -13,7 +14,7 @@ import {
 export { isNikitaFocusModeActive };
 
 /** Tab dashboard yang disembunyikan selama mode aktif. */
-export const NIKITA_FOCUS_HIDDEN_TABS: ReadonlySet<string> = new Set(['agents', 'analytics', 'hotels']);
+export const NIKITA_FOCUS_HIDDEN_TABS: ReadonlySet<string> = new Set(['analytics', 'hotels']);
 
 /** Seperti isNikitaFocusModeActive, tapi ikut berganti saat jam mulai/berakhir lewat. */
 export function useNikitaFocusMode(slug: string | null | undefined): boolean {

@@ -1250,7 +1250,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               onNavigate={navigatePath}
             />
           )}
-          {activeTab === 'agents' && isAdmin && !nikitaFocus && (
+          {activeTab === 'agents' && isAdmin && (
             <div className="px-4 pt-4">
               <AgentManagementPage />
             </div>
