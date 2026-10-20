@@ -9,7 +9,6 @@ import { trackEvent } from '../../utils/analytics';
 import { shareLinkCopyText } from '../../utils/share';
 import { getDestinationFlags, fmtTgl, fmtTglLong, realDateKey } from '../../../lib/berangkat-groups.js';
 import type { BerangkatItem, BerangkatGroup, DestinationFlag } from '../../../lib/berangkat-groups.js';
-import { Blur } from '../statistik/StatBlur';
 
 export function toWaTitleCase(value: string | null | undefined): string {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
@@ -185,7 +184,7 @@ export function BerangkatGroupSummaryRow({ group, onSelect }: { group: Berangkat
           <span className="text-gray-300 dark:text-slate-600">·</span>
           <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
             <Users size={11} strokeWidth={2.2} className="shrink-0" />
-            <span><Blur>{group.count}</Blur> Jamaah</span>
+            <span>{group.count} Jamaah</span>
           </span>
         </div>
       </div>

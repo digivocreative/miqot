@@ -5,7 +5,6 @@ import { trackEvent } from '../utils/analytics';
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
-import { Blur, useStatBlur, axisTickFormatter } from './statistik/StatBlur';
 
 // ── Types ──
 export interface HajiStatsData {
@@ -75,9 +74,9 @@ function BreakdownTooltip({ active, payload }: any) {
   return (
     <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-100 dark:border-slate-700 rounded-xl px-3 py-2 text-xs">
       <p className="font-bold text-gray-700 dark:text-white">{raw.tahun}</p>
-      <p className="text-gray-500 dark:text-slate-400"><Blur>{raw.total}</Blur> jamaah</p>
-      <p className="text-emerald-600 dark:text-emerald-400 font-semibold">Cair: <Blur>${raw.komisiCair.toLocaleString('en-US')}</Blur></p>
-      <p className="text-gray-400 dark:text-slate-500">Total: <Blur>${raw.komisiTotal.toLocaleString('en-US')}</Blur></p>
+      <p className="text-gray-500 dark:text-slate-400">{raw.total} jamaah</p>
+      <p className="text-emerald-600 dark:text-emerald-400 font-semibold">Cair: ${raw.komisiCair.toLocaleString('en-US')}</p>
+      <p className="text-gray-400 dark:text-slate-500">Total: ${raw.komisiTotal.toLocaleString('en-US')}</p>
     </div>
   );
 }
@@ -114,7 +113,6 @@ interface Props {
 }
 
 export default function StatistikHajiSection({ selectedYear, mode, onModeChange, onYearsLoaded }: Props) {
-  const blurred = useStatBlur();
   const [data, setData] = useState<HajiStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -309,7 +307,7 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
                 <Users size={16} className="text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold text-gray-800 dark:text-white"><Blur>{data.total}</Blur></p>
+              <p className="text-2xl font-bold text-gray-800 dark:text-white">{data.total}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Total Jamaah</p>
             </div>
 
@@ -318,10 +316,10 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center border border-emerald-100 dark:border-emerald-800/40 mb-2">
                 <Wallet size={16} className="text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400"><Blur>{fmtUSDFull(data.komisi.sudahCair)}</Blur></p>
+              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Komisi Cair (USD)</p>
               {kursUSD && data.komisi.sudahCair > 0 && (
-                <p className="text-[10px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5"><Blur>{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</Blur></p>
+                <p className="text-[10px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
               )}
             </div>
 
@@ -330,9 +328,9 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center border border-amber-100 dark:border-amber-800/40 mb-2">
                 <Clock size={16} className="text-amber-600 dark:text-amber-400" />
               </div>
-              <p className="text-2xl font-bold text-gray-800 dark:text-white"><Blur>{belumLunasCount}</Blur></p>
+              <p className="text-2xl font-bold text-gray-800 dark:text-white">{belumLunasCount}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">Belum Lunas</p>
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5"><Blur>{data.cicilan}</Blur> cicilan · <Blur>{data.belumBayar}</Blur> belum bayar</p>
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">{data.cicilan} cicilan · {data.belumBayar} belum bayar</p>
             </div>
 
             {/* % Pelunasan */}
@@ -340,9 +338,9 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center border border-blue-100 dark:border-blue-800/40 mb-2">
                 <TrendingUp size={16} className="text-blue-600 dark:text-blue-400" />
               </div>
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400"><Blur>{data.lunasPercent}%</Blur></p>
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{data.lunasPercent}%</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 font-medium">% Pelunasan</p>
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5"><Blur>{data.lunas + data.lebihBayar}</Blur> dari <Blur>{data.total}</Blur> lunas</p>
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">{data.lunas + data.lebihBayar} dari {data.total} lunas</p>
             </div>
           </div>
 
@@ -352,10 +350,10 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <span className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Estimasi Komisi (USD)</span>
             </div>
             <div className="px-4 pb-3">
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400"><Blur>{fmtUSDFull(data.komisi.totalKomisi)}</Blur></p>
+              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.totalKomisi)}</p>
               <p className="text-[10px] text-gray-400 dark:text-slate-400 mt-0.5">Total estimasi komisi (USD)</p>
               {kursUSD && data.komisi.totalKomisi > 0 && (
-                <p className="text-[11px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5"><Blur>{fmtIDRFromUSD(data.komisi.totalKomisi, kursUSD)}</Blur> <span className="font-normal text-gray-400 dark:text-slate-500">· kurs Rp {kursUSD.toLocaleString('id-ID')}</span></p>
+                <p className="text-[11px] font-semibold text-gray-600 dark:text-slate-300 mt-0.5">{fmtIDRFromUSD(data.komisi.totalKomisi, kursUSD)} <span className="font-normal text-gray-400 dark:text-slate-500">· kurs Rp {kursUSD.toLocaleString('id-ID')}</span></p>
               )}
             </div>
 
@@ -377,10 +375,10 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
             </div>
             <div className="px-4 pb-2 -mt-0.5">
               <p className="text-[10px] text-gray-400 dark:text-slate-500">
-                <Blur>{data.komisi.byPaket.uhud}</Blur> UHUD · <Blur>{data.komisi.byPaket.rahmah}</Blur> RAHMAH
-                {data.komisi.byPaket.standar > 0 && <> · <Blur>{data.komisi.byPaket.standar}</Blur> STANDAR</>}
-                {data.komisi.byPaket.unknown > 0 && <span className="text-amber-500 dark:text-amber-400"> · <Blur>{data.komisi.byPaket.unknown}</Blur> belum diketahui</span>}
-                {' · '}<Blur>{data.komisi.berangkat.sudahBerangkat}</Blur> sudah berangkat
+                {data.komisi.byPaket.uhud} UHUD · {data.komisi.byPaket.rahmah} RAHMAH
+                {data.komisi.byPaket.standar > 0 && ` · ${data.komisi.byPaket.standar} STANDAR`}
+                {data.komisi.byPaket.unknown > 0 && <span className="text-amber-500 dark:text-amber-400"> · {data.komisi.byPaket.unknown} belum diketahui</span>}
+                {' · '}{data.komisi.berangkat.sudahBerangkat} sudah berangkat
               </p>
             </div>
 
@@ -389,42 +387,42 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
               <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/40 px-3 py-2.5 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                    Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">(<Blur>{data.komisi.sudahCairCount}</Blur> jamaah)</span>
+                    Sudah Cair <span className="text-[10px] font-normal text-emerald-600/70 dark:text-emerald-400/60 ml-1">({data.komisi.sudahCairCount} jamaah)</span>
                   </span>
                   <p className="text-[9px] text-emerald-500/70 dark:text-emerald-400/50">${data.komisi.stage1} saat CICILAN</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400"><Blur>{fmtUSDFull(data.komisi.sudahCair)}</Blur></span>
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{fmtUSDFull(data.komisi.sudahCair)}</span>
                   {kursUSD && data.komisi.sudahCair > 0 && (
-                    <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 mt-0.5"><Blur>{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</Blur></p>
+                    <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 mt-0.5">{fmtIDRFromUSD(data.komisi.sudahCair, kursUSD)}</p>
                   )}
                 </div>
               </div>
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/40 px-3 py-2.5 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
-                    Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">(<Blur>{data.komisi.belumCairCount}</Blur> jamaah)</span>
+                    Belum Cair <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/60 ml-1">({data.komisi.belumCairCount} jamaah)</span>
                   </span>
                   <p className="text-[9px] text-blue-500/70 dark:text-blue-400/50">Cair saat SUDAH BERANGKAT</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400"><Blur>{fmtUSDFull(data.komisi.belumCair)}</Blur></span>
+                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{fmtUSDFull(data.komisi.belumCair)}</span>
                   {kursUSD && data.komisi.belumCair > 0 && (
-                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 mt-0.5"><Blur>{fmtIDRFromUSD(data.komisi.belumCair, kursUSD)}</Blur></p>
+                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 mt-0.5">{fmtIDRFromUSD(data.komisi.belumCair, kursUSD)}</p>
                   )}
                 </div>
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/40 px-3 py-2.5 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                    Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">(<Blur>{data.komisi.potensiCount}</Blur> jamaah)</span>
+                    Potensi <span className="text-[10px] font-normal text-amber-600/70 dark:text-amber-400/60 ml-1">({data.komisi.potensiCount} jamaah)</span>
                   </span>
                   <p className="text-[9px] text-amber-500/70 dark:text-amber-400/50">Jika BELUM BAYAR melunasi pembayaran</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400"><Blur>{fmtUSDFull(data.komisi.potensi)}</Blur></span>
+                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{fmtUSDFull(data.komisi.potensi)}</span>
                   {kursUSD && data.komisi.potensi > 0 && (
-                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mt-0.5"><Blur>{fmtIDRFromUSD(data.komisi.potensi, kursUSD)}</Blur></p>
+                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mt-0.5">{fmtIDRFromUSD(data.komisi.potensi, kursUSD)}</p>
                   )}
                 </div>
               </div>
@@ -445,8 +443,7 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
                   <BarChart data={data.komisi.breakdownTahun} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
                     <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="tahun" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false}
-                      tickFormatter={axisTickFormatter(blurred)} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} allowDecimals={false} />
                     <Tooltip content={<BreakdownTooltip />} cursor={{ fill: 'rgba(16,185,129,0.06)' }} />
                     <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
                     <Bar dataKey="lunas" stackId="a" fill="#10b981" name="Lunas" radius={[0,0,0,0]} />
