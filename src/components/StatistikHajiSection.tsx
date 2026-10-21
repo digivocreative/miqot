@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, Users, Wallet, Clock, TrendingUp, RefreshCw } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
 import { trackEvent } from '../utils/analytics';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts';
@@ -120,6 +121,10 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
   const [kursUSD, setKursUSD] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statsRequestSeqRef = useRef(0);
+  // `${mode}:${tahun}` dari permintaan terakhir. Respons pertama (tanpa tahun)
+  // menetapkan tahun bawaan ke parent, yang lalu mengoper tahun itu balik ke
+  // sini — tanpa kunci ini datanya dimuat dua kali tiap tab Haji dibuka.
+  const lastRequestKeyRef = useRef<string | null>(null);
   const openTracked = useRef(false);
   const onYearsLoadedRef = useRef(onYearsLoaded);
   onYearsLoadedRef.current = onYearsLoaded;
@@ -147,12 +152,13 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
 
   const fetchStats = useCallback(async (year?: string) => {
     const requestId = ++statsRequestSeqRef.current;
+    const yr = year !== undefined ? year : selectedYear;
+    lastRequestKeyRef.current = `${mode}:${yr}`;
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       params.set('mode', mode);
-      const yr = year !== undefined ? year : selectedYear;
       if (yr) {
         if (mode === 'pendaftaran') params.set('daftar_year', yr);
         else params.set('year', yr);
@@ -164,6 +170,8 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
         setData(json.data);
         const keberangkatan = json.data.availableYears || [];
         const pendaftaran = json.data.daftarYears || [];
+        const resolvedYear = mode === 'pendaftaran' ? json.data.daftarYear : json.data.masehiYear;
+        if (!yr && resolvedYear) lastRequestKeyRef.current = `${mode}:${resolvedYear}`;
         onYearsLoadedRef.current?.(
           { keberangkatan, pendaftaran },
           mode === 'pendaftaran' ? (json.data.daftarYear || pendaftaran[0] || null) : (json.data.masehiYear || null),
@@ -178,7 +186,19 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
     if (requestId === statsRequestSeqRef.current) setLoading(false);
   }, [selectedYear, mode]);
 
-  useEffect(() => { fetchStats(selectedYear); }, [selectedYear, mode, fetchStats]);
+  useEffect(() => {
+    if (lastRequestKeyRef.current === `${mode}:${selectedYear}`) return;
+    fetchStats(selectedYear);
+  }, [selectedYear, mode, fetchStats]);
+
+  // Interval sync hidup lebih lama dari render yang membuatnya: panggil versi
+  // fetchStats terbaru (tahun/mode yang sedang dipilih), bukan milik saat klik.
+  const fetchStatsRef = useRef(fetchStats);
+  fetchStatsRef.current = fetchStats;
+
+  // Tarik-untuk-segarkan di tab Haji menyegarkan data Haji (parent melepas
+  // pendaftarannya selama tab ini tampil).
+  usePullRefreshHandler(() => fetchStats());
 
   useEffect(() => () => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -202,7 +222,7 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           setSyncing(false);
-          fetchStats(selectedYear);
+          fetchStatsRef.current();
           return;
         }
         try {
@@ -216,7 +236,7 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             setSyncing(false);
-            fetchStats(selectedYear);
+            fetchStatsRef.current();
           }
         } catch {
           errorCount++;
@@ -224,7 +244,7 @@ export default function StatistikHajiSection({ selectedYear, mode, onModeChange,
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             setSyncing(false);
-            fetchStats(selectedYear);
+            fetchStatsRef.current();
           }
         }
       }, 3000);

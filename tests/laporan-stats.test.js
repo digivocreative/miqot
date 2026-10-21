@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildBerangkatMendatang, computeUmrohKomisi } from '../lib/laporan-stats.js';
+import {
+  buildBerangkatMendatang, computeUmrohKomisi, buildStatsDateWindows, buildJamaahTrend,
+  getBerangkatMendatangWindowEnd,
+} from '../lib/laporan-stats.js';
 import { enrichBerangkatRows } from '../lib/berangkat-enrich.js';
 
 const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -404,4 +407,87 @@ test('computeUmrohKomisi treats departure day as already cair when lunas', () =>
 
   const june = k.chartBulanan.find(row => row.bulan === '2026-06');
   assert.deepEqual(june, { bulan: '2026-06', total: 1_300_000, count: 1 });
+});
+
+test('buildStatsDateWindows: batas bulan berjalan tak mundur sehari di hari terakhir bulan', () => {
+  // Versi lama: new Date(y, m+1, 1).toISOString() di proses ber-TZ WIB →
+  // '2026-10-31', jadi pendaftar 31 Okt tak masuk "Jamaah Baru bulan ini".
+  assert.deepEqual(buildStatsDateWindows('2026-10-31'), {
+    monthStart: '2026-10-01',
+    nextMonthStart: '2026-11-01',
+    prevMonthStart: '2026-09-01',
+    trendStart: '2026-04-01',
+  });
+  // Lintas tahun.
+  assert.deepEqual(buildStatsDateWindows('2026-01-15'), {
+    monthStart: '2026-01-01',
+    nextMonthStart: '2026-02-01',
+    prevMonthStart: '2025-12-01',
+    trendStart: '2025-07-01',
+  });
+});
+
+test('buildStatsDateWindows: jendela tren 7 bulan tak meluap di tanggal 29–31', () => {
+  // setMonth(-6) pada 31 Agu → "31 Feb" → 3 Mar: grafik kehilangan Februari.
+  assert.equal(buildStatsDateWindows('2026-08-31').trendStart, '2026-02-01');
+  assert.equal(buildStatsDateWindows('2026-03-29').trendStart, '2025-09-01');
+});
+
+test('buildJamaahTrend selalu 7 bulan, bulan tanpa pendaftaran = 0', () => {
+  const trend = buildJamaahTrend([
+    { tgl_daftar: '2026-07-03' },
+    { tgl_daftar: '2026-07-20' },
+    { tgl_daftar: '2026-09-01' },
+    { tgl_daftar: '2026-10-31' },
+    { tgl_daftar: '2026-03-31' }, // di luar jendela
+    { tgl_daftar: null },
+  ], '2026-10-31');
+
+  assert.deepEqual(trend, [
+    { bulan: '2026-04', count: 0 },
+    { bulan: '2026-05', count: 0 },
+    { bulan: '2026-06', count: 0 },
+    { bulan: '2026-07', count: 2 },
+    { bulan: '2026-08', count: 0 },
+    { bulan: '2026-09', count: 1 },
+    { bulan: '2026-10', count: 1 },
+  ]);
+});
+
+test('getBerangkatMendatangWindowEnd = hari ke-60, sama dengan filter buildBerangkatMendatang', () => {
+  assert.equal(getBerangkatMendatangWindowEnd('2026-10-21'), '2026-12-20');
+  const rows = buildBerangkatMendatang([
+    { nama: 'A', tgl_berangkat: '2026-12-20', sisa: 0 },
+    { nama: 'B', tgl_berangkat: '2026-12-21', sisa: 0 },
+  ], '2026-10-21').berangkatBulanIni;
+  assert.deepEqual(rows.map(r => r.nama), ['A']);
+});
+
+test('stats endpoint: batas tanggal dari WIB + query Berangkat Mendatang dibatasi jendela 60 hari', () => {
+  const route = serverSource.slice(serverSource.indexOf("app.get('/api/laporan/stats'"));
+  const body = route.slice(0, route.indexOf('\n});\n'));
+  assert.match(body, /buildStatsDateWindows\(todayStr\)/);
+  assert.match(body, /const trend = buildJamaahTrend\(trendRows, todayStr\)/);
+  assert.match(body, /\.gte\('tgl_berangkat', todayStr\)\s*\.lte\('tgl_berangkat', getBerangkatMendatangWindowEnd\(todayStr\)\)/);
+  assert.doesNotMatch(body, /toISOString\(\)\.split\('T'\)\[0\]/);
+  assert.doesNotMatch(body, /setMonth\(/);
+});
+
+test('Statistik Umroh: tanpa fetch ganda, respons usang dibuang, polling tak memakai tahun basi', () => {
+  // Respons pertama (tanpa ?year) menetapkan tahun bawaan; itu tak boleh
+  // memicu fetch kedua untuk tahun yang sama.
+  assert.match(statistikSource, /const lastRequestedYearRef = useRef<string \| null>\(null\)/);
+  assert.match(statistikSource, /lastRequestedYearRef\.current === selectedYear\) return;/);
+  assert.match(statistikSource, /if \(requestId !== statsRequestSeqRef\.current\) return;/);
+  assert.match(statistikSource, /const yr = year !== undefined \? year : selectedYearRef\.current/);
+  assert.doesNotMatch(statistikSource, /fetchStats\(selectedYear\);\s*\/\/ Keep polling/);
+  // Fase 2 sync: segarkan sekali saat fase 1 selesai, bukan tiap 5 detik.
+  assert.match(statistikSource, /!phase1Refreshed && s\.data\.completedYears\?\.length/);
+  // Auto-sync hanya untuk agen yang belum pernah sync.
+  assert.match(statistikSource, /data\.totalJamaah === 0 && !data\.lastSync\) \{\s*hasAutoSynced\.current = true;/);
+  // Tab Haji tak menunggu / terblokir statistik Umroh; tarikan di tab lain
+  // tak menyegarkan data Umroh.
+  assert.doesNotMatch(statistikSource, /showData && data &&/);
+  assert.match(statistikSource, /usePullRefreshHandler\(\(\) => fetchStats\(\), !pinGateActive && statTab === 'umroh'\)/);
+  assert.match(statistikSource, /document\.visibilityState === 'visible'/);
 });

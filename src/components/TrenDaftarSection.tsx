@@ -11,6 +11,7 @@ import {
   CartesianGrid, XAxis, YAxis, Tooltip,
 } from 'recharts';
 import { trackEvent } from '../utils/analytics';
+import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 
 // ── Types ──
 
@@ -276,26 +277,34 @@ export default function TrenDaftarSection({ selectedYear }: { selectedYear: stri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const mounted = useRef(false);
+  const requestIdRef = useRef(0);
 
   // Track page view once
   useEffect(() => { if (!mounted.current) { trackEvent('feature', 'open_tren_daftar'); mounted.current = true; } }, []);
 
-  // Fetch tren data when year changes
+  // Fetch tren data when year changes. Respons usang (tahun sudah diganti lagi
+  // sebelum respons tiba) dibuang, seperti ranking Haji di bawah.
   const fetchTren = useCallback(async (year: string) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError('');
     try {
       const res = await fetch(`/api/laporan/tren-daftar?hijriahYear=${year}`, { headers: { ...getAuthHeaders() } });
       const json = await res.json();
+      if (requestId !== requestIdRef.current) return;
       if (json.success) setData(json.data);
       else setError(json.error || 'Gagal memuat data');
     } catch {
+      if (requestId !== requestIdRef.current) return;
       setError('Gagal terhubung ke server');
     }
     setLoading(false);
   }, []);
 
   useEffect(() => { if (selectedYear) fetchTren(selectedYear); }, [selectedYear, fetchTren]);
+
+  // Tarik-untuk-segarkan di tab ini menyegarkan Tren Daftar, bukan data Umroh.
+  usePullRefreshHandler(() => fetchTren(selectedYear), !!selectedYear);
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';

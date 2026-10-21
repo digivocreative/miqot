@@ -22,7 +22,7 @@ import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive,
 import { isSameInternalAccount, escapeInternalAccountLike, internalAccountTakenMessage } from './lib/internal-account-guard.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
-import { buildBerangkatMendatang, computeUmrohKomisi, BERANGKAT_MENDATANG_WINDOW_DAYS } from './lib/laporan-stats.js';
+import { buildBerangkatMendatang, computeUmrohKomisi, buildStatsDateWindows, buildJamaahTrend, getBerangkatMendatangWindowEnd } from './lib/laporan-stats.js';
 import { loadEnrichedBerangkatRows } from './lib/berangkat-enrich.js';
 import { collapseBookingOutstanding } from './lib/booking-outstanding.js';
 import { initNotifier, notifyJamaahSyncEvents, runBirthdayDigest, sendKursUpdate, sendOpsAlert } from './telegram-notifier.js';
@@ -14256,8 +14256,7 @@ app.get('/api/calendar/berangkat-mendatang', dbLoadShedGuard, authMiddleware, as
     if (cached) return res.json(cached);
 
     const todayStr = getWIBDateStr();
-    const windowEnd = new Date(Date.parse(`${todayStr}T00:00:00Z`) + BERANGKAT_MENDATANG_WINDOW_DAYS * 24 * 60 * 60 * 1000)
-      .toISOString().slice(0, 10);
+    const windowEnd = getBerangkatMendatangWindowEnd(todayStr);
 
     // Sama seperti /api/laporan/stats: prospek yang belum bayar sepeser pun
     // tak ikut dihitung. TANPA filter hijriah_year — daftar ini operasional
@@ -17935,16 +17934,11 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
     // Equivalent SQL: NOT (bayar = 0 AND sisa > 0) = bayar>0 OR sisa=0 OR sisa IS NULL.
     const excludeBelumDP = (q) => q.or('bayar.gt.0,sisa.eq.0,sisa.is.null');
 
+    // Semua batas dari tanggal WIB (lib/laporan-stats.js). Versi lama memakai
+    // toISOString() pada tengah malam lokal → batas akhir bulan mundur sehari
+    // (pendaftar di hari terakhir bulan tak terhitung "Jamaah Baru").
     const todayStr = getWIBDateStr();
-    const now = new Date();
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const monthEnd = nextMonth.toISOString().split('T')[0];
-    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
-    const sevenMonthsAgo = new Date();
-    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
-    const tmStr = `${sevenMonthsAgo.getFullYear()}-${String(sevenMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+    const { monthStart, nextMonthStart: monthEnd, prevMonthStart, trendStart: tmStr } = buildStatsDateWindows(todayStr);
 
     // Build query builders (don't await yet)
     const totalQ = excludeBelumDP(supabase.from('jamaah').select('*', { count: 'exact', head: true }).match(baseMatch));
@@ -17959,6 +17953,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       .select('nama, paket, jk, tgl_berangkat, sisa, bayar, wa, id_jadwal:raw_data->>id_jadwal')
       .eq('agent_id', agentId)
       .gte('tgl_berangkat', todayStr)
+      .lte('tgl_berangkat', getBerangkatMendatangWindowEnd(todayStr))
       .order('tgl_berangkat', { ascending: true })
       .order('nama', { ascending: true });
 
@@ -18052,15 +18047,7 @@ app.get('/api/laporan/stats', dbLoadShedGuard, authMiddleware, async (req, res) 
       jamaahBaru: { prev: prevJamaahBaru || 0, diff: (jamaahBaru || 0) - (prevJamaahBaru || 0) },
     };
 
-    const trendMap = new Map();
-    for (const row of trendRows) {
-      if (!row.tgl_daftar) continue;
-      const bulan = row.tgl_daftar.substring(0, 7);
-      trendMap.set(bulan, (trendMap.get(bulan) || 0) + 1);
-    }
-    const trend = Array.from(trendMap.entries())
-      .map(([bulan, count]) => ({ bulan, count }))
-      .sort((a, b) => a.bulan.localeCompare(b.bulan));
+    const trend = buildJamaahTrend(trendRows, todayStr);
 
     // Satu entri per booking dari fold yang sama (collapsedOutstanding); nama
     // yang tampil = row bersisa terbesar booking itu (olQ sorted sisa DESC →

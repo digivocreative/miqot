@@ -26,9 +26,6 @@ import { lockDocumentScroll } from '../lib/scrollLock';
 const TrenDaftarSection = lazy(() => import('./TrenDaftarSection'));
 const StatistikHajiSection = lazy(() => import('./StatistikHajiSection'));
 
-// Tab Tren Daftar disembunyikan sementara; muncul lagi otomatis 7 Okt 2026 17:00 WIB.
-const TREN_HIDDEN_UNTIL = Date.parse('2026-10-07T17:00:00+07:00');
-
 // ── Types ──
 interface OutstandingItem {
   nama: string;
@@ -269,6 +266,31 @@ function OutstandingRow({ item }: { item: OutstandingItem }) {
   );
 }
 
+function StatsErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="px-4 pt-6">
+      <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center">
+        <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{message}</p>
+        <button onClick={onRetry}
+          className="px-4 py-2 rounded-xl text-xs font-bold bg-red-500 text-white shadow-md shadow-red-500/20 hover:bg-red-600 transition-all active:scale-95">
+          Coba Lagi
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Fallback Suspense tab Haji / Tren Daftar (dan tab Tren selagi tahun bawaan belum diketahui).
+const SECTION_SKELETON = (
+  <div className="px-4 pt-4 pb-8 space-y-3">
+    <div className="grid grid-cols-2 gap-2">
+      {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
+    </div>
+    <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+    <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
+  </div>
+);
+
 // ── Skeleton ──
 function StatistikSkeleton() {
   const pulse = 'bg-gray-200 dark:bg-slate-700 animate-pulse';
@@ -378,14 +400,8 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   initialStatTab?: 'umroh' | 'haji' | 'tren';
 }) {
   const isAdmin = role === 'admin';
-  const [trenUnhidden, setTrenUnhidden] = useState(() => Date.now() >= TREN_HIDDEN_UNTIL);
-  useEffect(() => {
-    if (trenUnhidden) return;
-    const t = setTimeout(() => setTrenUnhidden(true), Math.max(0, TREN_HIDDEN_UNTIL - Date.now()));
-    return () => clearTimeout(t);
-  }, [trenUnhidden]);
-  const showTren = isAdmin && trenUnhidden;
-  // Coerce landing on 'tren' (admin-only, or temporarily hidden) to 'umroh'
+  const showTren = isAdmin;
+  // Coerce landing on 'tren' (admin-only) to 'umroh'
   const safeInitialTab = initialStatTab === 'tren' && !showTren ? 'umroh' : (initialStatTab || 'umroh');
   const [statTab, setStatTab] = useState<'umroh' | 'haji' | 'tren'>(safeInitialTab);
   // Year state split: hijriah for Umroh+Tren, masehi for Haji
@@ -394,9 +410,20 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   const [hajiAvailableYears, setHajiAvailableYears] = useState<string[]>([]);
   const [hajiDaftarYears, setHajiDaftarYears] = useState<string[]>([]);
   const [data, setData] = useState<StatsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
+  // Dibaca lewat ref oleh interval polling (closure-nya hidup bermenit-menit):
+  // memakai state dari closure membuat polling memuat tahun lama dan bahkan
+  // mengembalikan dropdown ke tahun bawaan.
+  const selectedYearRef = useRef(selectedYear);
+  selectedYearRef.current = selectedYear;
+  const statTabRef = useRef(statTab);
+  statTabRef.current = statTab;
+  // Tahun yang terakhir DIMINTA (null = belum pernah). Mencegah fetch ganda saat
+  // respons pertama (tanpa ?year) menetapkan tahun bawaan ke dropdown.
+  const lastRequestedYearRef = useRef<string | null>(null);
+  const statsRequestSeqRef = useRef(0);
   const [selectedBerangkatGroupKey, setSelectedBerangkatGroupKey] = useState<string | null>(null);
   const [showBerangkatGroupsModal, setShowBerangkatGroupsModal] = useState(false);
   const [komisiExpanded, setKomisiExpanded] = useState(false);
@@ -500,65 +527,89 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     }
   }, [gateAttempts, startCooldown]);
 
+  // Tanpa argumen = tahun yang sedang dipilih (dibaca dari ref, aman dipanggil
+  // dari interval). Respons yang kalah cepat dari permintaan lebih baru dibuang
+  // supaya ganti tahun beruntun tak berakhir menampilkan data tahun lain.
   const fetchStats = useCallback(async (year?: string) => {
+    const requestId = ++statsRequestSeqRef.current;
+    const yr = year !== undefined ? year : selectedYearRef.current;
+    lastRequestedYearRef.current = yr;
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
-      const yr = year !== undefined ? year : selectedYear;
       if (yr) params.set('year', yr);
       const res = await fetch(`/api/laporan/stats?${params}`, { headers: { ...getAuthHeaders() } });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const result = await res.json();
+      if (requestId !== statsRequestSeqRef.current) return;
       if (result.success) {
         setData(result.data);
-        if (!selectedYear && result.data.hijriahYear) setSelectedYear(result.data.hijriahYear);
+        if (!yr && result.data.hijriahYear) {
+          lastRequestedYearRef.current = result.data.hijriahYear;
+          setSelectedYear(result.data.hijriahYear);
+        }
       } else {
         setError(result.error || 'Gagal memuat statistik');
       }
     } catch (err) {
+      if (requestId !== statsRequestSeqRef.current) return;
       // Offline / server bermasalah → pesan yang bisa ditindaklanjuti, bukan teks teknis.
       setError(describeLoadError(err));
     }
-    setLoading(false);
-  }, [selectedYear]);
+    if (requestId === statsRequestSeqRef.current) setLoading(false);
+  }, []);
+
+  // Data Umroh berubah (sync selesai): muat ulang kalau tab Umroh sedang tampil,
+  // selain itu cukup tandai basi — dimuat saat tab Umroh dibuka lagi.
+  const refreshUmrohStats = useCallback(() => {
+    if (statTabRef.current === 'umroh') fetchStats();
+    else lastRequestedYearRef.current = null;
+  }, [fetchStats]);
+
+  // Muat statistik Umroh hanya bila dibutuhkan: tab Umroh, atau tab Tren yang
+  // perlu tahun Hijriah bawaan + daftar tahun. Tab Haji tak menunggu endpoint
+  // Umroh yang berat ini.
+  const hasData = !!data;
+  useEffect(() => {
+    const needUmroh = statTab === 'umroh' || (statTab === 'tren' && !hasData);
+    if (!needUmroh || lastRequestedYearRef.current === selectedYear) return;
+    fetchStats(selectedYear);
+  }, [statTab, selectedYear, hasData, fetchStats]);
 
   useEffect(() => {
-    fetchStats();
+    let cancelled = false;
     // Check if a background sync (CRON or manual from JamaahPage) is running
     (async () => {
       try {
         const sr = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() } });
         const st = await sr.json();
-        if (st.success && st.data.isSyncing) {
-          // If Phase 1 already done (completedYears populated), show stats immediately
-          if (st.data.completedYears && st.data.completedYears.length > 0) {
-            setBackgroundSyncing(false); // Don't block — Phase 1 data is ready
-          } else {
-            setBackgroundSyncing(true); // Block — Phase 1 still running
-          }
-          // Poll until sync finishes or Phase 1 completes
-          bgPollRef.current = setInterval(async () => {
-            try {
-              const r = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() }, signal: AbortSignal.timeout(10000) });
-              const s = await r.json();
-              if (s.success) {
-                if (!s.data.isSyncing) {
-                  // Sync fully done
-                  setBackgroundSyncing(false);
-                  if (bgPollRef.current) clearInterval(bgPollRef.current);
-                  bgPollRef.current = null;
-                  fetchStats(selectedYear);
-                } else if (s.data.completedYears && s.data.completedYears.length > 0) {
-                  // Phase 1 done — unblock and refresh stats
-                  setBackgroundSyncing(false);
-                  fetchStats(selectedYear);
-                  // Keep polling until full sync done (for final refresh)
-                }
-              }
-            } catch { /* ignore */ }
-          }, 5000);
-        }
+        if (cancelled || !(st.success && st.data.isSyncing)) return;
+        // If Phase 1 already done (completedYears populated), the stats being
+        // loaded already carry Phase 1 data — don't block, don't refresh twice.
+        let phase1Refreshed = !!st.data.completedYears?.length;
+        setBackgroundSyncing(!phase1Refreshed);
+        // Poll until sync finishes. Stats are refreshed ONCE when Phase 1
+        // completes and once at the end — not on every tick: Phase 2 can run
+        // for minutes and each batch invalidates the server stats cache, so a
+        // per-tick refresh meant a full ±12-query recompute every 5 seconds.
+        bgPollRef.current = setInterval(async () => {
+          try {
+            const r = await fetch('/api/laporan/sync-status', { headers: { ...getAuthHeaders() }, signal: AbortSignal.timeout(10000) });
+            const s = await r.json();
+            if (!s.success) return;
+            if (!s.data.isSyncing) {
+              setBackgroundSyncing(false);
+              if (bgPollRef.current) clearInterval(bgPollRef.current);
+              bgPollRef.current = null;
+              refreshUmrohStats();
+            } else if (!phase1Refreshed && s.data.completedYears?.length) {
+              phase1Refreshed = true;
+              setBackgroundSyncing(false);
+              refreshUmrohStats();
+            }
+          } catch { /* ignore */ }
+        }, 5000);
       } catch { /* ignore */ }
     })();
     // Admin: fetch all company-wide years for Tren Daftar
@@ -568,6 +619,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         .then(json => { if (json.success) setAllYears(json.data); })
         .catch(() => {});
     }
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -577,12 +629,6 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     }
   }, []);
 
-  const initialMount = useRef(true);
-  useEffect(() => {
-    if (initialMount.current) { initialMount.current = false; return; }
-    fetchStats(selectedYear);
-  }, [selectedYear]);
-
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -591,18 +637,22 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
     };
   }, []);
 
-  // Auto-refresh stats every 5 minutes
+  // Auto-refresh stats every 5 minutes — only while the Umroh tab is shown and
+  // the app is in the foreground (no polling from a backgrounded tab/PWA).
   useEffect(() => {
+    if (statTab !== 'umroh' || syncing) return;
     const autoRef = setInterval(() => {
-      if (!syncing && !loading) fetchStats(selectedYear);
+      if (document.visibilityState === 'visible') fetchStats();
     }, 5 * 60 * 1000);
     return () => clearInterval(autoRef);
-  }, [syncing, loading, fetchStats, selectedYear]);
+  }, [statTab, syncing, fetchStats]);
 
-  // ── Auto-sync on first load if no data (umroh tab only) ──
+  // ── Auto-sync on first load, only for an agent that has NEVER synced ──
+  // A selected year that happens to be empty (e.g. a freshly opened 1449) is
+  // not a reason to fire a full jamaah sync.
   useEffect(() => {
     if (statTab !== 'umroh') return;
-    if (!loading && !syncing && !hasAutoSynced.current && data && data.totalJamaah === 0) {
+    if (!loading && !syncing && !hasAutoSynced.current && data && data.totalJamaah === 0 && !data.lastSync) {
       hasAutoSynced.current = true;
       handleSync();
     }
@@ -685,7 +735,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             setSyncing(false);
-            fetchStats(selectedYear);
+            refreshUmrohStats();
             return;
           }
 
@@ -700,7 +750,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
               if (pollRef.current) clearInterval(pollRef.current);
               pollRef.current = null;
               setSyncing(false);
-              fetchStats(selectedYear);
+              refreshUmrohStats();
             }
           } catch {
             errorCount++;
@@ -708,22 +758,19 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
               if (pollRef.current) clearInterval(pollRef.current);
               pollRef.current = null;
               setSyncing(false);
-              fetchStats(selectedYear);
+              refreshUmrohStats();
             }
           }
         }, 3000);
       } else {
         setSyncing(false);
-        fetchStats(selectedYear);
+        refreshUmrohStats();
       }
     } catch { setSyncing(false); }
   };
 
   // Determine which view mode to show (no early returns to avoid React DOM conflicts)
   const isEmpty = !!(data && data.totalJamaah === 0 && !data.lastSync && !syncing && !backgroundSyncing);
-  const showSkeleton = loading && !data;
-  const showError = !!(error && !data);
-  const showData = !!(data && !showSkeleton && !showError);
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const gridStroke = isDark ? '#1e293b' : '#f1f5f9';
@@ -747,8 +794,10 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
   // Tarik-untuk-segarkan (app terpasang): tarik ulang statistik TAHUN YANG
   // SEDANG DIPILIH — bukan memasang ulang halaman, supaya pilihan tahun di
   // header tidak ikut kembali ke bawaan. Mati selama gerbang PIN: di sana belum
-  // ada data yang boleh ditarik.
-  usePullRefreshHandler(() => fetchStats(selectedYear), !pinGateActive);
+  // ada data yang boleh ditarik. Tab Haji / Tren Daftar mendaftarkan penyegarnya
+  // sendiri, jadi di sana pendaftaran ini dilepas (tarikan tak lagi memuat ulang
+  // data Umroh yang tak sedang tampil).
+  usePullRefreshHandler(() => fetchStats(), !pinGateActive && statTab === 'umroh');
 
   return (
     <div className="max-w-lg mx-auto">
@@ -793,29 +842,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
       ) : (
       <div>
 
-      {/* ── Loading ── */}
-      {showSkeleton && <StatistikSkeleton />}
-
-      {/* ── Error ── */}
-      {showError && (
-        <div className="px-4 pt-6">
-          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl text-center">
-            <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-3">{error}</p>
-            <button onClick={() => fetchStats(selectedYear)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-red-500 text-white shadow-md shadow-red-500/20 hover:bg-red-600 transition-all active:scale-95">
-              Coba Lagi
-            </button>
-          </div>
-        </div>
-      )}
-
-
-
-      {/* ── Data view ── */}
-      {showData && data && (
-      <>
-
-      {/* ── Tab Bar (Umroh + Haji always; Tren admin-only) ── */}
+      {/* ── Tab Bar (Umroh + Haji always; Tren admin-only) ──
+          Selalu tampil: tab Haji tak lagi menunggu (atau terblokir galat)
+          statistik Umroh. Skeleton/galat Umroh hanya di tab Umroh. */}
       <div
         style={{ top: DASHBOARD_SUBPAGE_HEADER_OFFSET }}
         className="sticky z-20 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700"
@@ -853,7 +882,9 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── Ringkasan Tab (existing content) ── */}
       {statTab === 'umroh' && (
-        isEmpty ? (
+        !data ? (
+          error ? <StatsErrorCard message={error} onRetry={() => fetchStats()} /> : <StatistikSkeleton />
+        ) : isEmpty ? (
           <div className="px-4 pt-10 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center">
               <Users size={28} className="text-gray-300 dark:text-slate-600" />
@@ -863,6 +894,18 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           </div>
         ) : (
       <div className={`px-4 pt-4 pb-8 space-y-3 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+
+      {/* Muat ulang gagal tapi data lama masih ada (mis. ganti tahun saat
+          offline): beri tahu, jangan diam-diam menampilkan data tahun lain. */}
+      {error && (
+        <div className="px-3 py-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl flex items-center justify-between gap-3">
+          <p className="text-[11px] text-red-600 dark:text-red-400 font-medium">{error}</p>
+          <button onClick={() => fetchStats()}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-red-500 text-white hover:bg-red-600 transition-all active:scale-95">
+            Coba Lagi
+          </button>
+        </div>
+      )}
 
       {/* ── 1. Headline Stats ── */}
       <div className="grid grid-cols-2 gap-2.5">
@@ -1049,7 +1092,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
           <p className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Tren Jamaah Baru</p>
           <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Berdasarkan tanggal pendaftaran, 7 bulan terakhir</p>
         </div>
-        {chartData.length === 0 ? (
+        {chartData.every(t => t.count === 0) ? (
           <div className="px-4 py-8 text-center"><p className="text-xs text-gray-400 dark:text-slate-500">Belum ada data pendaftaran</p></div>
         ) : (
           <div className="px-2 py-3">
@@ -1168,15 +1211,7 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
 
       {/* ── Haji Tab ── */}
       {statTab === 'haji' && (
-        <Suspense fallback={
-          <div className="px-4 pt-4 pb-8 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
-            </div>
-            <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-            <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-          </div>
-        }>
+        <Suspense fallback={SECTION_SKELETON}>
           <StatistikHajiSection
             selectedYear={selectedYearMasehi}
             mode={hajiStatsMode}
@@ -1192,21 +1227,15 @@ export default function StatistikPage({ agentSlug, role, onHeaderRight, initialS
         </Suspense>
       )}
 
-      {/* ── Tren Daftar Tab ── */}
+      {/* ── Tren Daftar Tab ── (tahun Hijriah bawaan datang dari statistik Umroh) */}
       {showTren && statTab === 'tren' && (
-        <Suspense fallback={
-          <div className="px-4 pt-4 pb-8 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />)}
-            </div>
-            <div className="h-52 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-            <div className="h-40 rounded-2xl bg-gray-200 dark:bg-slate-700 animate-pulse" />
-          </div>
-        }>
-          <TrenDaftarSection selectedYear={selectedYear} />
-        </Suspense>
-      )}
-      </>
+        selectedYear ? (
+          <Suspense fallback={SECTION_SKELETON}>
+            <TrenDaftarSection selectedYear={selectedYear} />
+          </Suspense>
+        ) : error ? (
+          <StatsErrorCard message={error} onRetry={() => fetchStats()} />
+        ) : SECTION_SKELETON
       )}
       </div>
       )}

@@ -91,6 +91,23 @@ function makeStats() {
   };
 }
 
+/** Muatan /api/haji/stats yang lengkap — lihat catatan di makeStats(). */
+function makeHajiStats() {
+  return {
+    total: 0, uniqueHaji: 0, lunas: 0, cicilan: 0, belumBayar: 0, lebihBayar: 0, lunasPercent: 0,
+    byTahun: {}, byJenis: {},
+    availableYears: ['2026'], daftarYears: ['2026'], masehiYear: null, daftarYear: '2026',
+    lastSync: '2026-09-20T03:00:00.000Z',
+    komisi: {
+      stage1: 0, rateUhud: 0, rateRahmah: 0,
+      byPaket: { uhud: 0, rahmah: 0, standar: 0, unknown: 0 },
+      berangkat: { sudahBerangkat: 0, belumBerangkat: 0 },
+      totalKomisi: 0, sudahCair: 0, sudahCairCount: 0, belumCair: 0,
+      belumCairCount: 0, potensi: 0, potensiCount: 0, breakdownTahun: [],
+    },
+  };
+}
+
 /** Muatan /api/analytics/summary yang lengkap — lihat catatan di makeStats(). */
 function makeAnalytics() {
   return {
@@ -141,6 +158,7 @@ async function openDashboard({ path = '/dashboard', agent = AGENT } = {}) {
         calls.push(url.pathname);
         if (url.pathname === '/api/auth/me') return json(agent);
         if (url.pathname === '/api/laporan/stats') return json({ success: true, data: makeStats() });
+        if (url.pathname === '/api/haji/stats') return json({ success: true, data: makeHajiStats() });
         if (url.pathname === '/api/hotels') return json({ success: true, data: [] });
         if (url.pathname === '/api/hotels/banners') return json({ success: true, data: {} });
         if (url.pathname === '/api/admin/agents') return json([]);
@@ -372,6 +390,40 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
       await page.waitForTimeout(1_500);
 
       assert.equal(session.countOf('/api/laporan/stats'), before + 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Statistik: sekali buka = satu permintaan statistik Umroh', { timeout: 90_000 }, async () => {
+    // Respons pertama (tanpa ?year) menetapkan tahun bawaan ke dropdown; dulu
+    // itu memicu fetch kedua untuk tahun yang sama (2× hitung ±12 query).
+    const session = await openDashboard({ path: '/dashboard/statistik' });
+    try {
+      await session.waitForCall('/api/laporan/stats');
+      await session.settle();
+      assert.equal(session.countOf('/api/laporan/stats'), 1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('Statistik tab Haji: tak memuat statistik Umroh, tarikan menyegarkan data Haji', { timeout: 90_000 }, async () => {
+    const session = await openDashboard({ path: '/dashboard/statistik/haji' });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/haji/stats');
+      await session.settle();
+      assert.equal(await hasHostClass(page), true);
+      assert.equal(session.countOf('/api/laporan/stats'), 0, 'tab Haji tak boleh menunggu statistik Umroh');
+      const before = session.countOf('/api/haji/stats');
+      assert.equal(before, 1, 'tahun bawaan yang dioper balik parent tak boleh memicu fetch kedua');
+
+      await swipe(page, { dy: PULL_ARMED });
+      await page.waitForTimeout(1_500);
+
+      assert.equal(session.countOf('/api/haji/stats'), before + 1);
+      assert.equal(session.countOf('/api/laporan/stats'), 0);
     } finally {
       await session.close();
     }

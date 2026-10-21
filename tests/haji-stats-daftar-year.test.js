@@ -12,7 +12,7 @@ test('haji stats endpoint supports registration year filtering', () => {
   assert.match(server, /requestedDaftarYear/);
   assert.match(server, /requestedMode = req\.query\.mode === 'pendaftaran' \? 'pendaftaran' : 'keberangkatan'/);
   assert.match(server, /cacheKey = `haji:\$\{agentId\}:\$\{requestedMode\}:\$\{requestedYear\}:\$\{requestedDaftarYear\}`/);
-  assert.match(server, /if \(!year && !daftarYear\)/);
+  assert.match(server, /if \(!year && !daftarYear(?: && !wantAllYears)?\)/);
   assert.match(server, /requestedMode === 'pendaftaran'/);
   assert.match(server, /daftarYear = pickDefaultYear\(daftarYears, new Date\(\)\.getFullYear\(\)\)/);
   assert.match(server, /gte\('tgl_daftar', `\$\{daftarYear\}-01-01`\)/);
@@ -52,4 +52,15 @@ test('haji statistics parent picks the nearest masehi year instead of the first 
 test('haji stats ignores stale stats responses', () => {
   assert.match(hajiStatsSection, /statsRequestSeqRef/);
   assert.match(hajiStatsSection, /requestId !== statsRequestSeqRef\.current/);
+});
+
+test('haji stats does not refetch when the parent echoes back the resolved default year', () => {
+  // Respons pertama (tanpa tahun) → parent menyetel tahun bawaan → tahun itu
+  // dioper balik. Tanpa kunci permintaan terakhir, tiap buka tab Haji = 2 fetch.
+  assert.match(hajiStatsSection, /lastRequestKeyRef\.current = `\$\{mode\}:\$\{yr\}`/);
+  assert.match(hajiStatsSection, /if \(!yr && resolvedYear\) lastRequestKeyRef\.current = `\$\{mode\}:\$\{resolvedYear\}`/);
+  assert.match(hajiStatsSection, /if \(lastRequestKeyRef\.current === `\$\{mode\}:\$\{selectedYear\}`\) return;/);
+  // Polling sync memanggil fetchStats terbaru, bukan closure saat tombol diklik.
+  assert.doesNotMatch(hajiStatsSection, /const handleSync[\s\S]*fetchStats\(selectedYear\);[\s\S]*if \(loading && !data\)/);
+  assert.match(hajiStatsSection, /usePullRefreshHandler\(\(\) => fetchStats\(\)\)/);
 });
