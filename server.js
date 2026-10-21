@@ -209,7 +209,7 @@ import {
 } from './awapi-client.js';
 import {
   runAnalyticsMaintenance,
-  fetchEventsForRange,
+  fetchEventsForRanges,
   countMatches,
   tallyBy,
   RAW_RETENTION_DAYS,
@@ -19444,36 +19444,57 @@ app.post('/api/analytics/public', async (req, res) => {
 app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) => {
   try {
     const now = new Date();
-    const month = parseInt(req.query.month) || (now.getMonth() + 1);
-    const year = parseInt(req.query.year) || now.getFullYear();
-    const startOfMonth = new Date(year, month - 1, 1).toISOString();
-    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+    const nowISO = now.toISOString();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    // Jakarta (UTC+7, no DST) — independent of the server process TZ.
+    const TZ_SHIFT_MS = 7 * 60 * 60 * 1000;
+    const toJakartaDateStr = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT_MS).toISOString().slice(0, 10);
+    const jakartaNow = new Date(now.getTime() + TZ_SHIFT_MS);
+    const todayJakartaMidMs = Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate());
+    const todayJakartaStr = new Date(todayJakartaMidMs).toISOString().slice(0, 10);
+
+    const reqMonth = parseInt(req.query.month, 10);
+    const reqYear = parseInt(req.query.year, 10);
+    const month = reqMonth >= 1 && reqMonth <= 12 ? reqMonth : jakartaNow.getUTCMonth() + 1;
+    const year = reqYear >= 2000 && reqYear <= 2100 ? reqYear : jakartaNow.getUTCFullYear();
     const period = `${year}-${String(month).padStart(2, '0')}`;
+    // The daily rollup (analytics_events_daily) is keyed by UTC day and raw rows
+    // are purged after RAW_RETENTION_DAYS. A WIB month boundary (00:00 WIB =
+    // 17:00 UTC the day before) splits a UTC day at both ends, and the split
+    // part whose raw rows are already purged was dropped outright: a past month
+    // lost its whole last UTC day (Sep 2026: 1,138 events). The period is
+    // therefore aligned to UTC days — each edge shifts by 7 night hours WIB, but
+    // no day goes missing. End is clamped to now so the month and the 7-day
+    // window share their raw tail fetch (fetchEventsForRanges).
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const startOfMonth = `${period}-01T00:00:00.000Z`;
+    const monthEndISO = `${period}-${String(lastDayOfMonth).padStart(2, '0')}T23:59:59.999Z`;
+    const endOfMonth = monthEndISO < nowISO ? monthEndISO : nowISO;
 
-    // Dates for relative calculations
-    const now3d = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
-    const now7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const now30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    sevenDaysAgo.setUTCHours(0, 0, 0, 0);
-    const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+    // Current 7-day window: UTC midnight of the Jakarta date 6 days ago (aligned
+    // with rollup days), through now.
+    const sevenDaysAgoISO = new Date(todayJakartaMidMs - 6 * DAY_MS).toISOString();
 
     // Period metrics use daily rollups for complete days and raw rows only for
     // days not yet aggregated. Current-health widgets read their own 7-day
     // window so past-month views don't accidentally hide today's activity.
     const [
-      periodEvents,
-      last7dEvents,
+      [periodEvents, last7dEvents],
       { data: allAgents },
     ] = await Promise.all([
-      fetchEventsForRange(supabase, startOfMonth, endOfMonth),
-      fetchEventsForRange(supabase, sevenDaysAgoISO, now.toISOString()),
+      fetchEventsForRanges(supabase, [
+        { startISO: startOfMonth, endISO: endOfMonth },
+        { startISO: sevenDaysAgoISO, endISO: nowISO },
+      ], now.getTime()),
       supabase.from('agents').select('id, slug, name, photo'),
     ]);
     const { rawEvents, aggEvents } = periodEvents;
     const { rawEvents: last7dRawEvents, aggEvents: last7dAggEvents } = last7dEvents;
+    // "Agent activity" = what the agent does in the app. Public events (visitors
+    // viewing the agent's pages, clicking WA there) are the agent's TRAFFIC, not
+    // a sign the agent is active — counting them showed agents who never open the
+    // app as "Aktif · 5 menit lalu".
+    const isAgentEvent = e => e.event_type !== 'public';
 
     // Overview — counts sum across raw + agg
     const totalLogins = countMatches(rawEvents, aggEvents, e => e.event_name === 'login');
@@ -19483,12 +19504,40 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       e => WA_CLICK_EVENTS.includes(e.event_name),
     );
 
-    // Active agents (any event in the current 7-day window).
+    // Last AGENT activity per agent (ms), from the current window — NOT from the
+    // selected month. Deriving it from the month made a past-month view show
+    // every agent as "Jarang"/"Belum pernah", and early in the current month an
+    // agent last seen on the 28th of the previous month read "Belum pernah".
+    // Raw rows carry the exact time; rollup rows only the UTC day (end of day).
     const agentList = allAgents || [];
-    const recentIds = new Set();
-    for (const e of last7dRawEvents) if (e.agent_id) recentIds.add(e.agent_id);
-    for (const e of last7dAggEvents) if (e.agent_id && e.count > 0) recentIds.add(e.agent_id);
-    const activeAgents = recentIds.size;
+    const lastActiveMsById = new Map();
+    const bumpLastActive = (agentId, ms) => {
+      if (!agentId || !Number.isFinite(ms)) return;
+      if (ms > (lastActiveMsById.get(agentId) ?? -Infinity)) lastActiveMsById.set(agentId, ms);
+    };
+    const aggDayEndMs = date => Date.parse(`${date}T23:59:59.999Z`);
+    for (const e of last7dRawEvents) if (isAgentEvent(e)) bumpLastActive(e.agent_id, Date.parse(e.created_at));
+    for (const a of last7dAggEvents) if (isAgentEvent(a) && a.count > 0) bumpLastActive(a.agent_id, aggDayEndMs(a.date));
+
+    // Active agents (agent activity in the current 7-day window).
+    const activeAgents = agentList.filter(a => lastActiveMsById.has(a.id)).length;
+
+    // Agents idle in the window: look back up to 30 days in the rollup, only for
+    // them (few rows by definition), to tell "Jarang" (≤30 hari) from "tidak aktif".
+    const STATUS_LOOKBACK_DAYS = 30;
+    const idleAgentIds = agentList.map(a => a.id).filter(id => !lastActiveMsById.has(id));
+    if (idleAgentIds.length > 0) {
+      const idleRows = await fetchAllRows(
+        supabase.from('analytics_events_daily')
+          .select('agent_id, date')
+          .in('agent_id', idleAgentIds)
+          .neq('event_type', 'public')
+          .gt('count', 0)
+          .gte('date', new Date(todayJakartaMidMs - STATUS_LOOKBACK_DAYS * DAY_MS).toISOString().slice(0, 10))
+          .lt('date', sevenDaysAgoISO.slice(0, 10)),
+      );
+      for (const r of idleRows) bumpLastActive(r.agent_id, aggDayEndMs(r.date));
+    }
 
     // Daily activity (current 7-day window): agent-side activity only — login +
     // klik fitur + aksi. Public traffic (page_view / WA klik publik) is excluded
@@ -19497,10 +19546,6 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
     // timeline/heatmap (which also use +7h) and don't drift with the server's
     // local timezone.
     const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-    const TZ_SHIFT_MS = 7 * 60 * 60 * 1000;
-    const toJakartaDateStr = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT_MS).toISOString().slice(0, 10);
-    const jakartaNow = new Date(now.getTime() + TZ_SHIFT_MS);
-    const todayJakartaMidMs = Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate());
     const dailyActivity = [];
     for (let i = 6; i >= 0; i--) {
       const dMid = new Date(todayJakartaMidMs - i * 24 * 60 * 60 * 1000);
@@ -19518,8 +19563,42 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       });
     }
 
-    // Agent Activity. Per-agent metrics merge raw + agg.
-    // lastActive: prefer raw timestamp (precise); fallback to agg max date (day-granular).
+    // Health badge — always based on the current 7-day window, agent activity
+    // only. Days are UTC days on both sides (raw slice + rollup date).
+    const last7dByAgent = new Map();
+    for (const e of last7dRawEvents) {
+      if (!e.agent_id || !isAgentEvent(e)) continue;
+      let bucket = last7dByAgent.get(e.agent_id);
+      if (!bucket) {
+        bucket = { days: new Set(), features: new Set() };
+        last7dByAgent.set(e.agent_id, bucket);
+      }
+      bucket.days.add(e.created_at.slice(0, 10));
+      if (e.event_type === 'feature') bucket.features.add(e.event_name);
+    }
+    for (const e of last7dAggEvents) {
+      if (!e.agent_id || e.count <= 0 || !isAgentEvent(e)) continue;
+      let bucket = last7dByAgent.get(e.agent_id);
+      if (!bucket) {
+        bucket = { days: new Set(), features: new Set() };
+        last7dByAgent.set(e.agent_id, bucket);
+      }
+      bucket.days.add(e.date);
+      if (e.event_type === 'feature') bucket.features.add(e.event_name);
+    }
+    const healthByAgent = new Map();
+    for (const agent of agentList) {
+      const bucket = last7dByAgent.get(agent.id);
+      if (!bucket) { healthByAgent.set(agent.id, 'dormant'); continue; }
+      let h;
+      if (bucket.days.size >= 4 && bucket.features.size >= 3) h = 'excellent';
+      else if (bucket.days.size >= 2 && bucket.features.size >= 1) h = 'good';
+      else h = 'fair';
+      healthByAgent.set(agent.id, h);
+    }
+
+    // Agent Activity. Per-agent metrics (selected month) merge raw + agg;
+    // lastActive/status/health come from the current window computed above.
     // Precompute per-agent buckets — avoid O(A·R) nested filters.
     const rawByAgent = new Map();
     for (const e of rawEvents) {
@@ -19546,25 +19625,19 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
         e => WA_CLICK_EVENTS.includes(e.event_name),
       );
 
-      // lastActive: raw events are DESC-sorted, so [0] is the newest.
-      const rawLast = rawForAgent[0]?.created_at || null;
-      const aggMaxDate = aggForAgent.reduce((m, a) => (!m || a.date > m ? a.date : m), null);
-      // Normalize agg date to end-of-day ISO for comparison
-      const aggLast = aggMaxDate ? `${aggMaxDate}T23:59:59.999Z` : null;
-      const lastActive = rawLast && aggLast
-        ? (rawLast > aggLast ? rawLast : aggLast)
-        : (rawLast || aggLast);
-
+      // 'never' = no agent activity in the last STATUS_LOOKBACK_DAYS.
+      const lastActiveMs = lastActiveMsById.get(agent.id);
+      const lastActive = lastActiveMs != null ? new Date(lastActiveMs).toISOString() : null;
+      const idleMs = lastActiveMs != null ? now.getTime() - lastActiveMs : Infinity;
       let status = 'never';
-      if (lastActive) {
-        if (new Date(lastActive) >= new Date(now3d)) status = 'active';
-        else if (new Date(lastActive) >= new Date(now7d)) status = 'inactive';
-        else if (new Date(lastActive) >= new Date(now30d)) status = 'dormant';
-      }
+      if (idleMs <= 3 * DAY_MS) status = 'active';
+      else if (idleMs <= 7 * DAY_MS) status = 'inactive';
+      else if (idleMs <= STATUS_LOOKBACK_DAYS * DAY_MS) status = 'dormant';
 
       return {
         slug: agent.slug, name: agent.name, photo: agent.photo,
         lastActive, logins, featureClicks, pageViews, waClicks, status,
+        health: healthByAgent.get(agent.id) || 'dormant',
       };
     });
     // Sort: most recent activity first. Agents with no activity at all go to the end.
@@ -19601,50 +19674,13 @@ app.get('/api/analytics/summary', authMiddleware, adminOnly, async (req, res) =>
       .map(([name, count]) => ({ name, label: ALL_EVENT_LABELS[name] || name, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Health badge — always based on the current 7-day window.
-    const last7dByAgent = new Map();
-    for (const e of last7dRawEvents) {
-      if (!e.agent_id) continue;
-      let bucket = last7dByAgent.get(e.agent_id);
-      if (!bucket) {
-        bucket = { days: new Set(), features: new Set() };
-        last7dByAgent.set(e.agent_id, bucket);
-      }
-      bucket.days.add(e.created_at.slice(0, 10));
-      if (e.event_type === 'feature') bucket.features.add(e.event_name);
-    }
-    for (const e of last7dAggEvents) {
-      if (!e.agent_id || e.count <= 0) continue;
-      let bucket = last7dByAgent.get(e.agent_id);
-      if (!bucket) {
-        bucket = { days: new Set(), features: new Set() };
-        last7dByAgent.set(e.agent_id, bucket);
-      }
-      bucket.days.add(e.date);
-      if (e.event_type === 'feature') bucket.features.add(e.event_name);
-    }
-    const healthByAgent = new Map();
-    for (const agent of agentList) {
-      const bucket = last7dByAgent.get(agent.id);
-      if (!bucket) { healthByAgent.set(agent.id, 'dormant'); continue; }
-      let h;
-      if (bucket.days.size >= 4 && bucket.features.size >= 3) h = 'excellent';
-      else if (bucket.days.size >= 2 && bucket.features.size >= 1) h = 'good';
-      else h = 'fair';
-      healthByAgent.set(agent.id, h);
-    }
-    for (const a of agentActivity) {
-      // Lookup by agent.id via the agentList mapping (agentActivity has slug, not id)
-      const id = agentList.find(g => g.slug === a.slug)?.id;
-      a.health = id ? (healthByAgent.get(id) || 'dormant') : 'dormant';
-    }
-
-    // Recent Activity (today, exclude page_view, max 10). Today is always in raw.
-    const todayStr = now.toISOString().slice(0, 10);
+    // Recent Activity (today WIB, exclude page_view, max 10). Today is always in
+    // raw (rollups lag ≥1 UTC day). "Today" was the UTC date, so 00:00–07:00 WIB
+    // the card ("Hari ini") listed yesterday's events instead.
     const agentNameMap = Object.fromEntries(agentList.map(a => [a.id, a.name]));
     const agentSlugMap = Object.fromEntries(agentList.map(a => [a.id, a.slug]));
     const recentActivity = last7dRawEvents
-      .filter(e => e.agent_id && e.created_at.slice(0, 10) === todayStr && e.event_name !== 'page_view')
+      .filter(e => e.agent_id && e.event_name !== 'page_view' && toJakartaDateStr(e.created_at) === todayJakartaStr)
       .slice(0, 10)
       .map(e => ({
         agentSlug: agentSlugMap[e.agent_id] || e.agent_id,
@@ -19683,33 +19719,51 @@ app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res
     const agent = await getAgentBySlug(slug);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const now = Date.now();
-    const startISO = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: events, error } = await supabase
-      .from('analytics_events')
-      .select('event_type, event_name, metadata, created_at')
-      .eq('agent_id', agent.id)
-      .gte('created_at', startISO)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    const evList = events || [];
-
     // Jakarta (UTC+7, no DST) for user-facing day/hour labels
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
     const TZ_SHIFT = 7 * 60 * 60 * 1000;
-    const toJakarta = (utcISO) => new Date(new Date(utcISO).getTime() + TZ_SHIFT);
     const DAY_NAMES = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const jakartaNow = new Date(now + TZ_SHIFT);
+    const todayJakartaMid = Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate());
+    // Window = the 7 Jakarta calendar days shown by the timeline/heatmap (00:00
+    // WIB 6 days ago → now). It used to be now−168h, which spans 8 Jakarta
+    // dates: summary counts included events no chart showed, and "Hari Aktif"
+    // could read 8/7.
+    const windowStartDate = new Date(todayJakartaMid - 6 * DAY_MS).toISOString().slice(0, 10);
+    const startISO = new Date(todayJakartaMid - 6 * DAY_MS - TZ_SHIFT).toISOString();
+
+    // Paged with a total order (fetchAllRows + id tiebreaker): a single request
+    // is capped at PostgREST's 1000 rows, and the busiest agent already logs
+    // ~970 events a week — beyond that the oldest days were silently cut off.
+    const events = await fetchAllRows(
+      supabase
+        .from('analytics_events')
+        .select('event_type, event_name, created_at')
+        .eq('agent_id', agent.id)
+        .gte('created_at', startISO)
+        .order('created_at', { ascending: false }),
+    );
+    // Jakarta date/hour computed once per event (was recomputed per day bucket).
+    const evList = events.map(e => {
+      const j = new Date(new Date(e.created_at).getTime() + TZ_SHIFT);
+      return { ...e, jDate: j.toISOString().slice(0, 10), jHour: j.getUTCHours() };
+    });
 
     // Build 7-day timeline + heatmap. Day keyed by Jakarta date.
-    const jakartaNow = new Date(now + TZ_SHIFT);
-    const todayJakartaMid = new Date(Date.UTC(jakartaNow.getUTCFullYear(), jakartaNow.getUTCMonth(), jakartaNow.getUTCDate()));
+    const eventsByDate = new Map();
+    for (const e of evList) {
+      const arr = eventsByDate.get(e.jDate);
+      if (arr) arr.push(e);
+      else eventsByDate.set(e.jDate, [e]);
+    }
     const timeline = [];
     const heatmap = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(todayJakartaMid.getTime() - i * 24 * 60 * 60 * 1000);
+      const d = new Date(todayJakartaMid - i * DAY_MS);
       const dateStr = d.toISOString().slice(0, 10);
       const dayLabel = DAY_NAMES[d.getUTCDay()];
-      const dayEvents = evList.filter(e => toJakarta(e.created_at).toISOString().slice(0, 10) === dateStr);
+      const dayEvents = eventsByDate.get(dateStr) || [];
       timeline.push({
         date: dateStr, day: dayLabel,
         total: dayEvents.length,
@@ -19719,11 +19773,11 @@ app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res
         publicEvents: dayEvents.filter(e => e.event_type === 'public').length,
       });
       const hourCounts = new Array(24).fill(0);
-      for (const e of dayEvents) hourCounts[toJakarta(e.created_at).getUTCHours()]++;
+      for (const e of dayEvents) hourCounts[e.jHour]++;
       heatmap.push({ date: dateStr, day: dayLabel, hourCounts });
     }
 
-    // Summary counts over full 7d window
+    // Summary counts over the same 7-day window
     const summary = {
       totalEvents: evList.length,
       logins: evList.filter(e => e.event_name === 'login').length,
@@ -19731,7 +19785,9 @@ app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res
       actionClicks: evList.filter(e => e.event_type === 'action').length,
       pageViews: evList.filter(e => e.event_name === 'page_view').length,
       waClicks: evList.filter(e => WA_CLICK_EVENTS.includes(e.event_name)).length,
-      activeDays: new Set(evList.map(e => toJakarta(e.created_at).toISOString().slice(0, 10))).size,
+      // Days the AGENT was active — visitor traffic on their pages doesn't count
+      // (same rule as the summary's status/health).
+      activeDays: new Set(evList.filter(e => e.event_type !== 'public').map(e => e.jDate)).size,
       uniqueFeatures: new Set(evList.filter(e => e.event_type === 'feature').map(e => e.event_name)).size,
     };
 
@@ -19748,13 +19804,12 @@ app.get('/api/analytics/agent/:slug', authMiddleware, adminOnly, async (req, res
       .map(([name, count]) => ({ name, label: ACTION_LABELS[name] || name, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Funnel: public traffic → engagement → conversion
-    const sevenDaysAgoDate = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // Funnel: public traffic → engagement → conversion (same 7 Jakarta days)
     const { count: newJamaahCount } = await supabase
       .from('jamaah')
       .select('*', { count: 'exact', head: true })
       .eq('agent_id', agent.id)
-      .gte('tgl_daftar', sevenDaysAgoDate);
+      .gte('tgl_daftar', windowStartDate);
     const funnel = {
       pageViews: summary.pageViews,
       inquirySubmitted: evList.filter(e => e.event_name === 'inquiry_submitted').length,

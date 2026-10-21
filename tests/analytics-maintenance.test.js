@@ -341,3 +341,118 @@ test('aggregateAnalyticsDay: paginated fetch is ordered for deterministic paging
   );
   assert.ok(supabase.ordered.has('analytics_events'), 'analytics_events fetch uses .order() for stable pagination');
 });
+
+// In-memory PostgREST double for the read path. Honors select/gte/lte/gt/
+// order/limit/range. A query WITHOUT .order() gets its rows rotated by a
+// different offset on every request — like Postgres, which promises no order
+// without ORDER BY — so unordered OFFSET paging returns overlapping pages, the
+// exact failure measured in prod on 2026-10-21 (5,000 dupes in a 16k read).
+function makeEventsSupabase({ raw = [], agg = [] }) {
+  const calls = [];
+  function builder(table) {
+    const q = { filters: [], orders: [], select: null, limit: null };
+    const src = table === 'analytics_events' ? raw : agg;
+    function run(from, to) {
+      calls.push({ table, select: q.select, ordered: q.orders.length > 0, from, to });
+      let rows = src.filter(r => q.filters.every(f => f(r)));
+      if (q.orders.length) {
+        rows.sort((a, b) => {
+          for (const [col, asc] of q.orders) {
+            if (a[col] < b[col]) return asc ? -1 : 1;
+            if (a[col] > b[col]) return asc ? 1 : -1;
+          }
+          return 0;
+        });
+      } else if (rows.length) {
+        const k = (calls.length * 397) % rows.length;
+        rows = [...rows.slice(k), ...rows.slice(0, k)];
+      }
+      const cols = q.select ? q.select.split(',').map(c => c.trim()) : null;
+      const data = rows.slice(from, to + 1).map(r => (cols ? Object.fromEntries(cols.map(c => [c, r[c]])) : { ...r }));
+      return { data, error: null };
+    }
+    const chain = {
+      select(cols) { q.select = cols; return chain; },
+      gte(c, v) { q.filters.push(r => r[c] >= v); return chain; },
+      lte(c, v) { q.filters.push(r => r[c] <= v); return chain; },
+      gt(c, v) { q.filters.push(r => r[c] > v); return chain; },
+      order(c, o) { q.orders.push([c, o?.ascending !== false]); return chain; },
+      limit(n) { q.limit = n; return chain; },
+      range(from, to) { return Promise.resolve(run(from, to)); },
+      maybeSingle() { return Promise.resolve({ data: run(0, 0).data[0] ?? null, error: null }); },
+      then(resolve, reject) { return Promise.resolve(run(0, (q.limit ?? 1e9) - 1)).then(resolve, reject); },
+    };
+    return chain;
+  }
+  return { from: builder, calls };
+}
+
+function makeRawEvents(n, startMs) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    agent_id: `a${i % 7}`,
+    event_type: i % 3 ? 'feature' : 'public',
+    event_name: `e${i % 5}`,
+    metadata: { big: 'x'.repeat(50) },
+    created_at: new Date(startMs + i * 30_000).toISOString(),
+  }));
+}
+
+function makeAggRows(dates, perDay) {
+  const rows = [];
+  for (const date of dates) {
+    for (let i = 0; i < perDay; i++) {
+      rows.push({ date, agent_id: `a${i % 50}`, event_type: 'feature', event_name: `e${Math.floor(i / 50)}`, count: 1 });
+    }
+  }
+  return rows;
+}
+
+test('fetchEventsForRanges: paged reads are totally ordered — no duplicated or missing rows', async () => {
+  const nowMs = Date.parse('2026-10-21T02:00:00.000Z');
+  const raw = makeRawEvents(2500, Date.parse('2026-10-20T00:00:00.000Z'));
+  const aggDates = ['2026-10-17', '2026-10-18', '2026-10-19'];
+  const agg = makeAggRows(aggDates, 900); // 2,700 rows → 3 OFFSET pages
+  const supabase = makeEventsSupabase({ raw, agg });
+
+  const [{ rawEvents, aggEvents }] = await maintenance.fetchEventsForRanges(supabase, [
+    { startISO: '2026-10-17T00:00:00.000Z', endISO: new Date(nowMs).toISOString() },
+  ], nowMs);
+
+  const rawInRange = raw.filter(r => r.created_at <= new Date(nowMs).toISOString());
+  assert.equal(rawEvents.length, rawInRange.length);
+  assert.equal(new Set(rawEvents.map(r => r.id)).size, rawInRange.length, 'raw: no duplicated/missing rows across pages');
+  assert.equal(aggEvents.length, agg.length);
+  assert.equal(
+    new Set(aggEvents.map(r => `${r.date}|${r.agent_id}|${r.event_type}|${r.event_name}`)).size,
+    agg.length,
+    'agg: no duplicated/missing rows across pages',
+  );
+  assert.ok(supabase.calls.filter(c => c.table === 'analytics_events').every(c => c.ordered));
+  assert.ok(supabase.calls.filter(c => c.table === 'analytics_events_daily').every(c => c.ordered));
+  // metadata is never read by the summary — don't ship it over the wire.
+  assert.ok(rawEvents.every(r => !('metadata' in r)));
+  // Raw rows come back newest first.
+  assert.ok(rawEvents.every((r, i) => i === 0 || rawEvents[i - 1].created_at >= r.created_at));
+});
+
+test('fetchEventsForRanges: the month and the 7-day window share one fetch of their raw tail', async () => {
+  const nowMs = Date.parse('2026-10-21T02:00:00.000Z');
+  const nowISO = new Date(nowMs).toISOString();
+  const raw = makeRawEvents(1500, Date.parse('2026-10-20T00:00:00.000Z')); // 2 keyset pages
+  const agg = makeAggRows(['2026-10-01', '2026-10-15', '2026-10-19'], 10);
+  const supabase = makeEventsSupabase({ raw, agg });
+
+  const [month, week] = await maintenance.fetchEventsForRanges(supabase, [
+    { startISO: '2026-10-01T00:00:00.000Z', endISO: nowISO },
+    { startISO: '2026-10-15T00:00:00.000Z', endISO: nowISO },
+  ], nowMs);
+
+  const rawPages = supabase.calls.filter(c => c.table === 'analytics_events').length;
+  assert.equal(rawPages, 2, 'shared raw tail is paged once, not once per range');
+  assert.equal(month.rawEvents.length, 1500);
+  assert.equal(week.rawEvents.length, 1500);
+  assert.notEqual(month.rawEvents, week.rawEvents, 'each range gets its own array (safe to sort/mutate)');
+  assert.equal(month.aggEvents.length, 30);
+  assert.equal(week.aggEvents.length, 20);
+});

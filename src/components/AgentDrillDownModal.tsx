@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, TrendingUp, Calendar, Zap, UserCheck, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { getAuthHeaders } from '../lib/authSession';
+import { lockDocumentScroll } from '../lib/scrollLock';
 
 interface DrillDownData {
   agent: { slug: string; name: string; photo: string };
@@ -86,6 +87,9 @@ export default function AgentDrillDownModal({
   }, [slug]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Bottom sheet: halaman di belakangnya tak ikut tergulir (sama seperti modal lain).
+  useEffect(() => lockDocumentScroll(), []);
 
   const handleClose = () => {
     setClosing(true);

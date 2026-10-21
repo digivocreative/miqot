@@ -195,11 +195,19 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const isCurrentPeriod = selectedMonth === now.getMonth() + 1 && selectedYear === now.getFullYear();
+  // Angka per-periode mengikuti bulan yang dipilih; "bulan ini" hanya benar
+  // untuk bulan berjalan.
+  const periodLabel = isCurrentPeriod ? 'bulan ini' : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
 
   const mountTracked = useRef(false);
   useEffect(() => { if (!mountTracked.current) { trackEvent('feature', 'open_analytics'); mountTracked.current = true; } }, []);
 
+  // Ganti bulan beruntun: respons yang kalah cepat dari permintaan lebih baru
+  // dibuang, supaya data yang tampil selalu milik bulan di header.
+  const requestSeqRef = useRef(0);
   const fetchData = useCallback(async (m: number, y: number) => {
+    const requestId = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -207,11 +215,13 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
       if (!res.ok) throw new Error('Gagal memuat data analytics');
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Unknown error');
+      if (requestId !== requestSeqRef.current) return;
       setData(json.data);
     } catch (err: any) {
+      if (requestId !== requestSeqRef.current) return;
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) setLoading(false);
     }
   }, []);
 
@@ -240,7 +250,14 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
     );
   }, [onHeaderRight, selectedMonth, selectedYear]);
 
-  // Month picker dropdown (rendered in body)
+  // Month picker dropdown (rendered in body). Pilihan = 12 bulan terakhir
+  // dihitung dari HARI INI, bukan dari tahun terpilih: daftar lama ikut
+  // bergeser ke tahun terpilih, jadi setelah memilih bulan tahun lalu, tahun
+  // berjalan tak bisa dipilih lagi — dan bulan yang belum datang ikut tampil.
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return { month: d.getMonth() + 1, year: d.getFullYear() };
+  });
   const monthPickerDropdown = showMonthPicker && (
     <div
       className="fixed inset-0 z-50"
@@ -250,37 +267,29 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
         className="absolute right-4 top-14 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 p-2 w-48 max-h-64 overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].reverse().map(m => {
-          const mo = m + 1;
-          const yr = selectedYear;
-          const isCurrent = mo === selectedMonth && yr === selectedYear;
+        {monthOptions.map(({ month: mo, year: yr }, i) => {
+          const isSelected = mo === selectedMonth && yr === selectedYear;
+          const startsYear = i > 0 && yr !== monthOptions[i - 1].year;
           return (
-            <button
-              key={m}
-              onClick={() => { setSelectedMonth(mo); setSelectedYear(yr); setShowMonthPicker(false); }}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
-                isCurrent
-                  ? 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 dark:text-cyan-400'
-                  : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
-              }`}
-            >
-              {MONTHS[m]} {yr}
-            </button>
+            <div key={`${yr}-${mo}`}>
+              {startsYear && (
+                <div className="border-t border-gray-100 dark:border-slate-700 mt-1 pt-1">
+                  <p className="px-3 py-1 text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase">{yr}</p>
+                </div>
+              )}
+              <button
+                onClick={() => { setSelectedMonth(mo); setSelectedYear(yr); setShowMonthPicker(false); }}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                  isSelected
+                    ? 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 dark:text-cyan-400'
+                    : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
+                }`}
+              >
+                {MONTHS[mo - 1]} {yr}
+              </button>
+            </div>
           );
         })}
-        {/* Previous year months */}
-        <div className="border-t border-gray-100 dark:border-slate-700 mt-1 pt-1">
-          <p className="px-3 py-1 text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase">{selectedYear - 1}</p>
-          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].reverse().map(m => (
-            <button
-              key={`prev-${m}`}
-              onClick={() => { setSelectedMonth(m + 1); setSelectedYear(selectedYear - 1); setShowMonthPicker(false); }}
-              className="w-full text-left px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-            >
-              {MONTHS[m]} {selectedYear - 1}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -291,8 +300,10 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
     { id: 'features', label: 'Fitur' },
   ];
 
-  // ── Loading Skeleton ──
-  if (loading) {
+  // ── Loading Skeleton ── hanya saat belum ada data. Muat ulang (ganti bulan,
+  // tarik-untuk-segarkan) meredupkan isi yang ada alih-alih menggantinya dengan
+  // skeleton — tab & posisi gulir tidak ikut melompat.
+  if (loading && !data) {
     return (
       <div className="px-4 pt-4 pb-8 space-y-4">
         {monthPickerDropdown}
@@ -332,8 +343,8 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
     );
   }
 
-  // ── Error ──
-  if (error) {
+  // ── Error ── (tanpa data sama sekali; kalau ada data lama, tampil sebagai banner)
+  if (error && !data) {
     return (
       <div className="px-4 pt-4 pb-8">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-6 text-center">
@@ -363,8 +374,24 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
   const totalFeatureClicks = featureUsage.reduce((s, f) => s + f.count, 0) || 1;
 
   return (
-    <div className="px-4 pt-4 pb-8">
-      {monthPickerDropdown}
+    <>
+    {/* Pemilih bulan & modal detail di luar wadah yang diredupkan saat memuat
+        (pointer-events-none akan membuat keduanya tak bisa diketuk). */}
+    {monthPickerDropdown}
+    <div className={`px-4 pt-4 pb-8 transition-opacity ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+
+      {error && (
+        <div className="mb-4 px-3 py-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center justify-between gap-3">
+          <p className="text-[11px] font-medium text-red-600 dark:text-red-400">{error}. Data yang tampil belum diperbarui.</p>
+          <button
+            onClick={() => fetchData(selectedMonth, selectedYear)}
+            className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-lg text-[11px] font-medium hover:bg-red-700 active:scale-95 transition-all"
+          >
+            <RefreshCw size={12} />
+            Coba Lagi
+          </button>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="bg-gray-50 dark:bg-slate-900 rounded-xl p-1 flex gap-1 mb-4">
@@ -396,7 +423,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                 <Users size={18} className="text-emerald-600 dark:text-emerald-400" />
               </div>
               <p className="text-xl font-extrabold text-gray-800 dark:text-white">{overview.totalLogins.toLocaleString()}</p>
-              <p className="text-[9px] font-semibold text-gray-400 dark:text-slate-500 uppercase mt-0.5">Total Login · bulan ini</p>
+              <p className="text-[9px] font-semibold text-gray-400 dark:text-slate-500 uppercase mt-0.5">Total Login · {periodLabel}</p>
             </div>
             {/* Agent Aktif */}
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm p-3.5">
@@ -516,8 +543,8 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
               {[
                 { color: 'bg-emerald-500', label: 'Aktif' },
                 { color: 'bg-amber-500', label: 'Kurang aktif' },
-                { color: 'bg-red-500', label: 'Jarang login' },
-                { color: 'bg-gray-300 dark:bg-slate-600', label: 'Belum pernah' },
+                { color: 'bg-red-500', label: 'Jarang' },
+                { color: 'bg-gray-300 dark:bg-slate-600', label: 'Tidak aktif 30+ hari' },
               ].map(s => (
                 <span key={s.label} className="flex items-center gap-1">
                   <span className={`w-2 h-2 rounded-full ${s.color}`} />
@@ -526,7 +553,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
               ))}
             </div>
 
-            <p className="px-4 pb-2 text-[9px] text-gray-400 dark:text-slate-500">Tap agent untuk lihat detail 7 hari</p>
+            <p className="px-4 pb-2 text-[9px] text-gray-400 dark:text-slate-500">Status = aktivitas agen di app (bukan pengunjung), terkini · tap agent untuk detail 7 hari</p>
 
             <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
               {agentActivity.map(agent => {
@@ -540,7 +567,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                   active: 'Aktif',
                   inactive: 'Kurang aktif',
                   dormant: 'Jarang',
-                  never: 'Belum pernah',
+                  never: 'Tidak aktif',
                 };
                 const statusTextColors: Record<string, string> = {
                   active: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20',
@@ -574,7 +601,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
                             </span>
                           </div>
                           <p className="text-[9px] text-gray-400 dark:text-slate-500">
-                            {agent.lastActive ? `Terakhir: ${getRelativeTime(agent.lastActive)}` : 'Belum pernah login'}
+                            {agent.lastActive ? `Terakhir: ${getRelativeTime(agent.lastActive)}` : 'Tidak aktif 30 hari terakhir'}
                           </p>
                         </div>
                       </div>
@@ -607,7 +634,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
 
             {agentActivity.length === 0 && (
               <div className="px-4 pb-4">
-                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data agent untuk bulan ini</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data agent untuk {periodLabel}</p>
               </div>
             )}
           </div>
@@ -623,12 +650,12 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
             <div className="px-4 pt-4 pb-3">
               <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Fitur Paling Sering Dipakai</p>
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Total klik bulan ini</p>
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Total klik {periodLabel}</p>
             </div>
 
             {featureUsage.length === 0 ? (
               <div className="px-4 pb-4">
-                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data fitur untuk bulan ini</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data fitur untuk {periodLabel}</p>
               </div>
             ) : (
               <div className="px-4 pb-4 space-y-2.5">
@@ -665,12 +692,12 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
             <div className="px-4 pt-4 pb-3">
               <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Action Tracking</p>
-              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Aksi spesifik bulan ini</p>
+              <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Aksi spesifik {periodLabel}</p>
             </div>
 
             {actionTracking.length === 0 ? (
               <div className="px-4 pb-4">
-                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data aksi untuk bulan ini</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">Belum ada data aksi untuk {periodLabel}</p>
               </div>
             ) : (
               <div className="px-4 pb-4 space-y-1.5">
@@ -693,7 +720,7 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
               <div className="px-4 pt-4 pb-3">
                 <p className="text-[10px] font-extrabold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aktivitas Jamaah</p>
-                <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Dari halaman publik & portal jamaah bulan ini (tanpa page view)</p>
+                <p className="text-[9px] text-gray-400 dark:text-slate-500 mt-0.5">Dari halaman publik & portal jamaah {periodLabel} (tanpa page view)</p>
               </div>
               <div className="px-4 pb-4 space-y-1.5">
                 {publicTracking.map(p => (
@@ -723,17 +750,18 @@ export default function AnalyticsPage({ onHeaderRight }: { onHeaderRight?: (node
         publicTracking.length === 0 && (
         <div className="text-center py-8 mt-4">
           <TrendingUp size={32} className="mx-auto text-gray-300 dark:text-slate-600 mb-3" />
-          <p className="text-sm font-semibold text-gray-500 dark:text-slate-400">Belum ada data analytics untuk bulan ini</p>
+          <p className="text-sm font-semibold text-gray-500 dark:text-slate-400">Belum ada data analytics untuk {periodLabel}</p>
           <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Data akan muncul saat agent mulai menggunakan app</p>
         </div>
       )}
 
-      {drillDownSlug && (
-        <AgentDrillDownModal
-          slug={drillDownSlug}
-          onClose={() => setDrillDownSlug(null)}
-        />
-      )}
     </div>
+    {drillDownSlug && (
+      <AgentDrillDownModal
+        slug={drillDownSlug}
+        onClose={() => setDrillDownSlug(null)}
+      />
+    )}
+    </>
   );
 }

@@ -487,6 +487,35 @@ describe('Dashboard — tarik-untuk-segarkan per halaman', { concurrency: false 
     }
   });
 
+  test('Analytics (admin): setelah memilih bulan tahun lalu, bulan berjalan tetap bisa dipilih', { timeout: 90_000 }, async () => {
+    // Daftar lama ikut bergeser ke tahun terpilih: sekali memilih bulan tahun
+    // lalu, tahun berjalan hilang dari pemilih (dan bulan yang belum datang tampil).
+    const session = await openDashboard({ path: '/dashboard/analytics', agent: { ...AGENT, role: 'admin' } });
+    try {
+      const { page } = session;
+      await session.waitForCall('/api/analytics/summary');
+      await session.settle();
+      const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const label = d => `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+      const now = new Date();
+      const current = label(now);
+      const oldest = label(new Date(now.getFullYear(), now.getMonth() - 11, 1));
+      const future = label(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+
+      await page.getByRole('button', { name: current, exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: future, exact: true }).count(), 0, 'bulan yang belum datang tak boleh ditawarkan');
+      await page.getByRole('button', { name: oldest, exact: true }).click();
+      await session.settle();
+
+      await page.getByRole('button', { name: oldest, exact: true }).click();
+      await page.getByRole('button', { name: current, exact: true }).click();
+      await session.settle();
+      assert.equal(await page.getByRole('button', { name: current, exact: true }).count(), 1, 'kembali ke bulan berjalan');
+    } finally {
+      await session.close();
+    }
+  });
+
   test('halaman tanpa penyegar (Pengaturan) melepas overscroll supaya PTR bawaan Android tetap hidup', { timeout: 90_000 }, async () => {
     const session = await openDashboard({ path: '/dashboard/settings' });
     try {
