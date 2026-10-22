@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, Search, SearchX, SlidersHorizontal, Users } from 'lucide-react';
 import CalonHajiFilterSheet from './CalonHajiFilterSheet';
 import { getAuthHeaders } from '../lib/authSession';
 import { describeLoadError } from '../lib/loadError';
@@ -30,17 +30,17 @@ const titleCase = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.t
 function StatusCell({ row }: { row: CalonHajiRow }) {
   const berhak = isBerhakLunas(row);
   return (
-    <div className="flex w-[100px] shrink-0 flex-col items-start gap-0.5">
+    <div className="flex w-[100px] shrink-0 flex-col items-start gap-1">
       <span className="flex items-center gap-1.5">
-        <span className={`h-[7px] w-[7px] rounded-full ${berhak ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-        <span className={`text-[10px] font-semibold ${berhak ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${berhak ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        <span className={`text-[11px] font-semibold ${berhak ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
           {berhak ? 'Berhak Lunas' : 'Cadangan'}
         </span>
       </span>
       {isLunas(row) && (
-        <span className="inline-flex items-center gap-0.5 rounded-[5px] bg-slate-800 px-1.5 py-px text-[8px] font-bold tracking-wide text-white dark:bg-slate-100 dark:text-slate-900">
-          <Check size={9} strokeWidth={3} />
-          LUNAS
+        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wide text-white">
+          <Check size={10} strokeWidth={3} />
+          Lunas
         </span>
       )}
     </div>
@@ -50,15 +50,15 @@ function StatusCell({ row }: { row: CalonHajiRow }) {
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">{label}</p>
-      <p className="truncate text-[11px] font-semibold text-gray-700 dark:text-slate-200">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">{label}</p>
+      <p className="truncate text-xs font-semibold text-gray-700 dark:text-slate-200">{value}</p>
     </div>
   );
 }
 
 function RowDetail({ row }: { row: CalonHajiRow }) {
   return (
-    <div className="grid grid-cols-2 gap-x-3 gap-y-2 pb-3 pl-12 pr-2.5 pt-1">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-gray-50 py-3 pl-12 pr-3 dark:border-slate-700/50">
       <DetailItem label="No. Porsi" value={row.no_porsi} />
       <DetailItem label="NIK" value={row.nik} />
       <DetailItem label="Tahap" value={String(row.tahap ?? '-')} />
@@ -117,7 +117,7 @@ export default function CalonHajiPage() {
   const resetAll = () => { setSearch(''); setQuery(''); setFilters({ ...EMPTY_FILTERS }); };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 px-4 pt-4 pb-8">
       <div className="grid grid-cols-3 gap-2">
         {TABS.map((t) => {
           const active = tab === t.key;
@@ -126,17 +126,17 @@ export default function CalonHajiPage() {
               key={t.key}
               onClick={() => setTab(t.key)}
               aria-pressed={active}
-              className={`rounded-2xl border px-3 py-2.5 text-left transition-all active:scale-[0.97] ${
+              className={`rounded-2xl border p-3 text-left transition-all duration-200 active:scale-95 ${
                 active
-                  ? 'border-slate-800 bg-slate-800 dark:border-slate-100 dark:bg-slate-100'
-                  : 'border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800'
+                  ? 'border-emerald-500 bg-emerald-500 shadow-md shadow-emerald-500/20'
+                  : 'border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800'
               }`}
             >
               <span className="flex items-center gap-1.5">
-                {t.dot && <span className={`h-[7px] w-[7px] rounded-full ${t.dot}`} />}
-                <span className={`text-[10px] font-semibold ${active ? 'text-gray-300 dark:text-slate-600' : 'text-gray-500 dark:text-slate-400'}`}>{t.label}</span>
+                {t.dot && <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-white' : t.dot}`} />}
+                <span className={`truncate text-[10px] font-medium ${active ? 'text-emerald-50' : 'text-gray-400 dark:text-slate-500'}`}>{t.label}</span>
               </span>
-              <span className={`mt-1 block text-lg font-bold leading-tight ${active ? 'text-white dark:text-slate-900' : 'text-gray-800 dark:text-white'}`}>
+              <span className={`mt-1 block text-xl font-bold leading-tight ${active ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
                 {status === 'ready' ? counts[t.key].toLocaleString('id-ID') : '–'}
               </span>
             </button>
@@ -166,7 +166,7 @@ export default function CalonHajiPage() {
           >
             <SlidersHorizontal size={14} />
             {filterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-slate-800 text-[9px] font-bold text-white dark:border-slate-800 dark:bg-slate-100 dark:text-slate-900">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-white bg-gray-800 px-0.5 text-[9px] font-bold text-white dark:border-slate-800 dark:bg-white dark:text-slate-900">
                 {filterCount}
               </span>
             )}
@@ -175,45 +175,56 @@ export default function CalonHajiPage() {
       </div>
 
       {status === 'loading' && (
-        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} className="flex h-[38px] items-center gap-2 border-b border-gray-100 px-2.5 last:border-0 dark:border-slate-700/60">
-              <div className="h-2.5 w-5 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
-              <div className="h-2.5 flex-1 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
-              <div className="h-2.5 w-16 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
+            <div key={i} className="flex h-11 items-center gap-2 border-b border-gray-50 px-3 last:border-0 dark:border-slate-700/50">
+              <div className="h-2.5 w-6 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-2.5 w-3/5 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
+                <div className="h-2 w-2/5 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
+              </div>
+              <div className="h-2.5 w-20 animate-pulse rounded bg-gray-100 dark:bg-slate-700" />
             </div>
           ))}
         </div>
       )}
 
       {status === 'error' && (
-        <div className="rounded-2xl border border-gray-100 bg-white px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800">
-          <p className="text-xs text-gray-500 dark:text-slate-400">{error}</p>
-          <button onClick={load} className="mt-3 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-white active:scale-95">
+        <div className="space-y-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+          <p>{error}</p>
+          <button
+            onClick={load}
+            className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all active:scale-95 dark:bg-slate-800 dark:text-red-400"
+          >
             Coba lagi
           </button>
         </div>
       )}
 
       {status === 'ready' && rows.length === 0 && (
-        <div className="rounded-2xl border border-gray-100 bg-white px-4 py-8 text-center text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-          Data belum tersedia
+        <div className="flex flex-col items-center rounded-2xl border border-gray-100 bg-white px-4 py-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <Users size={36} className="text-gray-300 dark:text-slate-600" />
+          <p className="mt-3 text-sm font-semibold text-gray-600 dark:text-slate-300">Data belum tersedia</p>
         </div>
       )}
 
       {status === 'ready' && rows.length > 0 && visible.length === 0 && (
-        <div className="rounded-2xl border border-gray-100 bg-white px-4 py-8 text-center dark:border-slate-700 dark:bg-slate-800">
-          <p className="text-xs text-gray-500 dark:text-slate-400">Tidak ada jamaah yang cocok</p>
-          <button onClick={resetAll} className="mt-3 text-xs font-bold text-red-500 active:scale-95">
+        <div className="flex flex-col items-center rounded-2xl border border-gray-100 bg-white px-4 py-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <SearchX size={36} className="text-gray-300 dark:text-slate-600" />
+          <p className="mt-3 text-sm font-semibold text-gray-600 dark:text-slate-300">Tidak ada jamaah yang cocok</p>
+          <button
+            onClick={resetAll}
+            className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+          >
             Reset Filter
           </button>
         </div>
       )}
 
       {status === 'ready' && visible.length > 0 && (
-        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-          <div className="flex h-[30px] items-center gap-2 border-b border-gray-200 bg-gray-50 px-2.5 text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-500">
-            <span className="w-[30px] shrink-0">No</span>
+        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex h-8 items-center gap-2 border-b border-gray-100 bg-gray-50/80 px-3 text-[9px] font-bold uppercase tracking-wide text-gray-400 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-500">
+            <span className="w-7 shrink-0">No</span>
             <span className="min-w-0 flex-1">Nama</span>
             <span className="w-[100px] shrink-0">Status</span>
           </div>
@@ -222,17 +233,17 @@ export default function CalonHajiPage() {
             return (
               <div
                 key={row.no_urut}
-                className={`border-b last:border-0 ${open ? 'border-emerald-100 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-900/20' : 'border-gray-100 dark:border-slate-700/60'}`}
+                className={`border-b border-gray-50 transition-colors last:border-0 dark:border-slate-700/50 ${open ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : ''}`}
               >
                 <button
                   onClick={() => setExpanded(open ? null : row.no_urut)}
                   aria-expanded={open}
-                  className="flex min-h-[38px] w-full items-center gap-2 px-2.5 py-1 text-left"
+                  className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-gray-50/50 dark:hover:bg-slate-700/30"
                 >
-                  <span className="w-[30px] shrink-0 text-[11px] font-semibold text-gray-400 dark:text-slate-500">{row.no_urut}</span>
+                  <span className="w-7 shrink-0 text-[11px] font-semibold tabular-nums text-gray-400 dark:text-slate-500">{row.no_urut}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-bold text-gray-800 dark:text-white">{row.nama}</span>
-                    <span className="block truncate text-[9px] text-gray-400 dark:text-slate-500">
+                    <span className="block truncate text-xs font-bold text-gray-800 dark:text-white">{row.nama}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-gray-400 dark:text-slate-500">
                       {formatKabKota(row.kab_kota)} · {row.usia} th
                     </span>
                   </span>
@@ -258,7 +269,7 @@ export default function CalonHajiPage() {
           {visible.length > limit && (
             <button
               onClick={() => setLimit((l) => l + PAGE_STEP)}
-              className="flex h-[34px] w-full items-center justify-center bg-gray-50 text-[11px] font-bold text-emerald-600 dark:bg-slate-900/40 dark:text-emerald-400"
+              className="flex h-10 w-full items-center justify-center border-t border-gray-100 text-xs font-bold text-emerald-600 transition-colors hover:bg-gray-50 dark:border-slate-700 dark:text-emerald-400 dark:hover:bg-slate-700/30"
             >
               Tampilkan lebih banyak
             </button>
