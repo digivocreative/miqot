@@ -7,7 +7,7 @@ import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
 import {
   EMPTY_FILTERS, activeFilterCount, countByTab, filterCalonHaji, formatKabKota, formatKabKotaLengkap,
-  formatProvinsi, isBerhakLunas, isLunas,
+  formatProvinsi, rowStatus,
   type CalonHajiFilters, type CalonHajiRow, type CalonHajiTab,
 } from '../lib/calonHaji';
 
@@ -28,16 +28,19 @@ const JKN_LABEL: Record<string, string> = {
 const titleCase = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 
 function StatusCell({ row }: { row: CalonHajiRow }) {
-  const berhak = isBerhakLunas(row);
+  const { label, lunas } = rowStatus(row);
+  const berhak = label === 'Berhak Lunas';
   return (
     <div className="flex w-[100px] shrink-0 flex-col items-start gap-1">
-      <span className="flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 rounded-full ${berhak ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-        <span className={`text-[11px] font-semibold ${berhak ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-          {berhak ? 'Berhak Lunas' : 'Cadangan'}
+      {label && (
+        <span className="flex items-center gap-1.5">
+          <span className={`h-1.5 w-1.5 rounded-full ${berhak ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          <span className={`text-[11px] font-semibold ${berhak ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+            {label}
+          </span>
         </span>
-      </span>
-      {isLunas(row) && (
+      )}
+      {lunas && (
         <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wide text-white">
           <Check size={10} strokeWidth={3} />
           Lunas

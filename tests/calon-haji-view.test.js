@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   EMPTY_FILTERS, activeFilterCount, countByTab, filterCalonHaji, formatKabKota, formatProvinsi,
-  isBerhakLunas, isLunas, jknBucket, kabKotaOptions, provinsiOptions, withProvinsi,
+  isBerhakLunas, isLunas, jknBucket, rowStatus, kabKotaOptions, provinsiOptions, withProvinsi,
 } from '../src/lib/calonHaji.js';
 
 // Data karangan.
@@ -38,6 +38,13 @@ test('isBerhakLunas / isLunas', () => {
   assert.equal(isBerhakLunas(ROWS[1]), false);
   assert.equal(isLunas(ROWS[1]), true);
   assert.equal(isLunas(ROWS[0]), false);
+});
+
+test('rowStatus: Berhak Lunas yang sudah LUNAS cukup lencana LUNAS', () => {
+  assert.deepEqual(rowStatus(ROWS[0]), { label: 'Berhak Lunas', lunas: false });
+  assert.deepEqual(rowStatus({ ...ROWS[0], status_jemaah: 'LUNAS' }), { label: null, lunas: true });
+  assert.deepEqual(rowStatus(ROWS[1]), { label: 'Cadangan', lunas: true });
+  assert.deepEqual(rowStatus(ROWS[2]), { label: 'Cadangan', lunas: false });
 });
 
 test('countByTab: LUNAS tidak memengaruhi hitungan', () => {

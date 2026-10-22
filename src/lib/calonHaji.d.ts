@@ -19,6 +19,7 @@ export function formatProvinsi(raw: string): string;
 export function jknBucket(raw: string | null): Exclude<JknFilter, 'semua'>;
 export function isBerhakLunas(row: CalonHajiRow): boolean;
 export function isLunas(row: CalonHajiRow): boolean;
+export function rowStatus(row: CalonHajiRow): { label: 'Berhak Lunas' | 'Cadangan' | null; lunas: boolean };
 export function countByTab(rows: CalonHajiRow[]): { semua: number; berhak: number; cadangan: number };
 export function filterCalonHaji(
   rows: CalonHajiRow[],

@@ -42,6 +42,13 @@ export function isLunas(row) {
   return row.status_jemaah === 'LUNAS';
 }
 
+/** Label status baris tabel: Berhak Lunas yang sudah LUNAS cukup lencana LUNAS. */
+export function rowStatus(row) {
+  const lunas = isLunas(row);
+  if (isBerhakLunas(row)) return { label: lunas ? null : 'Berhak Lunas', lunas };
+  return { label: 'Cadangan', lunas };
+}
+
 export function countByTab(rows) {
   const berhak = rows.filter(isBerhakLunas).length;
   return { semua: rows.length, berhak, cadangan: rows.length - berhak };
