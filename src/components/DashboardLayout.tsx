@@ -28,6 +28,7 @@ import { isStandaloneDisplay } from '../lib/pwa/launch';
 import PullToRefreshHost from './pwa/PullToRefreshHost';
 import { usePullRefreshHandler } from '../hooks/usePullRefreshHandler';
 import { hasUnsavedChanges } from '../lib/unsavedChanges';
+import KaabaIcon from './bio/KaabaIcon';
 
 const DASHBOARD_OPEN_TRACKED_KEY = 'analytics-open-dashboard-tracked';
 
@@ -121,6 +122,7 @@ const HotelKelolaPage = lazy(() => import('./HotelKelolaPage'));
 const UmrahRegisterPage = lazy(() => import('./UmrahRegisterPage'));
 const JamaahEditPage = lazy(() => import('./JamaahEditPage'));
 const TerasPage = lazy(() => import('./TerasPage'));
+const CalonHajiPage = lazy(() => import('./CalonHajiPage'));
 // Home widgets — only mounted on the home tab; split out of the initial chunk
 // so a deep-link to a non-home dashboard route doesn't pay for them.
 const TerasCard = lazy(() => import('./TerasCard'));
@@ -133,7 +135,7 @@ const BirthdayWidget = lazy(() => import('./BirthdayWidget'));
 const ShareKursModal = lazy(() => import('./ShareKursModal'));
 const BirthdayDetailSheet = lazy(() => import('./BirthdayDetailSheet'));
 
-type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'hotels' | 'hotel';
+type TabId = 'home' | 'settings' | 'brosur' | 'agents' | 'jamaah' | 'statistik' | 'analytics' | 'ai-tools' | 'teras' | 'hotels' | 'hotel' | 'calon-haji';
 
 // URL slug ↔ TabId mapping
 const SLUG_TO_TAB: Record<string, TabId> = {
@@ -147,6 +149,7 @@ const SLUG_TO_TAB: Record<string, TabId> = {
   teras: 'teras',
   hotels: 'hotels',
   hotel: 'hotel',
+  'calon-haji-2027': 'calon-haji',
 };
 
 const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
@@ -160,6 +163,7 @@ const TAB_TO_SLUG: Partial<Record<TabId, string>> = {
   teras: 'teras',
   hotels: 'hotels',
   hotel: 'hotel',
+  'calon-haji': 'calon-haji-2027',
 };
 
 function getTabFromPath(): TabId {
@@ -297,6 +301,7 @@ const TAB_TITLES: Record<TabId, string> = {
   teras: 'Teras',
   hotels: 'Hotels',
   hotel: 'Direktori Hotel',
+  'calon-haji': 'Calon Haji 2027',
 };
 
 // Judul dokumen per sub-halaman Tools. SATU sumber: navigatePath memakainya
@@ -385,6 +390,10 @@ interface MenuCard {
   hidden?: boolean;
   openExternal?: boolean;
   comingSoon?: boolean;
+  /** Kartu lebar penuh (3 kolom, pendek) di bawah grid — lihat renderWideMenuCard. */
+  wide?: boolean;
+  /** Foto di 60% sisi kanan kartu lebar (dari public/), tepi kirinya memudar. */
+  bgImage?: string;
 }
 
 const MENU_CARDS: MenuCard[] = [
@@ -475,6 +484,22 @@ const MENU_CARDS: MenuCard[] = [
     iconShadow: 'shadow-lg shadow-indigo-500/30 dark:shadow-indigo-900/40',
     hoverShadow: 'hover:shadow-indigo-300/40 dark:hover:shadow-indigo-900/30',
     iconAnim: 'animate-icon-breathe',
+  },
+  {
+    // Daftar bersama calon jamaah Haji Khusus 2027 dari PDF estimasi kantor
+    // (spec docs/superpowers/specs/2026-10-22-calon-haji-2027-design.md).
+    id: 'calon-haji', label: 'Calon Haji 2027', desc: 'Cek status berhak lunas & cadangan',
+    icon: KaabaIcon, color: 'text-sky-600 dark:text-sky-400',
+    bgLight: 'bg-sky-50', bgDark: 'dark:bg-sky-900/20',
+    borderLight: 'border-sky-100', borderDark: 'dark:border-sky-800/40',
+    cardBg: 'bg-gradient-to-r from-sky-50 via-white to-sky-50/60 dark:from-sky-950/40 dark:via-slate-800 dark:to-slate-800',
+    cardBorder: 'border-sky-200/70 dark:border-sky-800/40',
+    iconBg: 'bg-gradient-to-br from-sky-400 to-sky-700 dark:from-sky-500 dark:to-sky-800',
+    iconShadow: 'shadow-lg shadow-sky-500/30 dark:shadow-sky-900/40',
+    hoverShadow: 'hover:shadow-sky-300/40 dark:hover:shadow-sky-900/30',
+    iconAnim: '',
+    wide: true,
+    bgImage: '/calon-haji/menu-bg.webp',
   },
   {
     id: 'settings', label: 'Settings', desc: 'Profil, Telegram & CAPI',
@@ -888,11 +913,12 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Kartu Settings naik sebaris dengan Jendela Teras (kolom ke-3) saat Teras
   // aktif; tanpa Teras ia tetap di barisnya semula di dalam grid.
   const gridCards = MENU_CARDS.filter(c =>
-    !c.hidden && !c.adminOnly
+    !c.hidden && !c.adminOnly && !c.wide
     && (c.id !== 'teras' || terasEnabled)
     && (c.id !== 'hotel' || hotelEnabled)
     && (c.id !== 'settings' || !terasEnabled));
   const settingsCard = MENU_CARDS.find(c => c.id === 'settings');
+  const wideCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && c.wide);
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)) : [];
 
   // Link /teras/<slug> pasti beredar antar-agent lewat WhatsApp. Agent yang
@@ -1306,6 +1332,8 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             <HotelPage onNavigate={navigatePath} agentSlug={agentData.slug} />
           )}
 
+          {activeTab === 'calon-haji' && <CalonHajiPage />}
+
           {activeTab === 'hotels' && isAdmin && hotelEnabled && (
             <HotelKelolaPage onNavigate={navigatePath} />
           )}
@@ -1360,6 +1388,43 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       </div>
     );
   }
+
+  // Pudar panjang & lembut: foto baru pekat di ujung kanan, teks di kiri tetap terbaca.
+  const PHOTO_FADE = 'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.12) 25%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.8) 72%, #000 90%)';
+  // Kartu lebar penuh & pendek (mockup Haji2027.pen frame 01): ikon kiri,
+  // label + deskripsi, chevron kanan.
+  const renderWideMenuCard = (card: MenuCard) => {
+    const Icon = card.icon;
+    const photo = Boolean(card.bgImage);
+    return (
+      <button
+        key={card.id}
+        onClick={() => navigateTab(card.id)}
+        className={`group relative mt-3 flex h-16 w-full items-center gap-3 overflow-hidden ${card.cardBg} rounded-2xl border px-3.5 text-left ${card.cardBorder} shadow-sm ${card.hoverShadow} hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.98]`}
+      >
+        {photo && (
+          <img
+            src={card.bgImage}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            // Masker (bukan gradasi warna) supaya pudarnya cocok di latar terang & gelap.
+            style={{ maskImage: PHOTO_FADE, WebkitMaskImage: PHOTO_FADE }}
+            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[60%] object-cover object-[center_40%]"
+          />
+        )}
+        <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.iconBg} ${card.iconShadow} ring-1 ring-white/40 dark:ring-white/10`}>
+          <Icon size={22} className="text-white" strokeWidth={1.8} />
+        </div>
+        <div className="relative min-w-0 flex-1">
+          <p className="truncate text-[13px] font-bold text-gray-800 dark:text-white">{card.label}</p>
+          <p className="truncate text-[10px] text-gray-500 dark:text-slate-400">{card.desc}</p>
+        </div>
+        <ChevronRight size={16} className={`relative shrink-0 ${photo ? 'text-white drop-shadow' : 'text-sky-300 dark:text-sky-600'}`} />
+      </button>
+    );
+  };
 
   const renderMenuCard = (card: MenuCard) => {
     const Icon = card.icon;
@@ -1528,6 +1593,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           )}
           {gridCards.map(renderMenuCard)}
         </div>
+        {wideCards.map(renderWideMenuCard)}
 
         {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}
         <div className="flex flex-col mt-4 gap-4">

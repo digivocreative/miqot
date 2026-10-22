@@ -622,6 +622,11 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      // Bukan prefiks '/api/haji' → wajib entri sendiri.
+      '/api/calon-haji': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/api/haji-plus': {
         target: 'http://localhost:3000',
         changeOrigin: true,
