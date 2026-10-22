@@ -215,6 +215,7 @@ import {
   RAW_RETENTION_DAYS,
 } from './lib/analytics-maintenance.js';
 import { normalizeTrackingScript } from './lib/landing-tracking-script.js';
+import { clientIp } from './lib/client-ip.js';
 import { fillPackageHotelStars } from './lib/hotel-stars.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import {
@@ -552,6 +553,10 @@ app.use('/api/hotels', express.json({ limit: '96kb' }));
 // Webhook Resend Inbound butuh raw body (verifikasi signature Svix) — harus
 // terpasang SEBELUM parser JSON global di bawah
 app.use('/api/resend-inbound', express.raw({ type: '*/*', limit: '1mb' }));
+// Event analytics publik (tanpa login) — metadata terbesar yang pernah tercatat
+// ±150 byte. Di bawah parser global 10mb siapa pun bisa menyimpan JSON
+// bermegabyte per request ke analytics_events dan menguras Disk-IO DB.
+app.use('/api/analytics/public', express.json({ limit: '4kb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // ──────────────────────────────────────────────
@@ -570,10 +575,14 @@ function isCustomDomainEnabledForAgent(agent) {
 }
 
 const PRIMARY_HOSTS = new Set(['alhijaz.co', 'www.alhijaz.co']);
+// Loopback wajib cocok PERSIS. Dulu startsWith('127.') ikut meloloskan Host
+// "127.evil.com" lewat blok catch-all Caddy: host itu dianggap alhijaz.co, /api/auth
+// terbuka, dan Host-nya masuk ke URL absolut (link reset password, og:url).
+const LOOPBACK_HOST_RE = /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?)$/;
 function isPrimaryHost(host) {
   if (!host) return true;
   if (PRIMARY_HOSTS.has(host)) return true;
-  if (host === 'localhost' || host.startsWith('127.') || host.startsWith('0.0.0.0')) return true;
+  if (LOOPBACK_HOST_RE.test(host)) return true;
   // local dev tunneling / preview hosts — skip custom domain logic
   if (host.endsWith('.localhost')) return true;
   return false;
@@ -657,7 +666,7 @@ async function isCustomDomainDnsHealthyForRedirect(domain) {
 app.use(createMaintenanceGate({
   isPrimaryHost,
   isSharedStaticRequestPath,
-  verifyAccessToken: token => jwt.verify(token, JWT_SECRET),
+  verifyAccessToken: token => verifyAgentSessionToken(token),
 }));
 
 // 1) Host detection — set req.customDomainAgent when accessing via custom domain
@@ -755,8 +764,7 @@ app.use(async (req, res, next) => {
 // ── Analytics: fire-and-forget event logger ──
 function getClientIpUa(req) {
   if (!req) return { ip: null, userAgent: null };
-  const fwd = req.headers?.['x-forwarded-for'] || '';
-  const ip = (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.ip || null;
+  const ip = clientIp(req);
   const userAgent = req.headers?.['user-agent'] || null;
   return { ip, userAgent };
 }
@@ -1385,6 +1393,18 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
+// Token sesi login agent — yang diterbitkan /api/auth/login atau saat ganti
+// slug. Token lain yang ditandatangani JWT_SECRET yang sama (link reset password
+// { purpose: 'password-reset' }) BUKAN sesi: tanpa penolakan ini link reset 1 jam
+// bisa dipakai sebagai Bearer, termasuk oleh pendaftar yang belum disetujui admin.
+function verifyAgentSessionToken(token) {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  if (!decoded || typeof decoded !== 'object' || decoded.purpose || decoded.typ) {
+    throw new jwt.JsonWebTokenError('not an agent session token');
+  }
+  return decoded;
+}
+
 // ── JWT Auth middleware ──
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -1393,7 +1413,7 @@ async function authMiddleware(req, res, next) {
   }
   try {
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = verifyAgentSessionToken(token);
     // Backward compat: old tokens don't have id, resolve from slug
     if (!decoded.id && decoded.slug) {
       let agent = await getAgentBySlug(decoded.slug);
@@ -1415,6 +1435,12 @@ async function authMiddleware(req, res, next) {
     }
     if (!decoded.id) {
       return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    // Login menolak status selain active; token yang terbit sebelum akun
+    // ditolak/dinonaktifkan juga harus berhenti berlaku.
+    const current = await getAgentById(decoded.id);
+    if (current?.status && current.status !== 'active') {
+      return res.status(401).json({ error: 'Akun tidak aktif' });
     }
     req.user = decoded; // { id, slug, name, role }
     next();
@@ -2379,7 +2405,7 @@ app.post('/api/ask-ai/:slug/:jadwalId', async (req, res) => {
   }
 
   // Rate limit per IP: 10 req / 60s
-  const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+  const ip = clientIp(req) || 'unknown';
   const nowMs = Date.now();
   const rl = askAiRateLimitMap.get(ip);
   if (rl && nowMs < rl.resetAt) {
@@ -3384,9 +3410,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    // Build reset URL — selalu https (publicOrigin): X-Forwarded-Proto dari
-    // nginx selalu 'http', dan token reset tak boleh lewat link http.
-    const resetUrl = `${publicOrigin(req)}/reset-password?token=${resetToken}`;
+    // Build reset URL dari origin tetap (https), BUKAN dari header Host: Host
+    // bisa dipilih penyerang, sehingga email reset asli berisi token valid yang
+    // menunjuk ke domain penyerang (password-reset poisoning).
+    const resetUrl = `${communityPublicOrigin()}/reset-password?token=${resetToken}`;
 
     // Send email via Resend
     if (!resend) {
@@ -10114,7 +10141,7 @@ async function getOptionalAuthUser(req) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   try {
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = verifyAgentSessionToken(token);
     if (!decoded.id && decoded.slug) {
       let agent = await getAgentBySlug(decoded.slug);
       if (!agent) {
@@ -10132,7 +10159,10 @@ async function getOptionalAuthUser(req) {
         decoded.slug = agent.slug;
       }
     }
-    return decoded.id ? decoded : null;
+    if (!decoded.id) return null;
+    const current = await getAgentById(decoded.id);
+    if (current?.status && current.status !== 'active') return null;
+    return decoded;
   } catch {
     return null;
   }
@@ -11541,7 +11571,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   }
   if (!resolvedEventName) return res.json({ sent: false, reason: 'Event disabled' });
 
-  const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || '';
+  const visitorIp = clientIp(req) || '';
   const resolvedSourceUrl = eventSourceUrl || sourceUrl || `https://alhijaz.co/${slug}`;
   const resolvedEventId = eventId || `${resolvedEventName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -11556,7 +11586,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
         ...(fbc ? { fbc } : {}),
         ...(fbp ? { fbp } : {}),
         ...(userAgent ? { client_user_agent: userAgent } : {}),
-        client_ip_address: clientIp,
+        client_ip_address: visitorIp,
         country: crypto.createHash('sha256').update('id').digest('hex'),
       },
       custom_data: customData || {},
@@ -11564,7 +11594,7 @@ app.post('/api/capi/:slug/event', async (req, res) => {
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
-  console.log(`[CAPI] ${slug}/${resolvedEventName} payload:`, JSON.stringify({ event_id: resolvedEventId, event_source_url: resolvedSourceUrl, client_ip: clientIp, user_data_keys: Object.keys(metaPayload.data[0].user_data) }));
+  console.log(`[CAPI] ${slug}/${resolvedEventName} payload:`, JSON.stringify({ event_id: resolvedEventId, event_source_url: resolvedSourceUrl, client_ip: visitorIp, user_data_keys: Object.keys(metaPayload.data[0].user_data) }));
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${config.pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaPayload),
@@ -11616,7 +11646,7 @@ app.post('/api/capi/:slug/validate', authMiddleware, async (req, res) => {
         action_source: 'website',
         user_data: {
           client_user_agent: 'Miqot Validation',
-          client_ip_address: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '127.0.0.1',
+          client_ip_address: clientIp(req) || '127.0.0.1',
           country: crypto.createHash('sha256').update('id').digest('hex'),
         },
       }],
@@ -19037,6 +19067,37 @@ async function resolveFreshUmrohPernyataanUrl(agent, idJamaah) {
   }
 }
 
+// URL absolut di server internal, atau null bila origin-nya lain. URL dengan
+// userinfo (`http://host@lain/`) juga ditolak.
+function internalDocumentUrl(raw, base, internalOrigin) {
+  try {
+    const url = new URL(raw, base);
+    if (url.origin !== internalOrigin || url.username || url.password) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+// Redirect diikuti MANUAL: setiap Location harus tetap di server internal.
+// redirect:'follow' membiarkan host mana pun di rantai redirect mengarahkan
+// fetch ke loopback / jaringan docker. null = redirect keluar dari server internal.
+const INTERNAL_DOCUMENT_MAX_REDIRECTS = 5;
+async function fetchInternalDocument(url, internalOrigin, headers) {
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    const response = await fetch(current, { headers, redirect: 'manual' });
+    const isRedirect = response.status >= 300 && response.status < 400;
+    const location = isRedirect ? response.headers.get('location') : null;
+    if (!location) return response;
+    await response.body?.cancel().catch(() => {});
+    const next = internalDocumentUrl(location, current, internalOrigin);
+    if (!next) return null;
+    if (hop >= INTERNAL_DOCUMENT_MAX_REDIRECTS) throw new Error('terlalu banyak redirect');
+    current = next;
+  }
+}
+
 async function proxyInternalDocument(req, res) {
   try {
     const urlParam = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
@@ -19096,8 +19157,13 @@ async function proxyInternalDocument(req, res) {
       }
     }
 
-    // Block requests to anything outside the internal server
-    if (!targetUrl.startsWith(BASE_INTERNAL)) {
+    // Block requests to anything outside the internal server — bandingkan ORIGIN
+    // hasil parse, bukan prefix string: startsWith(BASE_INTERNAL) meloloskan
+    // `http://115.124.86.220.<domain penyerang>` yang bisa di-resolve ke loopback
+    // (Supabase Studio di 127.0.0.1:3001 menjawab tanpa login).
+    const internalOrigin = new URL(BASE_INTERNAL).origin;
+    targetUrl = internalDocumentUrl(targetUrl, targetUrl, internalOrigin);
+    if (!targetUrl) {
       return res.status(403).json({ error: 'Forbidden: only internal documents allowed' });
     }
 
@@ -19107,7 +19173,10 @@ async function proxyInternalDocument(req, res) {
     const headers = {};
     if (sessionCookies) headers['Cookie'] = sessionCookies;
 
-    const response = await fetch(targetUrl, { headers, redirect: 'follow' });
+    const response = await fetchInternalDocument(targetUrl, internalOrigin, headers);
+    if (!response) {
+      return res.status(403).json({ error: 'Forbidden: only internal documents allowed' });
+    }
 
     if (!response.ok) {
       if (cacheKey) {
@@ -19415,12 +19484,15 @@ app.post('/api/analytics/event', authMiddleware, async (req, res) => {
 
 // Public (unauthenticated) event logging
 app.post('/api/analytics/public', async (req, res) => {
-  const { slug, eventName, metadata } = req.body;
-  if (!slug || !eventName) {
+  const { slug, eventName, metadata } = req.body || {};
+  if (typeof slug !== 'string' || !slug || !eventName) {
     return res.status(400).json({ error: 'slug and eventName required' });
   }
   if (!VALID_PUBLIC_EVENTS.includes(eventName)) {
     return res.status(400).json({ error: 'Invalid eventName' });
+  }
+  if (metadata != null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+    return res.status(400).json({ error: 'metadata must be an object' });
   }
   const { ip, userAgent } = getClientIpUa(req);
   const rateLimitKey = ip || 'unknown';
@@ -25005,13 +25077,21 @@ app.get('{*path}', async (req, res) => {
       ogImageUrl = customUmrohOg || `${ogImageOrigin}/og/${agent.slug}.png`;
     }
 
+    // Semua nilai di bawah berasal dari data agent/jamaah (nama bebas diisi saat
+    // daftar, termasuk agent yang belum disetujui) atau dari URL — escape di sini,
+    // dan replacer berupa fungsi supaya `$&`/`$1` di nilai tidak ditafsirkan.
+    const safeTitle = escapeHtmlAttr(newTitle);
+    const safeDescription = escapeHtmlAttr(newDescription);
+    const safePageUrl = escapeHtmlAttr(pageUrl);
+    const safeOgImageUrl = escapeHtmlAttr(ogImageUrl);
+
     // Replace <title>
-    html = html.replace(/<title>[^<]*<\/title>/i, `<title>${newTitle}</title>`);
+    html = html.replace(/<title>[^<]*<\/title>/i, () => `<title>${safeTitle}</title>`);
 
     // Replace <meta name="description">
     html = html.replace(
       /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
-      `<meta name="description" content="${newDescription}" />`
+      () => `<meta name="description" content="${safeDescription}" />`
     );
 
     // Remove existing OG / canonical tags so the injected ones are authoritative
@@ -25024,7 +25104,7 @@ app.get('{*path}', async (req, res) => {
       agent.custom_domain &&
       agent.custom_domain_status === 'active'
     );
-    const agentContext = JSON.stringify({
+    const agentContext = serializeInlineJson({
       slug: agent.slug,
       name: agent.name,
       website: agent.website || null,
@@ -25040,22 +25120,22 @@ app.get('{*path}', async (req, res) => {
 
     // Inject OG + Twitter tags + canonical + agent context
     const metaTags = `
-    <link rel="canonical" href="${pageUrl}" />
-    <meta property="og:title" content="${newTitle}" />
-    <meta property="og:description" content="${newDescription}" />
-    <meta property="og:url" content="${pageUrl}" />
+    <link rel="canonical" href="${safePageUrl}" />
+    <meta property="og:title" content="${safeTitle}" />
+    <meta property="og:description" content="${safeDescription}" />
+    <meta property="og:url" content="${safePageUrl}" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Alhijaz Indowisata" />
-    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image" content="${safeOgImageUrl}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${newTitle}" />
-    <meta name="twitter:description" content="${newDescription}" />
-    <meta name="twitter:image" content="${ogImageUrl}" />
+    <meta name="twitter:title" content="${safeTitle}" />
+    <meta name="twitter:description" content="${safeDescription}" />
+    <meta name="twitter:image" content="${safeOgImageUrl}" />
     <script>window.__AGENT_CONTEXT__ = ${agentContext};</script>
     `;
-    html = html.replace('</head>', `${metaTags}</head>`);
+    html = html.replace('</head>', () => `${metaTags}</head>`);
   }
 
   return sendSpaShell(req, res, html);

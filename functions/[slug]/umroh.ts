@@ -114,7 +114,9 @@ function escapeHtmlAttr(s: string): string {
 
 async function generateHTML(slug: string, agentOverride?: AgentOverride): Promise<string> {
   const agent = AGENTS[slug];
-  const phone = agentOverride?.phone || agent?.phone || DEFAULT_PHONE;
+  // Hanya digit: nomor disisipkan mentah ke href WhatsApp di banyak tempat, dan
+  // profil agent tidak memvalidasi formatnya — `"` di sana menutup atribut href.
+  const phone = String(agentOverride?.phone || agent?.phone || DEFAULT_PHONE).replace(/\D/g, '') || DEFAULT_PHONE;
   const agentName = agentOverride?.name || agent?.name || slug.charAt(0).toUpperCase() + slug.slice(1);
   const agentPhoto = agentOverride?.photo
     || 'https://sb.alhijaz.co/storage/v1/object/public/agent-photos/' + slug + '.jpg';

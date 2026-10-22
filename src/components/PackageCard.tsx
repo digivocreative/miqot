@@ -1285,7 +1285,11 @@ _________________________
           marginBottom: '5px',
           lineHeight: '1.4',
         });
-        line1.innerHTML = `Konsultasi & pendaftaran bisa hubungi <strong>${currentAgent.name}</strong>`;
+        // Nama, HP, dan website agent bebas diisi di profil — pasang sebagai teks,
+        // bukan HTML (pola yang sama dengan header agent di bawah).
+        const line1Name = document.createElement('strong');
+        line1Name.textContent = currentAgent.name;
+        line1.append('Konsultasi & pendaftaran bisa hubungi ', line1Name);
 
         // Line 2: WA icon + phone  —  link icon + website
         const line2 = document.createElement('div');
@@ -1306,7 +1310,9 @@ _________________________
         // Link icon SVG
         const linkIconSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`;
 
-        line2.innerHTML = `${waIconSvg} ${formattedPhone} <span style="color:#9CA3AF;margin:0 4px">•</span> ${linkIconSvg} ${currentAgent.website}`;
+        line2.innerHTML = `${waIconSvg} <span data-cta-phone></span> <span style="color:#9CA3AF;margin:0 4px">•</span> ${linkIconSvg} <span data-cta-website></span>`;
+        line2.querySelector('[data-cta-phone]')!.textContent = formattedPhone;
+        line2.querySelector('[data-cta-website]')!.textContent = currentAgent.website ?? '';
 
         ctaSection.appendChild(line1);
         ctaSection.appendChild(line2);

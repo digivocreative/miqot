@@ -57,7 +57,9 @@ test('server mengirim viaCustomDomain di KEDUA titik suntikan', () => {
   assert.notEqual(builder, '', 'buildAgentContextPayload tidak ditemukan');
   assert.match(builder, /viaCustomDomain: !!servedCustomDomain/);
 
-  const inline = server.match(/const agentContext = JSON\.stringify\(\{[\s\S]*?\}\);/)?.[0] ?? '';
+  // serializeInlineJson (bukan JSON.stringify): nilai agent masuk ke <script>,
+  // jadi `</script>` di nama agent harus di-escape.
+  const inline = server.match(/const agentContext = serializeInlineJson\(\{[\s\S]*?\}\);/)?.[0] ?? '';
   assert.notEqual(inline, '', 'objek agentContext inline di SPA fallback tidak ditemukan');
   assert.match(inline, /viaCustomDomain: !!req\.customDomain/);
 });
