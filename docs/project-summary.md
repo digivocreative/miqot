@@ -358,6 +358,7 @@ Important guards:
 - `jamaah-payment-provenance.js` prevents stale legacy payment columns from overwriting trusted AWAPI/manual data.
 - Batch size is intentionally small through `JAMAAH_UPSERT_BATCH` to avoid Supabase Disk IO/work_mem pressure.
 - Background cycles persist `data/sync-state.json` to avoid restart storms.
+- **Perlengkapan backfill from the legacy web (since 2026-10-22).** Since ~end of Sep 2026 AWAPI sends `perlengkapan: null` for handovers already ticked on the Alhijaz web (when AWAPI has an object it always matches the web). `preserveLegacyUmrohRawData` (awapi-client.js) therefore never lets a null/empty AWAPI value overwrite stored perlengkapan, and a daily 06:00 WIB job (`scheduleLegacyPerlengkapanBackfill`, pure logic in `lib/legacy-perlengkapan-backfill.js`) reads the laporan only for registration weeks of upcoming jamaah whose `raw_data.perlengkapan` is empty (or all upcoming jamaah when the agent's API sync is stale, e.g. 403) and writes only the `perlengkapan` column in AWAPI key format. It runs once on boot when the last run (`data/perlengkapan-backfill-state.json`) is >20h old. Not gated by `DISABLE_LEGACY_BACKGROUND_SYNC`; turn off with `DISABLE_LEGACY_PERLENGKAPAN_BACKFILL=true`. The laporan date filter is on **tgl_daftar** and its end date is **exclusive**. Logs: `[SYNC/perlengkapan]`.
 
 Itinerary AI cache (`itineraries` table, dipakai kartu "Urutan Perjalanan", viewer itinerary, Ask-AI, terminal kalender):
 
@@ -601,7 +602,7 @@ Legacy/AWAPI:
 | `LEGACY_BROWSER_API_BASE` | Browser fallback base for legacy submit. |
 | `UMRAH_RECAPTCHA_SITE_KEY` | reCAPTCHA site key used by legacy form. |
 | `UMRAH_RECAPTCHA_FIELD_NAME` | Hidden field name for reCAPTCHA token. |
-| `DISABLE_BACKGROUND_JOBS`, `DISABLE_JAMAAH_BACKGROUND_SYNC`, `DISABLE_LEGACY_BACKGROUND_SYNC` | Background job gates via `lib/background-jobs.js`. |
+| `DISABLE_BACKGROUND_JOBS`, `DISABLE_JAMAAH_BACKGROUND_SYNC`, `DISABLE_LEGACY_BACKGROUND_SYNC`, `DISABLE_LEGACY_PERLENGKAPAN_BACKFILL` | Background job gates via `lib/background-jobs.js`. |
 | `SYNC_COOLDOWN_MINUTES`, `HAJI_AWAPI_SYNC_COOLDOWN_MINUTES` | Background sync cadence. |
 | `JAMAAH_UPSERT_BATCH` | Upsert batch size. Keep conservative. |
 

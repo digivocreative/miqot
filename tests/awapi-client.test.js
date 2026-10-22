@@ -193,6 +193,26 @@ test('preserveLegacyUmrohRawData keeps legacy staff when AWAPI refresh omits it'
   assert.deepEqual(merged.perlengkapan, { koper: true });
 });
 
+test('preserveLegacyUmrohRawData keeps existing perlengkapan when AWAPI sends null', () => {
+  const norm = normalizeAwapiRow(rawRow({ perlengkapan: null }), { agentId: 'agent-id' });
+  assert.equal(norm.perlengkapan, null);
+
+  const backfilled = { batik: 1, 'buku doa': 1, koper: 1, 'tas paspor': 1 };
+  const merged = preserveLegacyUmrohRawData(norm, { raw_data: {}, perlengkapan: backfilled });
+  assert.deepEqual(merged.perlengkapan, backfilled);
+  // The API snapshot keeps the null so the backfill job still sees it as missing.
+  assert.equal(merged.raw_data.perlengkapan, null);
+
+  assert.equal(preserveLegacyUmrohRawData(norm, { raw_data: {}, perlengkapan: {} }).perlengkapan, null);
+  assert.equal(preserveLegacyUmrohRawData(norm, null).perlengkapan, null);
+});
+
+test('preserveLegacyUmrohRawData lets AWAPI perlengkapan replace the existing value', () => {
+  const norm = normalizeAwapiRow(rawRow({ perlengkapan: { koper: 1, madu: 0 } }), { agentId: 'agent-id' });
+  const merged = preserveLegacyUmrohRawData(norm, { raw_data: {}, perlengkapan: { batik: 1 } });
+  assert.deepEqual(merged.perlengkapan, { koper: 1, madu: 0 });
+});
+
 test('applyManualUmrohOverrides keeps dashboard-edited biodata sticky across AWAPI refreshes', () => {
   const norm = normalizeAwapiRow(rawRow({
     nama: 'NAMA DARI AWAPI',

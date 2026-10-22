@@ -8,6 +8,7 @@ import {
   shouldRunBackgroundJobs,
   shouldRunJamaahBackgroundSync,
   shouldRunLegacyBackgroundSync,
+  shouldRunLegacyPerlengkapanBackfill,
   msUntilNextWibHour,
 } from '../lib/background-jobs.js';
 
@@ -48,6 +49,12 @@ test('shouldRunLegacyBackgroundSync: disabled only by explicit env flag', () => 
   assert.equal(shouldRunLegacyBackgroundSync({ DISABLE_LEGACY_BACKGROUND_SYNC: 'false' }), true);
   assert.equal(shouldRunLegacyBackgroundSync({ DISABLE_LEGACY_BACKGROUND_SYNC: 'true' }), false);
   assert.equal(shouldRunLegacyBackgroundSync({ DISABLE_LEGACY_BACKGROUND_SYNC: '1' }), false);
+});
+
+test('shouldRunLegacyPerlengkapanBackfill: on by default, independent of legacy background sync', () => {
+  assert.equal(shouldRunLegacyPerlengkapanBackfill({}), true);
+  assert.equal(shouldRunLegacyPerlengkapanBackfill({ DISABLE_LEGACY_BACKGROUND_SYNC: 'true' }), true);
+  assert.equal(shouldRunLegacyPerlengkapanBackfill({ DISABLE_LEGACY_PERLENGKAPAN_BACKFILL: 'true' }), false);
 });
 
 test('shouldRunJamaahBackgroundSync: disabled only by explicit env flag', () => {

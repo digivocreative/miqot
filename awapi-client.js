@@ -503,10 +503,19 @@ export function preserveLegacyUmrohRawData(row, existing) {
   const existingDokumen = safeRawObject(existing?.dokumen);
   const dokumen = { ...existingDokumen, ...incomingDokumen };
 
+  // Sejak ~akhir Sep 2026 AWAPI mengirim perlengkapan:null untuk serah-terima yang
+  // sudah dicentang di web Alhijaz. null/{} berarti "tidak ada data", bukan "belum
+  // diambil" — jangan timpa nilai yang sudah ada (mis. hasil backfill laporan
+  // legacy, lib/legacy-perlengkapan-backfill.js).
+  const keepExistingPerlengkapan = Object.hasOwn(row, 'perlengkapan')
+    && Object.keys(safeRawObject(row.perlengkapan)).length === 0
+    && Object.keys(safeRawObject(existing?.perlengkapan)).length > 0;
+
   return applyManualUmrohOverrides({
     ...row,
     raw_data,
     dokumen: Object.keys(dokumen).length > 0 ? dokumen : row.dokumen,
+    ...(keepExistingPerlengkapan ? { perlengkapan: existing.perlengkapan } : {}),
   }, raw_data);
 }
 

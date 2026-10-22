@@ -259,7 +259,8 @@ import {
   shouldReplaceKursCache,
   shouldWaitForKursFetch,
 } from './lib/kurs-mandiri.js';
-import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync, msUntilNextWibHour } from './lib/background-jobs.js';
+import { shouldRunBackgroundJobs, shouldRunJamaahBackgroundSync, shouldRunLegacyBackgroundSync, shouldRunLegacyPerlengkapanBackfill, msUntilNextWibHour } from './lib/background-jobs.js';
+import { LEGACY_PERLENGKAPAN_BACKFILL_TIMES_WIB, needsLegacyPerlengkapanBackfill, buildTglDaftarWindows, planLegacyPerlengkapanPatches, isLegacyPerlengkapanBackfillDue } from './lib/legacy-perlengkapan-backfill.js';
 import { parseHajiPlusStatsHtml, isHajiPlusRows, buildHajiPlusPayload } from './lib/haji-plus-stats.js';
 import { buildAiCopyPrompts, buildAiCopyChatBody, parseAiCopyVersions } from './lib/ai-copy-prompt.js';
 import {
@@ -359,6 +360,7 @@ function getKloterIndex(tripSlug) {
 }
 const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
 const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
+const LEGACY_PERLENGKAPAN_BACKFILL_ENABLED = shouldRunLegacyPerlengkapanBackfill();
 
 // ── DB circuit breaker (incident 2026-06-02) ──
 // Sheds background + heavy-read load when Supabase is unreachable / restarting, so an
@@ -12320,7 +12322,7 @@ async function fetchExistingJamaahByBooking(agentId, rows) {
       .map(v => String(v))
   )];
   const withWatermark = await ensureJamaahNotifWatermarkProbe();
-  const selectCols = 'id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen'
+  const selectCols = 'id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen, perlengkapan'
     + (withWatermark ? ', notif_new_sent_at, notif_last_bayar' : '');
   const existingByKey = new Map();
   const CHUNK = 100;
@@ -26038,6 +26040,226 @@ function scheduleUmrohPhase2Enrichment() {
   scheduleNext();
 }
 
+// ── Backfill perlengkapan dari laporan web legacy (lib/legacy-perlengkapan-backfill.js) ──
+// AWAPI mengirim perlengkapan:null untuk serah-terima sejak ~akhir Sep 2026. Job
+// harian ini membaca laporan web HANYA untuk minggu pendaftaran jamaah yang belum
+// berangkat dan perlengkapannya kosong di API, lalu menulis kolom perlengkapan saja.
+// Tidak di-gate LEGACY_BACKGROUND_SYNC_ENABLED (sync legacy penuh tetap mati);
+// matikan lewat DISABLE_LEGACY_PERLENGKAPAN_BACKFILL=true.
+const PERLENGKAPAN_BACKFILL_STATE_FILE = resolve(__dirname, 'data', 'perlengkapan-backfill-state.json');
+let perlengkapanBackfillRunning = false;
+
+function readLastPerlengkapanBackfillAt() {
+  try {
+    const ms = Date.parse(JSON.parse(readFileSync(PERLENGKAPAN_BACKFILL_STATE_FILE, 'utf-8'))?.lastRunAt);
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastPerlengkapanBackfillAt(ms) {
+  try {
+    const dir = resolve(__dirname, 'data');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const tmp = PERLENGKAPAN_BACKFILL_STATE_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify({ lastRunAt: new Date(ms).toISOString() }, null, 2));
+    renameSync(tmp, PERLENGKAPAN_BACKFILL_STATE_FILE);
+  } catch (err) {
+    console.warn('[SYNC/perlengkapan] Failed to persist state:', err.message);
+  }
+}
+
+async function runLegacyPerlengkapanBackfillForAgent(agent, targetRows) {
+  const agentId = agent.id;
+  const slug = agent.slug;
+  const username = agent.jamaah_username;
+  const previousState = syncingAgents.get(agentId);
+  if (previousState?.isSyncing) return { skipped: true };
+
+  const windows = buildTglDaftarWindows(targetRows.map(r => r.tgl_daftar));
+  if (windows.length === 0) return { skipped: true };
+
+  syncingAgents.set(agentId, {
+    isSyncing: true,
+    background: true,
+    scope: 'umroh-perlengkapan',
+    totalSynced: 0,
+    lastSync: previousState?.lastSync || null,
+    startedAt: Date.now(),
+    username,
+  });
+  // Sesi legacy yang sedang dipakai agent (mis. form daftar) dipakai ulang dan
+  // tidak diputus; login sendiri hanya bila belum ada.
+  const reuseSession = isSessionActive(username);
+  const kantor = agent.jamaah_kantor || '2';
+
+  try {
+    const decrypted = capiDecrypt(agent.jamaah_password);
+    if (!reuseSession) {
+      const loginResult = await laporanLogin(username, decrypted, kantor);
+      if (!loginResult.success) {
+        console.error(`[SYNC/perlengkapan] ${slug}: login failed — ${loginResult.error || loginResult.reason || 'unknown reason'}`);
+        return { loginFailed: true, rateLimited: loginResult.reason === 'rate_limited' };
+      }
+    }
+
+    const items = [];
+    let failedWindows = 0;
+    let networkFailures = 0;
+    for (const job of windows) {
+      if (networkFailures >= 3) {
+        console.log(`[SYNC/perlengkapan] ${slug}: aborting — legacy system unreachable`);
+        break;
+      }
+      const fetchWindow = () => fetchLaporan(username, {
+        kantor,
+        agentId: username,
+        tglAwal: job.tglAwal,
+        tglAkhir: job.tglAkhir,
+      });
+      let result = await fetchWindow();
+      if (!result.success && result.reason === 'session_expired') {
+        await laporanLogin(username, decrypted, kantor);
+        result = await fetchWindow();
+      }
+      if (!result.success) {
+        failedWindows++;
+        if (result.reason === 'network') networkFailures++;
+        console.log(`[SYNC/perlengkapan] ${slug} range ${job.tglAwal}: ${result.error} (${result.reason || 'unknown'})`);
+        continue;
+      }
+      networkFailures = 0;
+      items.push(...parseLaporanHtml(result.html).items);
+    }
+
+    const plan = planLegacyPerlengkapanPatches(targetRows, items);
+    let updated = 0;
+    const PARALLEL = 10;
+    for (let i = 0; i < plan.patches.length; i += PARALLEL) {
+      const results = await Promise.allSettled(
+        plan.patches.slice(i, i + PARALLEL).map(({ id, perlengkapan }) => (
+          supabase.from('jamaah').update({ perlengkapan }).eq('id', id)
+        ))
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled' && !r.value?.error) updated++;
+        else console.error(`[SYNC/perlengkapan] ${slug} update error:`, r.status === 'fulfilled' ? r.value.error.message : r.reason?.message);
+      }
+    }
+    if (updated > 0) invalidateStatsCache(agentId);
+    console.log(`[SYNC/perlengkapan] ${slug}: ${updated} updated / ${targetRows.length} target rows — ${windows.length} windows (${failedWindows} failed), ${items.length} laporan items, matched=${plan.matched} unmatched=${plan.unmatched} unchanged=${plan.unchanged} skipped=${plan.skipped}`);
+    return { ok: true, updated };
+  } catch (err) {
+    console.error(`[SYNC/perlengkapan] ${slug} error:`, err.message);
+    return { error: err.message };
+  } finally {
+    if (syncingAgents.get(agentId)?.scope === 'umroh-perlengkapan') {
+      if (previousState) syncingAgents.set(agentId, previousState);
+      else syncingAgents.delete(agentId);
+    }
+    if (!reuseSession) {
+      try { await laporanDisconnect(username, { skipRemoteLogout: true }); } catch {}
+    }
+  }
+}
+
+async function runLegacyPerlengkapanBackfill() {
+  if (perlengkapanBackfillRunning) {
+    console.log('[SYNC/perlengkapan] Backfill already running — skipping');
+    return;
+  }
+  if (isDbDegraded()) {
+    console.warn('[SYNC/perlengkapan] Backfill skipped — DB degraded');
+    return;
+  }
+  perlengkapanBackfillRunning = true;
+  const startTime = Date.now();
+  try {
+    const today = getWIBDateStr();
+    const { data: agents, error } = await supabase
+      .from('agents')
+      .select('id, slug, jamaah_username, jamaah_password, jamaah_kantor, last_jamaah_sync_at')
+      .not('jamaah_username', 'is', null)
+      .not('jamaah_password', 'is', null);
+    if (error) {
+      console.error('[SYNC/perlengkapan] Agent lookup failed:', error.message);
+      return;
+    }
+    const rows = await fetchAllRows(
+      supabase
+        .from('jamaah')
+        .select('id, agent_id, id_umroh, jm_id, nama, tgl_daftar, tgl_berangkat, perlengkapan, api_perlengkapan:raw_data->perlengkapan')
+        .gte('tgl_berangkat', today)
+    );
+    const rowsByAgent = new Map();
+    for (const row of rows) {
+      if (!rowsByAgent.has(row.agent_id)) rowsByAgent.set(row.agent_id, []);
+      rowsByAgent.get(row.agent_id).push(row);
+    }
+
+    console.log('[SYNC/perlengkapan] Starting legacy perlengkapan backfill...');
+    let ok = 0, updated = 0, targets = 0, skipped = 0, loginFail = 0, fail = 0;
+    const INTER_AGENT_GAP_MS = 5000;
+    for (const agent of agents || []) {
+      // Sync API macet (mis. 403 "Invalid or inactive User") → API tak akan menimpa,
+      // jadi semua jamaah yang belum berangkat boleh diambil dari web.
+      const apiStale = classifyJamaahSyncHealth(agent).status === 'stale';
+      const targetRows = (rowsByAgent.get(agent.id) || [])
+        .filter(row => needsLegacyPerlengkapanBackfill(row, { today, apiStale }));
+      if (targetRows.length === 0) continue;
+      targets += targetRows.length;
+
+      const result = await runLegacyPerlengkapanBackfillForAgent(agent, targetRows);
+      if (result.skipped) skipped++;
+      else if (result.loginFailed) {
+        loginFail++;
+        if (result.rateLimited) {
+          console.warn(`[SYNC/perlengkapan] Aborting cycle — Apache rate-limiting at ${agent.slug}`);
+          break;
+        }
+      } else if (result.error) fail++;
+      else {
+        ok++;
+        updated += result.updated;
+      }
+      await new Promise(r => setTimeout(r, INTER_AGENT_GAP_MS));
+    }
+
+    writeLastPerlengkapanBackfillAt(Date.now());
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[SYNC/perlengkapan] Cycle complete: ${updated} rows updated from ${targets} target rows — ${ok} OK, ${loginFail} login failed, ${fail} error, ${skipped} skipped in ${elapsed}s`);
+  } finally {
+    perlengkapanBackfillRunning = false;
+  }
+}
+
+function scheduleLegacyPerlengkapanBackfill() {
+  const runSafely = async () => {
+    try {
+      await runLegacyPerlengkapanBackfill();
+    } catch (err) {
+      console.error('[SYNC/perlengkapan] Cycle error:', err.message);
+    }
+  };
+  const scheduleNext = () => {
+    const nextRun = nextJakartaScheduleDate(new Date(), LEGACY_PERLENGKAPAN_BACKFILL_TIMES_WIB);
+    const delayMs = Math.max(0, nextRun.getTime() - Date.now());
+    console.log(`[SYNC/perlengkapan] Next backfill in ${Math.round(delayMs / 60000)} minutes (${LEGACY_PERLENGKAPAN_BACKFILL_TIMES_WIB.join(' & ')} WIB)`);
+    setTimeout(async () => {
+      await runSafely();
+      scheduleNext();
+    }, delayMs);
+  };
+
+  // Deploy pertama / server mati melewati jadwal → kejar sekali setelah boot.
+  if (isLegacyPerlengkapanBackfillDue(readLastPerlengkapanBackfillAt())) {
+    console.log('[SYNC/perlengkapan] Last backfill overdue — running in 3 minutes');
+    setTimeout(runSafely, 3 * 60 * 1000);
+  }
+  scheduleNext();
+}
+
 async function syncAllAgents() {
   console.log('[SYNC] Starting sync cycle...');
   const startTime = Date.now();
@@ -26236,6 +26458,11 @@ if (shouldRunBackgroundJobs()) {
       scheduleHajiLegacyEnrichment();
     } else {
       console.log('[SYNC] Legacy background sync disabled — skipping umroh Phase 2 and haji legacy schedulers');
+    }
+    if (LEGACY_PERLENGKAPAN_BACKFILL_ENABLED) {
+      scheduleLegacyPerlengkapanBackfill();
+    } else {
+      console.log('[SYNC/perlengkapan] Backfill disabled (DISABLE_LEGACY_PERLENGKAPAN_BACKFILL)');
     }
   } else {
     console.log('[SYNC] Jamaah background sync disabled — skipping umroh and haji jamaah schedulers');
