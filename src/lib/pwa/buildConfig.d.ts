@@ -5,7 +5,6 @@ type MatchInput = {
 };
 
 export function manualChunkFor(id: string): string | undefined;
-export function chunkFileNameFor(chunk: { facadeModuleId: string | null }): string;
 export const PRECACHE_GLOB_PATTERNS: string[];
 export const PRECACHE_GLOB_IGNORES: string[];
 export const NAVIGATE_FALLBACK_DENYLIST: RegExp[];

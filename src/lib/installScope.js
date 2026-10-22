@@ -5,7 +5,6 @@
 // - Aplikasi agent & rute umum → manifest generik (id "/").
 // - Halaman publik agent/paket → "/:slug" (pengunjung yang memasang dari link agent
 //   tetap mendarat di halaman agent itu, lengkap dengan tombol WhatsApp-nya).
-// - Landing kloter → "/:kloter" (doa/dzikir/itinerary jamaah).
 // - Portal jamaah → "/:slug/jamaah" (sesi portal menentukan dashboard-nya).
 
 const RESERVED_FIRST_SEGMENTS = new Set([

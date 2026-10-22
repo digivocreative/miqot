@@ -85,8 +85,6 @@ test('precache hanya memuat shell aplikasi', () => {
     'assets/vendor-recharts-c6c9e651.js',
     'assets/jspdf.es.min-2b573246.js',
     'assets/html2canvas.esm-e0a7d97b.js',
-    // Data jamaah per kloter (nama, umur, nomor HP): hanya untuk pengunjung halaman kloter.
-    'assets/kloter-data-kloter45-20ec795c.js',
     'assets/pdf.worker.min-dbcae78a.mjs',
     'og/bagas.png',
     'img-brosur/cover-katalog.png',
@@ -110,7 +108,7 @@ function deniedNavigation(pathAndSearch) {
   return NAVIGATE_FALLBACK_DENYLIST.some((re) => re.test(pathAndSearch));
 }
 
-test('shell SW melayani rute SPA termasuk dashboard, login, portal, dan sub-halaman kloter', () => {
+test('shell SW melayani rute SPA termasuk dashboard, login, dan portal', () => {
   for (const path of [
     '/',
     '/bagas',
@@ -122,9 +120,6 @@ test('shell SW melayani rute SPA termasuk dashboard, login, portal, dan sub-hala
     '/dashboard/brosur',
     '/dashboard/teras/post/abc123',
     '/login',
-    '/26SEP2026',
-    '/26SEP2026/doa',
-    '/26SEP2026/itinerary',
     '/bagas/jamaah/abc23/dashboard',
     '/j/abc23',
     '/top-partner',

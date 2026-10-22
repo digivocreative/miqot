@@ -29,14 +29,12 @@ test('halaman aplikasi agent & rute umum memakai manifest generik (id "/")', () 
   }
 });
 
-test('halaman agent, paket, dan kloter dipasang dengan start di akar konteksnya', () => {
+test('halaman agent dan paket dipasang dengan start di akar konteksnya', () => {
   assert.equal(resolveInstallStart('/bagas'), '/bagas');
   assert.equal(resolveInstallStart('/bagas/'), '/bagas');
   assert.equal(resolveInstallStart('/bagas/JBU1504'), '/bagas');
   assert.equal(resolveInstallStart('/bagas/JBU1504/itinerary'), '/bagas');
   assert.equal(resolveInstallStart('/bagas/kalkulasi'), '/bagas');
-  assert.equal(resolveInstallStart('/26SEP2026'), '/26SEP2026');
-  assert.equal(resolveInstallStart('/26SEP2026/doa'), '/26SEP2026');
 });
 
 test('portal jamaah dipasang di /:slug/jamaah (sesi portal yang menentukan dashboard-nya)', () => {

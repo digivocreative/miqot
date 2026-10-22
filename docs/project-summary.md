@@ -268,17 +268,17 @@ Entry: BrochureModal → AI Tools → "Nilai Plus Paket" (`PackageValueModal.tsx
 - `GET /api/package-value/agent-card`: PNG 1200x630 "lembar referensi identitas" (`generatePackageValueAgentCardPng` di `lib/og-generator.mjs`) — asset board berlabel chip 01·FOTO…06·LOGO berisi foto (fallback monogram + caption "jangan buat wajah"), nama (auto 2 baris), peran Konsultan Umroh & Haji, WhatsApp lokal, website (custom domain aktif > `agents.website`), logo. Dilampirkan bersama prompt via native share file+text (fallback: buka ChatGPT + salin + unduh).
 - Tests: `tests/package-value-*.test.js` (kontrak prompt/gaya/panjang, modal, endpoint, kartu identitas).
 
-### Special Landing Rahmah Juli
+### Landing kloter (dihapus 22 Okt 2026)
 
-Route `/rahmah-1-juli-2026` adalah tool publik mobile-first untuk 43 jamaah kloter Rahmah 1–9 Juli 2026.
+Halaman publik per kloter (`/rahmah-1-juli-2026`, lalu `/12SEP2026`, `/19SEP2026`, `/26SEP2026`) beserta `GET/PUT /api/tour-leader-prep/:tripSlug` sudah dihapus. Data jamaahnya (nama, umur, nomor HP) tertanam di bundle publik dan endpoint-nya bisa ditulis tanpa login. Tabel `kloter_persiapan` dan baris `booking_persiapan.tahapan[trip_slug]` dibiarkan di DB. Kalau fitur serupa dibuat lagi: data jamaah jangan masuk bundle, dan API wajib login.
 
-- Jamaah dikelompokkan per keluarga dan dapat dicari berdasarkan nama/nomor WA.
-- Setiap kartu selalu menampilkan status Zam-zam: `Belum Pilih`, `Ambil Sendiri`, atau `Diantar ke Rumah`.
-- Opsi antar mewajibkan nama penerima, nomor HP, dan alamat lengkap.
-- Tombol simpan menunggu respons API, mencegah klik ganda, dan menampilkan status sukses/fallback lokal.
-- Data persisten disimpan per jamaah di `booking_persiapan.tahapan[trip_slug].jamaah` melalui `GET/PUT /api/tour-leader-prep/:tripSlug`.
-- Frontend tetap memakai `localStorage` sebagai fallback perangkat, tetapi penyimpanan server memerlukan proses `miqot.service` yang sudah memuat kode backend terbaru; build SPA saja tidak cukup setelah route berubah.
-- Kartu jamaah tidak lagi menampilkan CTA WhatsApp atau checklist persiapan/kamar. CTA Chat WA hanya tersedia pada kartu Tour Leader/Muthowif.
+### Aturan keamanan request (audit 22 Okt 2026)
+
+- IP klien (rate limit, analytics, CAPI, gerbang maintenance) hanya dari `clientIp()` di `lib/client-ip.js` = `X-Real-IP` yang ditimpa nginx/Caddy. Jangan pakai `X-Forwarded-For`/`CF-Connecting-IP`: keduanya bisa diisi klien.
+- Token login diverifikasi lewat `verifyAgentSessionToken()`: JWT ber-`purpose`/`typ` (link reset password) bukan sesi, dan agent berstatus selain `active` ditolak. Token baru dengan tujuan lain wajib memakai klaim `purpose`.
+- URL absolut di email (link reset) dari origin tetap `communityPublicOrigin()`, bukan header Host. `isPrimaryHost` mencocokkan loopback persis.
+- Proxy dokumen internal (`proxyInternalDocument`) membandingkan ORIGIN hasil `new URL()` dan mengikuti redirect manual hanya ke server internal. Supabase Studio di `127.0.0.1:3001` menjawab tanpa login, jadi SSRF apa pun ke loopback = kunci service_role bocor.
+- Nilai agent/jamaah yang masuk HTML SSR wajib `escapeHtmlAttr`; yang masuk `<script>` wajib `serializeInlineJson`.
 
 ## Flow Kritis: Pendaftaran Umrah
 
@@ -428,7 +428,6 @@ Do not increase background sync cadence, upsert batch size, or route polling wit
 | AWAPI smoke | `/api/awapi/test` |
 | Laporan/Jamaah Umroh | `/api/laporan/*` |
 | Umrah registration | `/api/umrah/*` |
-| Rahmah tour-leader prep | `/api/tour-leader-prep/:tripSlug/*` |
 | Haji | `/api/haji/*` |
 | Calendar | `/api/calendar/*` |
 | Flights | `/api/flights/*`, `/api/flight-share/*`, `/og/flight/:code.png` |
@@ -727,6 +726,5 @@ Catatan audit 2026-07-12 yang masih berlaku:
 - Event bertipe `public` dulu tidak punya breakdown hitungan di mana pun (hanya lewat di umpan aktivitas terbaru), jadi ditambahkan `publicTracking` di `GET /api/analytics/summary` + panel "Aktivitas Jamaah" di tab Fitur. `page_view` dibuang dari tally karena volumenya menenggelamkan sisanya. Ini sekaligus memunculkan event portal/share lama (`open_portal_*`, `open_itinerary_share`, `ask_ai_*`) yang selama ini tercatat tapi tak terhitung. Drill-down per-agen belum punya panel ini.
 - Perbaikan Analytics 21 Okt 2026: (1) baca `analytics_events`/`analytics_events_daily` WAJIB berurutan total (raw keyset `id`, rollup urut PK; `fetchAllRows` punya tiebreaker kedua tabel) — paginasi OFFSET tanpa ORDER BY terukur menggandakan 5.000 & menghilangkan 5.000 baris dari 16 rb; (2) periode bulan di `/api/analytics/summary` diselaraskan ke hari UTC rollup (tepi bergeser 7 jam dini hari WIB) — batas WIB dulu membuang seluruh hari terakhir bulan lampau; (3) status/"Terakhir"/health/Agent Aktif = aktivitas AGEN (tanpa event `public`) dari jendela berjalan + lookback 30 hari rollup untuk agen yang diam, tak tergantung bulan terpilih ('never' = tak aktif 30 hari); (4) drill-down = 7 hari kalender WIB, dipaginasi (`fetchAllRows`), Hari Aktif tanpa event pengunjung.
 - Audit tracking Okt 2026 (semua fitur): satu aksi = satu pencatat. Bila endpoint sudah `logAnalyticsEvent`, klien TIDAK ikut `trackEvent` (dulu `update_profil`, `set_email_alias`, `disconnect_telegram`, `save_capi_config`, `sync_jamaah` tercatat dobel). Event server wajib pakai UUID agent (bukan slug — `connect_telegram` dulu selalu gagal insert) dan skip admin. Event publik baru wajib masuk `VALID_PUBLIC_EVENTS` (kalau tidak di-drop 400 senyap) + label. Pergeseran makna: `connect_telegram` = bot benar-benar terhubung (webhook), niat klik = `request_telegram_link`; `download_brosur` = modal dibuka, unduh/bagi nyata = `share_brosur`; `page_view` tak lagi menghitung agent pemilik/admin; `generate_business_card` tak ditembakkan lagi (dulu otomatis tiap buka). Skrip landing WP: edit `functions/[slug]/umroh.ts`/`haji.ts` — `functions/*-landing.mjs` itu output build (gitignored, ditimpa deploy).
-- Rahmah July Zam-zam selection persists in `booking_persiapan` through the public tour-leader prep API.
 - `src/main.tsx` already has stale-build and stuck-SW escape hatches; preserve them.
 - `docs/project-summary.md` and `docs/DESIGN-SYSTEM.md` were refreshed from current source structure and route audit.

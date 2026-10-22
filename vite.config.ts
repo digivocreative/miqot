@@ -13,7 +13,6 @@ import { fetchTopPartnerData, isTopPartnerCacheFresh } from './lib/top-partner.j
 // @ts-expect-error — shared JS module used by the production server too
 import { mirrorTopPartnerPhotos, normalizeBunnyDownloadUrl } from './lib/top-partner-bunny.js'
 import {
-  chunkFileNameFor,
   manualChunkFor,
   PRECACHE_GLOB_PATTERNS,
   PRECACHE_GLOB_IGNORES,
@@ -424,7 +423,7 @@ export default defineConfig({
       registerType: 'prompt',
       manifest: {
         // `id` tetap: identitas aplikasi agent tidak lagi ikut berubah mengikuti path.
-        // Halaman agent/kloter/portal mendapat id + start_url sendiri lewat
+        // Halaman agent/portal mendapat id + start_url sendiri lewat
         // GET /app.webmanifest?start=… (server.js, src/lib/installScope.js).
         id: '/',
         name: 'Alhijaz Indowisata',
@@ -590,8 +589,6 @@ export default defineConfig({
         // runtime bersama (react-dom, tslib, helper preload) punya chunk sendiri
         // supaya entry tidak mengimpor chunk berat itu secara statis.
         manualChunks: manualChunkFor,
-        // Chunk data jamaah per kloter bernama kloter-data-* → dikecualikan dari precache.
-        chunkFileNames: chunkFileNameFor,
       },
     },
   },
@@ -656,10 +653,6 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/kurs': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/api/tour-leader-prep': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },

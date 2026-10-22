@@ -181,8 +181,6 @@ import {
 import { flightStatusRowMatchesSegment, providerFlightMatchesSegment } from './lib/flight-status-match.js';
 import { DEFAULT_UMROH_PHASE2_TIMES_WIB, nextJakartaScheduleDate, shouldDeferInlineUmrohPhase2 } from './lib/jamaah-phase2-policy.js';
 import { preserveUmrohPhase1Enrichment } from './lib/jamaah-phase1-enrichment.js';
-import { KLOTER_TRIPS, findKloterTripBySlug } from './src/lib/kloterTrips.js';
-import { KLOTER_SUB_PAGES } from './src/lib/kloterSlugs.js';
 import { isValidInstallStart } from './src/lib/installScope.js';
 import {
   prepareLegacyPaymentRowForUpsert,
@@ -334,31 +332,9 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
-// Slug halaman kloter (/26SEP2026, /12SEP2026, ...) ikut dipesan dari registri.
 // oauth/mcp/dev-mcp: rute MCP & login asisten AI — kalau dipakai slug agent ber-
 // custom-domain, redirect /{slug}/… di bawah akan membajak halaman login OAuth.
-const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', 'oauth', 'mcp', 'dev-mcp', ...KLOTER_TRIPS.map((trip) => trip.slug)]);
-const TOUR_LEADER_PREP_TABLE = 'booking_persiapan';
-// Tabel checklist kloter sendiri (migrations/20260910000000_kloter_persiapan.sql):
-// satu baris per jamaah per kloter, tanpa agent_id. booking_persiapan milik
-// Portal Jamaah mewajibkan agent_id, jadi booking kantor/langsung tidak bisa
-// disimpan di sana. Selama tabel baru belum ada, endpoint jatuh ke jalur lama.
-const KLOTER_PREP_TABLE = 'kloter_persiapan';
-function isMissingKloterPrepTable(error) {
-  const message = String(error?.message || '');
-  return /schema cache|Could not find the table/i.test(message) && /kloter_persiapan/i.test(message);
-}
-// Indeks per kloter untuk endpoint persiapan: nomor jamaah → anggota, dan
-// daftar ID Umrah untuk menyaring baris booking_persiapan.
-const KLOTER_INDEX = new Map(KLOTER_TRIPS.map((trip) => [trip.slug, {
-  trip,
-  memberByNo: new Map(trip.jamaah.map((member) => [member.no, member])),
-  idUmrah: [...new Set(trip.jamaah.map((member) => member.idUmrah))],
-}]));
-function getKloterIndex(tripSlug) {
-  const trip = findKloterTripBySlug(tripSlug);
-  return trip ? KLOTER_INDEX.get(trip.slug) : null;
-}
+const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', 'oauth', 'mcp', 'dev-mcp']);
 const JAMAAH_BACKGROUND_SYNC_ENABLED = shouldRunJamaahBackgroundSync();
 const LEGACY_BACKGROUND_SYNC_ENABLED = shouldRunLegacyBackgroundSync();
 const LEGACY_PERLENGKAPAN_BACKFILL_ENABLED = shouldRunLegacyPerlengkapanBackfill();
@@ -427,48 +403,6 @@ function withTimeout(promise, ms, message) {
     }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-function tourLeaderPrepEntryFromPayload(payload = {}) {
-  return {
-    phone: typeof payload.phone === 'string' ? payload.phone.trim().slice(0, 32) : null,
-    wa_confirmed: payload.wa_confirmed === true,
-    nusuk_installed: payload.nusuk_installed === true,
-    updated_at: new Date().toISOString(),
-  };
-}
-
-function tourLeaderPrepRowToItems(row, kloter) {
-  const tahapan = plainObjectOrEmpty(row?.tahapan);
-  const tripPrep = plainObjectOrEmpty(tahapan[kloter.trip.slug]);
-  const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
-
-  return Object.entries(jamaahPrep)
-    .map(([jamaahNo, entry]) => {
-      const member = kloter.memberByNo.get(Number(jamaahNo));
-      const saved = plainObjectOrEmpty(entry);
-      if (!member || member.idUmrah !== row.id_umroh) return null;
-      return {
-        jamaah_no: member.no,
-        phone: typeof saved.phone === 'string' ? saved.phone : null,
-        wa_confirmed: saved.wa_confirmed === true,
-        nusuk_installed: saved.nusuk_installed === true,
-      };
-    })
-    .filter(Boolean);
-}
-
-function validateTourLeaderPrepPayload(tripSlug, jamaahNo, payload = {}) {
-  const kloter = getKloterIndex(tripSlug);
-  if (!kloter) {
-    return { error: 'Paket tidak ditemukan' };
-  }
-  const member = kloter.memberByNo.get(jamaahNo);
-  if (!Number.isInteger(jamaahNo) || !member) {
-    return { error: 'Nomor jamaah tidak valid' };
-  }
-
-  return { kloter, member, entry: tourLeaderPrepEntryFromPayload(payload) };
 }
 
 function umrohPhase1EnrichmentKey(row) {
@@ -1113,133 +1047,6 @@ app.get('/api/kurs', async (req, res) => {
       stale: Date.now() - kursCache.fetchedAt > KURS_CACHE_TTL * 2,
     },
   });
-});
-
-app.get('/api/tour-leader-prep/:tripSlug', async (req, res) => {
-  const kloter = getKloterIndex(req.params.tripSlug);
-  if (!kloter) {
-    return res.status(404).json({ success: false, error: 'Paket tidak ditemukan' });
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from(KLOTER_PREP_TABLE)
-      .select('jamaah_no,phone,wa_confirmed,nusuk_installed')
-      .eq('trip_slug', kloter.trip.slug);
-    if (error && !isMissingKloterPrepTable(error)) throw error;
-    if (!error) {
-      const rows = (data || [])
-        .filter((row) => kloter.memberByNo.has(Number(row.jamaah_no)))
-        .map((row) => ({
-          jamaah_no: Number(row.jamaah_no),
-          phone: typeof row.phone === 'string' ? row.phone : null,
-          wa_confirmed: row.wa_confirmed === true,
-          nusuk_installed: row.nusuk_installed === true,
-        }))
-        .sort((left, right) => left.jamaah_no - right.jamaah_no);
-      return res.json({ success: true, data: rows });
-    }
-
-    // Jalur lama (tabel kloter_persiapan belum dimigrasi): baca dari
-    // booking_persiapan.tahapan[slug].
-    const { data: legacy, error: legacyError } = await supabase
-      .from(TOUR_LEADER_PREP_TABLE)
-      .select('id_umroh,tahapan')
-      .in('id_umroh', kloter.idUmrah);
-    if (legacyError) throw legacyError;
-    const rows = (legacy || [])
-      .flatMap((row) => tourLeaderPrepRowToItems(row, kloter))
-      .sort((left, right) => left.jamaah_no - right.jamaah_no);
-    return res.json({ success: true, data: rows });
-  } catch (err) {
-    console.error('GET /api/tour-leader-prep error:', err?.message || err);
-    return res.status(500).json({ success: false, error: 'Gagal memuat data jamaah' });
-  }
-});
-
-app.put('/api/tour-leader-prep/:tripSlug/:jamaahNo', async (req, res) => {
-  const jamaahNo = Number(req.params.jamaahNo);
-  const validation = validateTourLeaderPrepPayload(req.params.tripSlug, jamaahNo, req.body);
-  if (validation.error) {
-    return res.status(400).json({ success: false, error: validation.error });
-  }
-
-  try {
-    const { kloter, member, entry } = validation;
-
-    // Jalur utama: satu baris per jamaah, tanpa agent — menyimpan jamaah A
-    // tidak menyentuh baris jamaah B.
-    const { error: upsertError } = await supabase.from(KLOTER_PREP_TABLE).upsert({
-      trip_slug: kloter.trip.slug,
-      jamaah_no: member.no,
-      id_umroh: member.idUmrah,
-      jamaah_name: member.name,
-      phone: entry.phone,
-      wa_confirmed: entry.wa_confirmed,
-      nusuk_installed: entry.nusuk_installed,
-      updated_at: entry.updated_at,
-    }, { onConflict: 'trip_slug,jamaah_no' });
-    if (!upsertError) return res.json({ success: true });
-    if (!isMissingKloterPrepTable(upsertError)) throw upsertError;
-
-    // Jalur lama (tabel belum dimigrasi): booking_persiapan mewajibkan agent_id,
-    // jadi booking tanpa agent memang tidak bisa disimpan di sini.
-    const { data: existing, error: readError } = await supabase
-      .from(TOUR_LEADER_PREP_TABLE)
-      .select('agent_id,tahapan,spiritual')
-      .eq('id_umroh', member.idUmrah)
-      .maybeSingle();
-    if (readError) throw readError;
-
-    let agentId = existing?.agent_id || null;
-    if (!agentId) {
-      const { data: jamaahRow, error: jamaahError } = await supabase
-        .from('jamaah')
-        .select('agent_id')
-        .eq('id_umroh', member.idUmrah)
-        .not('agent_id', 'is', null)
-        .limit(1)
-        .maybeSingle();
-      if (jamaahError) throw jamaahError;
-      agentId = jamaahRow?.agent_id || null;
-    }
-
-    if (!agentId) {
-      console.warn(`[tour-leader-prep] ${kloter.trip.slug}#${member.no} tidak tersimpan: booking ${member.idUmrah} tanpa agent dan tabel kloter_persiapan belum ada`);
-      return res.status(503).json({
-        success: false,
-        error: 'Migrasi kloter_persiapan belum dijalankan; booking tanpa agent belum bisa disimpan.',
-      });
-    }
-
-    const tahapan = plainObjectOrEmpty(existing?.tahapan);
-    const tripPrep = plainObjectOrEmpty(tahapan[kloter.trip.slug]);
-    const jamaahPrep = plainObjectOrEmpty(tripPrep.jamaah);
-    const now = new Date().toISOString();
-    const nextTahapan = {
-      ...tahapan,
-      [kloter.trip.slug]: {
-        ...tripPrep,
-        jamaah: {
-          ...jamaahPrep,
-          [String(member.no)]: entry,
-        },
-      },
-    };
-
-    const { error: legacyUpsertError } = await supabase.from(TOUR_LEADER_PREP_TABLE).upsert({
-      id_umroh: member.idUmrah,
-      agent_id: agentId,
-      tahapan: nextTahapan,
-      spiritual: plainObjectOrEmpty(existing?.spiritual),
-      updated_at: now,
-    }, { onConflict: 'id_umroh' });
-    if (legacyUpsertError) throw legacyUpsertError;
-    return res.json({ success: true });
-  } catch (err) {
-    console.error('PUT /api/tour-leader-prep error:', err?.message || err);
-    return res.status(500).json({ success: false, error: 'Gagal menyimpan data jamaah' });
-  }
 });
 
 // GET /api/kurs/share-image — per-agent kurs image, generated on demand and cached on disk.
@@ -24459,7 +24266,7 @@ app.get('/agents/:file', async (req, res, next) => {
   }
 });
 // Manifest PWA per konteks halaman. Klien (src/main.tsx) menukar <link rel="manifest">
-// ke /app.webmanifest?start=/:slug (halaman agent/kloter) atau /:slug/jamaah (portal)
+// ke /app.webmanifest?start=/:slug (halaman agent) atau /:slug/jamaah (portal)
 // supaya aplikasi yang dipasang dari link agent membuka halaman agent itu — termasuk di
 // iOS, yang mengabaikan manifest blob. Basisnya manifest hasil build (satu sumber:
 // vite.config.ts); `start` divalidasi ulang dengan aturan yang sama dengan klien.
@@ -24573,64 +24380,6 @@ app.get('/top-partner', (req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.send(html);
 });
-
-function injectKloterMeta(html, origin, trip, subPath = '') {
-  const title = escapeHtmlAttr(trip.meta.title);
-  const description = escapeHtmlAttr(trip.meta.description);
-  const pageUrl = escapeHtmlAttr(`${origin}${trip.publicPath}${subPath}`);
-  const ogImageUrl = escapeHtmlAttr(trip.meta.ogImageUrl);
-
-  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
-  html = html.replace(
-    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
-    `<meta name="description" content="${description}" />`
-  );
-  html = html.replace(/<meta\s+property="og:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
-  html = html.replace(/<meta\s+name="twitter:[^"]*"\s+content="[^"]*"\s*\/?>\s*/gi, '');
-  html = html.replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '');
-
-  const metaTags = `
-    <link rel="canonical" href="${pageUrl}" />
-    <meta property="og:title" content="${title}" />
-    <meta property="og:description" content="${description}" />
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="${pageUrl}" />
-    <meta property="og:site_name" content="Alhijaz Indowisata" />
-    <meta property="og:image" content="${ogImageUrl}" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="675" />
-    <meta property="og:image:type" content="image/jpeg" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${title}" />
-    <meta name="twitter:description" content="${description}" />
-    <meta name="twitter:image" content="${ogImageUrl}" />
-  `;
-
-  return html.replace('</head>', `${metaTags}\n</head>`);
-}
-
-// Satu pasang rute per kloter di registri. Express mencocokkan rute tanpa
-// peduli besar-kecil huruf, jadi /26SEP2026 dan /26sep2026 sama-sama kena.
-// Sub-halaman (Doa / Dzikir / Itinerary / Room List) ikut kartu OG yang sama;
-// segmen di luar daftar diteruskan ke rute berikutnya.
-for (const trip of KLOTER_TRIPS) {
-  app.get([`/${trip.slug}`, `/${trip.slug}/`], (req, res) => {
-    const origin = publicOrigin(req);
-    const html = injectKloterMeta(getIndexHtml(), origin, trip);
-    res.set('Content-Type', 'text/html');
-    res.set('Cache-Control', 'no-cache');
-    res.send(html);
-  });
-  app.get(`/${trip.slug}/:sub`, (req, res, next) => {
-    const sub = String(req.params.sub || '').toLowerCase();
-    if (!KLOTER_SUB_PAGES.includes(sub)) return next();
-    const origin = publicOrigin(req);
-    const html = injectKloterMeta(getIndexHtml(), origin, trip, `/${sub}`);
-    res.set('Content-Type', 'text/html');
-    res.set('Cache-Control', 'no-cache');
-    res.send(html);
-  });
-}
 
 // Airline code → name mapping untuk OG meta
 const AIRLINE_NAMES_SERVER = {

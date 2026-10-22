@@ -89,7 +89,7 @@ async function trackPublicInstall(pathname: string): Promise<void> {
       import('../../utils/analytics'),
     ]);
     const segment = start.split('/')[1].toLowerCase();
-    // Hanya slug agent sungguhan (bukan landing kloter / path lain).
+    // Hanya slug agent sungguhan (bukan path lain).
     const slug = Object.keys(AGENTS_DATA).find(key => key.toLowerCase() === segment);
     if (!slug) return;
     // Agent memasang halamannya sendiri — bukan pengunjung.

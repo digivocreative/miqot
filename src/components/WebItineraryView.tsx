@@ -37,9 +37,6 @@ interface Props {
    *  berbranding, dan panel di atas panel terbaca sebagai kotak bertumpuk.
    *  Default false — halaman share dan portal jamaah tidak berubah. */
   transparentSurface?: boolean;
-  /** Sembunyikan kartu Hotel di bawah itinerary. Dipakai landing kloter, yang
-   *  cukup menampilkan rencana perjalanan. Default false. */
-  hideHotelCard?: boolean;
 }
 
 // Tanggal per hari dihitung di lib/itinerary-view.js: ditambatkan ke dayNumber
@@ -69,7 +66,7 @@ function extractArrivalTimes(days: ItineraryDayData[]): { berangkat: string | nu
 
 export default function WebItineraryView({
   content, loading, error, paket, onRetryPdf, hideDocActions, summaryAtBottom, onPdfDownload,
-  onBrosurOpen, transparentSurface, hideHotelCard,
+  onBrosurOpen, transparentSurface,
 }: Props) {
   const surface = transparentSurface ? '' : 'bg-white';
   if (loading) {
@@ -150,7 +147,7 @@ export default function WebItineraryView({
       {summaryAtBottom && <div className="mt-2.5">{journeyStrip}</div>}
       <div className="mt-2.5 space-y-2.5 px-3">
         {paket && <FlightCard paket={paket} arrivals={extractArrivalTimes(days)} />}
-        {!hideHotelCard && paket?.hotel && <HotelCard hotel={paket.hotel} />}
+        {paket?.hotel && <HotelCard hotel={paket.hotel} />}
       </div>
     </div>
   );

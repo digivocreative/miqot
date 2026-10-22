@@ -67,20 +67,6 @@ const ComparePage = lazy(() => import('./components/ComparePage.tsx'))
 const FlightSharePage = lazy(() => import('./components/FlightSharePage.tsx'))
 const BioPage = lazy(() => import('./components/bio/BioPage.tsx'))
 const TopPartnerPage = lazy(() => import('./components/TopPartnerPage.tsx'))
-// Halaman kloter: chunk komponen + chunk data SATU kloter dimuat bersamaan, lalu
-// trip-nya diikat ke komponen. Data jamaah (nama, umur, nomor HP) jangan diimpor
-// statis ke berkas ini — chunk entry diunduh setiap pengunjung halaman mana pun.
-const lazyKloterLandingPage = (slug: string) => lazy(async () => {
-  const [{ default: KloterLandingPage }, trip] = await Promise.all([
-    import('./components/KloterLandingPage.tsx'),
-    loadKloterTrip(slug),
-  ])
-  return {
-    default: function KloterLandingPageWithTrip(props: { initialSubPage: KloterSubPage | null }) {
-      return <KloterLandingPage {...props} trip={trip} />
-    },
-  }
-})
 const ItinerarySharePage = lazy(() => import('./components/itinerary/SharePage.tsx'))
 const HotelSharePage = lazy(() => import('./components/HotelSharePage.tsx'))
 const PortalShortLinkPage = lazy(() => import('./components/portal-jamaah/pages/ShortLinkConsumePage.tsx'))
@@ -325,21 +311,12 @@ const bioSlug = isBio ? (isCustomDomainBio ? customDomainSlug : segments[0]?.toL
 const isTopPartner = segments.length === 1 && segments[0] === 'top-partner'
 // Link pendek Portal Jamaah: /j/{kode} (kode consume magic link tanpa slug)
 const isPortalShortLink = segments.length === 2 && segments[0]?.toLowerCase() === 'j'
-// Tautan yang dibagikan ke jamaah ditulis /26SEP2026; cocokkan tanpa peduli
-// besar-kecil huruf supaya /26sep2026 mendarat di halaman yang sama.
-// Halaman kloter (/26SEP2026, /12SEP2026, ...) dari registri; sub-halaman
-// dibatasi ke daftar resolveKloterSubPage — segmen kedua yang asing jatuh ke
-// rute paket seperti biasa.
-const kloterSlug = resolveKloterSlug(segments[0])
-const isKloterLanding = kloterSlug !== null
-  && (segments.length === 1 || (segments.length === 2 && resolveKloterSubPage(segments[1]) !== null))
 const isSsrLandingPath = segments.length === 2 && (segments[1] === 'umroh' || segments[1] === 'haji')
 
 // Detect single-package URL: /:agent/:jadwalId OR bare /:jadwalId
 import { getFilterModeFromSlug } from '@/utils'
 import { customDomainSlugFrom, isViaCustomDomain, readAgentContext } from '@/lib/agent-context'
-import { KLOTER_SLUGS, loadKloterTrip, resolveKloterSlug, resolveKloterSubPage, type KloterSubPage } from '@/lib/kloterSlugs.js'
-const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner', ...KLOTER_SLUGS]
+const knownFirstSegments = ['login', 'register', 'dashboard', 'compare', 'reset-password', 'f', 'j', 'teras', 'top-partner']
 const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'bio', 'jamaah', 'hotel']
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
@@ -600,10 +577,6 @@ if (isPwaHost && isSsrLandingPath) {
       if (isCompare) return <ComparePage agent={agentSlugForCompare} agentSlug={compareSlug || undefined} />
       if (isBio && bioSlug) return <BioPage slug={bioSlug} />
       if (isTopPartner) return <TopPartnerPage />
-      if (isKloterLanding && kloterSlug) {
-        const KloterLandingRoute = lazyKloterLandingPage(kloterSlug)
-        return <KloterLandingRoute initialSubPage={resolveKloterSubPage(segments[1])} />
-      }
       if (isPortalShortLink) return <PortalShortLinkPage token={segments[1]} />
       // Halaman share Detail Hotel: /:slug/hotel/:hotelSlug (publik, dilihat
       // calon jamaah). Di custom domain slug tersirat dari host → /hotel/:hotelSlug.
