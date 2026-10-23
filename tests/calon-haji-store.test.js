@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadCalonHaji, replaceCalonHaji } from '../lib/calon-haji-store.js';
+import { loadCalonHaji, loadAgentCalonHaji, replaceCalonHaji } from '../lib/calon-haji-store.js';
 
 // Supabase palsu: setiap query builder di-await → handler(query) memutuskan
 // {data, error}. Semua query terekam berurutan untuk diperiksa.
@@ -30,6 +30,44 @@ const op = (q, name) => q.ops.find((o) => o[0] === name);
 const summary = (log) => log.map((q) => `${q.table}:${q.ops.map((o) => o[0]).join('.')}`);
 const mkRows = (n) => Array.from({ length: n }, (_, i) => ({ no_urut: i + 1, nama: `N${i + 1}` }));
 const header = { tanggalData: '2026-10-19', jumlah: 1416 };
+
+test('personal: hanya cocokkan nomor porsi agent, termasuk halaman kedua dan nol di depan', async () => {
+  const owned = Array.from({ length: 1000 }, () => ({ nomor_porsi: null }));
+  owned.push({ nomor_porsi: '0012 345-678' }, { nomor_porsi: '0012345678' }, { nomor_porsi: 'ABC123' });
+  const all = [
+    { no_urut: 1, no_porsi: '0012345678', nama: 'CONTOH A' },
+    { no_urut: 2, no_porsi: '12345678', nama: 'CONTOH A' },
+    { no_urut: 3, no_porsi: '123', nama: 'CONTOH B' },
+    { no_urut: 4, no_porsi: '', nama: 'CONTOH C' },
+  ];
+  const { sb, log } = fakeSb(q => {
+    if (q.table === 'jamaah_haji') {
+      assert.deepEqual(op(q, 'eq'), ['eq', 'agent_id', 'agent-a']);
+      const [, from, to] = op(q, 'range');
+      return { data: owned.slice(from, to + 1), error: null };
+    }
+    if (q.table === 'calon_haji_aktif') return { data: { import_id: 'act' }, error: null };
+    if (q.table === 'calon_haji_imports') return { data: { jumlah: all.length }, error: null };
+    return { data: all, error: null };
+  });
+  assert.deepEqual(await loadAgentCalonHaji(sb, 2027, 'agent-a'), {
+    rows: [{ ...all[0], haji: [owned[1000], owned[1001]] }],
+  });
+  assert.equal(log.filter(q => q.table === 'jamaah_haji').length, 2);
+  const columns = op(log[0], 'select')[1].split(',');
+  for (const column of ['nomor_spph', 'staff', 'bayar', 'sisa', 'tgl_daftar', 'no_paspor', 'telp', 'bpih_url']) {
+    assert.ok(columns.includes(column));
+  }
+  assert.ok(!columns.includes('*') && !columns.includes('notes'));
+});
+
+test('personal: tanpa nomor porsi valid menghasilkan kosong, galat query tidak disamarkan', async () => {
+  const { sb } = fakeSb(() => ({ data: [{ nomor_porsi: null }, { nomor_porsi: '-' }], error: null }));
+  assert.deepEqual(await loadAgentCalonHaji(sb, 2027, 'agent-a'), { rows: [] });
+  const failed = fakeSb(() => ({ data: null, error: { message: 'offline' } }));
+  await assert.rejects(loadAgentCalonHaji(failed.sb, 2027, 'agent-a'), /offline/);
+  await assert.rejects(loadAgentCalonHaji(sb, 2027, ''), /Akun agent/);
+});
 
 test('replace: insert impor → baris (batch 500) → upsert penunjuk → hapus impor lama', async () => {
   const { sb, log } = fakeSb((q) => {

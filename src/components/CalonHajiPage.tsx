@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, Search, SearchX, SlidersHorizontal, Users } from 'lucide-react';
+import { Check, Link, Search, SearchX, SlidersHorizontal, Users } from 'lucide-react';
 import CalonHajiFilterSheet from './CalonHajiFilterSheet';
+import CalonHajiPersonalDetail, { type HajiDocument } from './CalonHajiPersonalDetail';
 import { getAuthHeaders } from '../lib/authSession';
 import { describeLoadError } from '../lib/loadError';
 import { trackEvent } from '../utils/analytics';
@@ -12,6 +13,7 @@ import {
 } from '../lib/calonHaji';
 
 const PAGE_STEP = 50;
+const HajiDocViewer = lazy(() => import('./HajiPage').then((module) => ({ default: module.DocViewerPopup })));
 
 const TABS: ReadonlyArray<{ key: CalonHajiTab; label: string; dot?: string }> = [
   { key: 'semua', label: 'Semua' },
@@ -59,9 +61,10 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RowDetail({ row }: { row: CalonHajiRow }) {
+function RowDetail({ row, mine, onDocument }: { row: CalonHajiRow; mine: boolean; onDocument: (document: HajiDocument) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-gray-50 py-3 pl-12 pr-3 dark:border-slate-700/50">
+    <div>
+    <div className={`grid grid-cols-2 gap-x-4 gap-y-2.5 py-3 pr-3 ${mine ? 'pl-3' : 'pl-12'}`}>
       <DetailItem label="No. Porsi" value={row.no_porsi} />
       <DetailItem label="NIK" value={row.nik} />
       <DetailItem label="Tahap" value={String(row.tahap ?? '-')} />
@@ -70,6 +73,8 @@ function RowDetail({ row }: { row: CalonHajiRow }) {
       <DetailItem label="Status Jemaah" value={row.status_jemaah ? titleCase(row.status_jemaah) : '-'} />
       <DetailItem label="Kab/Kota" value={formatKabKotaLengkap(row.kab_kota)} />
       <DetailItem label="Provinsi" value={formatProvinsi(row.provinsi)} />
+    </div>
+      {mine && row.haji && row.haji.length > 0 && <CalonHajiPersonalDetail records={row.haji} nama={row.nama} onDocument={onDocument} />}
     </div>
   );
 }
@@ -89,29 +94,43 @@ export default function CalonHajiPage() {
   const [showSheet, setShowSheet] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [limit, setLimit] = useState(PAGE_STEP);
+  const [mine, setMine] = useState(false);
+  const [document, setDocument] = useState<HajiDocument | null>(null);
+  const closeDocument = useCallback(() => setDocument(null), []);
+  const requestRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setStatus('loading');
     setError('');
     try {
-      const res = await fetch('/api/calon-haji', { headers: { ...getAuthHeaders() } });
+      const res = await fetch(`/api/calon-haji${mine ? '?scope=mine' : ''}`, {
+        headers: { ...getAuthHeaders() }, signal: controller.signal,
+      });
       const result = await res.json();
+      if (controller.signal.aborted) return;
       if (!res.ok || !result.success) throw new Error(result.error || `HTTP ${res.status}`);
       setRows(result.rows || []);
       setStatus('ready');
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(describeLoadError(err));
       setStatus('error');
     }
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  }, [mine]);
+  useEffect(() => {
+    load();
+    return () => requestRef.current?.abort();
+  }, [load]);
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(search), 200);
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => { setLimit(PAGE_STEP); setExpanded(null); }, [tab, query, filters]);
+  useEffect(() => { setLimit(PAGE_STEP); setExpanded(null); }, [tab, query, filters, mine]);
 
   const counts = useMemo(() => countByTab(rows), [rows]);
   const visible = useMemo(() => filterCalonHaji(rows, { tab, query, filters }), [rows, tab, query, filters]);
@@ -155,9 +174,22 @@ export default function CalonHajiPage() {
             inputMode="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari nama, no. porsi, atau NIK…"
+            placeholder="Cari jamaah…"
+            aria-label="Cari nama, nomor porsi, atau NIK"
             className="h-9 min-w-0 flex-1 bg-transparent text-xs text-gray-800 outline-none placeholder:text-gray-400 dark:text-white"
           />
+          <button
+            type="button"
+            aria-pressed={mine}
+            onClick={() => setMine((value) => !value)}
+            className={`flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border bg-white px-2.5 text-xs font-semibold transition-colors duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:bg-slate-800 dark:focus-visible:ring-offset-slate-800 ${
+              mine
+                ? 'border-emerald-500 text-emerald-700 dark:border-emerald-400 dark:text-emerald-400'
+                : 'border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700'
+            }`}
+          >
+            Jamaah Saya
+          </button>
           <button
             onClick={() => setShowSheet(true)}
             aria-label="Filter"
@@ -176,6 +208,13 @@ export default function CalonHajiPage() {
           </button>
         </div>
       </div>
+
+      {mine && (
+        <p className="flex items-center gap-1.5 px-1 text-[11px] text-gray-500 dark:text-slate-400">
+          <Link size={13} className="shrink-0" />
+          Sesuai nomor porsi di data Haji Anda.
+        </p>
+      )}
 
       {status === 'loading' && (
         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -207,7 +246,23 @@ export default function CalonHajiPage() {
       {status === 'ready' && rows.length === 0 && (
         <div className="flex flex-col items-center rounded-2xl border border-gray-100 bg-white px-4 py-10 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <Users size={36} className="text-gray-300 dark:text-slate-600" />
-          <p className="mt-3 text-sm font-semibold text-gray-600 dark:text-slate-300">Data belum tersedia</p>
+          <p className="mt-3 text-sm font-semibold text-gray-600 dark:text-slate-300">
+            {mine ? 'Belum ada jamaah yang cocok' : 'Data belum tersedia'}
+          </p>
+          {mine && (
+            <>
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-slate-400">
+                Nomor porsi pada data Haji Anda belum ditemukan di daftar calon haji 2027.
+              </p>
+              <button
+                type="button"
+                onClick={() => setMine(false)}
+                className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:bg-emerald-900/20 dark:text-emerald-400"
+              >
+                Lihat daftar umum
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -262,7 +317,7 @@ export default function CalonHajiPage() {
                       transition={{ height: { duration: 0.25, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2 } }}
                       style={{ overflow: 'hidden' }}
                     >
-                      <RowDetail row={row} />
+                      <RowDetail row={row} mine={mine} onDocument={setDocument} />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -279,6 +334,19 @@ export default function CalonHajiPage() {
           )}
         </div>
       )}
+
+      <AnimatePresence>
+        {document && (
+          <Suspense fallback={
+            <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-3 bg-white dark:bg-slate-900">
+              <p className="text-sm text-gray-600 dark:text-slate-300">Membuka dokumen…</p>
+              <button type="button" onClick={closeDocument} className="rounded-lg px-4 py-2 text-xs font-semibold text-emerald-600">Tutup</button>
+            </div>
+          }>
+            <HajiDocViewer key={document.url} {...document} onClose={closeDocument} />
+          </Suspense>
+        )}
+      </AnimatePresence>
 
       {showSheet && (
         <CalonHajiFilterSheet

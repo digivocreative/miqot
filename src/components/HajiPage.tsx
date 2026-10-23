@@ -174,7 +174,7 @@ function formatUsd(value: number | string | null) {
 }
 
 // ── Document Viewer with auth proxy ──
-function DocViewerPopup({ url, title, doc, onClose }: { url: string; title: string; doc: 'bpih' | 'pernyataan'; onClose: () => void }) {
+export function DocViewerPopup({ url, title, doc, onClose }: { url: string; title: string; doc: 'bpih' | 'pernyataan'; onClose: () => void }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   // Blob aslinya disimpan untuk share/unduh: window.open(blob:) tidak berfungsi di app
   // terpasang iOS (gagal diam-diam) dan fetch ulang URL blob membuang gestur ketuk.

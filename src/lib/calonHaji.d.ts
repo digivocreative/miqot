@@ -1,9 +1,11 @@
 /**
  * Deklarasi tipe untuk src/lib/calonHaji.js — helper halaman "Calon Haji 2027".
  */
-import type { CalonHajiRow } from '../../lib/calon-haji-parser';
+import type { CalonHajiRow as BaseRow } from '../../lib/calon-haji-parser';
+import type { HajiPersonal } from '../../lib/calon-haji-store';
 
-export type { CalonHajiRow };
+export type { HajiPersonal };
+export type CalonHajiRow = BaseRow & { haji?: HajiPersonal[] };
 export type CalonHajiTab = 'semua' | 'berhak' | 'cadangan';
 export type JknFilter = 'semua' | 'aktif' | 'belum_aktif' | 'tidak_ada';
 export interface CalonHajiFilters {

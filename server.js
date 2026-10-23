@@ -286,7 +286,7 @@ import { recentRegistrationMonths, recentRowHijriahYear } from './lib/umroh-rece
 import { buildJamaahSearchNeedle, matchesUmrohJamaahSearch, buildJamaahSearchOrFilter } from './lib/jamaah-search.js';
 import { createScheduleResponseCache } from './lib/schedule-response-cache.js';
 import { listPublicAgents } from './lib/public-agents.js';
-import { loadCalonHaji } from './lib/calon-haji-store.js';
+import { loadCalonHaji, loadAgentCalonHaji } from './lib/calon-haji-store.js';
 import { PDFParse as pdfParse } from 'pdf-parse';
 import dns from 'dns/promises';
 import dnsCallback from 'dns';
@@ -20362,12 +20362,13 @@ app.get('/api/flight-share/:code', async (req, res) => {
 // ──────────────────────────────────────────────
 // Haji Plus API (MUST be before /api/{*path} catch-all proxy)
 // ──────────────────────────────────────────────
-// Menu "Calon Haji 2027": daftar bersama dari PDF estimasi kantor (semua agent
-// melihat semua baris). Diisi lewat scripts/import-calon-haji.mjs.
+// Daftar kantor dari PDF; scope personal dicocokkan dengan nomor porsi agent.
 const CALON_HAJI_MUSIM = 2027;
 app.get('/api/calon-haji', dbLoadShedGuard, authMiddleware, async (req, res) => {
   try {
-    const { rows } = await loadCalonHaji(supabase, CALON_HAJI_MUSIM);
+    const { rows } = req.query.scope === 'mine'
+      ? await loadAgentCalonHaji(supabase, CALON_HAJI_MUSIM, req.user.id)
+      : await loadCalonHaji(supabase, CALON_HAJI_MUSIM);
     res.json({ success: true, musim: CALON_HAJI_MUSIM, rows });
   } catch (err) {
     console.error('[CalonHaji] load gagal:', err.message);
