@@ -44,7 +44,6 @@ export default function CalonHajiPersonalDetail({ records, nama, onDocument }: {
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
               <Item label="WhatsApp" value={item.telp} />
               <Item label="Paket" value={item.paket_detail || item.paket} />
-              <Item label="No. Porsi" value={item.nomor_porsi} />
               <Item label="No. SPPH" value={item.nomor_spph} />
               <Item label="Staff" value={item.staff} />
               <Item label="Tgl Daftar" value={dateLabel(item.tgl_daftar)} />
