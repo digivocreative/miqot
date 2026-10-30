@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { maskSnapshotForStorage } from '../src/components/portal-jamaah/lib/portalSnapshotPrivacy.ts';
+import { loadTs } from './fixtures/load-ts.js';
+const { maskSnapshotForStorage } = await loadTs('src/components/portal-jamaah/lib/portalSnapshotPrivacy.ts');
 
 // Salinan /me untuk portal offline disimpan di localStorage (bisa di HP keluarga yang
 // dipakai bergantian). Nomor paspor tidak boleh tersimpan utuh; kehadirannya tetap

@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.claude
+.agents
+.superpowers
+.clone
+.next
+node_modules
+dist
+dist_*
+data
+exports
+*.log
+.DS_Store

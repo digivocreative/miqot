@@ -21,7 +21,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 import { METRIC_DRIFT, describeWrapped, measureClonedTextLines, wrappedReadings } from './fixtures/export-wrap-probe.js';
 
@@ -119,7 +119,7 @@ async function openHarness(mode) {
     body: JSON.stringify(API_PAYLOAD),
   }));
 
-  await page.goto(`${appOrigin}${HARNESS}?mode=${mode}`);
+  await page.goto(`${appOrigin}${HARNESS}?mode=${mode}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.locator(PREVIEW).waitFor({ state: 'visible', timeout: 45_000 });
   // Default halaman menyembunyikan paket sold-out; stempel "SOLD OUT" hanya
   // ikut terukur kalau baris itu benar-benar dirender.

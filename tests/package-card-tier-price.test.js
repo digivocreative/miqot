@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cheapestTierOf, minPriceInTier } from '../src/lib/packagePricing.ts';
+import { loadTs } from './fixtures/load-ts.js';
+const { cheapestTierOf, minPriceInTier } = await loadTs('src/lib/packagePricing.ts');
 
 // Data nyata JBU1543 "UMRAH REGULER PAKET RAHMAH MIX UHUD": UHUD 38,9 jt,
 // RAHMAH 53,9 jt. Harga header ("MULAI") dulu selalu memakai minimum lintas

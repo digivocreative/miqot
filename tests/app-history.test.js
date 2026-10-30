@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { loadTs } from './fixtures/load-ts.js';
 
 // Riwayat navigasi dalam-app. Audit: tombol "Kembali" di app menambah entri riwayat
 // (pushState) alih-alih mundur, jadi gestur back Android membuka lagi layar yang baru
@@ -21,7 +22,7 @@ function installFakeHistory(initialPath) {
   return { calls, current: () => entries[index] };
 }
 
-const { pushAppState, replaceAppState, canGoBackInApp, backOr } = await import('../src/lib/appHistory.ts');
+const { pushAppState, replaceAppState, canGoBackInApp, backOr } = await loadTs('src/lib/appHistory.ts');
 
 test('layar yang dibuka langsung tidak bisa mundur di dalam app → fallback dijalankan', () => {
   const h = installFakeHistory('/dashboard/jamaah/daftar');

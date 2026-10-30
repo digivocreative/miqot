@@ -18,7 +18,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const HARNESS = '/tests/fixtures/brochure-export-harness.html';
@@ -148,7 +148,9 @@ describe('Pil Sticker di Brosur Jadwal', { concurrency: false }, () => {
     }));
     await p2.goto(`${appOrigin}${HARNESS}?mode=hari${query}`);
     await p2.locator('[data-sticker-open]').first().waitFor({ timeout: 45_000 });
-    await p2.waitForTimeout(1500);
+    await p2.waitForFunction(() => !document.querySelector('[data-sticker-open]')?.disabled);
+    if (query.includes('stiker=1')) await p2.locator('[data-sticker-callout]').waitFor({ timeout: 15_000 });
+    await p2.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const terlihat = await p2.locator('[data-sticker-callout]').count();
     return { p2, terlihat };
   }

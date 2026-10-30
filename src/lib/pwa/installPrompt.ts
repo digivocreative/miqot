@@ -13,7 +13,7 @@ export interface InstallState {
   installed: boolean;
 }
 
-interface PromptEvent {
+interface PromptEvent extends Event {
   preventDefault(): void;
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
@@ -21,7 +21,7 @@ interface PromptEvent {
 
 interface InstallWindow {
   location: { pathname: string };
-  addEventListener(type: string, listener: (event: never) => void): void;
+  addEventListener(type: string, listener: EventListener): void;
 }
 
 export function detectInstallPlatform(userAgent: string, maxTouchPoints: number): InstallPlatform {
@@ -41,17 +41,18 @@ export function createInstallPrompt(win: InstallWindow, onInstalled?: (pathname:
     for (const listener of listeners) listener();
   };
 
-  win.addEventListener('beforeinstallprompt', ((event: PromptEvent) => {
+  win.addEventListener('beforeinstallprompt', (rawEvent: Event) => {
+    const event = rawEvent as PromptEvent;
     if (win.location.pathname.startsWith('/dashboard')) event.preventDefault();
     deferred = event;
     setState({ ...state, canPrompt: true });
-  }) as (event: never) => void);
+  });
 
-  win.addEventListener('appinstalled', (() => {
+  win.addEventListener('appinstalled', () => {
     deferred = null;
     setState({ canPrompt: false, installed: true });
     onInstalled?.(win.location.pathname);
-  }) as (event: never) => void);
+  });
 
   return {
     getState: (): InstallState => state,

@@ -2,10 +2,10 @@ const STORAGE_KEY = 'jamaah_portal_session';
 // Salinan terakhir respons /me yang berhasil, supaya portal tetap bisa dibuka tanpa sinyal.
 const ME_SNAPSHOT_KEY = 'jamaah_portal_me';
 const COOKIE_NAME = 'jamaah_session';
-const NINETY_DAYS_SECONDS = 90 * 24 * 60 * 60;
 
 export interface PortalSession {
-  session_token: string;
+  /** Read only while migrating a session saved by an older app version. */
+  session_token?: string;
   id_umroh: string;
   slug: string;
   expires_at: string;
@@ -45,7 +45,7 @@ function writeCookie(value: string) {
   try {
     document.cookie = value;
   } catch {
-    // Cookie diblokir: header Authorization dari storage tetap dipakai.
+    // Cookie diblokir oleh browser.
   }
 }
 
@@ -85,9 +85,10 @@ export function savePortalSession(session: PortalSession) {
   const snapshot = readSnapshotRecord();
   if (snapshot && snapshot.owner !== snapshotOwner(session)) storageRemove('localStorage', ME_SNAPSHOT_KEY);
 
-  writeSession(JSON.stringify(session));
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  writeCookie(`${COOKIE_NAME}=${encodeURIComponent(session.session_token)}; path=/; max-age=${NINETY_DAYS_SECONDS}; SameSite=Lax${secure}`);
+  // The server sets the HttpOnly cookie. Persist only routing/offline metadata,
+  // never a bearer token that scripts on this origin could copy.
+  const { session_token: _legacyToken, ...metadata } = session;
+  writeSession(JSON.stringify(metadata));
 }
 
 export function getPortalSession(): PortalSession | null {
@@ -102,7 +103,8 @@ export function getPortalSession(): PortalSession | null {
   } catch {
     session = null;
   }
-  if (!session || !session.session_token || !session.id_umroh || !session.slug || !session.expires_at) {
+  if (!session || typeof session.id_umroh !== 'string' || !session.id_umroh ||
+      typeof session.slug !== 'string' || !session.slug || typeof session.expires_at !== 'string') {
     clearPortalSession();
     return null;
   }

@@ -54,7 +54,6 @@ export default function AuthConsumePage({ slug, token }: { slug?: string; token:
         if (cancelled) return;
         const resolvedSlug = data.agent_slug || slug || '';
         savePortalSession({
-          session_token: data.session_token,
           id_umroh: data.id_umroh,
           slug: resolvedSlug,
           expires_at: data.expires_at,

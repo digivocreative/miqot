@@ -21,7 +21,7 @@ WORKDIR /app
 
 # Copy package files dan instal dependensi
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy semua file project
 COPY . .

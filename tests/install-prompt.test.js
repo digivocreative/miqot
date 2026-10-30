@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { loadTs } from './fixtures/load-ts.js';
 
 // Audit 2026-09-17: tidak ada ajakan pasang app sama sekali; di iOS 26 "Add to Home Screen"
 // tersembunyi 4 ketukan. Event beforeinstallprompt harus ditangkap sedini mungkin (sebelum
 // React mount) dan hanya ditahan di dashboard — halaman publik tetap memakai UI bawaan peramban.
 
-const { detectInstallPlatform, createInstallPrompt } = await import('../src/lib/pwa/installPrompt.ts');
+const { detectInstallPlatform, createInstallPrompt } = await loadTs('src/lib/pwa/installPrompt.ts');
 
 test('deteksi platform untuk instruksi pasang', () => {
   assert.equal(detectInstallPlatform('Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15', 5), 'ios');

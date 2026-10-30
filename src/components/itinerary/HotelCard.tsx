@@ -5,27 +5,29 @@ import { cityKeyForLocation } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Runtime shape per tier (transformHotelInfo): kunci `<city>_hotel`, `<city>_bintang`, `<city>_jarak`.
-function tierRows(tier: Record<string, string | undefined>) {
-  return Object.entries(tier)
-    .filter(([key, value]) => key.endsWith('_hotel') && !!value)
+function tierRows(tier: object) {
+  const fields: Record<string, unknown> = { ...tier };
+  return Object.entries(fields)
+    .filter(([key, value]) => key.endsWith('_hotel') && typeof value === 'string' && !!value)
     .map(([key, value]) => {
       const city = key.replace(/_hotel$/, '');
+      const stars = fields[`${city}_bintang`];
       return {
         city,
         name: value as string,
-        stars: tier[`${city}_bintang`] && tier[`${city}_bintang`] !== '0' ? tier[`${city}_bintang`] : null,
+        stars: typeof stars === 'string' && stars !== '0' ? stars : null,
       };
     });
 }
 
 export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
   const tiers = Object.keys(hotel || {}).filter(
-    t => hotel[t] && tierRows(hotel[t] as Record<string, string | undefined>).length,
+    t => hotel[t] && tierRows(hotel[t]).length,
   );
   const [active, setActive] = useState(0);
   if (!tiers.length) return null;
   const activeTier = tiers[Math.min(active, tiers.length - 1)];
-  const rows = tierRows(hotel[activeTier] as Record<string, string | undefined>);
+  const rows = tierRows(hotel[activeTier]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#EAE2D8] bg-white">

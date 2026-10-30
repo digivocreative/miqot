@@ -19,7 +19,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { webkit } from 'playwright';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const VIEWPORT = { width: 390, height: 812 };

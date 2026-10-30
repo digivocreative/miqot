@@ -647,7 +647,7 @@ Pengukuran (Chromium headless, 4G 9 Mbps/120 ms RTT, CPU 4×, origin lokal) menu
 ### High Risk
 
 - `server.js` is too large and mixes API, cron, sync, proxy, SSR injection, and static serving. Keep changes tightly scoped and add tests/source guards for fragile flows.
-- `JWT_SECRET` has a fallback in code. Production must always set a strong env value.
+- `JWT_SECRET` must be configured with at least 32 bytes; startup rejects a missing/weak value (audit 2026-10-30).
 - Supabase service-role key is central. Never import server-side Supabase code into frontend bundles.
 - Legacy AIW POST is unstable by design. Do not remove Playwright/reCAPTCHA fallback unless Alhijaz provides a stable API for registration.
 - Sync cleanup can delete real jamaah if upstream fetch is partial. Preserve `computeSafeDeletions` and complete-list checks.

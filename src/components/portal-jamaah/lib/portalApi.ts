@@ -1,4 +1,4 @@
-import { clearPortalSession, getPortalSession } from './portalSession';
+import { clearPortalSession, getPortalSession, savePortalSession } from './portalSession';
 
 const API_BASE = '/api/portal/jamaah';
 const PORTAL_MAGIC_CODE_REGEX = /^(?=.*[a-z])(?=.*[2-9])[a-z2-9]{5,6}$/i;
@@ -9,7 +9,6 @@ export type PersiapanKind = 'tahapan' | 'spiritual';
 export type ConsumeLinkErrorKind = 'expired' | 'consumed' | 'invalid' | 'belum_dp';
 
 export interface ConsumeMagicLinkResult {
-  session_token: string;
   id_umroh: string;
   jamaah_name: string;
   agent_slug: string;
@@ -44,7 +43,8 @@ async function authedFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${session.session_token}`,
+      // Legacy sessions are upgraded to an HttpOnly cookie by the server.
+      ...(session.session_token ? { Authorization: `Bearer ${session.session_token}` } : {}),
       'Content-Type': 'application/json',
       ...options.headers,
     },
@@ -65,6 +65,8 @@ async function authedFetch(path: string, options: RequestInit = {}) {
     const body = await parseJson(res);
     throw new PortalApiError(res.status, String(body?.error || 'unknown'));
   }
+
+  if (session.session_token) savePortalSession(session);
 
   if (res.status === 204) return null;
   return parseJson(res);

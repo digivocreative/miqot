@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
 import sharp from 'sharp';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const HARNESS = '/tests/fixtures/package-card-brosur-harness.html';

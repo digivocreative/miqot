@@ -22,7 +22,7 @@ async function withFakeFetch(impl, run) {
 
 test('gagal-sambung diulang sampai tersambung, opsi diteruskan utuh + dispatcher', async () => {
   const upstreamFetch = createUpstreamFetch({ attempts: 5 });
-  const failures = [connectError('UND_ERR_CONNECT_TIMEOUT'), connectError('ECONNRESET')];
+  const failures = [connectError('UND_ERR_CONNECT_TIMEOUT'), connectError('ECONNREFUSED')];
   await withFakeFetch((n) => {
     if (n <= failures.length) throw failures[n - 1];
     return new Response('ok', { status: 200 });
@@ -36,6 +36,24 @@ test('gagal-sambung diulang sampai tersambung, opsi diteruskan utuh + dispatcher
       assert.deepEqual(options.headers, { a: '1' });
       assert.ok(options.dispatcher, 'dispatcher sendiri dipasang');
     }
+  });
+});
+
+test('POST is never replayed after an ambiguous socket failure', async () => {
+  const upstreamFetch = createUpstreamFetch({ attempts: 5 });
+  for (const code of ['UND_ERR_SOCKET', 'ECONNRESET', 'ETIMEDOUT']) {
+    await withFakeFetch(() => { throw connectError(code); }, async (calls) => {
+      await assert.rejects(upstreamFetch('http://upstream/register', { method: 'POST', body: 'jamaah=1' }));
+      assert.equal(calls.length, 1, code);
+    });
+  }
+});
+
+test('GET can retry a reset because it has no mutation to duplicate', async () => {
+  const upstreamFetch = createUpstreamFetch({ attempts: 3 });
+  await withFakeFetch(n => { if (n === 1) throw connectError('ECONNRESET'); return new Response('ok'); }, async calls => {
+    assert.equal(await (await upstreamFetch('http://upstream/x')).text(), 'ok');
+    assert.equal(calls.length, 2);
   });
 });
 

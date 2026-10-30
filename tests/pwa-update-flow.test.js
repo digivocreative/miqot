@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideVersionAction } from '../src/lib/pwa/versionCheck.ts';
-import { whenWorkerInstalled } from '../src/lib/pwa/installingWorker.ts';
-import { getUpdateState, subscribeUpdate, markUpdateReady, dismissUpdate, applyUpdate } from '../src/lib/pwa/updateStore.ts';
-import { shouldResumeSessionOnLogin } from '../src/lib/pwa/launch.ts';
+import { loadTs } from './fixtures/load-ts.js';
+const { decideVersionAction } = await loadTs('src/lib/pwa/versionCheck.ts');
+const { whenWorkerInstalled } = await loadTs('src/lib/pwa/installingWorker.ts');
+const { getUpdateState, subscribeUpdate, markUpdateReady, dismissUpdate, applyUpdate } = await loadTs('src/lib/pwa/updateStore.ts');
+const { shouldResumeSessionOnLogin } = await loadTs('src/lib/pwa/launch.ts');
 
 // Audit 2026-09-17: setiap deploy, escape hatch menghapus SEMUA cache + unregister SW
 // lalu reload paksa saat user kembali ke tab (17,9 MB diunduh ulang, teks ketikan hilang),

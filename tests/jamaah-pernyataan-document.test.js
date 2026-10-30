@@ -115,7 +115,14 @@ test('server preserves durable surat pernyataan markers during later jamaah sync
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
   assert.match(server, /function mergeUmrohDokumen\(existingDokumen,\s*incomingDokumen\)/);
-  assert.match(server, /\.select\('id_umroh, jm_id, nama, paket, bayar, sisa, tgl_berangkat, tgl_daftar, raw_data, dokumen'\)/);
+  for (const anchor of ['const { data: existingPhase1, error: paymentLookupErr }', 'const { data: bgExistingPayments, error: bgPaymentLookupErr }']) {
+    const start = server.indexOf(anchor);
+    assert.ok(start > -1, anchor);
+    const select = server.slice(start).match(/\.select\('([^']+)'\)/);
+    assert.ok(select);
+    const columns = select[1].split(',').map(column => column.trim());
+    assert.ok(['id_umroh', 'jm_id', 'nama', 'bayar', 'sisa', 'raw_data', 'dokumen'].every(column => columns.includes(column)), 'payment merges must read document markers');
+  }
   assert.match(server, /patch\.dokumen = mergedD/);
   assert.match(server, /row\.dokumen = mergeUmrohDokumen\(existingPayment\?\.dokumen,\s*row\.dokumen\)/);
   assert.match(server, /row\.dokumen = mergeUmrohDokumen\(bgExistingPayment\?\.dokumen,\s*row\.dokumen\)/);

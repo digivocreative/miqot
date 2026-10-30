@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, webkit } from 'playwright';
 import { PDFParse } from 'pdf-parse';
 import sharp from 'sharp';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const packageBrochureFixture = fileURLToPath(new URL('../public/img-brosur/cover-katalog.png', import.meta.url));
@@ -85,7 +87,12 @@ async function previewDetails(page) {
     await document.fonts?.ready;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
-  const bytes = await preview.screenshot({ animations: 'disabled' });
+  const bytes = await preview.screenshot({
+    animations: 'disabled',
+    // Locator screenshots include pixels painted over the node by sticky
+    // controls/callouts. Hide unrelated UI while comparing only the brochure.
+    style: 'body *{visibility:hidden!important}[data-brochure-preview-page="0"],[data-brochure-preview-page="0"] *{visibility:visible!important}',
+  });
   const metadata = await sharp(bytes).metadata();
   return { bytes, width: metadata.width, height: metadata.height };
 }
@@ -122,24 +129,40 @@ async function downloadDetails(page) {
 async function visualDifference(previewBytes, exportBytes) {
   const preview = await sharp(previewBytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const exported = await sharp(exportBytes)
-    .resize(preview.info.width, preview.info.height, { fit: 'fill' })
+    .resize({ width: preview.info.width })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  let changed = 0;
-  let absoluteTotal = 0;
-  const pixels = preview.info.width * preview.info.height;
-  for (let offset = 0; offset < preview.data.length; offset += 3) {
-    const red = Math.abs(preview.data[offset] - exported.data[offset]);
-    const green = Math.abs(preview.data[offset + 1] - exported.data[offset + 1]);
-    const blue = Math.abs(preview.data[offset + 2] - exported.data[offset + 2]);
-    absoluteTotal += red + green + blue;
-    if (Math.max(red, green, blue) > 32) changed += 1;
+  // A fractional CSS top coordinate makes Chromium include one extra raster
+  // row. Keep the export's aspect ratio and align that single boundary row;
+  // stretching the export to the screenshot height shifts every text line.
+  assert.ok(Math.abs(preview.info.height - exported.info.height) <= 1);
+  const height = Math.min(preview.info.height, exported.info.height);
+  const pixels = preview.info.width * height;
+  let result = { changedRatio: Infinity, meanAbsoluteDifference: Infinity };
+  for (let previewTop = 0; previewTop <= preview.info.height - height; previewTop++) {
+    for (let exportTop = 0; exportTop <= exported.info.height - height; exportTop++) {
+      let changed = 0;
+      let absoluteTotal = 0;
+      for (let offset = 0; offset < pixels * 3; offset += 3) {
+        const a = offset + previewTop * preview.info.width * 3;
+        const b = offset + exportTop * exported.info.width * 3;
+        const red = Math.abs(preview.data[a] - exported.data[b]);
+        const green = Math.abs(preview.data[a + 1] - exported.data[b + 1]);
+        const blue = Math.abs(preview.data[a + 2] - exported.data[b + 2]);
+        absoluteTotal += red + green + blue;
+        if (Math.max(red, green, blue) > 32) changed += 1;
+      }
+      const candidate = { changedRatio: changed / pixels, meanAbsoluteDifference: absoluteTotal / (pixels * 3) };
+      if (candidate.meanAbsoluteDifference < result.meanAbsoluteDifference) result = candidate;
+    }
   }
-  return {
-    changedRatio: changed / pixels,
-    meanAbsoluteDifference: absoluteTotal / (pixels * 3),
-  };
+  if (result.changedRatio >= 0.05 || result.meanAbsoluteDifference >= 5.5) {
+    const dir = await mkdtemp(join(tmpdir(), 'miqot-brochure-diff-'));
+    await Promise.all([writeFile(join(dir, 'preview.png'), previewBytes), writeFile(join(dir, 'export.jpg'), exportBytes)]);
+    console.log('Visual comparison artifacts:', dir);
+  }
+  return result;
 }
 
 describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
@@ -186,7 +209,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }));
 
     try {
-      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       let current = await previewDetails(page);
       const firstPass = new Map();
       const designIds = ['classic', 'boarding', 'kartu', 'kartu-ringkas', 'kolom-harga', 'kalender'];
@@ -199,7 +222,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
         }
 
         assert.ok(current.width > 300);
-        assert.equal(current.height, Math.round(current.width * 1.5));
+        assert.ok(Math.abs(current.height - current.width * 1.5) <= 1, 'browser screenshot may round a fractional CSS boundary by one pixel');
 
         const firstDownload = await downloadDetails(page);
         const secondDownload = await downloadDetails(page);
@@ -270,7 +293,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }));
 
     try {
-      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const enabledDownload = 'button:has-text("Download"):not([disabled])';
       await page.waitForSelector(enabledDownload, { timeout: 60_000 });
 
@@ -304,7 +327,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }
   });
 
-  test('catalog PDF action is full-width and spans every available month', { timeout: 90_000 }, async () => {
+  test('catalog PDF action shares the toolbar with its design picker and spans every available month', { timeout: 90_000 }, async () => {
     const context = await browser.newContext({
       acceptDownloads: true,
       viewport: { width: 520, height: 900 },
@@ -353,11 +376,13 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }));
 
     try {
-      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const catalogButton = page.getByRole('button', { name: 'Unduh Katalog PDF', exact: true });
       await catalogButton.waitFor();
       const buttonBox = await catalogButton.boundingBox();
-      assert.ok(buttonBox && buttonBox.width >= 480, 'tombol katalog harus memenuhi lebar konten');
+      const designBox = await page.getByRole('button', { name: 'Pilih desain brosur' }).boundingBox();
+      assert.ok(buttonBox && designBox && Math.abs(buttonBox.y - designBox.y) <= 1, 'aksi katalog dan desain harus sejajar');
+      assert.ok(buttonBox.width > 250 && designBox.width + buttonBox.width + 8 >= 480, 'toolbar harus memenuhi lebar konten');
 
       await page.getByRole('button', { name: 'Pilih Bulan' }).click();
       assert.equal(
@@ -456,7 +481,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     });
 
     try {
-      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`);
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.getByRole('button', { name: 'Brosur Paket', exact: true }).click();
 
       const catalogButton = page.getByRole('button', { name: 'Unduh Katalog PDF', exact: true });
@@ -468,13 +493,13 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
 
       const coverDialog = page.getByRole('dialog', { name: 'Pilih cover katalog' });
       await coverDialog.waitFor();
-      await coverDialog.getByText('Filter: Semua Bulan · 2 brosur', { exact: true }).waitFor();
+      await coverDialog.getByText('Filter: September 2026 · 2 brosur', { exact: true }).waitFor();
       catalogDownloadStarted = true;
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 60_000 }),
         coverDialog.getByRole('button', { name: 'Unduh Katalog PDF', exact: true }).click(),
       ]);
-      assert.match(download.suggestedFilename(), /^katalog-brosur-paket-.*semua-bulan.*\.pdf$/);
+      assert.match(download.suggestedFilename(), /^katalog-brosur-paket-.*september-2026.*\.pdf$/);
 
       const pdfPath = await download.path();
       assert.ok(pdfPath);
@@ -556,7 +581,7 @@ describe('Brosur Jadwal canonical export', { concurrency: false }, () => {
     }));
 
     try {
-      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html?mode=seat`);
+      await page.goto(`${appOrigin}/tests/fixtures/brochure-export-harness.html?mode=seat`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const preview = await previewDetails(page);
       await page.getByRole('button', { name: 'Simpan', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Share', exact: true }).click();

@@ -12,7 +12,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 import { METRIC_DRIFT, describeWrapped, measureClonedTextLines, wrappedReadings } from './fixtures/export-wrap-probe.js';
 

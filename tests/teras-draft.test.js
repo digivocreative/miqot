@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import { loadTs } from './fixtures/load-ts.js';
+const {
   feedDraftKey,
   feedSnippetDraftKey,
   replyDraftKey,
@@ -11,7 +12,7 @@ import {
   clearDraft,
   pruneReplyDrafts,
   TERAS_DRAFT_MAX_AGE_MS,
-} from '../src/lib/terasDraft.ts';
+} = await loadTs('src/lib/terasDraft.ts');
 
 const NOW = 1_753_142_400_000;
 

@@ -16,7 +16,7 @@ interface FlightMapProps {
     lng?: number | null;
     alt?: number | null;
     speed?: number | null;
-    direction?: number | null;
+    direction?: number | string | null; // provider bearing, or calendar pergi/pulang label
     progress: number;
     status: string;
     flightNumber: string;

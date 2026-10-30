@@ -8,6 +8,7 @@ import {
   buildJamaahDocumentCacheRow,
   isCacheableHtmlDocument,
   JAMAAH_DOCUMENT_TYPES,
+  sanitizeDocumentHtml,
 } from '../lib/jamaah-document-cache.js';
 
 test('isCacheableHtmlDocument only accepts HTML content types', () => {
@@ -15,6 +16,31 @@ test('isCacheableHtmlDocument only accepts HTML content types', () => {
   assert.equal(isCacheableHtmlDocument('application/xhtml+xml'), true);
   assert.equal(isCacheableHtmlDocument('application/pdf'), false);
   assert.equal(isCacheableHtmlDocument(''), false);
+});
+
+test('printable upstream HTML cannot execute event handlers or embedded active content', () => {
+  const html = buildPrintableJamaahDocumentHtml(`<body>
+    <h1>Formulir</h1><img src="/logo.png" onerror="window.stolen = true">
+    <svg onload="window.stolen = true"><a href="java&#x0a;script:alert(1)">klik</a></svg>
+    <iframe srcdoc="<script>alert(1)</script>"></iframe><object data="https://evil.example"></object>
+    <form action="javascript:alert(1)"><p>Nama Jamaah</p></form>
+  </body>`);
+  const $ = load(html);
+  assert.equal($('iframe,object,embed').length, 0);
+  assert.equal($('[onerror],[onload],[srcdoc]').length, 0);
+  assert.equal($('a').attr('href'), undefined);
+  assert.equal($('form').attr('action'), undefined);
+  assert.equal($('img').first().attr('src'), '/logo.png');
+  assert.match($('body').text(), /Nama Jamaah/);
+});
+
+test('generic Haji HTML is sanitized without adding the Umroh print layout', () => {
+  const html = sanitizeDocumentHtml('<html><head><style>.bpih{color:red}</style></head><body><table class="bpih"><tr><td>BPIH</td></tr></table><img src="/logo.png" onerror="alert(1)"><script>alert(1)</script></body></html>');
+  const $ = load(html);
+  assert.equal($('script,[onerror]').length, 0);
+  assert.equal($('table.bpih').text(), 'BPIH');
+  assert.match($('style').text(), /color:red/);
+  assert.doesNotMatch(html, /print-shell|a4-sheet/);
 });
 
 test('buildJamaahDocumentCacheRow stores per-agent HTML snapshot metadata', () => {

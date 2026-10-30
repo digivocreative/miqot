@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { loadTs } from './fixtures/load-ts.js';
 
 // Halaman publik (jadwal, detail paket, kalkulasi, banding, status penerbangan) —
 // audit PWA 2026-09-17: tombol Kembali memakai `location.href` ke induk, jadi tiap
@@ -21,7 +22,7 @@ const FILES_WITH_HELPER = [
   'src/components/FlightSharePage.tsx',
 ];
 
-const { hasInAppHistory } = await import('../src/lib/appHistory.ts');
+const { hasInAppHistory } = await loadTs('src/lib/appHistory.ts');
 
 function run({ navigation, historyLength, referrer, origin = 'https://alhijaz.co' }) {
   globalThis.window = {

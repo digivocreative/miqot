@@ -810,7 +810,9 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       search = rest ? `?${rest}` : '';
     }
     replaceAppState({ tab: activeTab }, window.location.pathname + search + window.location.hash);
-    document.title = getCurrentDocumentTitle();
+    // The mounted profile owns its member/slug title; a parent mount effect
+    // runs after the child's effect and must not replace it with "Teras".
+    if (!getTerasProfileSlugFromPath()) document.title = getCurrentDocumentTitle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

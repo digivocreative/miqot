@@ -72,7 +72,9 @@ test('browser shares one brochure image together with the compact prompt text', 
     assert.ok(result.prompt.length <= 1_800);
     assert.match(result.prompt, /Buat ulang brosur jadwal/);
     assert.match(result.prompt, /AKURASI/);
-    assert.match(result.prompt, /Rp 39\.4 Juta/);
+    assert.match(result.prompt, /Rp <nilai> Juta/);
+    assert.match(result.prompt, /ambil nilai dari SUMBER, jangan pakai angka contoh sebagai harga/);
+    assert.doesNotMatch(result.prompt, /Rp 39\.4 Juta/);
   } finally {
     await browser.close();
   }

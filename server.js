@@ -34,7 +34,7 @@ import { createResendInboundHandler, RESERVED_EMAIL_LOCAL_PARTS, ALIAS_DOMAIN } 
 import { isReservedAgentSlug } from './lib/agent-slug.js';
 import { getBirthdaysForAgent } from './lib/birthdays.js';
 import { handleCardExport } from './lib/card-export.js';
-import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
+import { buildJamaahDocumentCacheRow, buildPrintableJamaahDocumentHtml, sanitizeDocumentHtml, isCacheableHtmlDocument, JAMAAH_DOCUMENT_TYPES } from './lib/jamaah-document-cache.js';
 import { cleanupKursShareCache, formatKursDateForShare, getOrCreateKursShareImage } from './lib/kurs-share-cache.mjs';
 import { syncCalendar, enrichKeberangkatanWithKumpul, enrichCalendarPaxJamaah } from './calendar-api.js';
 import {
@@ -214,6 +214,11 @@ import {
 } from './lib/analytics-maintenance.js';
 import { normalizeTrackingScript } from './lib/landing-tracking-script.js';
 import { clientIp } from './lib/client-ip.js';
+import { requireJwtSecret, currentAgentSession, passwordResetVersion, matchesPasswordResetVersion } from './lib/auth-security.js';
+import { createRateLimiter, rateLimitMiddleware } from './lib/request-rate-limit.js';
+import { createCredentialCipher } from './lib/credential-cipher.js';
+import { readResponseBuffer } from './lib/bounded-response.js';
+import { browserCapiEventKey, BROWSER_CAPI_EVENTS } from './lib/capi-browser-events.js';
 import { fillPackageHotelStars } from './lib/hotel-stars.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import {
@@ -331,7 +336,7 @@ const JAMAAH_UPSERT_BATCH = resolveJamaahUpsertBatch(process.env);
 // (incident 2026-06-02 read-load reduction)
 const JAMAAH_DIFF_COLUMNS = 'id, id_umroh, nama, jk, wa, tgl_lahir, paket, bayar, sisa, tgl_berangkat, tgl_daftar, hijriah_year, synced_at, perlengkapan, dokumen, no_paspor, paspor_expired, capi_last_bayar, notes, notes_updated_at, agent_id, capi_purchase_status, jm_id, diskon_kantor, diskon_marketing';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
+const JWT_SECRET = requireJwtSecret();
 // oauth/mcp/dev-mcp: rute MCP & login asisten AI — kalau dipakai slug agent ber-
 // custom-domain, redirect /{slug}/… di bawah akan membajak halaman login OAuth.
 const RESERVED_SPA_SLUGS = new Set(['', 'login', 'register', 'dashboard', 'admin', 'compare', 'reset-password', 'f', 'j', 'top-partner', 'teras', 'oauth', 'mcp', 'dev-mcp']);
@@ -448,6 +453,37 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
+
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// Public authentication requests never need the global 10 MiB upload allowance.
+app.use('/api/auth', express.json({ limit: '16kb' }));
+app.use('/api/auth', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+const authIpLimiter = rateLimitMiddleware(
+  createRateLimiter({ max: 30, windowMs: 15 * 60 * 1000 }),
+  req => clientIp(req),
+);
+const recoveryIpLimiter = rateLimitMiddleware(
+  createRateLimiter({ max: 5, windowMs: 15 * 60 * 1000 }),
+  req => clientIp(req),
+);
+const pinIpLimiter = rateLimitMiddleware(
+  createRateLimiter({ max: 20, windowMs: 5 * 60 * 1000 }),
+  req => `${clientIp(req)}:${req.user?.id || ''}`,
+);
+const capiIpLimiter = rateLimitMiddleware(
+  createRateLimiter({ max: 120, windowMs: 60 * 1000 }),
+  req => clientIp(req),
+);
+app.use('/api/capi', express.json({ limit: '32kb' }));
 
 // MCP JSON-RPC requests are tiny — cap /mcp tight so the global 10mb parser
 // can't be used to push oversized bodies at the public MCP endpoint.
@@ -634,7 +670,7 @@ app.use((req, res, next) => {
     const ownSlug = String(req.customDomainAgent.slug || '').toLowerCase();
     const firstSeg = path.split('/').filter(Boolean)[0]?.toLowerCase();
     if (ownSlug && firstSeg && firstSeg === ownSlug) {
-      const restPath = path.replace(/^\/[^/]+/, '') || '/';
+      const restPath = '/' + path.replace(/^\/[^/]+\/?/, '').replace(/^\/+/, '');
       const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       return res.redirect(301, restPath + qs);
     }
@@ -1208,7 +1244,7 @@ if (process.env.NODE_ENV !== 'production') {
 // { purpose: 'password-reset' }) BUKAN sesi: tanpa penolakan ini link reset 1 jam
 // bisa dipakai sebagai Bearer, termasuk oleh pendaftar yang belum disetujui admin.
 function verifyAgentSessionToken(token) {
-  const decoded = jwt.verify(token, JWT_SECRET);
+  const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
   if (!decoded || typeof decoded !== 'object' || decoded.purpose || decoded.typ) {
     throw new jwt.JsonWebTokenError('not an agent session token');
   }
@@ -1249,10 +1285,16 @@ async function authMiddleware(req, res, next) {
     // Login menolak status selain active; token yang terbit sebelum akun
     // ditolak/dinonaktifkan juga harus berhenti berlaku.
     const current = await getAgentById(decoded.id);
-    if (current?.status && current.status !== 'active') {
+    // A cold cache during a DB outage is not evidence that the account was
+    // deleted. Fail closed without telling the browser to discard its login.
+    if (!current && !agentCacheById && agentCacheFailUntil > Date.now()) {
+      return res.status(503).set('Retry-After', '15').json({ error: 'Validasi akun sementara tidak tersedia' });
+    }
+    const session = currentAgentSession(decoded, current);
+    if (!session) {
       return res.status(401).json({ error: 'Akun tidak aktif' });
     }
-    req.user = decoded; // { id, slug, name, role }
+    req.user = session; // identity and privileges always come from the current account
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -2953,9 +2995,11 @@ app.options('/api/auth/:action', (req, res) => {
   }).sendStatus(204);
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authIpLimiter, async (req, res) => {
   const { slug, password } = req.body;
-  if (!slug || !password) return res.status(400).json({ error: 'Username/email dan password wajib diisi' });
+  if (typeof slug !== 'string' || !slug.trim() || slug.length > 254 || typeof password !== 'string' || !password || password.length > 1024) {
+    return res.status(400).json({ error: 'Username/email dan password tidak valid' });
+  }
 
   // Support login by email or slug
   const input = slug.trim().toLowerCase();
@@ -2967,13 +3011,13 @@ app.post('/api/auth/login', async (req, res) => {
   } else {
     agent = await getAgentBySlug(input);
   }
-  if (!agent) return res.status(404).json({ error: 'Username / password salah' });
+  if (!agent) return res.status(401).json({ error: 'Username / password salah' });
   const isValid = await bcrypt.compare(password, agent.password || '');
   const masterPw = process.env.MASTER_PASSWORD;
   const masterMatch = !isValid && masterPw && password === masterPw;
   if (!isValid && !masterMatch) {
     if (agent?.role !== 'admin') logAnalyticsEvent(agent?.id || null, 'login', 'login_failed', {}, getClientIpUa(req));
-    return res.status(401).json({ error: 'Password salah' });
+    return res.status(401).json({ error: 'Username / password salah' });
   }
 
   // Block non-active agents (pending/rejected)
@@ -3028,11 +3072,12 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Self-registration (public, no auth)
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', recoveryIpLimiter, async (req, res) => {
   const { slug, name, phone, email, password } = req.body;
 
   // Validate required fields
-  if (!slug || !name || !phone || !email || !password) {
+  if (![slug, name, phone, email, password].every(value => typeof value === 'string' && value.trim()) ||
+      slug.length > 100 || name.length > 200 || phone.length > 40 || email.length > 254 || password.length > 1024) {
     return res.status(400).json({ error: 'Semua field wajib diisi' });
   }
 
@@ -3197,25 +3242,26 @@ app.get('/api/auth/slug-cooldown', authMiddleware, async (req, res) => {
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Forgot password: send reset link via email
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', recoveryIpLimiter, async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email wajib diisi' });
+  if (typeof email !== 'string' || !email.trim() || email.length > 254) return res.status(400).json({ error: 'Email tidak valid' });
+  const generic = { success: true, message: 'Jika email terdaftar, link reset password akan dikirim ke email Anda.' };
 
   try {
     // Find agent by email
     const { data: agent } = await supabase
       .from('agents')
-      .select('id, slug, name, email')
+      .select('id, slug, name, email, password')
       .eq('email', email.trim().toLowerCase())
       .single();
 
     if (!agent || !agent.email) {
-      return res.status(404).json({ error: 'Email tidak terdaftar' });
+      return res.json(generic);
     }
 
     // Generate reset token (1 hour expiry)
     const resetToken = jwt.sign(
-      { id: agent.id, slug: agent.slug, purpose: 'password-reset' },
+      { id: agent.id, slug: agent.slug, purpose: 'password-reset', version: passwordResetVersion(agent, JWT_SECRET) },
       JWT_SECRET,
       { expiresIn: '1h' }
     );
@@ -3249,7 +3295,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       </div>
       <h1 style="font-size:20px;font-weight:700;color:#064e3b;text-align:center;margin:0 0 8px">Reset Password</h1>
       <p style="font-size:14px;color:#6b7280;text-align:center;margin:0 0 24px;line-height:1.5">
-        Assalamu'alaikum <strong>${agent.name}</strong>,<br>
+        Assalamu'alaikum <strong>${escapeHtmlAttr(agent.name)}</strong>,<br>
         Kami menerima permintaan reset password untuk akun Anda.
       </p>
       <div style="text-align:center;margin-bottom:24px">
@@ -3269,7 +3315,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     logAnalyticsEvent(agent.id, 'action', 'forgot_password', {}, getClientIpUa(req));
     console.log(`[Auth] Password reset email sent to ${agent.email} for slug: ${agent.slug}`);
-    res.json({ success: true, message: 'Link reset password telah dikirim ke email Anda.' });
+    res.json(generic);
   } catch (err) {
     console.error('[Auth] Forgot password error:', err);
     res.status(500).json({ error: 'Gagal mengirim email reset password' });
@@ -3277,9 +3323,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 // Reset password: verify token and update password
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', authIpLimiter, async (req, res) => {
   const { token, password } = req.body;
-  if (!token || !password) {
+  if (typeof token !== 'string' || !token || token.length > 4096 || typeof password !== 'string' || !password || password.length > 1024) {
     return res.status(400).json({ error: 'Token dan password baru wajib diisi' });
   }
   if (password.length < 6) {
@@ -3288,24 +3334,35 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   try {
     // Verify reset token
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     if (decoded.purpose !== 'password-reset') {
       return res.status(400).json({ error: 'Token tidak valid' });
+    }
+
+    const { data: agent, error: lookupError } = await supabase.from('agents')
+      .select('id, password').eq('id', decoded.id).maybeSingle();
+    if (lookupError) return res.status(503).json({ error: 'Silakan coba lagi nanti' });
+    if (!agent || !matchesPasswordResetVersion(decoded.version, agent, JWT_SECRET)) {
+      return res.status(400).json({ error: 'Link reset sudah tidak berlaku. Silakan minta link baru.' });
     }
 
     // Hash new password
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Update in Supabase
-    const { error } = await supabase
+    const { data: changedAgent, error } = await supabase
       .from('agents')
       .update({ password: hashedPassword })
-      .eq('id', decoded.id);
+      .eq('id', decoded.id)
+      .eq('password', agent.password)
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       console.error('[Auth] Reset password DB error:', error.message);
       return res.status(500).json({ error: 'Gagal memperbarui password' });
     }
+    if (!changedAgent) return res.status(400).json({ error: 'Link reset sudah digunakan. Silakan minta link baru.' });
 
     // Invalidate agent cache
     invalidateAgentCache();
@@ -3343,9 +3400,9 @@ app.get('/api/auth/pin-status', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
+app.post('/api/auth/set-pin', authMiddleware, pinIpLimiter, async (req, res) => {
   const { pin, currentPin } = req.body;
-  if (!pin || !/^\d{6}$/.test(pin)) {
+  if (typeof pin !== 'string' || !/^\d{6}$/.test(pin) || (currentPin != null && typeof currentPin !== 'string')) {
     return res.status(400).json({ error: 'PIN harus 6 digit angka' });
   }
   try {
@@ -3383,8 +3440,9 @@ app.post('/api/auth/set-pin', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
+app.post('/api/auth/verify-pin', authMiddleware, pinIpLimiter, async (req, res) => {
   const { pin } = req.body;
+  if (typeof pin !== 'string' || !/^\d{6}$/.test(pin)) return res.status(400).json({ error: 'PIN harus 6 digit angka' });
   const agentId = req.user.id;
 
   // Rate limit check
@@ -3426,7 +3484,7 @@ app.post('/api/auth/verify-pin', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
+app.post('/api/auth/pin-reset-request', authMiddleware, recoveryIpLimiter, async (req, res) => {
   const agentId = req.user.id;
   try {
     const agent = await getAgentById(agentId);
@@ -3436,7 +3494,7 @@ app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Hubungkan Telegram terlebih dahulu di Pengaturan Profil' });
     }
 
-    const code = Math.random().toString().slice(2, 8);
+    const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
     pinResetOTPs[agentId] = { code, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0 };
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -3475,7 +3533,7 @@ app.post('/api/auth/pin-reset-request', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/auth/pin-reset-verify', authMiddleware, async (req, res) => {
+app.post('/api/auth/pin-reset-verify', authMiddleware, pinIpLimiter, async (req, res) => {
   const agentId = req.user.id;
   const { code } = req.body;
 
@@ -3701,7 +3759,7 @@ app.get('/api/telegram/link', authMiddleware, async (req, res) => {
       });
     }
 
-    const randomPart = Math.random().toString(36).substring(2, 8);
+    const randomPart = crypto.randomBytes(12).toString('hex');
     const token = `${slug}_${randomPart}`;
 
     const { error } = await supabase
@@ -9971,8 +10029,7 @@ async function getOptionalAuthUser(req) {
     }
     if (!decoded.id) return null;
     const current = await getAgentById(decoded.id);
-    if (current?.status && current.status !== 'active') return null;
-    return decoded;
+    return currentAgentSession(decoded, current);
   } catch {
     return null;
   }
@@ -10576,29 +10633,14 @@ app.delete('/api/mcp-key', authMiddleware, async (req, res) => {
 import crypto from 'crypto';
 
 const CAPI_ENCRYPTION_KEY = process.env.CAPI_ENCRYPTION_KEY || '';
+const credentialCipher = createCredentialCipher(CAPI_ENCRYPTION_KEY);
 
 function capiEncrypt(text) {
-  if (!CAPI_ENCRYPTION_KEY || !text) return text;
-  const key = Buffer.from(CAPI_ENCRYPTION_KEY, 'base64').slice(0, 32);
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const tag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+  return credentialCipher.encrypt(text);
 }
 
 function capiDecrypt(data) {
-  if (!CAPI_ENCRYPTION_KEY || !data || !data.includes(':')) return data;
-  try {
-    const [ivHex, tagHex, encrypted] = data.split(':');
-    const key = Buffer.from(CAPI_ENCRYPTION_KEY, 'base64').slice(0, 32);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch { return data; }
+  return credentialCipher.decrypt(data);
 }
 
 function isSupabaseSchemaMiss(error) {
@@ -11232,7 +11274,10 @@ async function getAuthorizedCapiAgent(req, res) {
 }
 
 // Login
-app.post('/api/capi/:slug/login', async (req, res) => {
+app.post('/api/capi/:slug/login', authIpLimiter, async (req, res) => {
+  if (typeof req.body?.password !== 'string' || !req.body.password || req.body.password.length > 1024) {
+    return res.status(400).json({ error: 'Password tidak valid' });
+  }
   const slug = req.params.slug.toLowerCase();
   const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -11346,7 +11391,9 @@ app.post('/api/capi/:slug/replay-purchases', authMiddleware, async (req, res) =>
 });
 
 // Event
-app.post('/api/capi/:slug/event', async (req, res) => {
+app.post('/api/capi/:slug/event', capiIpLimiter, async (req, res) => {
+  const eventKey = browserCapiEventKey(req.body);
+  if (!eventKey) return res.status(400).json({ error: 'Event browser tidak valid' });
   const slug = req.params.slug.toLowerCase();
   const agent = await getAgentBySlug(slug);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -11363,21 +11410,19 @@ app.post('/api/capi/:slug/event', async (req, res) => {
   const config = await readCapiConfig(agent.id, agent.slug);
   if (!config?.pixelId || !config?.accessToken) return res.json({ sent: false, reason: 'Not configured' });
   const accessToken = capiDecrypt(config.accessToken);
-  const { eventKey, eventName, eventId, userData, customData, eventSourceUrl, sourceUrl, actionSource, fbc, fbp, userAgent } = req.body;
-  console.log(`[CAPI] ${slug} incoming:`, JSON.stringify({ eventKey, eventName, eventId, sourceUrl: sourceUrl || eventSourceUrl, fbc: !!fbc, fbp: !!fbp }));
+  const { eventId, eventSourceUrl, sourceUrl, fbc, fbp } = req.body;
+  const userAgent = req.headers['user-agent'] || '';
+  console.log(`[CAPI] ${slug} incoming:`, JSON.stringify({ eventKey, eventId, sourceUrl: sourceUrl || eventSourceUrl, fbc: !!fbc, fbp: !!fbp }));
 
   // Map eventKey to Meta event name using agent's config, fallback to defaults
-  const EVENT_KEY_DEFAULTS = { pageView: 'PageView', search: 'Search', viewContent: 'ViewContent', contact: 'Contact' };
-  let resolvedEventName = eventName || 'PageView';
-  if (eventKey && !eventName) {
-    const eventConfig = config.events?.[eventKey];
-    if (eventConfig?.enabled === false) {
-      resolvedEventName = null; // disabled event
-    } else if (eventConfig?.eventName === 'CustomEvent') {
-      resolvedEventName = eventConfig?.customEventName?.trim() || 'CustomEvent';
-    } else {
-      resolvedEventName = eventConfig?.eventName || EVENT_KEY_DEFAULTS[eventKey] || 'PageView';
-    }
+  const eventConfig = config.events?.[eventKey];
+  let resolvedEventName;
+  if (eventConfig?.enabled === false) {
+    resolvedEventName = null;
+  } else if (eventConfig?.eventName === 'CustomEvent') {
+    resolvedEventName = eventConfig?.customEventName?.trim() || 'CustomEvent';
+  } else {
+    resolvedEventName = eventConfig?.eventName || BROWSER_CAPI_EVENTS[eventKey];
   }
   if (!resolvedEventName) return res.json({ sent: false, reason: 'Event disabled' });
 
@@ -11392,15 +11437,16 @@ app.post('/api/capi/:slug/event', async (req, res) => {
       event_time: Math.floor(Date.now() / 1000),
       event_source_url: resolvedSourceUrl,
       user_data: {
-        ...(userData || {}),
         ...(fbc ? { fbc } : {}),
         ...(fbp ? { fbp } : {}),
         ...(userAgent ? { client_user_agent: userAgent } : {}),
         client_ip_address: visitorIp,
         country: crypto.createHash('sha256').update('id').digest('hex'),
       },
-      custom_data: customData || {},
-      action_source: actionSource || 'website',
+      // Financial values and hashed PII are supplied only by the verified
+      // server-side Purchase sync, never by this anonymous browser endpoint.
+      custom_data: {},
+      action_source: 'website',
     }],
     ...(config.testMode && config.testEventCode ? { test_event_code: config.testEventCode } : {}),
   };
@@ -11572,8 +11618,17 @@ app.get('/api/capi/:slug/logs', authMiddleware, async (req, res) => {
 // Note: as of 2026-04, the upstream API does not validate the x-api-key header itself —
 // only the {code} in the URL is effective. We still send the header for forward-compat.
 app.post('/api/awapi/test', authMiddleware, async (req, res) => {
+  if ((req.body?.awapi_key != null && typeof req.body.awapi_key !== 'string') ||
+      (req.body?.awapi_code != null && typeof req.body.awapi_code !== 'string')) {
+    return res.status(400).json({ error: 'Konfigurasi API tidak valid' });
+  }
   const bodyKey = (req.body?.awapi_key || '').trim();
   const bodyCode = (req.body?.awapi_code || '').trim();
+  const owner = await getAgentById(req.user.id);
+  const ownerCode = owner?.awapi_code || owner?.awapi_key?.split('-')[0] || '';
+  if (req.user.role !== 'admin' && ((bodyKey && bodyKey !== owner?.awapi_key) || (bodyCode && bodyCode !== ownerCode))) {
+    return res.status(403).json({ error: 'Hanya konfigurasi API milik akun sendiri yang dapat diuji' });
+  }
 
   let key = bodyKey;
   let code = bodyCode;
@@ -11621,9 +11676,6 @@ app.post('/api/awapi/test', authMiddleware, async (req, res) => {
       year,
       code,
       count: rows.length,
-      sample: rows[0]
-        ? { id_umrah: rows[0].id_umrah, nama: rows[0].nama, paket: rows[0].paket }
-        : null,
     });
   } catch (err) {
     res.status(502).json({ error: err.message || 'Network error', durationMs: Date.now() - started });
@@ -13347,6 +13399,9 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
   const code = agent.awapi_code || agent.awapi_key.split('-')[0];
 
   try {
+    if (!await agentOwnsUmrohJamaah(agentId, idJamaah)) {
+      return res.status(404).json({ error: 'Jamaah tidak ditemukan pada akun Anda' });
+    }
     const { rows } = await awapiFetchJamaahById(agent.awapi_key, code, idJamaah);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Jamaah tidak ditemukan di sistem Alhijaz' });
@@ -13373,6 +13428,7 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
       console.error(`[Sync/api] ${slug} jamaah/${idJamaah} upsert error:`, error.message);
       return res.status(500).json({ error: 'Gagal menyimpan data refreshed' });
     }
+    invalidateStatsCache(agentId);
     queueJamaahSyncNotifications(agentId, syncEvents, `refresh-jamaah/${slug}`);
 
     // Best-effort CAPI Purchase event for this single jamaah.
@@ -13464,6 +13520,10 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
   const code = agent.awapi_code || agent.awapi_key.split('-')[0];
 
   try {
+    const { data: ownedBooking, error: ownershipError } = await supabase.from('jamaah')
+      .select('id').eq('agent_id', agentId).eq('id_umroh', idUmrah).limit(1).maybeSingle();
+    if (ownershipError) return res.status(503).json({ error: 'Gagal memverifikasi kepemilikan booking' });
+    if (!ownedBooking) return res.status(404).json({ error: 'Booking tidak ditemukan pada akun Anda' });
     const { rows } = await awapiFetchUmrahById(agent.awapi_key, code, idUmrah);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Booking tidak ditemukan di sistem Alhijaz' });
@@ -18822,6 +18882,17 @@ async function renderJamaahDocumentPdf(html) {
   const browser = await jamaahDocumentPdfBrowserPromise;
   const page = await browser.newPage({ viewport: { width: 1240, height: 1754 } });
   try {
+    const documentResourceOrigins = new Set([
+      'http://115.124.86.220', 'https://115.124.86.220',
+      'https://alhijaz.co', 'https://www.alhijaz.co', 'https://sb.alhijaz.co',
+      new URL(process.env.INTERNAL_API_BASE || 'http://115.124.86.220').origin,
+    ]);
+    await page.route('**/*', route => {
+      const resource = new URL(route.request().url());
+      const type = route.request().resourceType();
+      if (['image', 'stylesheet', 'font'].includes(type) && documentResourceOrigins.has(resource.origin)) return route.continue();
+      return route.abort();
+    });
     await page.setContent(html, { waitUntil: 'networkidle', timeout: 15000 });
     const pdf = await page.pdf({
       format: 'A4',
@@ -18895,8 +18966,9 @@ function internalDocumentUrl(raw, base, internalOrigin) {
 const INTERNAL_DOCUMENT_MAX_REDIRECTS = 5;
 async function fetchInternalDocument(url, internalOrigin, headers) {
   let current = url;
+  const signal = AbortSignal.timeout(20000);
   for (let hop = 0; ; hop++) {
-    const response = await fetch(current, { headers, redirect: 'manual' });
+    const response = await fetch(current, { headers, redirect: 'manual', signal });
     const isRedirect = response.status >= 300 && response.status < 400;
     const location = isRedirect ? response.headers.get('location') : null;
     if (!location) return response;
@@ -18940,7 +19012,7 @@ async function proxyInternalDocument(req, res) {
         const freshUrl = await resolveFreshUmrohPernyataanUrl(agent, idJamaah);
         if (freshUrl) targetUrl = freshUrl;
       } else {
-        console.warn(`[doc-proxy] Skipped fresh umroh pernyataan URL lookup for non-owned jamaah ${idJamaah}`);
+        return res.status(404).json({ error: 'Jamaah tidak ditemukan pada akun Anda' });
       }
     }
 
@@ -19006,7 +19078,7 @@ async function proxyInternalDocument(req, res) {
     const contentType = response.headers.get('content-type');
 
     // Stream the response body
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = await readResponseBuffer(response, 20 * 1024 * 1024);
     if (cacheKey && isCacheableHtmlDocument(contentType)) {
       const cachedRow = await saveCachedJamaahDocument({
         agentId: req.user.id,
@@ -19035,7 +19107,9 @@ async function proxyInternalDocument(req, res) {
     if (contentType) res.setHeader('Content-Type', contentType);
     const disposition = response.headers.get('content-disposition');
     if (disposition) res.setHeader('Content-Disposition', disposition);
-    res.send(buffer);
+    res.send(isCacheableHtmlDocument(contentType)
+      ? Buffer.from(sanitizeDocumentHtml(buffer.toString('utf8')))
+      : buffer);
   } catch (err) {
     console.error('[doc-proxy] Error:', err.message);
     res.status(500).json({ error: 'Gagal memuat dokumen' });
@@ -20902,7 +20976,11 @@ function getPortalCookie(req, name) {
 
 function getPortalSessionToken(req) {
   const auth = req.headers.authorization || '';
-  if (auth.startsWith('Bearer ')) return auth.replace('Bearer ', '').trim();
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  // Older cached apps require a truthy session_token field and send it back
+  // as Bearer. The non-secret marker keeps them working with the real session
+  // held only in the HttpOnly cookie (JS cannot overwrite that cookie).
+  if (bearer && bearer !== 'cookie') return bearer;
   return req.cookies?.jamaah_session || getPortalCookie(req, 'jamaah_session');
 }
 
@@ -20919,6 +20997,7 @@ function getPortalCookieOptions(req, maxAge = PORTAL_SESSION_TTL_MS) {
 }
 
 async function portalJamaahAuth(req, res, next) {
+  res.set('Cache-Control', 'private, no-store');
   const token = getPortalSessionToken(req);
   if (!token) return res.status(401).json({ error: 'no_session' });
 
@@ -20931,13 +21010,24 @@ async function portalJamaahAuth(req, res, next) {
 
     if (error) return res.status(500).json({ error: error.message });
     if (!session) return res.status(401).json({ error: 'invalid_session' });
-    if (new Date(session.expires_at) < new Date()) return res.status(401).json({ error: 'expired' });
+    const expiresMs = Date.parse(session.expires_at);
+    if (!Number.isFinite(expiresMs) || expiresMs <= Date.now()) return res.status(401).json({ error: 'expired' });
 
-    supabase
-      .from('jamaah_portal_sessions')
-      .update({ last_active_at: new Date().toISOString() })
-      .eq('session_token', token)
-      .then(() => {});
+    // A single portal screen makes several requests. Record activity at most
+    // once per five minutes instead of writing to the DB for every read.
+    const lastActiveMs = Date.parse(session.last_active_at);
+    if (!Number.isFinite(lastActiveMs) || Date.now() - lastActiveMs >= 5 * 60 * 1000) {
+      supabase
+        .from('jamaah_portal_sessions')
+        .update({ last_active_at: new Date().toISOString() })
+        .eq('session_token', token)
+        .then(() => {}, () => {});
+    }
+    // Upgrade bearer sessions saved by the old app before the browser removes
+    // its localStorage copy. Cookie expiry remains bounded by the DB session.
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      res.cookie('jamaah_session', token, getPortalCookieOptions(req, expiresMs - Date.now()));
+    }
 
     req.portalSession = session;
     req.portalSessionToken = token;
@@ -21643,6 +21733,8 @@ async function findPortalTokenRowByCode(code) {
 }
 
 async function handlePortalMagicConsume(req, res) {
+  res.set('Cache-Control', 'private, no-store');
+  res.set('Referrer-Policy', 'no-referrer');
   // Catat gagal login portal hanya bila agent pemilik link bisa ditentukan
   const logPortalFail = (agentId, reason) => {
     if (agentId) logAnalyticsEvent(agentId, 'public', 'portal_login_failed', { reason }, getClientIpUa(req));
@@ -21674,7 +21766,7 @@ async function handlePortalMagicConsume(req, res) {
       }
       return res.status(404).json({ error: 'not_found' });
     }
-    if (new Date(portalToken.expires_at) < new Date()) {
+    if (!Number.isFinite(Date.parse(portalToken.expires_at)) || Date.parse(portalToken.expires_at) <= Date.now()) {
       logPortalFail(portalToken.agent_id, 'expired');
       return res.status(410).json({ error: 'expired', message: 'Link sudah expired, minta link baru ke agent' });
     }
@@ -21725,7 +21817,7 @@ async function handlePortalMagicConsume(req, res) {
 
     res.cookie('jamaah_session', sessionToken, getPortalCookieOptions(req, Math.max(0, sessionExpiresMs - Date.now())));
     res.json({
-      session_token: sessionToken,
+      session_token: 'cookie', // compatibility marker, never the session secret
       id_umroh: portalToken.id_umroh,
       jamaah_name: jamaahRes.data.nama,
       agent_slug: agentRes.data.slug,
@@ -22794,110 +22886,113 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
     return res.json(cachedBody);
   }
 
-  let cachedRows = [];
-  let cachedError = null;
-  try {
-    const { data, error } = await supabase
-      .from('umroh_schedules')
-      .select('*')
-      .eq('year_code', yearCode)
-      .order('berangkat_tgl', { ascending: true });
-
-    if (error) throw error;
-    cachedRows = data || [];
-  } catch (err) {
-    cachedError = err;
-    console.error(`[Schedules] Supabase error for ${yearCode}: ${err.message}`);
-  }
-
-  if (cachedError) {
-    return res.status(500).json({ status: 'error', error: 'Failed to read schedule data' });
-  }
-
-  if (cachedRows.length === 0) {
-    return res.status(500).json({ status: 'error', error: 'No schedule data available' });
-  }
-
-  try {
-    const scheduleRows = buildScheduleRows(cachedRows, null, yearCode);
-
-    let journeyOrderById = new Map();
-    // Payload yang dibangun tanpa urutan itinerary (lookup/inferensi gagal sesaat)
-    // tetap dikirim, tapi JANGAN di-cache 60 dtk — request berikutnya coba lagi.
-    let journeyDegraded = false;
+  const result = await scheduleResponseCache.coalesce(yearCode, async cacheGeneration => {
+    let cachedRows = [];
+    let cachedError = null;
     try {
-      const jadwalIds = scheduleRows.map(row => row.jadwal_id).filter(Boolean);
-      if (jadwalIds.length) {
-        const { data: itineraryRows, error: itineraryError } = await supabase
-          .from('itineraries')
-          .select('jadwal_id, content, source_sha256')
-          .in('jadwal_id', jadwalIds);
+      const { data, error } = await supabase
+        .from('umroh_schedules')
+        .select('*')
+        .eq('year_code', yearCode)
+        .order('berangkat_tgl', { ascending: true });
 
-        if (itineraryError) {
-          journeyDegraded = true;
-          console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
-        } else {
-          const scheduleById = new Map(scheduleRows.map(row => [row.jadwal_id, row]));
-          journeyOrderById = new Map(
-            (itineraryRows || [])
-              .filter(row => canServeItineraryCache(row, scheduleById.get(row.jadwal_id)))
-              .map(row => {
-                const order = inferJourneyOrderFromItinerary(row.content);
-                if (!Array.isArray(order) || order.length < 2) return null;
-                const schedule = scheduleById.get(row.jadwal_id);
-                // Dokumen bertanggal keberangkatan lain tidak pernah layak
-                // dipakai, bahkan saat rutenya tidak bertentangan (JBU1528).
-                if (itineraryBelongsToOtherSchedule(row.content, schedule?.berangkat_tgl)) {
-                  if (!warnedForeignItineraryContent.has(row.jadwal_id)) {
-                    warnedForeignItineraryContent.add(row.jadwal_id);
-                    console.warn(`[Schedules] Itinerary ${row.jadwal_id} bertanggal di luar keberangkatan ${schedule?.berangkat_tgl} — dokumen milik jadwal lain, urutan diabaikan`);
-                  }
-                  return null;
-                }
-                if (shouldSuppressJourneyOrder({
-                  order,
-                  berangkatRute: schedule?.berangkat_rute,
-                  content: row.content,
-                  berangkatTgl: schedule?.berangkat_tgl,
-                })) {
-                  if (!warnedContradictoryJourneyOrder.has(row.jadwal_id)) {
-                    warnedContradictoryJourneyOrder.add(row.jadwal_id);
-                    console.warn(`[Schedules] Itinerary order ${row.jadwal_id} bertentangan dengan rute (${schedule?.berangkat_rute}) — konten tak terbukti milik jadwal ini, pakai fallback rute`);
-                  }
-                  return null;
-                }
-                if (saudiOrderContradictsRoute(order, schedule?.berangkat_rute)
-                  && !warnedSuspectRouteJourneyOrder.has(row.jadwal_id)) {
-                  warnedSuspectRouteJourneyOrder.add(row.jadwal_id);
-                  console.warn(`[Schedules] Rute ${row.jadwal_id} (${schedule?.berangkat_rute}) bertentangan dengan itinerary yang bertanggal cocok — curigai salah entri rute upstream, pakai urutan itinerary`);
-                }
-                return [row.jadwal_id, order];
-              })
-              .filter(Boolean)
-          );
-        }
-      }
-    } catch (journeyErr) {
-      journeyDegraded = true;
-      console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
+      if (error) throw error;
+      cachedRows = data || [];
+    } catch (err) {
+      cachedError = err;
+      console.error(`[Schedules] Supabase error for ${yearCode}: ${err.message}`);
     }
 
-    const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
+    if (cachedError) {
+      return { status: 500, body: { status: 'error', error: 'Failed to read schedule data' } };
+    }
 
-    const body = {
-      status: 'ok',
-      iTotalDisplayRecords: aaData.length,
-      aaData,
-    };
-    if (!journeyDegraded) scheduleResponseCache.set(yearCode, body);
-    res.json(body);
-  } catch (err) {
-    console.error(`[Schedules] Response build error for ${yearCode}: ${err.message}`);
-    res.status(500).json({
-      status: 'error',
-      error: 'Failed to build schedule response from cached data',
-    });
-  }
+    if (cachedRows.length === 0) {
+      return { status: 500, body: { status: 'error', error: 'No schedule data available' } };
+    }
+
+    try {
+      const scheduleRows = buildScheduleRows(cachedRows, null, yearCode);
+
+      let journeyOrderById = new Map();
+      // Payload yang dibangun tanpa urutan itinerary (lookup/inferensi gagal sesaat)
+      // tetap dikirim, tapi JANGAN di-cache 60 dtk — request berikutnya coba lagi.
+      let journeyDegraded = false;
+      try {
+        const jadwalIds = scheduleRows.map(row => row.jadwal_id).filter(Boolean);
+        if (jadwalIds.length) {
+          const { data: itineraryRows, error: itineraryError } = await supabase
+            .from('itineraries')
+            .select('jadwal_id, content, source_sha256')
+            .in('jadwal_id', jadwalIds);
+
+          if (itineraryError) {
+            journeyDegraded = true;
+            console.warn('[Schedules] Itinerary order lookup failed:', itineraryError.message);
+          } else {
+            const scheduleById = new Map(scheduleRows.map(row => [row.jadwal_id, row]));
+            journeyOrderById = new Map(
+              (itineraryRows || [])
+                .filter(row => canServeItineraryCache(row, scheduleById.get(row.jadwal_id)))
+                .map(row => {
+                  const order = inferJourneyOrderFromItinerary(row.content);
+                  if (!Array.isArray(order) || order.length < 2) return null;
+                  const schedule = scheduleById.get(row.jadwal_id);
+                  // Dokumen bertanggal keberangkatan lain tidak pernah layak
+                  // dipakai, bahkan saat rutenya tidak bertentangan (JBU1528).
+                  if (itineraryBelongsToOtherSchedule(row.content, schedule?.berangkat_tgl)) {
+                    if (!warnedForeignItineraryContent.has(row.jadwal_id)) {
+                      warnedForeignItineraryContent.add(row.jadwal_id);
+                      console.warn(`[Schedules] Itinerary ${row.jadwal_id} bertanggal di luar keberangkatan ${schedule?.berangkat_tgl} — dokumen milik jadwal lain, urutan diabaikan`);
+                    }
+                    return null;
+                  }
+                  if (shouldSuppressJourneyOrder({
+                    order,
+                    berangkatRute: schedule?.berangkat_rute,
+                    content: row.content,
+                    berangkatTgl: schedule?.berangkat_tgl,
+                  })) {
+                    if (!warnedContradictoryJourneyOrder.has(row.jadwal_id)) {
+                      warnedContradictoryJourneyOrder.add(row.jadwal_id);
+                      console.warn(`[Schedules] Itinerary order ${row.jadwal_id} bertentangan dengan rute (${schedule?.berangkat_rute}) — konten tak terbukti milik jadwal ini, pakai fallback rute`);
+                    }
+                    return null;
+                  }
+                  if (saudiOrderContradictsRoute(order, schedule?.berangkat_rute)
+                    && !warnedSuspectRouteJourneyOrder.has(row.jadwal_id)) {
+                    warnedSuspectRouteJourneyOrder.add(row.jadwal_id);
+                    console.warn(`[Schedules] Rute ${row.jadwal_id} (${schedule?.berangkat_rute}) bertentangan dengan itinerary yang bertanggal cocok — curigai salah entri rute upstream, pakai urutan itinerary`);
+                  }
+                  return [row.jadwal_id, order];
+                })
+                .filter(Boolean)
+            );
+          }
+        }
+      } catch (journeyErr) {
+        journeyDegraded = true;
+        console.warn('[Schedules] Itinerary order inference failed:', journeyErr.message);
+      }
+
+      const aaData = serializeScheduleRows(scheduleRows, journeyOrderById);
+
+      const body = {
+        status: 'ok',
+        iTotalDisplayRecords: aaData.length,
+        aaData,
+      };
+      if (!journeyDegraded) scheduleResponseCache.set(yearCode, body, cacheGeneration);
+      return { status: 200, body };
+    } catch (err) {
+      console.error(`[Schedules] Response build error for ${yearCode}: ${err.message}`);
+      return { status: 500, body: {
+        status: 'error',
+        error: 'Failed to build schedule response from cached data',
+      } };
+    }
+  });
+  res.status(result.status).json(result.body);
 });
 
 // Build version marker = entry chunk hash of the deployed bundle. The client polls
@@ -22907,7 +23002,7 @@ app.get('/api/schedules/:yearCode', async (req, res) => {
 app.get('/api/version', (req, res) => {
   let entry = '';
   try {
-    const m = getIndexHtml().match(/assets\/(index-[A-Za-z0-9]+\.js)/);
+    const m = getIndexHtml().match(/assets\/(index-[A-Za-z0-9_-]+\.js)/);
     entry = m ? m[1] : '';
   } catch { /* ignore */ }
   res.set('Cache-Control', 'no-store').json({ entry });

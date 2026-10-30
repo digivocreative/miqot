@@ -3,7 +3,7 @@ import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
-import { createServer } from 'vite';
+import { createServer } from './fixtures/vite-test-server.js';
 
 // Models itself on tests/teras-page.browser.test.js: same Vite dev server +
 // Playwright + in-page fetch-stub pattern, no database. This file only

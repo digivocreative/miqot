@@ -93,13 +93,62 @@ test('server.js: hanya respons sukses yang disimpan, hit dibaca setelah validasi
   // set() tepat sekali di seluruh server.js — pada payload status 'ok', sebelum res.json(body).
   const sets = source.match(/scheduleResponseCache\.set\(/g) ?? [];
   assert.equal(sets.length, 1, 'scheduleResponseCache.set hanya untuk payload sukses');
-  const setAt = route.indexOf('scheduleResponseCache.set(yearCode, body)');
+  const setAt = route.indexOf('scheduleResponseCache.set(yearCode, body, cacheGeneration)');
   assert.ok(setAt > -1);
   assert.ok(route.lastIndexOf("status: 'ok'", setAt) > -1, 'body yang disimpan berstatus ok');
-  assert.ok(route.indexOf('res.json(body)', setAt) > setAt, 'res.json(body) setelah set');
+  assert.ok(route.indexOf('res.status(result.status).json(result.body)', setAt) > setAt, 'response setelah cache build');
   // Cabang error (500) tidak menyentuh cache.
   const errorBranch = route.slice(setAt);
   assert.equal((errorBranch.match(/scheduleResponseCache\.set/g) ?? []).length, 1);
+});
+
+test('a burst of 1000 cold requests performs exactly one build', async () => {
+  const cache = createScheduleResponseCache();
+  let builds = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const body = { status: 'ok', aaData: [{ jadwal_id: 'A' }] };
+  const load = async generation => {
+    builds++;
+    await gate;
+    cache.set('1448', body, generation);
+    return body;
+  };
+  const requests = Array.from({ length: 1000 }, () => cache.coalesce('1448', load));
+  release();
+  const results = await Promise.all(requests);
+  assert.equal(builds, 1);
+  assert.ok(results.every(result => result === body));
+  assert.equal(cache.get('1448'), body);
+});
+
+test('sync invalidation rejects stale in-flight writes and preserves the new flight', async () => {
+  const cache = createScheduleResponseCache();
+  let releaseOld;
+  let releaseNew;
+  const oldGate = new Promise(resolve => { releaseOld = resolve; });
+  const newGate = new Promise(resolve => { releaseNew = resolve; });
+  const old = cache.coalesce('1448', async version => { await oldGate; cache.set('1448', { old: true }, version); });
+  cache.invalidate();
+  const fresh = { fresh: true };
+  const current = cache.coalesce('1448', async version => { await newGate; cache.set('1448', fresh, version); return fresh; });
+  releaseOld();
+  await old;
+  assert.equal(cache.get('1448'), null);
+  assert.equal(cache.coalesce('1448', () => assert.fail('must join the new flight')), current);
+  releaseNew();
+  assert.equal(await current, fresh);
+  assert.equal(cache.get('1448'), fresh);
+});
+
+test('a failed build is shared but a later request can retry', async () => {
+  const cache = createScheduleResponseCache();
+  let builds = 0;
+  const load = () => { builds++; throw new Error('DB unavailable'); };
+  const failed = await Promise.allSettled(Array.from({ length: 100 }, () => cache.coalesce('1448', load)));
+  assert.equal(builds, 1);
+  assert.ok(failed.every(result => result.status === 'rejected'));
+  assert.equal(await cache.coalesce('1448', () => 'recovered'), 'recovered');
 });
 
 test('server.js: invalidasi di akhir syncUmrohSchedules() dan syncFilesToBunny()', () => {

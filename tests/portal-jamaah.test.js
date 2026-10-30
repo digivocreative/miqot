@@ -135,7 +135,7 @@ test('magic link generation returns short mixed alphanumeric jamaah URLs', () =>
   assert.match(server, /function parsePortalMagicCode[\s\S]*PORTAL_SHORT_CODE_REGEX\.test\(parts\[1\]\)[\s\S]*return parts\[1\]\.toLowerCase\(\)/);
   assert.match(server, /function isPortalStoredMagicToken[\s\S]*isPortalMagicCode\(parts\[1\]\)/);
   assert.match(server, /buildPortalStoredToken\(slug,\s*code\)/);
-  assert.match(server, /function resolvePortalBaseUrl[\s\S]*x-forwarded-host[\s\S]*return PORTAL_BASE_URL/);
+  assert.match(server, /function resolvePortalBaseUrl\(req\)\s*\{\s*if \(!req\?\.headers\?\.host\) return PORTAL_BASE_URL;\s*return publicOrigin\(req\);/);
   assert.match(server, /formatPortalMagicUrl\(existingToken\.token,\s*req\)/);
   assert.match(server, /formatPortalMagicUrl\(token,\s*req\)/);
   assert.doesNotMatch(server, /url:\s*`\$\{PORTAL_BASE_URL\}\/\$\{slug\}\/jamaah\/auth\//);

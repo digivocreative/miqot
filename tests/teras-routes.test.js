@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTerasPath, terasProfilePath } from '../src/lib/terasRoutes.ts';
+import { loadTs } from './fixtures/load-ts.js';
+const { parseTerasPath, terasProfilePath } = await loadTs('src/lib/terasRoutes.ts');
 
 test('kode share 8-hex tetap dikenali sebagai share', () => {
   assert.deepEqual(parseTerasPath('/teras/9fc969b0'), { kind: 'share', code: '9fc969b0' });

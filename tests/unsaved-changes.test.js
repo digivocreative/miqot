@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { loadTs } from './fixtures/load-ts.js';
 
 // Peringatan "beforeunload" hanya terpasang selama ada form yang belum disimpan, dan bisa
 // dilepas sementara saat muat ulang dilakukan dengan sengaja (tombol "Muat ulang" versi baru)
@@ -10,7 +11,7 @@ globalThis.window = {
   removeEventListener: (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type); },
 };
 
-const { setUnsaved, hasUnsavedChanges, suppressUnloadGuard } = await import('../src/lib/unsavedChanges.ts');
+const { setUnsaved, hasUnsavedChanges, suppressUnloadGuard } = await loadTs('src/lib/unsavedChanges.ts');
 
 test('registry form kotor & penjaga beforeunload', () => {
   assert.equal(hasUnsavedChanges(), false);

@@ -205,7 +205,7 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
     // Departure Flight
     keberangkatan: {
       tgl: raw.berangkat_tgl,
-      jam: raw.berangkat_jam,
+      jam: raw.berangkat_jam || '',
       rute: raw.berangkat_rute,
       kodePenerbangan: raw.berangkat_kode_penerbangan,
     },
@@ -213,7 +213,7 @@ function transformPackage(raw: UmrohPackageRaw): UmrohPackage {
     // Return Flight
     kepulangan: {
       tgl: raw.pulang_tgl,
-      jam: raw.pulang_jam,
+      jam: raw.pulang_jam || '',
       rute: raw.pulang_rute,
       kodePenerbangan: raw.pulang_kode_penerbangan,
     },

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { loadTs } from './fixtures/load-ts.js';
 
 // Riwayat overlay (modal/sheet) yang ditutup gestur back. Temuan 5D (Chromium): menutup
 // overlay A lewat tombol lalu membuka overlay B di handler yang sama → history.back() milik A
@@ -33,7 +34,7 @@ function installFakeBrowser() {
 }
 
 const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
-const { openOverlayEntry, overlayStackSize } = await import('../src/lib/overlayHistory.ts');
+const { openOverlayEntry, overlayStackSize } = await loadTs('src/lib/overlayHistory.ts');
 
 test('back menutup overlay dan membuang entrinya', async () => {
   const browser = installFakeBrowser();
@@ -102,7 +103,7 @@ test('dibuka lalu dilepas sebelum tick (StrictMode dev) → tidak menyentuh riwa
 // sisa itu → back pertama "kosong". Token wajib unik lintas muat halaman.
 test('token overlay unik lintas muat halaman (modul dimuat ulang)', async () => {
   installFakeBrowser();
-  const first = await import('../src/lib/overlayHistory.ts?load=1');
+  const first = await loadTs('src/lib/overlayHistory.ts');
   first.openOverlayEntry(() => {});
   await tick();
   const firstToken = window.history.state.__overlay;
@@ -110,7 +111,7 @@ test('token overlay unik lintas muat halaman (modul dimuat ulang)', async () => 
   // "Reload": halaman baru, riwayat masih memuat entri overlay lama di puncak.
   const browser = installFakeBrowser();
   window.history.replaceState({ __overlay: firstToken }, '', 'http://x.test/bagas');
-  const second = await import('../src/lib/overlayHistory.ts?load=2');
+  const second = await loadTs('src/lib/overlayHistory.ts');
   let closed = 0;
   second.openOverlayEntry(() => { closed += 1; });
   await tick();

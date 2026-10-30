@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeLoadError } from '../src/lib/loadError.ts';
-import { themeColorFor } from '../src/lib/pwa/themeColor.ts';
+import { loadTs } from './fixtures/load-ts.js';
+const { describeLoadError } = await loadTs('src/lib/loadError.ts');
+const { themeColorFor } = await loadTs('src/lib/pwa/themeColor.ts');
 
 // Audit 2026-09-17: pengguna melihat teks mentah "HTTP error! status: 503" dan
 // "signal is aborted without reason" saat jaringan/server bermasalah.

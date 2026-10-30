@@ -6,10 +6,10 @@
  */
 
 import { createServer } from 'http';
-import { createHmac } from 'crypto';
 import { execFile } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { createDeployWebhookHandler } from './lib/deploy-webhook.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 9000;
@@ -18,17 +18,6 @@ const SECRET = process.env.WEBHOOK_SECRET;
 if (!SECRET) {
   console.error('WEBHOOK_SECRET environment variable is required');
   process.exit(1);
-}
-
-function verifySignature(payload, signature) {
-  if (!signature) return false;
-  const hmac = createHmac('sha256', SECRET);
-  hmac.update(payload);
-  const expected = 'sha256=' + hmac.digest('hex');
-  return signature.length === expected.length &&
-    createHmac('sha256', SECRET).update(signature).digest().equals(
-      createHmac('sha256', SECRET).update(expected).digest()
-    );
 }
 
 let deploying = false;
@@ -54,53 +43,7 @@ function runDeploy(commitMsg = '', commitAuthor = '') {
   });
 }
 
-const server = createServer((req, res) => {
-  if (req.method === 'POST' && req.url === '/webhook/deploy') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const remoteAddr = req.socket.remoteAddress;
-      const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
-
-      if (!isLocal) {
-        const sig = req.headers['x-hub-signature-256'];
-        if (!verifySignature(body, sig)) {
-          console.warn('Invalid signature from', remoteAddr);
-          res.writeHead(403);
-          res.end('Forbidden');
-          return;
-        }
-      } else {
-        console.log('Local request from', remoteAddr, '— skipping signature verification');
-      }
-
-      let payload;
-      try {
-        payload = JSON.parse(body);
-        if (payload.ref !== 'refs/heads/main') {
-          res.writeHead(200);
-          res.end('Ignored (not main branch)');
-          return;
-        }
-      } catch {
-        res.writeHead(400);
-        res.end('Invalid JSON');
-        return;
-      }
-
-      const commitMsg = payload.head_commit?.message || 'unknown';
-      const commitAuthor = payload.head_commit?.author?.name || 'unknown';
-      console.log(`Commit by ${commitAuthor}: ${commitMsg.split('\n')[0]}`);
-
-      runDeploy(commitMsg.split('\n')[0], commitAuthor);
-      res.writeHead(200);
-      res.end('Deploy triggered');
-    });
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-});
+const server = createServer(createDeployWebhookHandler({ secret: SECRET, deploy: runDeploy }));
 
 server.listen(PORT, () => {
   console.log(`Webhook server listening on port ${PORT}`);

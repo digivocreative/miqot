@@ -210,18 +210,44 @@ function installBrowserStorage({ local = {}, session = {} } = {}) {
 const SESSION_KEY = 'jamaah_portal_session';
 const inNinetyDays = () => new Date(Date.now() + 90 * 86_400_000).toISOString();
 
+test('portal API uses HttpOnly cookies and removes legacy bearer copies after a successful upgrade', async t => {
+  const { portalApi } = await loadTs('src/components/portal-jamaah/lib/portalApi.ts');
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const metadata = { id_umroh: 'U1', slug: 'nikita', expires_at: inNinetyDays() };
+  let env = installBrowserStorage();
+  env.local.map.set(SESSION_KEY, JSON.stringify(metadata));
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options.credentials, 'include');
+    assert.equal(options.headers.Authorization, undefined);
+    return Response.json({ booking: 'U1' });
+  };
+  assert.deepEqual(await portalApi.getMe(), { booking: 'U1' });
+  env = installBrowserStorage();
+  env.local.map.set(SESSION_KEY, JSON.stringify({ ...metadata, session_token: 'legacy-secret' }));
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options.headers.Authorization, 'Bearer legacy-secret');
+    return Response.json({ booking: 'U1' });
+  };
+  await portalApi.getMe();
+  assert.deepEqual(JSON.parse(env.local.map.get(SESSION_KEY)), metadata);
+  assert.equal(env.cookies.length, 0, 'cookie is written only by the server');
+});
+
 test('sesi portal bertahan saat app/tab ditutup: disimpan di localStorage, sesi lama dimigrasikan', async () => {
   const { savePortalSession, getPortalSession, clearPortalSession, savePortalSnapshot, readPortalSnapshot } =
     await loadTs('src/components/portal-jamaah/lib/portalSession.ts');
   const session = { session_token: 'tok-a', id_umroh: 'AIW0000001', slug: 'nikita', expires_at: inNinetyDays(), access_code: 'abc23' };
 
-  // Login baru: localStorage (bertahan lintas peluncuran), bukan sessionStorage; cookie tetap.
+  const { session_token: _token, ...metadata } = session;
+  // Login baru: routing metadata persists; the bearer secret belongs only in
+  // the HttpOnly cookie set by the server.
   let env = installBrowserStorage();
   savePortalSession(session);
-  assert.equal(JSON.parse(env.local.map.get(SESSION_KEY)).session_token, 'tok-a');
+  assert.equal(JSON.parse(env.local.map.get(SESSION_KEY)).session_token, undefined);
   assert.equal(env.session.map.has(SESSION_KEY), false);
-  assert.match(env.cookies.at(-1), /^jamaah_session=tok-a; path=\/; max-age=\d+/);
-  assert.deepEqual(getPortalSession(), session);
+  assert.equal(env.cookies.length, 0, 'JavaScript must not write the session cookie');
+  assert.deepEqual(getPortalSession(), metadata);
 
   // Sesi dari versi lama (sessionStorage saja) tetap terbaca lalu dipindahkan.
   env = installBrowserStorage();
@@ -243,7 +269,7 @@ test('sesi portal bertahan saat app/tab ditutup: disimpan di localStorage, sesi 
   env = installBrowserStorage({ local: { throwOnSet: true } });
   savePortalSession(session);
   assert.equal(env.session.map.has(SESSION_KEY), true);
-  assert.deepEqual(getPortalSession(), session);
+  assert.deepEqual(getPortalSession(), metadata);
   installBrowserStorage({ local: { throwOnGet: true, throwOnSet: true }, session: { throwOnGet: true, throwOnSet: true } });
   assert.doesNotThrow(() => savePortalSession(session));
   assert.equal(getPortalSession(), null);

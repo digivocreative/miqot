@@ -10,6 +10,7 @@ Production memakai React 18 + TypeScript + Vite pada frontend, Express 5 pada ba
 - [Design system](./docs/DESIGN-SYSTEM.md) — token visual, komponen canonical, pola interaksi, animasi, export, dan checklist UI.
 - [Agent profile](./docs/AGENT-PROFILE.md) — flow dan kontrak profil agent.
 - [API integration spec](./docs/api-integration-spec.md) — spesifikasi integrasi eksternal terkait.
+- [Audit 30 Oktober 2026](./docs/AUDIT-2026-10-30.md) — perbaikan keamanan, bug, performa, serta hasil dan batas pengujian.
 - [CAPI instructions](./docs/InstruksiCapi.md) — konfigurasi Meta Conversions API.
 - `docs/superpowers/specs/` dan `docs/superpowers/plans/` — histori desain dan implementation plan fitur besar.
 
@@ -43,6 +44,9 @@ npm run build            # Build SPA dan bundle landing functions
 npm run build:spa        # Build frontend saja ke dist/
 npm run build:functions  # Bundle landing Umroh/Haji
 npm run lint             # ESLint
+npm run typecheck        # Pemeriksaan tipe TS dan modul JS shared
+npm test                 # Unit, integrasi fixture, dan browser (concurrency 2)
+npm run test:audit-smoke # Server sementara + DB tiruan; jalankan sesudah build
 npm run verify:landing   # Verifikasi landing bundle
 node --test tests/*.test.js
 ```
@@ -80,7 +84,8 @@ Baseline aman:
 
 ```bash
 node --check server.js
-node --test tests/*.test.js
+npm run typecheck
+npm test
 npm run build
 git diff --check
 ```

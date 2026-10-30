@@ -219,7 +219,7 @@ if (isPwaHost) {
   // runtime tetap, dan muat ulang tetap ditawarkan, bukan dipaksa. Sekali per build per tab.
   const runningEntry = (
     document.querySelector('script[type="module"][src*="/assets/index-"]') as HTMLScriptElement | null
-  )?.src.match(/index-[A-Za-z0-9]+\.js/)?.[0] || ''
+  )?.src.match(/index-[A-Za-z0-9_-]+\.js/)?.[0] || ''
   const REPAIRED_KEY = 'sw-repaired-entry'
 
   let versionChecking = false

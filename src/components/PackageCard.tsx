@@ -1772,7 +1772,7 @@ _________________________
                 <span className="text-[10px] text-gray-400 dark:text-slate-500">/</span>
                 <span className="text-[10px] text-gray-500 dark:text-slate-400">{(pkg.keberangkatan.kodePenerbangan || '').split('/')[0].trim()}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.keberangkatan.jam.replace('.', ':')} WIB</p>
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.keberangkatan.jam ? `${pkg.keberangkatan.jam.replace('.', ':')} WIB` : '—'}</p>
             </div>
           </div>
 
@@ -1787,7 +1787,7 @@ _________________________
                 <span className="text-[10px] text-gray-400 dark:text-slate-500">/</span>
                 <span className="text-[10px] text-gray-500 dark:text-slate-400">{(pkg.kepulangan.kodePenerbangan || '').split('/')[0].trim()}</span>
               </p>
-              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.kepulangan.jam.replace('.', ':')} WIB</p>
+              <p className="text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{pkg.kepulangan.jam ? `${pkg.kepulangan.jam.replace('.', ':')} WIB` : '—'}</p>
             </div>
           </div>
         </div>
