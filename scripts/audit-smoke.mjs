@@ -24,7 +24,11 @@ const schedule = {
   berangkat_rute: 'CGK-JED', pulang_rute: 'MED-CGK', berangkat_kode_penerbangan: 'SV819',
   paket_harga: { UHUD: { Quard: '33900000', Triple: '34900000', Double: '35900000' } },
 };
-const tables = { agents: [agent], umroh_schedules: [schedule], itineraries: [], jamaah: [], jamaah_haji: [] };
+const agentWithAiw = {
+  ...agent, id: '00000000-0000-4000-8000-000000000002', slug: 'audit-aiw', email: 'aiw@example.invalid',
+  jamaah_username: 'SM00001', jamaah_password: 'mock-encrypted',
+};
+const tables = { agents: [agent, agentWithAiw], umroh_schedules: [schedule], itineraries: [], jamaah: [], jamaah_haji: [] };
 const dbReads = {};
 const mock = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://local');
@@ -86,7 +90,14 @@ try {
   assert.equal(login.status, 200);
   const session = await login.json();
   const auth = { headers: { authorization: `Bearer ${session.token}` } };
-  assert.equal((await request('/api/auth/me', auth)).status, 200);
+  const me = await request('/api/auth/me', auth);
+  assert.equal(me.status, 200);
+  const meBody = await me.json();
+  assert.equal(meBody.has_aiw_account, false, 'agent without Akun AIW');
+  assert.equal(JSON.stringify(meBody).includes('jamaah'), false, '/me must not expose credentials');
+  const withAiw = jwt.sign({ id: agentWithAiw.id, slug: agentWithAiw.slug, role: 'agent' }, secret);
+  const meWithAiw = await (await request('/api/auth/me', { headers: { authorization: `Bearer ${withAiw}` } })).json();
+  assert.equal(meWithAiw.has_aiw_account, true, 'agent with Akun AIW');
   const staleAdmin = jwt.sign({ id: agent.id, slug: agent.slug, role: 'admin' }, secret);
   assert.equal((await request('/api/admin/agents', { headers: { authorization: `Bearer ${staleAdmin}` } })).status, 403);
   const deleted = jwt.sign({ id: 'deleted-agent', role: 'admin' }, secret);
@@ -152,9 +163,22 @@ try {
   assert.equal(portalCookie?.httpOnly, true);
   await page.goto(`${base}/audit-agent`, { waitUntil: 'networkidle' });
   await page.locator('[data-jadwal-id="JBU9998"]').first().waitFor({ state: 'visible', timeout: 20000 });
+  // Gerbang Akun AIW: server asli + bundel build. Agent tanpa akun dialihkan, yang punya tidak.
+  await page.evaluate(stored => localStorage.setItem('auth_session', JSON.stringify(stored)), session);
+  await page.goto(`${base}/audit-agent`);
+  await page.waitForURL('**/dashboard/jamaah', { timeout: 20000 });
+  await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20000 });
+  await page.evaluate(stored => localStorage.setItem('auth_session', JSON.stringify(stored)), {
+    token: withAiw, user: { slug: agentWithAiw.slug, name: agentWithAiw.name, role: 'agent' },
+  });
+  await page.goto(`${base}/audit-agent`);
+  await page.locator('[data-jadwal-id="JBU9998"]').first().waitFor({ state: 'visible', timeout: 20000 });
   assert.deepEqual(pageErrors, [], 'built login/public app must not throw in Chromium');
   timings.sort((a, b) => a - b);
-  const rss = readFileSync(`/proc/${child.pid}/status`, 'utf8').match(/^VmRSS:\s+(\d+)/m)?.[1];
+  // /proc hanya ada di Linux; di macOS angka memori dilewati.
+  const rss = process.platform === 'linux'
+    ? readFileSync(`/proc/${child.pid}/status`, 'utf8').match(/^VmRSS:\s+(\d+)/m)?.[1]
+    : null;
   console.log(JSON.stringify({
     result: 'passed', requests: totalRequests, scheduleRequests: timings.length, concurrency: 32,
     scheduleDbReads: scheduleReads, scheduleElapsedMs: Math.round(elapsedMs),

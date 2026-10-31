@@ -5,7 +5,7 @@ import {
   LogOut, Shield, Users, Moon, Sun, ChevronLeft,
   BarChart3, Loader2, Sparkles,
   CalendarRange, TrendingUp, Mic, CreditCard,
-  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare, Building2,
+  DollarSign, ChevronRight, Globe, Share2, FileImage, Bot, MessagesSquare, Building2, Lock,
 } from 'lucide-react';
 import type { AuthSession } from '../lib/authSession';
 import { clearSession, getAuthHeaders } from '../lib/authSession';
@@ -19,6 +19,9 @@ import { isUmrahRegisterEnabledForAgent, UMRAH_REGISTER_DISABLED_MESSAGE } from 
 import { parseTerasPath } from '../lib/terasRoutes';
 import { readBrosurModeFromPath } from '../lib/brosur-mode';
 import NotificationBell from './NotificationBell';
+import { AiwLoginBanner, AiwLoginDialog } from './AiwAccountPrompts';
+import { aiwGateStatus, isAiwLockedTab } from '../../lib/aiw-account.js';
+import { onAiwAccountChange, setAiwAccount } from '../lib/aiwAccount';
 import { useTerasNotifications } from '../hooks/useTerasNotifications';
 import TerasNotificationSettings from './TerasNotificationSettings';
 import { useTerasNotificationPrefs } from '../hooks/useTerasNotificationPrefs';
@@ -865,21 +868,35 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   // Refresh agent data on mount to get latest photo/profile from server
   useEffect(() => { refreshAgent(); }, [refreshAgent]);
 
+  // Login/putus Akun AIW dari halaman mana pun langsung membuka/mengunci menu.
+  useEffect(() => onAiwAccountChange(connected => {
+    setAgentData(prev => (prev.has_aiw_account === connected ? prev : { ...prev, has_aiw_account: connected }));
+    // JamaahPage percaya state ini saat dipasang: tanpa reset ia menampilkan daftar, bukan form login.
+    if (!connected) {
+      setJamaahConnected(false);
+      setJamaahUser('');
+    }
+  }), []);
+
   const handleLogout = () => {
     clearSession();
     onLogout();
   };
 
   const isAdmin = agentData.role === 'admin';
+  // Agent yang belum menyimpan Akun AIW hanya bisa membuka Jamaah dan Settings.
+  const aiwLocked = aiwGateStatus(agentData) === 'locked';
+  const [aiwDialogMenu, setAiwDialogMenu] = useState<string | null>(null);
   const terasEnabled = isCommunityEnabledForAgent(agentData.slug);
+  const terasUsable = terasEnabled && !aiwLocked;
   const hotelEnabled = isHotelDirectoryEnabledForAgent(agentData.slug);
-  const notifications = useTerasNotifications(terasEnabled);
+  const notifications = useTerasNotifications(terasUsable);
   // Di luar gate Direktori Hotel, /dashboard/hotel tidak punya isi — pulangkan
   // ke dashboard alih-alih menampilkan halaman kosong.
   useEffect(() => {
     if (activeTab === 'hotel' && !hotelEnabled) navigateTab('home', true);
   }, [activeTab, hotelEnabled, navigateTab]);
-  const notifPrefs = useTerasNotificationPrefs(terasEnabled);
+  const notifPrefs = useTerasNotificationPrefs(terasUsable);
 
   // ── Tarik-untuk-segarkan (app terpasang) ──
   // Dashboard bukan satu halaman: tiap tab memuat datanya sendiri, jadi yang
@@ -920,6 +937,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     && (c.id !== 'hotel' || hotelEnabled)
     && (c.id !== 'settings' || !terasEnabled));
   const settingsCard = MENU_CARDS.find(c => c.id === 'settings');
+  const terasCard = MENU_CARDS.find(c => c.id === 'teras');
   const wideCards = MENU_CARDS.filter(c => !c.hidden && !c.adminOnly && c.wide);
   const adminCards = isAdmin ? MENU_CARDS.filter(c => !c.hidden && c.adminOnly && (c.id !== 'hotels' || hotelEnabled)) : [];
 
@@ -935,6 +953,21 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
       navigatePath('/dashboard', { replace: true });
     }
   }, [activeTab, terasEnabled, terasProfileRouteSlug, navigatePath]);
+
+  // Efek pengalih terakhir: tautan langsung ke menu terkunci berakhir di form Jamaah,
+  // walau efek di atas ikut mengalihkan tab yang sama.
+  const aiwBlocksTab = aiwLocked && isAiwLockedTab(activeTab);
+  useEffect(() => {
+    if (aiwBlocksTab) navigatePath('/dashboard/jamaah', { replace: true });
+  }, [aiwBlocksTab, navigatePath]);
+
+  if (aiwBlocksTab) {
+    return (
+      <div className="fixed inset-0 bg-gray-100 dark:bg-slate-950 flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-emerald-500" />
+      </div>
+    );
+  }
 
   if (activeTab === 'teras' && !terasEnabled) {
     if (terasProfileRouteSlug) {
@@ -1129,7 +1162,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </div>
             )}
 
-            {terasEnabled && (
+            {terasUsable && (
               <NotificationBell
                 size={compactHeader ? 'compact' : 'header'}
                 unread={notifications.unread}
@@ -1146,7 +1179,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               />
             )}
 
-            {terasEnabled && (
+            {terasUsable && (
               <TerasNotificationSettings
                 prefs={notifPrefs.prefs}
                 telegramConnected={notifPrefs.telegramConnected}
@@ -1319,6 +1352,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onConnectionChange={(connected, user) => {
                   setJamaahConnected(connected);
                   setJamaahUser(user);
+                  setAiwAccount(connected);
                 }}
                 onHeaderRight={setJamaahHeaderRight}
                 onNavigate={navigatePath}
@@ -1391,6 +1425,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
     );
   }
 
+  // Kartu Jadwal bertab 'home' tapi membuka /:slug, jadi ikut terkunci.
+  const isCardAiwLocked = (card: MenuCard) => aiwLocked && (card.openExternal || isAiwLockedTab(card.id));
+  const lockBadge = (
+    <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-white ring-2 ring-gray-100 dark:ring-slate-800">
+      <Lock size={10} strokeWidth={2.5} />
+    </span>
+  );
   // Pudar panjang & lembut: foto baru pekat di ujung kanan, teks di kiri tetap terbaca.
   const PHOTO_FADE = 'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.12) 25%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.8) 72%, #000 90%)';
   // Kartu lebar penuh & pendek (mockup Haji2027.pen frame 01): ikon kiri,
@@ -1398,6 +1439,26 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
   const renderWideMenuCard = (card: MenuCard) => {
     const Icon = card.icon;
     const photo = Boolean(card.bgImage);
+    if (isCardAiwLocked(card)) {
+      return (
+        <button
+          key={card.id}
+          type="button"
+          aria-label={`${card.label} terkunci`}
+          onClick={() => setAiwDialogMenu(card.label)}
+          className="relative mt-3 flex h-16 w-full items-center gap-3 rounded-2xl border border-gray-200 bg-gray-100 px-3.5 text-left transition-transform active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800/60"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-300 dark:bg-slate-600">
+            <Icon size={22} className="text-white" strokeWidth={1.8} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-bold text-gray-500 dark:text-slate-400">{card.label}</p>
+            <p className="truncate text-[10px] text-gray-400 dark:text-slate-500">{card.desc}</p>
+          </div>
+          {lockBadge}
+        </button>
+      );
+    }
     return (
       <button
         key={card.id}
@@ -1430,6 +1491,25 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
 
   const renderMenuCard = (card: MenuCard) => {
     const Icon = card.icon;
+    if (isCardAiwLocked(card)) {
+      return (
+        <button
+          key={card.id}
+          type="button"
+          aria-label={`${card.label} terkunci`}
+          onClick={() => setAiwDialogMenu(card.label)}
+          className="relative h-full w-full rounded-2xl border border-gray-200 bg-gray-100 p-3.5 transition-transform active:scale-[0.97] dark:border-slate-700 dark:bg-slate-800/60"
+        >
+          {lockBadge}
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-300 dark:bg-slate-600">
+              <Icon size={22} className="text-white" strokeWidth={2} />
+            </div>
+            <p className="text-[12px] font-bold leading-tight text-gray-500 dark:text-slate-400">{card.label}</p>
+          </div>
+        </button>
+      );
+    }
     return (
       <button
         key={card.id + (card.comingSoon ? '-cs' : '')}
@@ -1513,7 +1593,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {terasEnabled && (
+            {terasUsable && (
               <NotificationBell
                 size="home"
                 unread={notifications.unread}
@@ -1529,7 +1609,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 onOpenSettings={notifPrefs.openSheet}
               />
             )}
-            {terasEnabled && (
+            {terasUsable && (
               <TerasNotificationSettings
                 prefs={notifPrefs.prefs}
                 telegramConnected={notifPrefs.telegramConnected}
@@ -1569,16 +1649,20 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {/* ── Ajakan pasang aplikasi (hilang sendiri di app terpasang / setelah ditutup) ── */}
         <InstallAppCard />
 
-        <Suspense fallback={null}>
-          {/* ── Telegram Connect Banner ── */}
-          <TelegramConnectBanner
-            onConnect={() => {
-              trackEvent('action', 'telegram_banner_click');
-              navigateTab('settings');
-              replaceAppState({ tab: 'settings' }, '/dashboard/settings/telegram');
-            }}
-          />
-        </Suspense>
+        {aiwLocked ? (
+          <AiwLoginBanner onLogin={() => navigateTab('jamaah')} />
+        ) : (
+          <Suspense fallback={null}>
+            {/* ── Telegram Connect Banner ── */}
+            <TelegramConnectBanner
+              onConnect={() => {
+                trackEvent('action', 'telegram_banner_click');
+                navigateTab('settings');
+                replaceAppState({ tab: 'settings' }, '/dashboard/settings/telegram');
+              }}
+            />
+          </Suspense>
+        )}
 
         {/* ── Feature Cards Grid ── */}
         <div className="grid grid-cols-3 gap-3">
@@ -1586,9 +1670,11 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
           {terasEnabled && (
             <>
               <div className="col-span-2">
-                <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
-                  <TerasCard compact onOpen={() => navigateTab('teras')} />
-                </Suspense>
+                {aiwLocked && terasCard ? renderMenuCard(terasCard) : (
+                  <Suspense fallback={<div className="h-[88px] animate-pulse rounded-2xl border border-gray-100 bg-white dark:border-slate-700 dark:bg-slate-800" />}>
+                    <TerasCard compact onOpen={() => navigateTab('teras')} />
+                  </Suspense>
+                )}
               </div>
               {settingsCard && renderMenuCard(settingsCard)}
             </>
@@ -1598,7 +1684,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
         {wideCards.map(renderWideMenuCard)}
 
         {/* ── Flight Status + Kurs + Birthday + Upcoming Schedule + Cuaca (flight card goes above when has flights) ── */}
-        <div className="flex flex-col mt-4 gap-4">
+        {!aiwLocked && <div className="flex flex-col mt-4 gap-4">
           <div style={{ order: flightCount > 0 ? 0 : 5 }}>
             <Suspense fallback={null}><FlightStatusCard onFlightCount={setFlightCount} agentSlug={agentData.slug} /></Suspense>
           </div>
@@ -1697,7 +1783,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* ── Admin-Only Cards (bottom of dashboard) ── */}
         {adminCards.length > 0 && (
@@ -1772,6 +1858,14 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
               </button>
             </div>
           </div>
+        )}
+
+        {aiwDialogMenu && (
+          <AiwLoginDialog
+            menuLabel={aiwDialogMenu}
+            onClose={() => setAiwDialogMenu(null)}
+            onLogin={() => navigateTab('jamaah')}
+          />
         )}
 
         {/* ── Coming Soon Toast ── */}

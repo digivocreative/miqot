@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
+import { setAiwAccount } from '../lib/aiwAccount';
 import PhotoCropModal from './PhotoCropModal';
 import PinInput from './PinInput';
 import { validateName, validatePhone, validateEmail, validateWebsite, cleanPhone, cleanWebsite } from '../utils/validation';
@@ -408,6 +409,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               }
               setSysPassword('');
               setTelegramStatus(prev => ({ ...prev, hasCredentials: true }));
+              setAiwAccount(true);
             } catch {
               setSysLoginError('Gagal menghubungi server');
             }
@@ -935,8 +937,9 @@ function InternalSystemSection() {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
+      const removed = await fetch('/api/laporan/credentials', { method: 'DELETE', headers: { ...getAuthHeaders() } });
       setStatus({ hasCredentials: false, username: null, syncHealth: 'no_credentials', lastSync: null });
+      if (removed.ok) setAiwAccount(false);
     } catch { /* ignore */ }
     setDeleting(false);
     setShowConfirm(false);

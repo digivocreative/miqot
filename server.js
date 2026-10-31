@@ -20,6 +20,7 @@ import { Resend } from 'resend';
 import { connectJamaah, fetchJamaah, disconnectJamaah, getSessionInfo } from './jamaah-api.js';
 import { login as laporanLogin, fetchLaporan, parseLaporanHtml, isSessionActive, disconnect as laporanDisconnect, getSessionCookie, fetchUmrahBookings, fetchUmrahDetail, fetchUmrahFormOptions, fetchUmrahPaketOptions, fetchUmrahDependentOptions, fetchUmrahPaketDetails, fetchUmrahJamaahEditForm, submitUmrahRegistration, submitUmrahRegistrationWithBrowser, submitUmrahJamaahEditWithBrowser, fetchAwapiCredentials } from './laporan-api.js';
 import { isSameInternalAccount, escapeInternalAccountLike, internalAccountTakenMessage } from './lib/internal-account-guard.js';
+import { hasAiwAccount } from './lib/aiw-account.js';
 import { fetchHajiList, fetchHajiDetail, syncHajiData, fetchSuratPernyataanPaketDetail } from './haji-api.js';
 import { computeKomisi, computeBreakdownTahun, computeAvailableYears, pickDefaultYear, computeByPaket, computeBerangkatStats, KOMISI_STAGE1, KOMISI_RATE_UHUD, KOMISI_RATE_RAHMAH } from './lib/haji-stats.js';
 import { buildBerangkatMendatang, computeUmrohKomisi, buildStatsDateWindows, buildJamaahTrend, getBerangkatMendatangWindowEnd } from './lib/laporan-stats.js';
@@ -3199,6 +3200,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     telegram_chat_id: agent.telegram_chat_id || '',
     awapi_code: agent.awapi_code || '',
     has_awapi_key: !!agent.awapi_key,
+    has_aiw_account: hasAiwAccount(agent),
   });
 });
 
@@ -11781,7 +11783,12 @@ app.post('/api/laporan/login', authMiddleware, async (req, res) => {
     console.warn(`[awapi] discovery threw for ${username}: ${err.message}`);
   }
 
-  await supabase.from('agents').update(updates).eq('id', req.user.id);
+  // Status login Akun AIW membuka menu agent, jadi tak boleh sukses tanpa tersimpan.
+  const { error: saveError } = await supabase.from('agents').update(updates).eq('id', req.user.id);
+  if (saveError) {
+    console.error(`[laporan/login] gagal menyimpan kredensial ${username}: ${saveError.message}`);
+    return res.status(500).json({ success: false, error: 'Gagal menyimpan Akun AIW. Coba lagi.' });
+  }
   invalidateAgentCache();
 
   // reconnect = login ulang akun yang sama (refresh password / sesi)

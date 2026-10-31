@@ -321,6 +321,7 @@ const knownSecondSegments = ['kalkulasi', 'compare', 'umroh', 'haji', 'capi', 'b
 
 // ── Auto-redirect: logged-in agents go straight to dashboard ──
 import { isSessionValid } from './utils/authUtils'
+import { isAiwLockedPath } from '../lib/aiw-account.js'
 
 const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
 const shouldAutoRedirect = isSessionValid() && currentPath === '/'
@@ -360,6 +361,7 @@ if (searchParams.has('transition')) {
 // ── Login/Dashboard wrapper component ──
 import { useState, useEffect } from 'react'
 import { getStoredSession, clearSession, type AuthSession } from './lib/authSession'
+import AiwAccountGate from './components/AiwAccountGate'
 // Halaman login/dashboard/register/reset hanya dipakai agent — chunk-nya dipisah
 // supaya pengunjung publik tidak ikut mengunduh DashboardLayout (±52 KB) dkk.
 const loadDashboardLayout = () => import('./components/DashboardLayout.tsx')
@@ -450,6 +452,8 @@ function DashboardRouter() {
         }
         // Network/server blips should not force logout. Keep the last verified
         // session so agents are not kicked out during deploys or short outages.
+        // Status Akun AIW dilupakan dulu: yang gagal dibaca tidak boleh mengunci menu.
+        setSession(prev => prev && { ...prev, user: { ...prev.user, has_aiw_account: undefined } })
         setChecking(false)
       })
   }, [session?.token])
@@ -599,10 +603,16 @@ if (isPwaHost && isSsrLandingPath) {
       return <App singlePackageId={singlePackageId} />
     })()
 
+    // Custom domain tidak punya sesi agent: login dan dashboard selalu di alhijaz.co.
+    const needsAiwGate = !isCustomDomainHost
+      && !shouldAutoRedirect
+      && getStoredSession()?.user.role === 'agent'
+      && isAiwLockedPath(window.location.pathname)
+
     createRoot(document.getElementById('root')!).render(
       <Suspense fallback={<RouteSpinner />}>
         <RenderErrorBoundary fallback={<RouteErrorFallback />}>
-          {page}
+          {needsAiwGate ? <AiwAccountGate fallback={<RouteSpinner />}>{page}</AiwAccountGate> : page}
         </RenderErrorBoundary>
         <RenderErrorBoundary fallback={null}>
           <PwaStatusLayer />

@@ -15,6 +15,8 @@ interface AuthUser {
   website: string;
   phone: string;
   email: string;
+  /** Akun AIW tersimpan di server. Kosong = belum terbaca (lihat lib/aiw-account.js). */
+  has_aiw_account?: boolean;
 }
 
 export interface AuthSession {
@@ -66,6 +68,17 @@ function readStoredSession(storage: Storage | null): AuthSession | null {
 
 export function getStoredSession(): AuthSession | null {
   return readStoredSession(getBrowserStorage('local')) || readStoredSession(getBrowserStorage('session'));
+}
+
+/** Timpa sebagian data user di sesi tersimpan, di penyimpanan tempat sesi itu berada. */
+export function updateStoredUser(patch: Partial<AuthUser>) {
+  for (const kind of ['local', 'session'] as const) {
+    const storage = getBrowserStorage(kind);
+    const session = readStoredSession(storage);
+    if (!session) continue;
+    storage?.setItem('auth_session', JSON.stringify({ ...session, user: { ...session.user, ...patch } }));
+    return;
+  }
 }
 
 export function clearSession() {

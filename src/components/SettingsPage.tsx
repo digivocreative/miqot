@@ -5,6 +5,7 @@ import { TelegramSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from '../lib/authSession';
+import { setAiwAccount } from '../lib/aiwAccount';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
 import { replaceAppState } from '../lib/appHistory';
@@ -181,6 +182,7 @@ function InternalLoginGate({ description, children }: { description: string; chi
       }
       setPassword('');
       setHasCredentials(true);
+      setAiwAccount(true);
     } catch {
       setError('Gagal menghubungi server');
     }
