@@ -551,7 +551,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
       if (!contentType.includes('application/json')) {
         // Upstream proxy (Cloudflare/nginx) returned an HTML error page instead
         // of our JSON response — happens on 5xx from origin.
-        setError('Sistem internal tidak dapat diakses dari server. Coba lagi atau hubungi admin.');
+        setError('AIW tidak dapat diakses dari server. Coba lagi atau hubungi admin.');
         setLoading(false);
         return;
       }
@@ -1307,7 +1307,7 @@ export default function UmrahRegisterPage({ onBack, onNavigate }: UmrahRegisterP
         <AlertCircle size={48} className="mx-auto text-red-400 mb-4" />
         <p className="text-sm font-medium text-red-600 dark:text-red-400 mb-2">{error}</p>
         <p className="text-xs text-gray-500 dark:text-slate-400 mb-6">
-          Pastikan Anda sudah terhubung ke sistem internal di halaman Jamaah.
+          Pastikan Anda sudah terhubung ke Akun AIW di halaman Jamaah.
         </p>
         <div className="flex gap-3 justify-center">
           <button onClick={onBack} className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all text-sm font-medium">

@@ -140,12 +140,12 @@ test('handled upstream failures stay structured and use non-5xx status', () => {
   assert.equal(UMRAH_UPSTREAM_FAILURE_STATUS, 424);
   assert.deepEqual(buildUmrahSubmitFailure({
     reason: 'transport_error',
-    error: 'Koneksi sistem internal terputus',
+    error: 'Koneksi AIW terputus',
   }), {
     success: false,
     reason: 'transport_error',
     retryable: true,
-    error: 'Koneksi sistem internal terputus',
+    error: 'Koneksi AIW terputus',
   });
   assert.equal(buildUmrahSubmitFailure({ reason: 'legacy_form_rejected' }).retryable, false);
 });

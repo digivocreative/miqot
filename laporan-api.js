@@ -191,7 +191,7 @@ function legacyLoginRejection(alertText) {
   if (/password|username|user|login|akses|aktif|sesuai/i.test(message)) {
     return {
       success: false,
-      error: `Login sistem internal ditolak: ${message}`,
+      error: `Login Akun AIW ditolak: ${message}`,
       reason: /aktif/i.test(message) ? 'inactive_credentials' : 'invalid_credentials',
     };
   }
@@ -300,7 +300,7 @@ export async function login(username, password, kantor = '2') {
         if (!cookieString) {
           lastError = {
             success: false,
-            error: 'Login sistem internal ditolak (tidak ada sesi) — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard. Credential tersimpan tidak dihapus otomatis.',
+            error: 'Login Akun AIW ditolak (tidak ada sesi) — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard. Credential tersimpan tidak dihapus otomatis.',
             reason: 'login_no_session',
           };
           break;
@@ -310,7 +310,7 @@ export async function login(username, password, kantor = '2') {
         if (!phpSessionValue || phpSessionValue.toLowerCase() === 'deleted') {
           lastError = {
             success: false,
-            error: 'Login sistem internal ditolak — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard.',
+            error: 'Login Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned deleted PHPSESSID`);
@@ -333,7 +333,7 @@ export async function login(username, password, kantor = '2') {
         if (isSessionExpiredHtml(validateHtml)) {
           lastError = {
             success: false,
-            error: 'Login sistem internal ditolak — kemungkinan besar username/password berubah. Silakan login ulang sistem internal dari dashboard.',
+            error: 'Login Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned PHPSESSID but protected page rejected it`);
@@ -350,16 +350,16 @@ export async function login(username, password, kantor = '2') {
 
         return {
           success: true,
-          message: 'Berhasil login ke sistem internal',
+          message: 'Berhasil login ke Akun AIW',
         };
 
       } catch (err) {
         if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
-          lastError = { success: false, error: 'Sistem internal tidak dapat dihubungi' };
+          lastError = { success: false, error: 'AIW tidak dapat dihubungi' };
           break;
         }
         console.error('Laporan login error:', err.message, err.cause);
-        lastError = { success: false, error: 'Gagal menghubungi sistem internal' };
+        lastError = { success: false, error: 'Gagal menghubungi AIW' };
         break;
       }
     }
@@ -413,7 +413,7 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
       // Check if redirected to login page (session expired on remote)
       if (isSessionExpiredHtml(html)) {
         sessions.delete(username);
-        return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa di sistem internal' };
+        return { success: false, reason: 'session_expired', error: 'Session kedaluwarsa di AIW' };
       }
 
       return { success: true, html };
@@ -425,10 +425,10 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
           await new Promise(r => setTimeout(r, 1000)); // 1s breather before retry
           continue;
         }
-        return { success: false, reason: 'timeout', error: `Sistem internal tidak merespons (timeout ${TIMEOUTS[attempt] / 1000}s, ${attempt + 1} attempts)` };
+        return { success: false, reason: 'timeout', error: `AIW tidak merespons (timeout ${TIMEOUTS[attempt] / 1000}s, ${attempt + 1} attempts)` };
       }
       if (err.cause?.code === 'ECONNREFUSED' || err.cause?.code === 'ETIMEDOUT') {
-        return { success: false, reason: 'network', error: 'Sistem internal tidak merespons' };
+        return { success: false, reason: 'network', error: 'AIW tidak merespons' };
       }
       console.error('Laporan fetch error:', err.message);
       return { success: false, reason: 'unknown', error: 'Gagal mengambil data laporan' };
@@ -466,7 +466,7 @@ export async function fetchUmrahBookings(username) {
     const html = await res.text();
     if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, error: 'Session kedaluwarsa di AIW' };
     }
 
     const $ = cheerio.load(html);
@@ -557,7 +557,7 @@ export async function fetchAwapiCredentials(username) {
     const html = await res.text();
     if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal', reason: 'session_expired' };
+      return { success: false, error: 'Session kedaluwarsa di AIW', reason: 'session_expired' };
     }
 
     // Match api key pattern: 2-4 uppercase letters + digits, dash, alphanumeric secret.
@@ -1185,7 +1185,7 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
     const html = await res.text();
     if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, reason: 'session_expired_remote', error: 'Sistem internal menolak akses form pendaftaran (sesi habis di sisi internal)' };
+      return { success: false, reason: 'session_expired_remote', error: 'AIW menolak akses form pendaftaran (sesi habis di sisi AIW)' };
     }
     const blockingAlert = findBlockingLegacyDialog([extractLegacyAlert(html)]);
     if (idb && blockingAlert) {
@@ -1443,7 +1443,7 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
 
   } catch (err) {
     if (err.name === 'AbortError') {
-      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+      return { success: false, error: 'AIW tidak merespons (timeout)' };
     }
     console.error('fetchUmrahFormOptions error:', err.message);
     return { success: false, error: 'Gagal mengambil form pendaftaran' };
@@ -1549,7 +1549,7 @@ export async function fetchUmrahJamaahEditForm(username, { idUmroh, jmId } = {})
     const html = await res.text();
     if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
     }
 
     const $ = cheerio.load(html);
@@ -1604,7 +1604,7 @@ export async function fetchUmrahJamaahEditForm(username, { idUmroh, jmId } = {})
       selectedValues: form.selectedValues,
     };
   } catch (err) {
-    if (err.name === 'AbortError') return { success: false, reason: 'timeout', error: 'Sistem internal tidak merespons (timeout)' };
+    if (err.name === 'AbortError') return { success: false, reason: 'timeout', error: 'AIW tidak merespons (timeout)' };
     return { success: false, reason: 'unknown', error: err.message || 'Gagal mengambil form edit jamaah' };
   }
 }
@@ -1648,7 +1648,7 @@ export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
     const html = await res.text();
     if (isSessionExpiredHtml(html)) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, error: 'Session kedaluwarsa di AIW' };
     }
 
     const fields = extractAllFieldsFromHtml(html);
@@ -1916,7 +1916,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
     const paketResult = await tryPaketAjax(session, jadwal, session.jsHandlers);
     if (paketResult?.sessionExpired) {
       sessions.delete(username);
-      return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, error: 'Session kedaluwarsa di AIW' };
     }
     if (paketResult?.options?.length > 0) {
       combined.paket = paketResult.options;
@@ -1955,7 +1955,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
       const html = await res.text();
       if (isSessionExpiredHtml(html)) {
         sessions.delete(username);
-        return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+        return { success: false, error: 'Session kedaluwarsa di AIW' };
       }
 
       const $ = cheerio.load(html);
@@ -2090,7 +2090,7 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
       const body = await res.text();
       if (isSessionExpiredHtml(body)) {
         sessions.delete(username);
-        return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+        return { success: false, error: 'Session kedaluwarsa di AIW' };
       }
 
       // Try parsing as options list — could be raw <option> tags or full HTML
@@ -2206,7 +2206,7 @@ export async function fetchUmrahPaketDetails(username, jadwal, paketValue) {
     for (const compositePkt of candidates) {
       const attempt = await parseResponse(compositePkt);
       if (!attempt.ok) {
-        if (attempt.sessionExpired) return { success: false, error: 'Session kedaluwarsa di sistem internal' };
+        if (attempt.sessionExpired) return { success: false, error: 'Session kedaluwarsa di AIW' };
         if (attempt.httpStatus) return { success: false, error: `HTTP ${attempt.httpStatus}` };
         continue;
       }
@@ -2354,7 +2354,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     // Detect session expired
     if (isSessionExpiredHtml(responseHtml)) {
       sessions.delete(username);
-      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
     }
 
     // PHP forms typically redirect on success (302/303)
@@ -2411,7 +2411,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     console.log('[UmrahSubmit] AMBIGUOUS RESPONSE — full body length:', responseHtml.length);
     return {
       success: false,
-      error: 'Tidak dapat menentukan hasil pendaftaran. Silakan cek di sistem internal.',
+      error: 'Tidak dapat menentukan hasil pendaftaran. Silakan cek di AIW.',
       debug: { statusCode, hasForm, location, responsePreview },
     };
 
@@ -2428,7 +2428,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
       return {
         success: false,
         reason: 'transport_timeout',
-        error: 'Sistem internal tidak merespons (timeout)',
+        error: 'AIW tidak merespons (timeout)',
         debug,
       };
     }
@@ -2436,7 +2436,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
     return {
       success: false,
       reason: 'transport_error',
-      error: 'Koneksi ke sistem internal terputus. Silakan coba lagi.',
+      error: 'Koneksi ke AIW terputus. Silakan coba lagi.',
       debug,
     };
   }
@@ -2785,7 +2785,7 @@ export async function submitUmrahRegistrationWithBrowser({
   dryRun = false,
 }) {
   if (!username || !password) {
-    return { success: false, error: 'Credential sistem internal tidak lengkap' };
+    return { success: false, error: 'Credential Akun AIW tidak lengkap' };
   }
 
   let browser;
@@ -2845,7 +2845,7 @@ export async function submitUmrahRegistrationWithBrowser({
     ]);
 
     if (await page.locator('input[name="username"]').count()) {
-      return { success: false, error: 'Login sistem internal ditolak saat fallback browser' };
+      return { success: false, error: 'Login Akun AIW ditolak saat fallback browser' };
     }
 
     let formUrl = `${BROWSER_BASE}/pages/main.php?route=umrah&act=tdaftar`;
@@ -2863,7 +2863,7 @@ export async function submitUmrahRegistrationWithBrowser({
       }
       const html = await page.content().catch(() => '');
       if (isSessionExpiredHtml(html)) {
-        return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+        return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
       }
       return { success: false, error: 'Form pendaftaran legacy tidak ditemukan saat fallback browser' };
     }
@@ -3200,7 +3200,7 @@ export async function submitUmrahRegistrationWithBrowser({
       return {
         success: false,
         reason: 'session_expired_remote',
-        error: 'Session kedaluwarsa di sistem internal',
+        error: 'Session kedaluwarsa di AIW',
         debug: { browserFallback: true, statusCode, responseUrl, currentUrl, dialogs },
       };
     }
@@ -3350,7 +3350,7 @@ async function loginLegacyBrowserPage(page, { username, password, kantor }) {
   ]);
 
   if (await page.locator('input[name="username"]').count()) {
-    return { success: false, error: 'Login sistem internal ditolak saat edit jamaah' };
+    return { success: false, error: 'Login Akun AIW ditolak saat edit jamaah' };
   }
   return { success: true };
 }
@@ -3441,7 +3441,7 @@ async function submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
     return {
       success: false,
       reason: 'session_expired_remote',
-      error: 'Session kedaluwarsa di sistem internal',
+      error: 'Session kedaluwarsa di AIW',
       debug: { browserEdit: true, statusCode, responseUrl, currentUrl, dialogs, operation: operationLabel },
     };
   }
@@ -3493,7 +3493,7 @@ async function submitLegacyDocumentEditForm(page, dialogs, {
   if (await page.locator('form').count() === 0) {
     const html = await page.content().catch(() => '');
     if (isSessionExpiredHtml(html)) {
-      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+      return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
     }
     return { success: false, error: 'Form dokumen jamaah legacy tidak ditemukan' };
   }
@@ -3554,7 +3554,7 @@ async function submitLegacyDocumentEditForm(page, dialogs, {
   });
 
   if (sessionDialog || isSessionExpiredHtml(html)) {
-    return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+    return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
   }
   if (successDialog) return { success: true, message: successDialog };
   if (blockingDialog) return { success: false, error: `Alhijaz menolak edit dokumen: ${blockingDialog}` };
@@ -3578,7 +3578,7 @@ export async function submitUmrahJamaahEditWithBrowser({
   retryBlocked = true,
 }) {
   if (!username || !password) {
-    return { success: false, error: 'Credential sistem internal tidak lengkap' };
+    return { success: false, error: 'Credential Akun AIW tidak lengkap' };
   }
   if (!idUmroh || !jmId) {
     return { success: false, error: 'ID Umroh/Jamaah internal tidak lengkap' };
@@ -3622,7 +3622,7 @@ export async function submitUmrahJamaahEditWithBrowser({
       }
       const html = await page.content().catch(() => '');
       if (isSessionExpiredHtml(html)) {
-        return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal' };
+        return { success: false, reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW' };
       }
       return { success: false, error: 'Form edit jamaah legacy tidak ditemukan' };
     }

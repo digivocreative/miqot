@@ -505,7 +505,7 @@ export default function AgentManagementPage() {
                 {stuckAgents.length} agen berhenti sinkronisasi
               </p>
               <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70 leading-snug">
-                Kredensial ditolak atau terhapus dari sistem internal — pendaftaran & pembayaran jamaah mereka tidak masuk. Perlu login ulang dari dashboard masing-masing.
+                Kredensial ditolak atau terhapus dari AIW — pendaftaran & pembayaran jamaah mereka tidak masuk. Perlu login ulang dari dashboard masing-masing.
               </p>
             </div>
           </div>
@@ -767,13 +767,13 @@ export default function AgentManagementPage() {
 
               {/* Section 4: Internal System */}
               <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4">
-                <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">KONEKSI SISTEM INTERNAL</p>
+                <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">KONEKSI AKUN AIW</p>
                 <p className="text-[10px] text-gray-400 dark:text-slate-500 mb-3">Credentials untuk login ke sistem jamaah internal Alhijaz</p>
 
                 {/* Username Internal */}
                 <div className="mb-3">
                   <label className={labelCls}><Building2 size={12} /> Username</label>
-                  <input className={inputCls()} placeholder="Username sistem internal" value={form.jamaah_username}
+                  <input className={inputCls()} placeholder="Username Akun AIW" value={form.jamaah_username}
                     onChange={e => setField('jamaah_username', e.target.value)} />
                 </div>
 
@@ -784,7 +784,7 @@ export default function AgentManagementPage() {
                     <input
                       className={`${inputCls()} pr-10`}
                       type={showJamaahPw ? 'text' : 'password'}
-                      placeholder="Password sistem internal"
+                      placeholder="Password Akun AIW"
                       value={form.jamaah_password}
                       onChange={e => setField('jamaah_password', e.target.value)}
                     />

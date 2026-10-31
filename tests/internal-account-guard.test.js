@@ -64,7 +64,7 @@ test('escapeInternalAccountLike returns empty for blank input (guard short-circu
 
 test('rejection message names the account and the current holder', () => {
   const msg = internalAccountTakenMessage('SM406', 'Sri Hastuti');
-  assert.match(msg, /Akun internal SM406/);
+  assert.match(msg, /Akun AIW SM406/);
   assert.match(msg, /Sri Hastuti/);
   assert.match(msg, /satu agent/);
 });

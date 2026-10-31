@@ -106,10 +106,10 @@ export async function connectJamaah(username, password) {
     if (browser) await browser.close().catch(() => {});
 
     if (err.message?.includes('Timeout')) {
-      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+      return { success: false, error: 'AIW tidak merespons (timeout)' };
     }
     console.error('Jamaah connect error:', err.message);
-    return { success: false, error: 'Gagal menghubungi sistem internal' };
+    return { success: false, error: 'Gagal menghubungi AIW' };
   }
 }
 
@@ -207,7 +207,7 @@ export async function fetchJamaah(sessionId, path = '/') {
 
   } catch (err) {
     if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-      return { success: false, error: 'Sistem internal tidak merespons (timeout)' };
+      return { success: false, error: 'AIW tidak merespons (timeout)' };
     }
     console.error('Jamaah fetch error:', err.message);
     return { success: false, error: 'Gagal mengambil data' };

@@ -437,7 +437,7 @@ async function syncHealthAlert() {
       `⚠️ <b>Sinkronisasi jamaah terhenti</b>\n\n` +
       `${stuck.length} agen tidak lagi menyetor data ke sistem — pendaftaran & pembayaran mereka tidak masuk:\n\n` +
       `${lines.join('\n')}\n\n` +
-      `Perbaikan: minta tiap agen <b>login ulang sistem internal</b> dari dashboard (Profil → Sistem Internal) dengan password terbaru.`;
+      `Perbaikan: minta tiap agen <b>login ulang Akun AIW</b> dari dashboard (Profil → Akun AIW) dengan password terbaru.`;
 
     await sendOpsAlert(msg);
     state.syncHealthAlert = { signature, sentDate: today };

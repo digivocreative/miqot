@@ -493,7 +493,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                 const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
                 const json = await res.json();
                 if (!res.ok && json.error === 'CREDENTIALS_REQUIRED') {
-                  if (confirm('Kamu perlu login ke sistem internal terlebih dahulu.\n\nBuka halaman Jamaah sekarang?')) {
+                  if (confirm('Kamu perlu login ke Akun AIW terlebih dahulu.\n\nBuka halaman Jamaah sekarang?')) {
                     window.location.hash = '#jamaah';
                   }
                   setTelegramLoading(false);
@@ -955,7 +955,7 @@ function InternalSystemSection() {
 
   return (
     <div className="border-t border-gray-100 dark:border-slate-700/50 pt-4 mt-4">
-      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">SISTEM INTERNAL</p>
+      <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">AKUN AIW</p>
 
       {status.syncHealth === 'stale' ? (
         /* ── Credentials rejected upstream — sync frozen, needs re-login ── */
@@ -966,7 +966,7 @@ function InternalSystemSection() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Sistem internal'}</p>
+                <p className="text-sm font-bold text-gray-800 dark:text-white truncate">{status.username || 'Akun AIW'}</p>
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
               </div>
               <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400/80">
@@ -987,14 +987,14 @@ function InternalSystemSection() {
           {reloginOpen && (
             <form onSubmit={handleRelogin} className="px-4 pb-3.5 space-y-2">
               <p className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/70">
-                Password sistem internal kemungkinan berubah. Masukkan password terbaru untuk <span className="font-semibold">{status.username}</span> agar data jamaah kembali tersinkron.
+                Password Akun AIW kemungkinan berubah. Masukkan password terbaru untuk <span className="font-semibold">{status.username}</span> agar data jamaah kembali tersinkron.
               </p>
               <div className="relative">
                 <input
                   type={reloginPwVisible ? 'text' : 'password'}
                   value={reloginPw}
                   onChange={e => { setReloginPw(e.target.value); setReloginErr(''); }}
-                  placeholder="Password sistem internal"
+                  placeholder="Password Akun AIW"
                   autoFocus
                   className="w-full pl-3 pr-9 py-2 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/50 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition-all text-gray-800 dark:text-white placeholder:text-gray-400"
                 />

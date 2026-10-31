@@ -21,7 +21,7 @@ test('umrah registration uses browser/reCAPTCHA as primary and keeps upstream fa
   assert.match(laporanApi, /function refreshSessionCookies\(session, headers\)/);
   assert.match(laporanApi, /refreshSessionCookies\(session, res\.headers\)/);
   assert.match(laporanApi, /'Origin': base\.replace\(/);
-  assert.match(laporanApi, /reason: 'session_expired_remote', error: 'Session kedaluwarsa di sistem internal'/);
+  assert.match(laporanApi, /reason: 'session_expired_remote', error: 'Session kedaluwarsa di AIW'/);
   assert.match(laporanApi, /export async function submitUmrahRegistrationWithBrowser/);
   assert.match(laporanApi, /async function getLegacyBrowserRecaptchaConfig\(page\)/);
   assert.match(laporanApi, /grecaptcha\\.execute\\\(\\s\*\['"\]\(\[\^'"\]\+\)\['"\]/);

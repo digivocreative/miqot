@@ -3755,7 +3755,7 @@ app.get('/api/telegram/link', authMiddleware, async (req, res) => {
     if (!agentData.jamaah_username || !agentData.jamaah_password) {
       return res.status(400).json({
         error: 'CREDENTIALS_REQUIRED',
-        message: 'Kamu perlu login ke sistem internal terlebih dahulu di menu Jamaah.'
+        message: 'Kamu perlu login ke Akun AIW terlebih dahulu di menu Jamaah.'
       });
     }
 
@@ -12841,7 +12841,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: true });
       return res.status(401).json({
-        error: 'Credential sistem internal tidak tersedia. Silakan login ulang.',
+        error: 'Credential Akun AIW tidak tersedia. Silakan login ulang.',
       });
     }
     if (agent.awapi_key) {
@@ -12874,7 +12874,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     const credentialProblem = ['login_no_session', 'login_deleted_session', 'invalid_credentials'].includes(loginResult.reason);
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: credentialProblem });
     return res.status(401).json({
-      error: loginResult.error || 'Gagal login ulang ke sistem internal. Credential tidak dihapus otomatis.',
+      error: loginResult.error || 'Gagal login ulang ke Akun AIW. Credential tidak dihapus otomatis.',
       invalidCredentials: credentialProblem,
     });
   }
@@ -16642,7 +16642,7 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
     }
 
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
-      return res.status(400).json({ error: 'Credential sistem internal belum tersimpan. Login sistem internal dulu di halaman Jamaah.' });
+      return res.status(400).json({ error: 'Credential Akun AIW belum tersimpan. Login Akun AIW dulu di halaman Jamaah.' });
     }
 
     const existingRaw = plainObjectOrEmpty(existing.raw_data);
@@ -16669,7 +16669,7 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
       legacyPassword = capiDecrypt(agent.jamaah_password);
     } catch (err) {
       console.error('[jamaah-update] decrypt legacy password error:', err.message);
-      return res.status(500).json({ error: 'Gagal membaca credential sistem internal' });
+      return res.status(500).json({ error: 'Gagal membaca credential Akun AIW' });
     }
 
     const legacyFields = {
@@ -16710,7 +16710,7 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
     if (!legacyResult.success) {
       console.error('[jamaah-update] legacy update failed:', legacyResult.error, legacyResult.debug || '');
       return res.status(502).json({
-        error: legacyResult.error || 'Gagal menyimpan data ke sistem internal',
+        error: legacyResult.error || 'Gagal menyimpan data ke AIW',
         debug: legacyResult.debug,
       });
     }
@@ -16965,7 +16965,7 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
 // ── Helper: Ensure legacy session active, auto-relogin if credentials saved ──
 async function ensureLegacySession(agent) {
   if (!agent?.jamaah_username) {
-    return { success: false, error: 'Belum ada kredensial sistem internal. Silakan login di halaman Jamaah.' };
+    return { success: false, error: 'Belum ada kredensial Akun AIW. Silakan login di halaman Jamaah.' };
   }
   if (isSessionActive(agent.jamaah_username)) {
     return { success: true };
@@ -16980,13 +16980,13 @@ async function ensureLegacySession(agent) {
     if (!loginResult.success) {
       return {
         success: false,
-        error: loginResult.error || 'Gagal login ulang ke sistem internal. Silakan login manual di halaman Jamaah.',
+        error: loginResult.error || 'Gagal login ulang ke Akun AIW. Silakan login manual di halaman Jamaah.',
       };
     }
     return { success: true };
   } catch (err) {
     console.error('Auto-relogin error:', err);
-    return { success: false, error: 'Gagal login ulang ke sistem internal.' };
+    return { success: false, error: 'Gagal login ulang ke Akun AIW.' };
   }
 }
 
@@ -18030,7 +18030,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     }
     if (!awapiEnabled && (!agent?.jamaah_username || !agent?.jamaah_password)) {
       return res.status(400).json({
-        error: 'Belum terhubung ke sistem internal. Silakan login di halaman Jamaah terlebih dahulu.'
+        error: 'Belum terhubung ke Akun AIW. Silakan login di halaman Jamaah terlebih dahulu.'
       });
     }
 
@@ -18074,7 +18074,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     if (!loginResult.success) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(401).json({
-        error: loginResult.error || 'Gagal login ke sistem internal. Credential tidak dihapus otomatis.',
+        error: loginResult.error || 'Gagal login ke Akun AIW. Credential tidak dihapus otomatis.',
       });
     }
 
@@ -19306,7 +19306,7 @@ const ACTION_LABELS = {
   // Aksi yang dicatat server-side (setelah endpoint sukses)
   save_jamaah_note: 'Simpan Catatan Jamaah', confirm_lunas_manual: 'Tandai Lunas Manual',
   update_jamaah: 'Simpan Edit Jamaah', ocr_ktp: 'Scan KTP (OCR)',
-  connect_internal_account: 'Hubungkan Akun Internal', disconnect_internal_account: 'Putuskan Akun Internal',
+  connect_internal_account: 'Hubungkan Akun AIW', disconnect_internal_account: 'Putuskan Akun AIW',
   caption_ai_generate: 'Buat Caption AI', bio_tagline_generate: 'Buat Tagline Bio (AI)',
   add_custom_domain: 'Tambah Custom Domain', remove_custom_domain: 'Hapus Custom Domain',
   change_slug: 'Ganti Username', upload_photo: 'Ganti Foto Profil',

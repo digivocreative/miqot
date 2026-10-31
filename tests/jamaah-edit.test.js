@@ -22,7 +22,7 @@ test('jamaah edit endpoint is agent-scoped, supports every payment status, and s
   assert.doesNotMatch(server, /Edit data jamaah hanya tersedia untuk agent Nikita/);
   assert.doesNotMatch(server, /Edit data hanya tersedia untuk jamaah yang belum DP/);
   assert.match(server, /submitUmrahJamaahEditWithBrowser/);
-  assert.match(server, /Gagal menyimpan data ke sistem internal/);
+  assert.match(server, /Gagal menyimpan data ke AIW/);
   assert.match(server, /internal_edit_updated_at/);
   assert.match(server, /manual_edit_fields/);
   assert.match(server, /legacyFields\.pekerjaan/);
