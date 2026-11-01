@@ -123,7 +123,7 @@ export async function fetchJamaah(sessionId, path = '/') {
   // Check TTL
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(sessionId);
-    return { success: false, error: 'Session sudah kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session sudah kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   // Build cookie header string
@@ -157,7 +157,7 @@ export async function fetchJamaah(sessionId, path = '/') {
     // If redirected back to login, session expired
     if ($('body').text().includes('Sign in to start your session')) {
       sessions.delete(sessionId);
-      return { success: false, error: 'Session sudah kedaluwarsa, silakan login ulang' };
+      return { success: false, error: 'Session sudah kedaluwarsa, silakan hubungkan ulang Akun AIW' };
     }
 
     // Extract page title

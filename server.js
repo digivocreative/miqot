@@ -3757,7 +3757,7 @@ app.get('/api/telegram/link', authMiddleware, async (req, res) => {
     if (!agentData.jamaah_username || !agentData.jamaah_password) {
       return res.status(400).json({
         error: 'CREDENTIALS_REQUIRED',
-        message: 'Kamu perlu login ke Akun AIW terlebih dahulu di menu Jamaah.'
+        message: 'Kamu perlu menghubungkan Akun AIW terlebih dahulu di menu Jamaah.'
       });
     }
 
@@ -12848,7 +12848,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: true });
       return res.status(401).json({
-        error: 'Credential Akun AIW tidak tersedia. Silakan login ulang.',
+        error: 'Credential Akun AIW tidak tersedia. Silakan hubungkan ulang.',
       });
     }
     if (agent.awapi_key) {
@@ -12881,7 +12881,7 @@ app.post('/api/laporan/sync', authMiddleware, async (req, res) => {
     const credentialProblem = ['login_no_session', 'login_deleted_session', 'invalid_credentials'].includes(loginResult.reason);
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, completedYears: [], lastSync: null, loginFailed: true, invalidCredentials: credentialProblem });
     return res.status(401).json({
-      error: loginResult.error || 'Gagal login ulang ke Akun AIW. Credential tidak dihapus otomatis.',
+      error: loginResult.error || 'Gagal menghubungkan ulang Akun AIW. Credential tidak dihapus otomatis.',
       invalidCredentials: credentialProblem,
     });
   }
@@ -13401,7 +13401,7 @@ app.get('/api/laporan/jamaah/:idJamaah/refresh', authMiddleware, async (req, res
 
   const agent = await getAgentById(agentId);
   if (!agent?.awapi_key) {
-    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Hubungkan ulang Akun AIW di menu Jamaah agar key ter-discover otomatis.' });
   }
   const code = agent.awapi_code || agent.awapi_key.split('-')[0];
 
@@ -13522,7 +13522,7 @@ app.get('/api/laporan/umrah/:idUmrah/refresh', authMiddleware, async (req, res) 
 
   const agent = await getAgentById(agentId);
   if (!agent?.awapi_key) {
-    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Hubungkan ulang Akun AIW di menu Jamaah agar key ter-discover otomatis.' });
   }
   const code = agent.awapi_code || agent.awapi_key.split('-')[0];
 
@@ -13572,7 +13572,7 @@ app.post('/api/laporan/umrah/refresh-recent', authMiddleware, async (req, res) =
   const slug = req.user.slug;
   const agent = await getAgentById(agentId);
   if (!agent?.awapi_key) {
-    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Login ulang via JamaahPage agar key ter-discover otomatis.' });
+    return res.status(400).json({ error: 'API key Alhijaz belum tersedia. Hubungkan ulang Akun AIW di menu Jamaah agar key ter-discover otomatis.' });
   }
   const code = agent.awapi_code || agent.awapi_key.split('-')[0];
   const months = recentRegistrationMonths();
@@ -16649,7 +16649,7 @@ app.post('/api/laporan/jamaah/update', authMiddleware, async (req, res) => {
     }
 
     if (!agent?.jamaah_username || !agent?.jamaah_password) {
-      return res.status(400).json({ error: 'Credential Akun AIW belum tersimpan. Login Akun AIW dulu di halaman Jamaah.' });
+      return res.status(400).json({ error: 'Credential Akun AIW belum tersimpan. Hubungkan Akun AIW dulu di halaman Jamaah.' });
     }
 
     const existingRaw = plainObjectOrEmpty(existing.raw_data);
@@ -16972,14 +16972,14 @@ app.delete('/api/laporan/credentials', authMiddleware, async (req, res) => {
 // ── Helper: Ensure legacy session active, auto-relogin if credentials saved ──
 async function ensureLegacySession(agent) {
   if (!agent?.jamaah_username) {
-    return { success: false, error: 'Belum ada kredensial Akun AIW. Silakan login di halaman Jamaah.' };
+    return { success: false, error: 'Belum ada kredensial Akun AIW. Silakan hubungkan di halaman Jamaah.' };
   }
   if (isSessionActive(agent.jamaah_username)) {
     return { success: true };
   }
   // Session expired — try auto-relogin with stored credentials
   if (!agent.jamaah_password) {
-    return { success: false, error: 'Session kedaluwarsa. Silakan login ulang di halaman Jamaah.' };
+    return { success: false, error: 'Session kedaluwarsa. Silakan hubungkan ulang di halaman Jamaah.' };
   }
   try {
     const decrypted = capiDecrypt(agent.jamaah_password);
@@ -16987,13 +16987,13 @@ async function ensureLegacySession(agent) {
     if (!loginResult.success) {
       return {
         success: false,
-        error: loginResult.error || 'Gagal login ulang ke Akun AIW. Silakan login manual di halaman Jamaah.',
+        error: loginResult.error || 'Gagal menghubungkan ulang Akun AIW. Silakan hubungkan manual di halaman Jamaah.',
       };
     }
     return { success: true };
   } catch (err) {
     console.error('Auto-relogin error:', err);
-    return { success: false, error: 'Gagal login ulang ke Akun AIW.' };
+    return { success: false, error: 'Gagal menghubungkan ulang Akun AIW.' };
   }
 }
 
@@ -18037,7 +18037,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     }
     if (!awapiEnabled && (!agent?.jamaah_username || !agent?.jamaah_password)) {
       return res.status(400).json({
-        error: 'Belum terhubung ke Akun AIW. Silakan login di halaman Jamaah terlebih dahulu.'
+        error: 'Belum terhubung ke Akun AIW. Silakan hubungkan di halaman Jamaah terlebih dahulu.'
       });
     }
 
@@ -18054,7 +18054,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
       if (!awapiAgent?.awapi_key) {
         syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
         return res.status(400).json({
-          error: 'AWAPI haji belum tersedia untuk agent ini. Silakan login ulang agar API key dapat ditemukan.',
+          error: 'AWAPI haji belum tersedia untuk agent ini. Silakan hubungkan ulang Akun AIW agar API key dapat ditemukan.',
         });
       }
 
@@ -18081,7 +18081,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     if (!loginResult.success) {
       syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
       return res.status(401).json({
-        error: loginResult.error || 'Gagal login ke Akun AIW. Credential tidak dihapus otomatis.',
+        error: loginResult.error || 'Gagal menghubungkan Akun AIW. Credential tidak dihapus otomatis.',
       });
     }
 
@@ -18338,7 +18338,7 @@ app.post('/api/haji/sync', authMiddleware, async (req, res) => {
     syncingAgents.set(agentId, { isSyncing: false, totalSynced: 0, lastSync: null });
     if (!res.headersSent) {
       if (err.message === 'SESSION_EXPIRED') {
-        return res.status(401).json({ error: 'Session expired. Silakan login ulang.' });
+        return res.status(401).json({ error: 'Session expired. Silakan hubungkan ulang Akun AIW.' });
       }
       res.status(500).json({ error: 'Gagal sync data haji: ' + err.message });
     }

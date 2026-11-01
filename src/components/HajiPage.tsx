@@ -8,6 +8,7 @@ import {
   KeyRound, Trash2, PenLine,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from '../lib/authSession';
+import AiwLoginGuide from './AiwLoginGuide';
 import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { useBackToClose } from '../hooks/useBackToClose';
@@ -574,7 +575,7 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
-        setError(result.error || 'Login gagal');
+        setError(result.error || 'Gagal menghubungkan Akun AIW');
         setView('login');
         return;
       }
@@ -1377,8 +1378,8 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="px-5 pt-5 pb-4 text-center border-b border-gray-50 dark:border-slate-700/50">
           <img src="/logo-alhijaz.webp" alt="Alhijaz" className="h-auto mx-auto mb-3 rounded-xl object-contain" style={{ width: '8rem' }} />
-          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
-          <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">Login untuk sinkronisasi data jamaah.</p>
+          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">Hubungkan Akun AIW</h2>
+          <p className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">Dapatkan manfaat maksimal penggunaan Alhijaz.co</p>
         </div>
 
         <form onSubmit={handleLogin} className="p-5 space-y-4">
@@ -1425,8 +1426,9 @@ export default function HajiPage({ jamaahConnected, jamaahUser, onConnectionChan
           )}
           <button type="submit"
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95">
-            <LogIn size={16} /> Login
+            <LogIn size={16} /> Hubungkan
           </button>
+          <AiwLoginGuide />
         </form>
 
         {connectedUser && view === 'login' && (

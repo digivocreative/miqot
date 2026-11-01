@@ -505,7 +505,7 @@ export default function AgentManagementPage() {
                 {stuckAgents.length} agen berhenti sinkronisasi
               </p>
               <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70 leading-snug">
-                Kredensial ditolak atau terhapus dari AIW — pendaftaran & pembayaran jamaah mereka tidak masuk. Perlu login ulang dari dashboard masing-masing.
+                Kredensial ditolak atau terhapus dari AIW — pendaftaran & pembayaran jamaah mereka tidak masuk. Perlu hubungkan ulang dari dashboard masing-masing.
               </p>
             </div>
           </div>

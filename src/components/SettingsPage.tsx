@@ -5,6 +5,7 @@ import { TelegramSection } from './DashboardProfile';
 import CapiPage from './CapiPage';
 import { trackEvent } from '../utils/analytics';
 import { getAuthHeaders } from '../lib/authSession';
+import AiwLoginGuide from './AiwLoginGuide';
 import { setAiwAccount } from '../lib/aiwAccount';
 import SegmentedControl from './common/SegmentedControl';
 import { DASHBOARD_SUBPAGE_HEADER_OFFSET } from '../constants/dashboard-chrome';
@@ -117,7 +118,7 @@ export default function SettingsPage({ agent, onUpdated, initialTab }: { agent: 
         )}
         {activeTab === 'capi' && (
           <div className="px-4 pt-4 pb-8">
-            <InternalLoginGate description="Login untuk mengatur Meta CAPI.">
+            <InternalLoginGate description="Hubungkan akun untuk mengatur Meta CAPI.">
               <CapiPage agentSlug={agent.slug} hideHeader embedded />
             </InternalLoginGate>
           </div>
@@ -176,7 +177,7 @@ function InternalLoginGate({ description, children }: { description: string; chi
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
-        setError(result.error || 'Login gagal');
+        setError(result.error || 'Gagal menghubungkan Akun AIW');
         setLoginLoading(false);
         return;
       }
@@ -198,8 +199,8 @@ function InternalLoginGate({ description, children }: { description: string; chi
           className="h-auto mx-auto mb-3 rounded-xl object-contain"
           style={{ width: '8rem' }}
         />
-        <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
-        <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">{description}</p>
+        <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">Hubungkan Akun AIW</h2>
+        <p className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">{description}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -256,11 +257,12 @@ function InternalLoginGate({ description, children }: { description: string; chi
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
         >
           {loginLoading ? (
-            <><Loader2 size={16} className="animate-spin" /> Login...</>
+            <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
           ) : (
-            <><LogIn size={16} /> Login</>
+            <><LogIn size={16} /> Hubungkan</>
           )}
         </button>
+        <AiwLoginGuide />
       </form>
     </div>
   );

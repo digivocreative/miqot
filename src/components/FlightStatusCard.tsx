@@ -1139,9 +1139,9 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
               <div className="w-11 h-11 mx-auto mb-3 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 flex items-center justify-center">
                 <Lock size={18} className="text-amber-500" />
               </div>
-              <p className="text-sm font-bold text-gray-800 dark:text-white">Login Akun AIW</p>
+              <p className="text-sm font-bold text-gray-800 dark:text-white">Hubungkan Akun AIW</p>
               <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                Login Akun AIW untuk menggunakan fitur Flight Share.
+                Hubungkan Akun AIW untuk menggunakan fitur Flight Share.
               </p>
             </div>
             <div className="flex border-t border-gray-100 dark:border-slate-700">
@@ -1167,7 +1167,7 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
                 }}
                 className="flex-1 py-3 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
               >
-                Login Sekarang
+                Hubungkan Sekarang
               </button>
             </div>
           </div>

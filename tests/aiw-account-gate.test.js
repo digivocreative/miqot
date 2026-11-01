@@ -83,6 +83,22 @@ test('isAiwLockedPath mengabaikan query, hash, dan masukan bukan string', () => 
   assert.equal(isAiwLockedPath(undefined), false);
 });
 
+test('teks untuk agent memakai Hubungkan, bukan Login, untuk Akun AIW', () => {
+  const files = [
+    'server.js', 'laporan-api.js', 'jamaah-api.js', 'telegram-notifier.js',
+    'src/components/AiwAccountPrompts.tsx', 'src/components/DashboardLayout.tsx',
+    'src/components/DashboardProfile.tsx', 'src/components/FlightStatusCard.tsx',
+    'src/components/HajiPage.tsx', 'src/components/JamaahPage.tsx',
+    'src/components/SettingsPage.tsx', 'src/components/AgentManagementPage.tsx',
+  ];
+  const banned = /Login Akun AIW|login ke Akun AIW|login ulang Akun AIW|login ulang ke Akun AIW|Login Sekarang|login sekarang|Login gagal|Login ulang via|'Login untuk |"Login untuk |>Login untuk /;
+  for (const file of files) {
+    const code = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+      .split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n');
+    assert.doesNotMatch(code, banned, file);
+  }
+});
+
 test('login Akun AIW gagal bila kredensial tidak tersimpan', () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const route = server.slice(server.indexOf("app.post('/api/laporan/login'"));

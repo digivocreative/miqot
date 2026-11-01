@@ -1225,7 +1225,7 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                   <LogOut size={18} className="text-red-500" />
                 </div>
                 <p className="text-sm font-bold text-gray-800 dark:text-white">Disconnect Account?</p>
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Anda perlu login ulang untuk mengakses data jamaah.</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Anda perlu menghubungkan ulang untuk mengakses data jamaah.</p>
               </div>
               <div className="flex border-t border-gray-100 dark:border-slate-700">
                 <button
@@ -1842,13 +1842,13 @@ export default function DashboardLayout({ session, onLogout }: { session: AuthSe
                 Statistik Belum Tersedia
               </p>
               <p className="text-xs text-gray-500 dark:text-slate-400 text-center mt-1.5 leading-relaxed">
-                Login di halaman Jamaah terlebih dahulu untuk melihat statistik.
+                Hubungkan Akun AIW di halaman Jamaah terlebih dahulu untuk melihat statistik.
               </p>
               <button
                 onClick={() => { closeStatAlert(); setTimeout(() => navigateTab('jamaah'), 200); }}
                 className="w-full py-2.5 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all active:scale-95 mt-4"
               >
-                Login Sekarang
+                Hubungkan Sekarang
               </button>
               <button
                 onClick={closeStatAlert}

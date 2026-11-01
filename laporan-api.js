@@ -191,7 +191,7 @@ function legacyLoginRejection(alertText) {
   if (/password|username|user|login|akses|aktif|sesuai/i.test(message)) {
     return {
       success: false,
-      error: `Login Akun AIW ditolak: ${message}`,
+      error: `Akun AIW ditolak: ${message}`,
       reason: /aktif/i.test(message) ? 'inactive_credentials' : 'invalid_credentials',
     };
   }
@@ -285,7 +285,7 @@ export async function login(username, password, kantor = '2') {
         }
 
         if (res.status === 401) {
-          return { success: false, error: 'Login gagal — username atau password salah', reason: 'invalid_credentials' };
+          return { success: false, error: 'Gagal menghubungkan — username atau password salah', reason: 'invalid_credentials' };
         }
 
         if (res.status !== 302) {
@@ -300,7 +300,7 @@ export async function login(username, password, kantor = '2') {
         if (!cookieString) {
           lastError = {
             success: false,
-            error: 'Login Akun AIW ditolak (tidak ada sesi) — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard. Credential tersimpan tidak dihapus otomatis.',
+            error: 'Akun AIW ditolak (tidak ada sesi) — kemungkinan besar username/password berubah. Silakan hubungkan ulang Akun AIW dari dashboard. Credential tersimpan tidak dihapus otomatis.',
             reason: 'login_no_session',
           };
           break;
@@ -310,7 +310,7 @@ export async function login(username, password, kantor = '2') {
         if (!phpSessionValue || phpSessionValue.toLowerCase() === 'deleted') {
           lastError = {
             success: false,
-            error: 'Login Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard.',
+            error: 'Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan hubungkan ulang Akun AIW dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned deleted PHPSESSID`);
@@ -333,7 +333,7 @@ export async function login(username, password, kantor = '2') {
         if (isSessionExpiredHtml(validateHtml)) {
           lastError = {
             success: false,
-            error: 'Login Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan login ulang Akun AIW dari dashboard.',
+            error: 'Akun AIW ditolak — kemungkinan besar username/password berubah. Silakan hubungkan ulang Akun AIW dari dashboard.',
             reason: 'login_deleted_session',
           };
           console.warn(`[Login] ${username}: ${loginBase} returned PHPSESSID but protected page rejected it`);
@@ -350,7 +350,7 @@ export async function login(username, password, kantor = '2') {
 
         return {
           success: true,
-          message: 'Berhasil login ke Akun AIW',
+          message: 'Akun AIW berhasil terhubung',
         };
 
       } catch (err) {
@@ -364,7 +364,7 @@ export async function login(username, password, kantor = '2') {
       }
     }
   }
-  return lastError || { success: false, error: 'Login gagal setelah retry' };
+  return lastError || { success: false, error: 'Gagal menghubungkan setelah dicoba ulang' };
 }
 
 // ── Fetch Laporan: Build URL server-side (prevent SSRF), GET with cookie ──
@@ -379,7 +379,7 @@ export async function fetchLaporan(username, { kantor, agentId, tglAwal, tglAkhi
   // Check TTL
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   // Build URL server-side (prevent SSRF — don't accept raw URL from client)
@@ -443,7 +443,7 @@ export async function fetchUmrahBookings(username) {
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   const base = getSessionBase(session);
@@ -1150,7 +1150,7 @@ export async function fetchUmrahFormOptions(username, { tglBerangkat, idb } = {}
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   // Build URL — if tglBerangkat provided, include it as query param to trigger
@@ -1619,7 +1619,7 @@ export async function fetchUmrahJdaftarFields(username, jdaftarValue) {
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   const base = getSessionBase(session);
@@ -1900,7 +1900,7 @@ export async function fetchUmrahDependentOptions(username, jadwal) {
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   if (!jadwal) return { success: false, error: 'jadwal required' };
@@ -2041,7 +2041,7 @@ export async function fetchUmrahPaketOptions(username, tglBerangkat) {
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   if (!tglBerangkat) return { success: false, error: 'tglBerangkat required' };
@@ -2243,7 +2243,7 @@ export async function submitUmrahRegistration(username, { formAction, fields, hi
 
   if (Date.now() - session.createdAt > SESSION_TTL) {
     sessions.delete(username);
-    return { success: false, error: 'Session kedaluwarsa, silakan login ulang' };
+    return { success: false, error: 'Session kedaluwarsa, silakan hubungkan ulang Akun AIW' };
   }
 
   // Build the full URL.
@@ -2845,7 +2845,7 @@ export async function submitUmrahRegistrationWithBrowser({
     ]);
 
     if (await page.locator('input[name="username"]').count()) {
-      return { success: false, error: 'Login Akun AIW ditolak saat fallback browser' };
+      return { success: false, error: 'Akun AIW ditolak saat fallback browser' };
     }
 
     let formUrl = `${BROWSER_BASE}/pages/main.php?route=umrah&act=tdaftar`;
@@ -3350,7 +3350,7 @@ async function loginLegacyBrowserPage(page, { username, password, kantor }) {
   ]);
 
   if (await page.locator('input[name="username"]').count()) {
-    return { success: false, error: 'Login Akun AIW ditolak saat edit jamaah' };
+    return { success: false, error: 'Akun AIW ditolak saat edit jamaah' };
   }
   return { success: true };
 }

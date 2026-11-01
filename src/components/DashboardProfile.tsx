@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { handleAgentPhotoError } from '../lib/agent-photo';
 import { Save, Loader2, CheckCircle2, User, Globe, Phone, Mail, Send, X, Pencil, Lock, Eye, EyeOff, ChevronRight, AlertCircle, Unlink, LogIn, LogOut, Check, ShieldOff } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
+import AiwLoginGuide from './AiwLoginGuide';
 import { setAiwAccount } from '../lib/aiwAccount';
 import PhotoCropModal from './PhotoCropModal';
 import PinInput from './PinInput';
@@ -385,8 +386,8 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               className="h-auto mx-auto mb-3 rounded-xl object-contain"
               style={{ width: '8rem' }}
             />
-            <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
-            <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">Login untuk mengaktifkan notifikasi Telegram.</p>
+            <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">Hubungkan Akun AIW</h2>
+            <p className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">Hubungkan akun untuk mengaktifkan notifikasi Telegram.</p>
           </div>
 
           <form onSubmit={async (e) => {
@@ -403,7 +404,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               });
               const result = await res.json();
               if (!res.ok || !result.success) {
-                setSysLoginError(result.error || 'Login gagal');
+                setSysLoginError(result.error || 'Gagal menghubungkan Akun AIW');
                 setSysLoginLoading(false);
                 return;
               }
@@ -472,11 +473,12 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
             >
               {sysLoginLoading ? (
-                <><Loader2 size={16} className="animate-spin" /> Login...</>
+                <><Loader2 size={16} className="animate-spin" /> Menghubungkan...</>
               ) : (
-                <><LogIn size={16} /> Login</>
+                <><LogIn size={16} /> Hubungkan</>
               )}
             </button>
+            <AiwLoginGuide />
           </form>
         </div>
       ) : (
@@ -495,7 +497,7 @@ export function TelegramSection({ agent }: { agent: AgentProfile }) {
                 const res = await fetch('/api/telegram/link', { headers: { ...getAuthHeaders() } });
                 const json = await res.json();
                 if (!res.ok && json.error === 'CREDENTIALS_REQUIRED') {
-                  if (confirm('Kamu perlu login ke Akun AIW terlebih dahulu.\n\nBuka halaman Jamaah sekarang?')) {
+                  if (confirm('Kamu perlu menghubungkan Akun AIW terlebih dahulu.\n\nBuka halaman Jamaah sekarang?')) {
                     window.location.hash = '#jamaah';
                   }
                   setTelegramLoading(false);
@@ -898,7 +900,7 @@ function InternalSystemSection() {
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
-        setReloginErr(result.error || 'Login gagal — periksa kembali password');
+        setReloginErr(result.error || 'Gagal menghubungkan — periksa kembali password');
         setReloginBusy(false);
         return;
       }
@@ -982,7 +984,7 @@ function InternalSystemSection() {
                 className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-white/80 dark:bg-slate-800/70 border border-amber-300/60 dark:border-amber-700/40 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all flex-shrink-0 active:scale-95"
               >
                 <LogIn size={11} />
-                Login ulang
+                Hubungkan ulang
               </button>
             )}
           </div>

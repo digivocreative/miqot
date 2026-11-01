@@ -167,7 +167,8 @@ try {
   await page.evaluate(stored => localStorage.setItem('auth_session', JSON.stringify(stored)), session);
   await page.goto(`${base}/audit-agent`);
   await page.waitForURL('**/dashboard/jamaah', { timeout: 20000 });
-  await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20000 });
+  await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20000 });
+  assert.equal((await request('/login-kantor-aiw.webp')).headers.get('content-type'), 'image/webp');
   await page.evaluate(stored => localStorage.setItem('auth_session', JSON.stringify(stored)), {
     token: withAiw, user: { slug: agentWithAiw.slug, name: agentWithAiw.name, role: 'agent' },
   });

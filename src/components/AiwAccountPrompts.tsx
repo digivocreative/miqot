@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Lock } from 'lucide-react';
+import AiwOfficeLoginImage from './AiwOfficeLoginImage';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { lockDocumentScroll } from '../lib/scrollLock';
 
@@ -14,8 +15,8 @@ export function AiwLoginBanner({ onLogin }: { onLogin: () => void }) {
           <Lock size={20} />
         </span>
         <div className="min-w-0">
-          <h2 className="text-[15px] font-bold">Login Akun AIW</h2>
-          <p className="mt-0.5 text-xs text-emerald-50">Menu lainnya terbuka setelah kamu login.</p>
+          <h2 className="text-[15px] font-bold">Hubungkan Akun AIW</h2>
+          <p className="mt-0.5 text-xs text-emerald-50">Menu lainnya terbuka setelah akun terhubung.</p>
         </div>
       </div>
       <button
@@ -23,7 +24,7 @@ export function AiwLoginBanner({ onLogin }: { onLogin: () => void }) {
         onClick={onLogin}
         className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-white text-sm font-bold text-emerald-700 transition-transform active:scale-[0.98]"
       >
-        Login sekarang <ArrowRight size={15} />
+        Hubungkan sekarang <ArrowRight size={15} />
       </button>
     </section>
   );
@@ -69,17 +70,18 @@ export function AiwLoginDialog({ menuLabel, onClose, onLogin }: {
         role="dialog"
         aria-modal="true"
         aria-labelledby="aiw-login-dialog-title"
-        className={`w-full max-w-xs overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800 ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
+        className={`max-h-[calc(100dvh-2rem)] w-full max-w-xs overflow-y-auto rounded-2xl border border-gray-100 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800 ${closing ? 'dc-card-exit' : 'dc-card-enter'}`}
         onClick={event => event.stopPropagation()}
       >
         <div className="px-5 pb-3 pt-5 text-center">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-amber-100 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-900/20">
             <Lock size={18} className="text-amber-500" />
           </div>
-          <p id="aiw-login-dialog-title" className="text-sm font-bold text-gray-800 dark:text-white">Login Akun AIW</p>
+          <p id="aiw-login-dialog-title" className="text-sm font-bold text-gray-800 dark:text-white">Menu {menuLabel} masih terkunci</p>
           <p className="mt-1.5 text-xs leading-relaxed text-gray-500 dark:text-slate-400">
-            Login Akun AIW untuk menggunakan menu {menuLabel}.
+            Hubungkan akun AIW kantor untuk membukanya.
           </p>
+          <AiwOfficeLoginImage className="mt-3" />
         </div>
         <div className="flex border-t border-gray-100 dark:border-slate-700">
           <button
@@ -96,7 +98,7 @@ export function AiwLoginDialog({ menuLabel, onClose, onLogin }: {
             onClick={() => closeThen(() => { onClose(); onLogin(); })}
             className="flex-1 py-3 text-sm font-bold text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20"
           >
-            Login
+            Hubungkan
           </button>
         </div>
       </div>

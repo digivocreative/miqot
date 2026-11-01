@@ -8,6 +8,7 @@ import {
   FileText, Download, Share2, WifiOff, AlertCircle,
 } from 'lucide-react';
 import { getAuthHeaders, getStoredSession } from '../lib/authSession';
+import AiwLoginGuide from './AiwLoginGuide';
 import FilterDropdown from './FilterDropdown';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import { normalizeWaNumber, formatWaDisplay } from '../utils/phone';
@@ -963,7 +964,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
       });
       const result = await res.json();
       if (!res.ok || !result.success) {
-        setError(result.error || 'Login gagal');
+        setError(result.error || 'Gagal menghubungkan Akun AIW');
         setView('login');
         return;
       }
@@ -2613,8 +2614,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             className="h-auto mx-auto mb-3 rounded-xl object-contain"
             style={{ width: '8rem' }}
           />
-          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">AIW Agent Login</h2>
-          <p className="text-[12px] text-gray-500 dark:text-slate-500 mt-0.5">Login untuk sinkronisasi data jamaah.</p>
+          <h2 className="text-[15px] font-bold text-gray-800 dark:text-white">Hubungkan Akun AIW</h2>
+          <p className="text-[12px] text-gray-500 dark:text-slate-400 mt-0.5">Dapatkan manfaat maksimal penggunaan Alhijaz.co</p>
         </div>
 
         <form onSubmit={handleLogin} className="p-5 space-y-4">
@@ -2675,8 +2676,9 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
             type="submit"
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20 transition-all duration-200 active:scale-95"
           >
-            <LogIn size={16} /> Login
+            <LogIn size={16} /> Hubungkan
           </button>
+          <AiwLoginGuide />
         </form>
 
 

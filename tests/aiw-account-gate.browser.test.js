@@ -4,7 +4,7 @@
  * Yang dijaga:
  * 1. Agent tanpa Akun AIW: beranda bergembok, tautan langsung dan /:slug berakhir di
  *    form menu Jamaah tanpa memasang halaman terkunci.
- * 2. Login Akun AIW membuka semuanya tanpa muat ulang; memutuskannya mengunci lagi.
+ * 2. Hubungkan Akun AIW membuka semuanya tanpa muat ulang; memutuskannya mengunci lagi.
  * 3. Pengunjung tanpa sesi, admin, dan agent dengan Akun AIW tidak terganggu.
  * 4. Status yang gagal dibaca tidak mengunci siapa pun.
  */
@@ -110,7 +110,7 @@ async function open({
     }
     if (url.pathname === '/api/laporan/login') {
       if (server.loginStatus !== 200) {
-        return route.fulfill(json(server.loginStatus, { success: false, error: 'Login Akun AIW ditolak: uji' }));
+        return route.fulfill(json(server.loginStatus, { success: false, error: 'Akun AIW ditolak: uji' }));
       }
       server.has = true;
       return route.fulfill(json(200, { success: true, username: 'SM999', kantor: '2' }));
@@ -132,17 +132,17 @@ const goto = (page, path) => page.goto(`${appOrigin}${path}`, { waitUntil: 'domc
 const pathOf = (page) => new URL(page.url()).pathname;
 const atJamaahForm = async (page) => {
   await page.waitForURL('**/dashboard/jamaah', { timeout: 20_000 });
-  await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20_000 });
 };
 const lockedCard = (page, label) => page.getByRole('button', { name: `${label} terkunci` });
-const banner = (page) => page.getByRole('button', { name: 'Login sekarang' });
+const banner = (page) => page.getByRole('button', { name: 'Hubungkan sekarang' });
 const homeReady = (page) => page.getByRole('button', { name: 'Logout' }).waitFor({ state: 'visible', timeout: 20_000 });
 const kurs = (page) => page.getByText('Kurs Hari Ini');
 
 async function login(page) {
   await page.getByPlaceholder('SM12345').fill('SM999');
   await page.getByPlaceholder('Kata Sandi').fill('sandi-uji');
-  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await page.getByRole('button', { name: 'Hubungkan', exact: true }).click();
 }
 
 describe('Gerbang Akun AIW', { concurrency: false }, () => {
@@ -194,7 +194,14 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await homeReady(page);
     await lockedCard(page, 'Brosur').click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByText('Login Akun AIW untuk menggunakan menu Brosur.').waitFor({ state: 'visible' });
+    await dialog.getByText('Menu Brosur masih terkunci').waitFor({ state: 'visible' });
+    await dialog.getByText('Hubungkan akun AIW kantor untuk membukanya.').waitFor({ state: 'visible' });
+    await dialog.getByRole('img', { name: 'Halaman login kantor Alhijaz Indowisata' }).waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const element = document.querySelector('[role="dialog"] img');
+      return element?.complete && element.naturalWidth > 0;
+    }, undefined, { timeout: 10_000 });
+    assert.equal(await dialog.getByText('Hubungkan Akun AIW', { exact: true }).count(), 0, 'judul tidak mengulang subjudul');
     await dialog.getByRole('button', { name: 'Batal' }).click();
     await dialog.waitFor({ state: 'detached' });
     assert.equal(pathOf(page), '/dashboard');
@@ -205,9 +212,9 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await homeReady(page);
     await lockedCard(page, 'Jadwal').click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByText('Login Akun AIW untuk menggunakan menu Jadwal.').waitFor({ state: 'visible' });
+    await dialog.getByText('Menu Jadwal masih terkunci').waitFor({ state: 'visible' });
     assert.equal(calls.documents, 1, 'tidak ada navigasi dokumen');
-    await dialog.getByRole('button', { name: 'Login', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Hubungkan', exact: true }).click();
     await atJamaahForm(page);
     assert.equal(await page.getByRole('dialog').count(), 0);
   });
@@ -235,6 +242,19 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await page.getByRole('dialog').waitFor({ state: 'visible' });
     await page.mouse.click(10, 10);
     await page.getByRole('dialog').waitFor({ state: 'detached' });
+  });
+
+  scenario('dialog muat di layar pendek dan tombolnya bisa dijangkau', {}, async ({ page }) => {
+    await page.setViewportSize({ width: 667, height: 320 });
+    await goto(page, '/dashboard');
+    await homeReady(page);
+    await lockedCard(page, 'Brosur').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible' });
+    const box = await dialog.boundingBox();
+    assert.ok(box.y >= 0 && box.y + box.height <= 320, `dialog tidak boleh keluar layar (${box.y}, ${box.height})`);
+    await dialog.getByRole('button', { name: 'Hubungkan', exact: true }).click();
+    await atJamaahForm(page);
   });
 
   scenario('banner menuju form Jamaah', {}, async ({ page }) => {
@@ -288,7 +308,7 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await goto(page, '/dashboard/jamaah');
     await atJamaahForm(page);
     await login(page);
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'detached', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'detached', timeout: 20_000 });
     assert.equal(pathOf(page), '/dashboard/jamaah', 'agent tetap di Jamaah');
     await page.getByRole('button', { name: 'Kembali ke dashboard' }).click();
     await homeReady(page);
@@ -308,7 +328,7 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await goto(page, '/dashboard/jamaah');
     await atJamaahForm(page);
     await login(page);
-    await page.getByText('Login Akun AIW ditolak: uji').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByText('Akun AIW ditolak: uji').waitFor({ state: 'visible', timeout: 20_000 });
     const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('auth_session')));
     assert.equal(stored.user.has_aiw_account, false);
   });
@@ -344,7 +364,7 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await homeReady(page);
     await page.getByRole('button', { name: 'Jamaah', exact: true }).click();
     await page.waitForURL('**/dashboard/jamaah');
-    await page.waitForFunction(() => !document.body.innerText.includes('AIW Agent Login'));
+    await page.waitForFunction(() => !document.body.innerText.includes('Hubungkan Akun AIW'));
     await page.waitForTimeout(800);
     await page.getByRole('button', { name: 'Kembali ke dashboard' }).click();
     await homeReady(page);
@@ -421,11 +441,140 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     assert.equal(await banner(page).count(), 0);
   });
 
+  const BENEFITS = [
+    'Semua menu terbuka, dari Jadwal sampai Tools',
+    'Data jamaah umroh dan haji tersinkron otomatis',
+    'Statistik dan komisi terhitung otomatis',
+    'Notifikasi jamaah baru dan pembayaran di Telegram',
+  ];
+  const HELP_TEXT = 'Pakai akun yang sama dengan login kantor Alhijaz Indowisata (Kantor Cabang).';
+
+  async function assertFormGuide(page, subtitle) {
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByText(subtitle, { exact: true }).waitFor({ state: 'visible' });
+    await page.getByText('Apa manfaat menghubungkan akun?').waitFor({ state: 'visible' });
+    for (const benefit of BENEFITS) await page.getByText(benefit).waitFor({ state: 'visible' });
+    assert.equal(await page.getByText(HELP_TEXT).count(), 0, 'penjelasan tertutup saat form dibuka');
+    assert.equal(await page.getByText('AIW Agent Login').count(), 0, 'judul lama tidak tersisa');
+  }
+
+  scenario('form Jamaah: subjudul baru, manfaat tampil, penjelasan terbuka saat diklik', {}, async ({ page, calls }) => {
+    await goto(page, '/dashboard/jamaah');
+    await assertFormGuide(page, 'Dapatkan manfaat maksimal penggunaan Alhijaz.co');
+    assert.equal(await page.getByText('Login untuk sinkronisasi data jamaah.').count(), 0);
+
+    const toggle = page.getByRole('button', { name: 'Akun yang mana?' });
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    await toggle.click();
+    await page.getByText(HELP_TEXT).waitFor({ state: 'visible' });
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    const image = page.getByRole('img', { name: 'Halaman login kantor Alhijaz Indowisata' });
+    await image.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const element = document.querySelector('img[alt="Halaman login kantor Alhijaz Indowisata"]');
+      return element?.complete && element.naturalWidth > 0;
+    }, undefined, { timeout: 10_000 });
+    assert.equal(calls.api.filter((c) => c.includes('/api/laporan/login')).length, 0, 'tautan tidak mengirim form');
+
+    await toggle.click();
+    await page.getByText(HELP_TEXT).waitFor({ state: 'detached' });
+  });
+
+  /** Klik tautan lalu rekam tinggi panel, margin, dan posisi kotak manfaat tiap frame. */
+  const toggleAndSample = (page) => page.evaluate(async () => {
+    const toggle = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Akun yang mana?'));
+    const samples = [];
+    toggle.click();
+    const start = performance.now();
+    while (performance.now() - start < 600) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const panel = document.querySelector('[data-aiw-help]');
+      samples.push({
+        height: panel ? panel.getBoundingClientRect().height : 0,
+        margin: panel ? parseFloat(getComputedStyle(panel).marginTop) : 0,
+      });
+    }
+    return samples;
+  });
+
+  scenario('penjelasan membuka dan menutup dengan animasi tinggi', {}, async ({ page }) => {
+    await goto(page, '/dashboard/jamaah');
+    await atJamaahForm(page);
+    const benefitsTop = () => page.getByText('Apa manfaat menghubungkan akun?').evaluate((el) => el.getBoundingClientRect().top);
+    const closedTop = await benefitsTop();
+
+    const opening = await toggleAndSample(page);
+    const openHeight = opening.at(-1).height;
+    assert.ok(openHeight > 100, `panel harus terbuka penuh (${openHeight}px)`);
+    assert.ok(opening.some((s) => s.height > 0 && s.height < openHeight - 4), 'tinggi harus bergerak, bukan melompat');
+    assert.ok(opening[0].margin < 16, `jarak atas ikut beranimasi (${opening[0].margin}px)`);
+    assert.equal(opening.at(-1).margin, 16, 'jarak akhir sama dengan elemen form lain');
+
+    const closing = await toggleAndSample(page);
+    assert.ok(closing.some((s) => s.height > 0 && s.height < openHeight - 4), 'menutup juga beranimasi');
+    assert.equal(closing.at(-1).height, 0, 'panel hilang setelah animasi');
+    assert.equal(await page.locator('[data-aiw-help]').count(), 0);
+    assert.equal(await benefitsTop(), closedTop, 'kotak manfaat kembali ke posisi semula');
+  });
+
+  scenario('ketukan cepat pada tautan berakhir di keadaan yang benar', {}, async ({ page }) => {
+    await goto(page, '/dashboard/jamaah');
+    await atJamaahForm(page);
+    const toggle = page.getByRole('button', { name: 'Akun yang mana?' });
+    await toggle.dblclick();
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator('[data-aiw-help]').count(), 0, 'dua ketukan = tertutup');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Akun yang mana?'));
+      button.click();
+      button.click();
+      button.click();
+    });
+    await page.waitForTimeout(500);
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true', 'tiga ketukan = terbuka');
+    assert.ok(await page.locator('[data-aiw-help]').evaluate((el) => el.getBoundingClientRect().height) > 100);
+  });
+
+  scenario('pengguna yang mematikan animasi langsung melihat panel penuh', {}, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await goto(page, '/dashboard/jamaah');
+    await atJamaahForm(page);
+    const opening = await toggleAndSample(page);
+    assert.ok(opening[1].height > 100, `tanpa transisi (${opening[1].height}px)`);
+  });
+
+  scenario('form Haji memakai subjudul dan panduan yang sama', {}, async ({ page }) => {
+    await goto(page, '/dashboard/jamaah/haji');
+    await assertFormGuide(page, 'Dapatkan manfaat maksimal penggunaan Alhijaz.co');
+  });
+
+  scenario('form CAPI tetap dengan subjudulnya dan mendapat panduan', {}, async ({ page }) => {
+    await goto(page, '/dashboard/settings/capi');
+    await assertFormGuide(page, 'Hubungkan akun untuk mengatur Meta CAPI.');
+  });
+
+  scenario('form Telegram tetap dengan subjudulnya dan mendapat panduan', {}, async ({ page }) => {
+    await goto(page, '/dashboard/settings/telegram');
+    await assertFormGuide(page, 'Hubungkan akun untuk mengaktifkan notifikasi Telegram.');
+  });
+
+  scenario('Enter di kolom password tetap mengirim form', {}, async ({ page, calls }) => {
+    await goto(page, '/dashboard/jamaah');
+    await atJamaahForm(page);
+    await page.getByPlaceholder('SM12345').fill('SM999');
+    await page.getByPlaceholder('Kata Sandi').fill('sandi-uji');
+    await page.getByPlaceholder('Kata Sandi').press('Enter');
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'detached', timeout: 20_000 });
+    assert.equal(calls.api.filter((c) => c.includes('/api/laporan/login')).length, 1);
+  });
+
   scenario('login dari form CAPI di Settings membuka menu', {}, async ({ page, calls }) => {
     await goto(page, '/dashboard/settings/capi');
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20_000 });
     await login(page);
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'detached', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'detached', timeout: 20_000 });
     await page.getByRole('button', { name: 'Kembali ke dashboard' }).click();
     await homeReady(page);
     await kurs(page).waitFor({ state: 'visible' });
@@ -434,9 +583,9 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
 
   scenario('login dari form Telegram di Settings membuka menu', {}, async ({ page, calls }) => {
     await goto(page, '/dashboard/settings/telegram');
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20_000 });
     await login(page);
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'detached', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'detached', timeout: 20_000 });
     await page.getByRole('button', { name: 'Kembali ke dashboard' }).click();
     await homeReady(page);
     await kurs(page).waitFor({ state: 'visible' });
@@ -451,7 +600,7 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
       const session = JSON.parse(window.localStorage.getItem('auth_session'));
       return session.user.has_aiw_account === false;
     }, undefined, { timeout: 10_000 });
-    await page.getByRole('heading', { name: 'AIW Agent Login' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Hubungkan Akun AIW' }).waitFor({ state: 'visible', timeout: 20_000 });
   });
 
   scenario('tombol back ke tab terkunci sesudah diputuskan kembali ke form Jamaah', {
@@ -490,7 +639,7 @@ describe('Gerbang Akun AIW', { concurrency: false }, () => {
     await goto(page, '/dashboard');
     await homeReady(page);
     await lockedCard(page, 'Brosur').click();
-    const button = page.getByRole('dialog').getByRole('button', { name: 'Login', exact: true });
+    const button = page.getByRole('dialog').getByRole('button', { name: 'Hubungkan', exact: true });
     await button.dblclick();
     await atJamaahForm(page);
     await page.waitForTimeout(400);
