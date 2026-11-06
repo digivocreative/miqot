@@ -47,8 +47,13 @@ const AIRPORT_COORDS: Record<string, [number, number]> = {
 
 // ── Tile URLs ──
 
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-const TILE_URL_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+// Esri Light/Dark Gray Canvas — provider yang sama dengan peta halaman share
+// (World_Imagery). Basemap CARTO (basemaps.cartocdn.com) kini mewajibkan API
+// key: tanpa key setiap tile berisi gambar "API KEY REQUIRED" (terlihat Nov
+// 2026) sehingga peta tampak kosong — jangan kembali ke sana tanpa key.
+// Urutan Esri {z}/{y}/{x}, bukan {x}/{y}.
+const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+const TILE_URL_DARK = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
 
 // ── Helpers ──
 
@@ -142,6 +147,9 @@ export default function FlightMap({ flight }: FlightMapProps) {
       <MapContainer
         bounds={bounds}
         boundsOptions={{ padding: [30, 30] }}
+        // Zoom bulat terlalu kasar untuk kotak 144px: DXB-CGK jatuh ke zoom 1
+        // (rute cuma ~70px, sisanya laut kosong). Kelipatan 0.25 mengisi kotak.
+        zoomSnap={0.25}
         zoomControl={false}
         attributionControl={false}
         dragging={false}
@@ -150,7 +158,7 @@ export default function FlightMap({ flight }: FlightMapProps) {
         touchZoom={false}
         style={{ height: '100%', width: '100%' }}
       >
-        <TileLayer url={isDark ? TILE_URL_DARK : TILE_URL} />
+        <TileLayer url={isDark ? TILE_URL_DARK : TILE_URL} maxNativeZoom={16} />
 
         {/* Full path (dashed gray / solid green if landed) */}
         {arcPath && (

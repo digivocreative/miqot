@@ -8,6 +8,7 @@ import { flightCardDateKey, flightCardDisplayDateValue, flightCardGroupKey } fro
 import { summarizeFlightShareGroup } from '../lib/flightShareSummary';
 import { selectActiveFlightSegment } from '../lib/flightActiveSegment';
 import { getFlightStatusPresentation } from '../lib/flightStatusPresentation';
+import { flightDelayHint, flightHasDeparted, flightPhaseDelay } from '../lib/flightDelay';
 import { formatFlightNumberCompact } from '../lib/flightNumberFormat';
 import { isReturnFlight } from '../lib/flightDirection';
 import FlightRouteLine from './FlightRouteLine';
@@ -237,6 +238,7 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
         const route = segment.routeLabel || `${segment.depCode || '—'}-${segment.arrCode || '—'}`;
         const dep = formatTime(segment.depActual || segment.depScheduled);
         const arr = formatTime(segment.arrEstimated || segment.arrScheduled);
+        const delay = flightPhaseDelay(segment);
 
         return (
           <div
@@ -251,8 +253,10 @@ function FlightSegmentRows({ segments }: { segments: FlightSegmentData[] }) {
                 <span className={`text-[7px] font-bold uppercase px-1.5 py-[2px] rounded-md text-white tracking-wide ${sc.bg}`} title={sc.hint}>
                   {sc.label}
                 </span>
-                {segment.delayed > 0 && (
-                  <span className="text-[8px] font-bold text-red-500 dark:text-red-400">+{segment.delayed}m</span>
+                {delay && (
+                  <span className="text-[8px] font-bold text-red-500 dark:text-red-400" title={flightDelayHint(delay)}>
+                    +{delay.minutes}m
+                  </span>
                 )}
               </div>
               <div className="mt-0.5 text-[10px] font-semibold text-gray-500 dark:text-slate-400 truncate">
@@ -811,6 +815,10 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
             const segments = first.segments?.length ? first.segments : [];
             const summaryFlight = flightWithActiveSegment(first);
             const sc = getFlightStatusPresentation(summaryFlight.status);
+            const headerDelay = flightPhaseDelay(summaryFlight);
+            const hasDeparted = flightHasDeparted(summaryFlight);
+            const headerTerminal = hasDeparted ? summaryFlight.arrTerminal : summaryFlight.depTerminal;
+            const headerGate = hasDeparted ? null : summaryFlight.depGate;
             // Arah dibaca dari `first` (bukan summaryFlight): pada multi-leg,
             // arrCode ringkasan adalah segmen aktif, bukan tujuan akhir.
             const isReturn = isReturnFlight(first);
@@ -843,13 +851,29 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
                   }}
                   className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left active:bg-gray-50 dark:active:bg-slate-700/50 transition-colors"
                 >
-                  {/* Time column */}
-                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-10 pt-0.5">
-                    <span className="text-[11px] font-bold text-gray-800 dark:text-white leading-tight">
+                  {/* Time column — delay tinggal di sini, menggantikan garis
+                      penghubung (tinggi sama, h-3), dan jam yang terdampak ikut
+                      merah. Dulu "+Nm" menempel di baris judul sebelah badge:
+                      bersama badge "Pulang" baris itu terlipat jadi 3 baris. */}
+                  <div
+                    className="flex flex-col items-center justify-center flex-shrink-0 w-10 pt-0.5"
+                    title={headerDelay ? flightDelayHint(headerDelay) : undefined}
+                  >
+                    <span className={`text-[11px] font-bold leading-tight ${
+                      headerDelay?.phase === 'departure' ? 'text-red-500 dark:text-red-400' : 'text-gray-800 dark:text-white'
+                    }`}>
                       {depTime}
                     </span>
-                    <div className="w-px h-3 my-0.5" style={{ backgroundColor: sc.color }} />
-                    <span className="text-[10px] font-medium text-gray-400 dark:text-slate-500 leading-tight">
+                    {headerDelay ? (
+                      <span className="h-3 my-0.5 flex items-center text-[8px] font-bold leading-none text-red-500 dark:text-red-400">
+                        +{headerDelay.minutes}m
+                      </span>
+                    ) : (
+                      <div className="w-px h-3 my-0.5" style={{ backgroundColor: sc.color }} />
+                    )}
+                    <span className={`text-[10px] leading-tight ${
+                      headerDelay?.phase === 'arrival' ? 'font-semibold text-red-500 dark:text-red-400' : 'font-medium text-gray-400 dark:text-slate-500'
+                    }`}>
                       {arrTime}
                     </span>
                   </div>
@@ -873,9 +897,6 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
                         <span className={`${FLIGHT_BADGE_CLASS} bg-indigo-500`}>
                           Pulang
                         </span>
-                      )}
-                      {summaryFlight.delayed > 0 && (
-                        <span className="text-[9px] font-bold text-red-500 dark:text-red-400">+{summaryFlight.delayed}m</span>
                       )}
                     </div>
 
@@ -908,16 +929,26 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
                     </span>
                     {/* Terminal/gate sebaris di kiri chevron — bukan baris sendiri,
                         supaya kolom ini tetap dua baris dan tinggi kartu tidak
-                        bertambah saat data terminal tersedia. */}
+                        bertambah saat data terminal tersedia.
+                        Ikut fase: sebelum lepas landas terminal+gate berangkat;
+                        sesudahnya cukup terminal tiba (jemputan). Gate Dubai
+                        pesawat yang sudah terbang tak berguna dan melebarkan
+                        kolom ini sampai badge "Pulang" terlipat ke baris 2. */}
                     <div className="flex items-center gap-1">
-                      {summaryFlight.depTerminal && (
-                        <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                          T{summaryFlight.depTerminal}
+                      {headerTerminal && (
+                        <span
+                          className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded"
+                          title={hasDeparted ? 'Terminal kedatangan' : 'Terminal keberangkatan'}
+                        >
+                          T{headerTerminal}
                         </span>
                       )}
-                      {summaryFlight.depGate && (
-                        <span className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                          {summaryFlight.depGate}
+                      {headerGate && (
+                        <span
+                          className="text-[8px] font-bold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded"
+                          title="Gate keberangkatan"
+                        >
+                          {headerGate}
                         </span>
                       )}
                       <motion.div
