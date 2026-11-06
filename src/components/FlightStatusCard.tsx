@@ -809,7 +809,6 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
           {grouped.map((group) => {
             const first = group[0];
             const segments = first.segments?.length ? first.segments : [];
-            const hasSegmentRows = segments.length > 1;
             const summaryFlight = flightWithActiveSegment(first);
             const sc = getFlightStatusPresentation(summaryFlight.status);
             // Arah dibaca dari `first` (bukan summaryFlight): pada multi-leg,
@@ -880,25 +879,16 @@ export default function FlightStatusCard({ onFlightCount, agentSlug }: { onFligh
                       )}
                     </div>
 
-                    {/* Row 2: route visualization */}
+                    {/* Row 2: route visualization — selalu bar status.
+                        Jangan ganti jadi teks `routeLabel` saja: pada leg
+                        multi-leg yang tampil sendirian (mis. EK 358 DXB-CGK,
+                        leg JED-DXB-nya tak berjam terpercaya) itu menghapus
+                        bar padahal pesawatnya sedang terbang. `routeLabel`
+                        per-leg sama persis dengan depCode-arrCode. */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      {hasSegmentRows ? (
-                        <>
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
-                          <FlightRouteLine flight={summaryFlight} />
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
-                        </>
-                      ) : summaryFlight.routeLabel ? (
-                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 truncate">
-                          {summaryFlight.routeLabel}
-                        </span>
-                      ) : (
-                        <>
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
-                          <FlightRouteLine flight={summaryFlight} />
-                          <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
-                        </>
-                      )}
+                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.depCode || '—'}</span>
+                      <FlightRouteLine flight={summaryFlight} />
+                      <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{summaryFlight.arrCode || '—'}</span>
                     </div>
                   </div>
 
