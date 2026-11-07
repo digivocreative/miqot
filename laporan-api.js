@@ -3355,63 +3355,80 @@ async function loginLegacyBrowserPage(page, { username, password, kantor }) {
   return { success: true };
 }
 
-async function submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
+// Submit the edit form the way staff do: click Simpan and let AIW's own page
+// handle the rest. Sejak ±22–28 Sep 2026 form AIW tidak lagi memuat reCAPTCHA
+// (submit native); kalau listener reCAPTCHA kembali, klik yang sama memicunya.
+// Menunggu grecaptcha di sini dulu membuat tiap Simpan macet 20 dtk lalu gagal.
+async function submitCurrentLegacyBrowserForm(page, dialogs, {
   responseUrlPart,
   operationLabel,
   successMessage,
 }) {
+  // A native click runs HTML5 validation first; one invalid field blocks the
+  // submit silently (no dialog, no request). Name the fields instead.
+  const invalidFields = await readLegacyBrowserInvalidFields(page);
+  if (invalidFields.length > 0) {
+    return {
+      success: false,
+      reason: 'legacy_form_invalid',
+      error: `Isian ditolak form AIW: ${invalidFields.map(field => field.problem).join('; ')}. Perbaiki lalu simpan ulang.`,
+      debug: { browserEdit: true, stage: 'validity', invalidFields, operation: operationLabel },
+    };
+  }
+
+  const submitButton = page.locator(
+    '#sbButton, form#mF button[type="submit"], form#mF input[type="submit"]',
+  ).first();
+  if (await submitButton.count() === 0) {
+    return {
+      success: false,
+      reason: 'legacy_submit_button_missing',
+      error: 'Tombol Simpan tidak ditemukan pada form AIW. Coba lagi beberapa saat lagi.',
+      debug: { browserEdit: true, dialogs, stage: 'submit_button', operation: operationLabel },
+    };
+  }
+
+  const recaptchaConfig = await getLegacyBrowserRecaptchaConfig(page);
+  const submitRequestPromise = page.waitForRequest(
+    request => request.method() === 'POST' && request.url().includes(responseUrlPart),
+    { timeout: 25_000 },
+  ).catch(() => null);
   const submitResponsePromise = page.waitForResponse(
     res => res.url().includes(responseUrlPart),
     { timeout: 25_000 },
   ).catch(() => null);
 
-  const recaptchaConfig = await getLegacyBrowserRecaptchaConfig(page);
-  if (!recaptchaConfig.tokenField) {
-    return {
-      success: false,
-      error: 'Field reCAPTCHA legacy tidak ditemukan',
-      debug: { browserEdit: true, dialogs, operation: operationLabel, recaptchaSource: recaptchaConfig.source },
-    };
+  await submitButton.scrollIntoViewIfNeeded();
+  if (recaptchaConfig.active) {
+    await humanizeLegacyPointer(page, submitButton).catch(() => {});
+    await page.waitForTimeout(1_200);
   }
+  await submitButton.click();
 
-  const tokenInfo = await page.evaluate(async ({ siteKey, tokenAction, tokenField, tokenId }) => {
-    const started = Date.now();
-    while (Date.now() - started < 20_000) {
-      if (window.grecaptcha && typeof window.grecaptcha.execute === 'function') break;
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    if (!window.grecaptcha || typeof window.grecaptcha.execute !== 'function') {
-      return { ok: false, error: 'grecaptcha tidak tersedia' };
-    }
-    const token = await window.grecaptcha.execute(siteKey, { action: tokenAction || 'submit' });
-    if (!token) return { ok: false, error: 'token reCAPTCHA kosong' };
-    const form = document.querySelector('form#mF') || document.querySelector('form');
-    if (!form) return { ok: false, error: 'form legacy hilang sebelum submit' };
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.id = tokenId || 'legacy_recaptcha_token';
-    input.name = tokenField;
-    input.value = token;
-    form.appendChild(input);
-    HTMLFormElement.prototype.submit.call(form);
-    return { ok: true, length: token.length };
-  }, {
-    siteKey: recaptchaConfig.siteKey,
-    tokenAction: recaptchaConfig.action,
-    tokenField: recaptchaConfig.tokenField,
-    tokenId: recaptchaConfig.tokenId,
-  });
-
-  if (!tokenInfo.ok) {
+  const submitRequest = await submitRequestPromise;
+  if (!submitRequest) {
+    const blockingDialog = findBlockingLegacyDialog(dialogs);
     return {
       success: false,
-      error: tokenInfo.error || 'Gagal membuat token reCAPTCHA legacy',
-      debug: { browserEdit: true, dialogs, operation: operationLabel },
+      reason: 'submit_not_started',
+      error: blockingDialog
+        ? `Alhijaz menolak edit jamaah: ${blockingDialog}`
+        : 'Form AIW tidak mengirim perubahan. Coba lagi beberapa saat lagi.',
+      debug: {
+        browserEdit: true,
+        dialogs,
+        stage: 'native_submit',
+        operation: operationLabel,
+        recaptchaActive: recaptchaConfig.active,
+      },
     };
   }
 
   const submitResponse = await submitResponsePromise;
-  await page.waitForTimeout(1_500);
+  // aksi_umrah.php menjawab dengan alert(status) inline. 'Berhasil!' → lanjut
+  // seketika; selain itu tunggu penuh 1,5 dtk agar 'berhasil' yang menyusul
+  // notice lain tak terbaca sebagai penolakan.
+  await waitForLegacyDialog(dialogs, message => /berhasil|success/i.test(message), 1_500);
   const html = await page.content().catch(() => '');
   const statusCode = submitResponse?.status() || null;
   const responseUrl = submitResponse?.url() || '';
@@ -3431,9 +3448,7 @@ async function submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
     currentUrl,
     dialogs,
     formStillOpen,
-    tokenLength: tokenInfo.length,
-    recaptchaSource: recaptchaConfig.source,
-    recaptchaAction: recaptchaConfig.action,
+    recaptchaActive: recaptchaConfig.active,
     responsePreview,
   });
 
@@ -3588,11 +3603,8 @@ export async function submitUmrahJamaahEditWithBrowser({
   const dialogs = [];
   try {
     const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 1365, height: 900 },
-      userAgent: LEGACY_UA,
-    });
+    browser = await launchLegacyBrowser(chromium);
+    const context = await createLegacyBrowserContext(browser);
     const page = await context.newPage();
 
     page.on('dialog', async dialog => {
@@ -3698,7 +3710,7 @@ export async function submitUmrahJamaahEditWithBrowser({
       };
     }
 
-    let biodataResult = await submitCurrentLegacyBrowserFormWithRecaptcha(page, dialogs, {
+    let biodataResult = await submitCurrentLegacyBrowserForm(page, dialogs, {
       responseUrlPart: 'aksi_umrah.php',
       operationLabel: 'jamaah_biodata',
       successMessage: 'Edit data jamaah berhasil',

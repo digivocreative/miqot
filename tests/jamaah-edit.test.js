@@ -142,10 +142,12 @@ test('jamaah edit route uses a layout-stable skeleton while its code and data lo
   assert.ok((editSkeleton.match(/labelWidth:/g) || []).length >= 16);
 });
 
-test('jamaah edit write-back uses legacy browser form with recaptcha', () => {
+test('jamaah edit write-back submits the live legacy form through its own Simpan button', () => {
   assert.match(laporanApi, /export async function submitUmrahJamaahEditWithBrowser/);
   assert.match(laporanApi, /route=umrah&act=edaftar/);
-  assert.match(laporanApi, /submitCurrentLegacyBrowserFormWithRecaptcha/);
+  assert.match(laporanApi, /let biodataResult = await submitCurrentLegacyBrowserForm\(page, dialogs/);
+  // Form AIW tak lagi memuat reCAPTCHA: jangan pernah menunggu grecaptcha sebelum submit.
+  assert.doesNotMatch(laporanApi, /submitCurrentLegacyBrowserFormWithRecaptcha/);
   assert.match(laporanApi, /aksi_umrah\.php/);
   assert.match(laporanApi, /route=dokumen&act=edit-dokumen/);
   assert.match(laporanApi, /prov:\s*'prov'/);
