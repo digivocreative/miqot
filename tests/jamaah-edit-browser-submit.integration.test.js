@@ -8,24 +8,25 @@ const TEST_RECAPTCHA_TOKEN = 'fake-recaptcha-token';
 const SUCCESS_RESPONSE_HTML =
   "<!doctype html><script>alert('Berhasil!');window.location.href='/aiw/staff/pages/main.php?route=umrah';</script>";
 
-// Form edit jamaah (route=umrah&act=edaftar). Sejak ±22–28 Sep 2026 AIW tidak lagi
-// memuat reCAPTCHA di form-nya: tombol Simpan langsung submit native ke aksi_umrah.php.
-// `recaptcha: true` meniru bentuk lama (listener submit menyisipkan token lalu form.submit()).
-function editFormHtml({ recaptcha = false, ktpPattern = '' } = {}) {
+// Form edit jamaah (route=umrah&act=edaftar), bentuk asli diperiksa 7 Nov 2026: tanpa
+// reCAPTCHA dan tanpa handler submit; #sbButton submit native ke action relatif
+// route/data_umrah/aksi_umrah.php. `recaptcha: true` meniru bentuk lama (listener submit
+// menyisipkan token lalu form.submit()).
+function editFormHtml({ recaptcha = false } = {}) {
   return `<!doctype html>
     <html>
       <body>
-        <form id="mF" method="post" enctype="multipart/form-data" action="/aiw/staff/pages/aksi_umrah.php">
+        <form id="mF" method="post" enctype="multipart/form-data" action="route/data_umrah/aksi_umrah.php?route=umrah&act=edaftar">
           <input type="hidden" name="idu" value="${TEST_ID_UMROH}">
           <input type="hidden" name="idjamaah" value="${TEST_JM_ID}">
-          <div class="form-group"><label>Nama Lengkap *</label><input name="nlengkap" value="BUDI LAMA" required></div>
-          <div class="form-group"><label>Jenis Kelamin</label>
-            <select name="kelamin"><option value="L" selected>Laki-laki</option><option value="P">Perempuan</option></select>
+          <div class="form-group"><label>NAMA LENGKAP JAMAAH *</label><input name="nlengkap" value="BUDI LAMA" required></div>
+          <div class="form-group"><label>KELAMIN *</label>
+            <select name="kelamin" required><option value="">-</option><option value="L" selected>Laki-laki</option><option value="P">Perempuan</option></select>
           </div>
-          <div class="form-group"><label>No. KTP</label><input name="ktp" value="3276010101900001"${ktpPattern ? ` pattern="${ktpPattern}"` : ''}></div>
-          <div class="form-group"><label>Nama Pendaftar</label><input name="pendaftar" value="BUDI LAMA"></div>
-          <input type="hidden" name="tpendaftar" value="1111111111">
-          <div class="form-group"><label>No. Telp/HP Jamaah</label><input name="tjamaah" value="081200000001"></div>
+          <div class="form-group"><label>NO. KTP *</label><input name="ktp" value="3276010101900001" required pattern=".{10,18}" maxlength="18" minlength="10"></div>
+          <div class="form-group"><label>NAMA PENDAFTAR *</label><input name="pendaftar" value="BUDI LAMA" required></div>
+          <div class="form-group"><label>NO. TLP/HP PENDAFTAR *</label><input name="tpendaftar" value="1111111111" required pattern=".{5,16}" maxlength="16"></div>
+          <div class="form-group"><label>NO. TLP/HP JAMAAH *</label><input name="tjamaah" value="081200000001" required pattern=".{5,16}" maxlength="16"></div>
           <div class="form-group"><label>Tempat Lahir</label><input name="plahir" value="BANDUNG"></div>
           <div class="form-group"><label>Tanggal Lahir</label><input name="tlahir" value="01/01/1990"></div>
           <div class="form-group"><label>Alamat</label><textarea name="alamat">JL LAMA</textarea></div>
@@ -105,7 +106,7 @@ async function startFakeLegacyServer({ formHtml = editFormHtml(), submitResponse
         if (route === 'umrah' && act === 'edaftar') return html(formHtml);
         if (route === 'umrah' && !act) return html('<!doctype html><h1>Data Umrah</h1>');
       }
-      if (req.method === 'POST' && url.pathname === '/aiw/staff/pages/aksi_umrah.php') return html(submitResponseHtml);
+      if (req.method === 'POST' && url.pathname === '/aiw/staff/pages/route/data_umrah/aksi_umrah.php') return html(submitResponseHtml);
 
       res.statusCode = 404;
       res.end('not found');
@@ -246,14 +247,14 @@ test('an AIW rejection alert after submit is reported, not treated as saved', { 
 });
 
 test('an HTML5-invalid field is named instead of a silent no-submit', { timeout: 45_000 }, async () => {
-  await withFakeLegacy({ formHtml: editFormHtml({ ktpPattern: '.{16,16}' }) }, async ({ submitUmrahJamaahEditWithBrowser }, fakeLegacy) => {
+  await withFakeLegacy({}, async ({ submitUmrahJamaahEditWithBrowser }, fakeLegacy) => {
     const result = await submitUmrahJamaahEditWithBrowser({
       ...EDIT_PAYLOAD,
       fields: { ...EDIT_PAYLOAD.fields, ktp: '12345' },
     });
     assert.equal(result.success, false);
     assert.equal(result.reason, 'legacy_form_invalid');
-    assert.match(result.error, /No\. KTP harus 16–16 karakter/);
+    assert.match(result.error, /NO\. KTP harus 10–18 karakter/);
     assert.equal(submitsOf(fakeLegacy).length, 0, 'an invalid form must not post');
   });
 });
