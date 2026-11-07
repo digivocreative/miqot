@@ -198,6 +198,12 @@ export default function JamaahEditPage({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Galat tampil di atas form, tombol Simpan menempel di bawah: tanpa gulir, agent
+  // yang sudah di bawah layar HP tak melihat kenapa simpannya gagal.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [error]);
 
   const disabled = loading || saving;
   const fullName = combineFullName(form);
@@ -393,7 +399,7 @@ export default function JamaahEditPage({
     <div className="px-4 pt-4 pb-8">
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+          <div ref={errorRef} role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-600 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>

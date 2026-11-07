@@ -108,6 +108,8 @@ test('jamaah edit route renders a compact page with the same visible fields as n
   assert.doesNotMatch(editPage, /diskon_marketing/);
   assert.doesNotMatch(editUpdateRoute, /legacyFields\.diskon/);
   assert.doesNotMatch(editUpdateRoute, /diskon_marketing/);
+  assert.match(editPage, /if \(error\) errorRef\.current\?\.scrollIntoView\(/);
+  assert.match(editPage, /<div ref=\{errorRef\} role="alert"/);
   assert.match(editPage, /<Save size=\{16\}/);
   assert.match(editPage, /Menyimpan perubahan/);
   assert.match(editPage, /Data jamaah sedang diperbarui/);
