@@ -83,6 +83,16 @@ export function pickSpotlightDate(a: {
   return upcoming[0] ?? null;
 }
 
+/**
+ * IntersectionObserver bisa mengirim beberapa entri sekaligus saat main thread
+ * sibuk (guliran cepat melewati beberapa ambang). Yang berlaku = yang terbaru.
+ */
+export function latestRatio(entries: readonly { intersectionRatio: number; time: number }[]): number {
+  let latest: { intersectionRatio: number; time: number } | null = null;
+  for (const e of entries) if (!latest || e.time >= latest.time) latest = e;
+  return latest ? latest.intersectionRatio : 0;
+}
+
 // ── Gerbang harian ──
 
 export interface SpotlightStorage {

@@ -22,6 +22,7 @@ import {
   buildSpotlightContent,
   buildSpotlightMine,
   canAutoStartSpotlight,
+  latestRatio,
   markSpotlightShown,
   pickSpotlightDate,
 } from '../lib/calendarSpotlight';
@@ -453,7 +454,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     const el = calendarRef.current;
     if (!el || !spotlightReady || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
-      ([entry]) => setCalendarRatio(entry.intersectionRatio),
+      entries => setCalendarRatio(latestRatio(entries)),
       { threshold: [0, 0.2, 0.6] },
     );
     io.observe(el);

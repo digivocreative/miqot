@@ -92,11 +92,13 @@ export default function CalendarSpotlight({ wrapperRef, content, reducedMotion, 
       if (!cell) return;
       const w = wrapper.getBoundingClientRect();
       const c = cell.getBoundingClientRect();
+      // Ruang atas yang terlihat dimulai di bawah header sticky dashboard.
+      const headerBottom = document.querySelector('header.sticky')?.getBoundingClientRect().bottom ?? 0;
       const next = computeBubblePosition({
         cell: { top: c.top - w.top, bottom: c.bottom - w.top, left: c.left - w.left, right: c.right - w.left },
         wrapperWidth: w.width,
         wrapperHeight: w.height,
-        viewportTop: -w.top,
+        viewportTop: Math.max(0, headerBottom) - w.top,
         viewportBottom: window.innerHeight - w.top,
         bubbleHeight: bubble.offsetHeight,
       });
@@ -158,7 +160,8 @@ export default function CalendarSpotlight({ wrapperRef, content, reducedMotion, 
         left: pos?.left ?? 0,
         top: pos?.top ?? 0,
         width: pos?.width ?? 244,
-        zIndex: 30,
+        // Di bawah header sticky dashboard (z-30), di atas kartu lain; sheet z-50.
+        zIndex: 20,
         visibility: pos ? 'visible' : 'hidden',
         transformOrigin: `${arrowLeft}px ${below ? '0%' : '100%'}`,
       }}

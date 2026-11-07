@@ -308,3 +308,19 @@ test('tombol Sorot lagi melayang di baris legenda, tidak mengubah tinggi kartu',
   assert.match(chip, /position: 'absolute'/);
   assert.doesNotMatch(chip, /ml-auto/);
 });
+
+// ── Temuan review akhir ──
+
+test('gelembung berada di bawah header sticky dashboard (z-30) dan ruang atasnya dihitung dari bawah header', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(join(root, 'src/components/calendar/CalendarSpotlight.tsx'), 'utf8');
+  const z = Number(src.match(/zIndex: (\d+)/)?.[1]);
+  assert.ok(z > 0 && z < 30, `zIndex ${z} harus di bawah header z-30`);
+  assert.match(src, /querySelector\('header\.sticky'\)/);
+});
+
+test('latestRatio: pakai entri IntersectionObserver terbaru, bukan yang pertama', () => {
+  assert.equal(S.latestRatio([{ intersectionRatio: 0.2, time: 10 }, { intersectionRatio: 0.7, time: 25 }]), 0.7);
+  assert.equal(S.latestRatio([{ intersectionRatio: 0.7, time: 25 }, { intersectionRatio: 0.2, time: 10 }]), 0.7);
+  assert.equal(S.latestRatio([]), 0);
+});
