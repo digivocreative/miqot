@@ -293,3 +293,18 @@ test('isi: manasik untuk beberapa tanggal keberangkatan', () => {
   assert.equal(c3.sections[0].title, 'Manasik');
   assert.equal(c3.sections[0].lines[0].text, 'Untuk keberangkatan 14 & 21 Nov +1');
 });
+
+// ── Tanpa lompatan tata letak ──
+// Tombol "Sorot lagi" muncul/hilang bersamaan dengan gelembung. Kalau ia ikut
+// mengalir di baris legenda, tingginya (±18 px) menambah tinggi baris 29 px →
+// seluruh kartu & widget di bawahnya melompat 5 px tiap gelembung buka/tutup
+// (terukur sebagai layout-shift 2026-11-07). Ia wajib melayang (absolute).
+
+test('tombol Sorot lagi melayang di baris legenda, tidak mengubah tinggi kartu', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(join(root, 'src/components/UpcomingSchedule.tsx'), 'utf8');
+  const chip = src.match(/\{canReplaySpotlight && \([\s\S]*?Sorot lagi[\s\S]*?\)\}/)?.[0] || '';
+  assert.ok(chip, 'blok tombol Sorot lagi tidak ditemukan');
+  assert.match(chip, /position: 'absolute'/);
+  assert.doesNotMatch(chip, /ml-auto/);
+});

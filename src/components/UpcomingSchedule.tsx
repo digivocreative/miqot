@@ -607,22 +607,27 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
         )}
 
         {/* Legend */}
-        <div className="px-4 py-2 border-t border-gray-50 dark:border-slate-700/50 flex items-center gap-3">
+        <div className="relative px-4 py-2 border-t border-gray-50 dark:border-slate-700/50 flex gap-3">
           {TAB_ORDER.map(t => (
             <div key={t} className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} />
               <span className="text-[8px] font-semibold text-gray-400 dark:text-slate-500 uppercase">{TAB_CONFIG[t].label}</span>
             </div>
           ))}
+          {/* Melayang, bukan ikut mengalir: tombol ini muncul/hilang bersama
+              gelembung, dan tingginya lebih dari baris legenda — kalau ikut
+              mengalir, kartu & widget di bawahnya melompat tiap buka/tutup. */}
           {canReplaySpotlight && (
-            <button
-              type="button"
-              onClick={() => showSpotlight('replay')}
-              className="relative touch-hit ml-auto flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600 transition-colors hover:bg-emerald-100 active:scale-95 dark:bg-emerald-900/20 dark:text-emerald-400"
-            >
-              <RotateCcw size={10} strokeWidth={2.5} />
-              Sorot lagi
-            </button>
+            <span style={{ position: 'absolute', top: 0, bottom: 0, right: 12, display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => showSpotlight('replay')}
+                className="relative touch-hit flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600 transition-colors hover:bg-emerald-100 active:scale-95 dark:bg-emerald-900/20 dark:text-emerald-400"
+              >
+                <RotateCcw size={10} strokeWidth={2.5} />
+                Sorot lagi
+              </button>
+            </span>
           )}
         </div>
         </div>
