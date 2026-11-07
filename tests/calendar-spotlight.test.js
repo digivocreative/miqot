@@ -222,3 +222,140 @@ test('posisi: kartu sempit menyusutkan lebar gelembung', () => {
   assert.equal(pos.width, 224);
   assert.equal(pos.left, 8);
 });
+
+// ── Isi gelembung ──
+
+const NO_MINE = { berangkat: new Map(), manasik: new Map() };
+const ev = (date, type, details) => ({ date, type, details });
+
+function nineNov() {
+  return [ev('2026-11-09', 'keberangkatan', [
+    det({ pesawat: 'SAUDIA ~ SV 817', jam: '06:45', pax: 300, pax_terisi: 138, tour_leader: '• Hasan Basri', group_number: '11', jadwal_id: 'J11' }),
+    det({ pesawat: 'GARUDA INDONESIA ~ GA 980', jam: '10:20', pax: 92, tour_leader: '• Ust. Ridwan Hakim', group_number: '12', jadwal_id: 'J12' }),
+    det({ pesawat: 'LION AIR ~ JT 112', jam: '22:10', pax_terisi: 182, tour_leader: 'Dedi Kurnia', group_number: '13' }),
+  ])];
+}
+
+test('isi: berangkat beberapa kloter + jamaah Anda (TL kloter jamaah Anda didahulukan)', () => {
+  const mine = { berangkat: new Map([['2026-11-09', { count: 3, jadwalIds: ['J12'] }]]), manasik: new Map() };
+  const c = S.buildSpotlightContent({ date: '2026-11-09', events: nineNov(), todayKey: TODAY, mine });
+  assert.equal(c.date, '2026-11-09');
+  assert.equal(c.day, 9);
+  assert.equal(c.dayLabel, 'SEN, 9 NOV');
+  assert.deepEqual(c.badge, { text: 'H-2', tone: 'keberangkatan' });
+  assert.deepEqual(c.sections, [{
+    type: 'keberangkatan',
+    title: '3 kloter berangkat',
+    lines: [
+      { icon: 'takeoff', text: 'Saudia · Garuda Indonesia +1' },
+      { icon: 'clock', text: 'Take off 06:45–22:10 · 412 pax' },
+      { icon: 'tl', text: 'TL Ust. Ridwan Hakim +2' },
+    ],
+  }]);
+  assert.deepEqual(c.mine, [{ type: 'keberangkatan', text: '3 jamaah Anda berangkat · Kloter 12' }]);
+});
+
+test('isi: satu kloter berangkat menulis nomor penerbangan lengkap', () => {
+  const events = [ev('2026-11-09', 'keberangkatan', [nineNov()[0].details[0]])];
+  const c = S.buildSpotlightContent({ date: '2026-11-09', events, todayKey: TODAY, mine: NO_MINE });
+  assert.deepEqual(c.sections[0].lines, [
+    { icon: 'takeoff', text: 'Saudia SV 817' },
+    { icon: 'clock', text: 'Take off 06:45 · 138 pax' },
+    { icon: 'tl', text: 'TL Hasan Basri' },
+  ]);
+  assert.deepEqual(c.mine, []);
+});
+
+test('isi: hari ini campuran pulang + manasik, baris tanpa ikon, jamaah Anda manasik', () => {
+  const events = [
+    ev('2026-11-07', 'manasik', [det({ jam: '08:00', paket: '14/11/2026UMROH PLUS TURKI', tour_leader: 'Ust. Ahmad Fauzi' })]),
+    ev('2026-11-07', 'kepulangan', [det({ pesawat: 'SAUDIA ~ SV 816', jam: '14.30', arrival_terminal: '3', staff: 'Joko Santoso', tour_leader: 'Hendra Wijaya', pax: 120 })]),
+  ];
+  const mine = { berangkat: new Map(), manasik: new Map([['2026-11-07', { count: 4, jadwalIds: [] }]]) };
+  const c = S.buildSpotlightContent({ date: '2026-11-07', events, todayKey: TODAY, mine });
+  assert.equal(c.dayLabel, 'SAB, 7 NOV');
+  assert.deepEqual(c.badge, { text: 'HARI INI', tone: 'today' });
+  assert.deepEqual(c.sections, [
+    { type: 'kepulangan', title: '1 kloter pulang tiba', lines: [
+      { icon: null, text: 'SV 816 · tiba 14:30 · T3' },
+      { icon: null, text: 'TL Hendra Wijaya' },
+    ] },
+    { type: 'manasik', title: 'Manasik 08:00', lines: [
+      { icon: null, text: 'Untuk keberangkatan 14 Nov' },
+      { icon: null, text: 'TL Ust. Ahmad Fauzi' },
+    ] },
+  ]);
+  assert.deepEqual(c.mine, [{ type: 'manasik', text: '4 jamaah Anda ikut manasik' }]);
+});
+
+test('isi: pulang tunggal dengan TL dan staff penjemput', () => {
+  const events = [ev('2026-11-12', 'kepulangan', [det({ pesawat: 'SAUDIA ~ SV 826', jam: '16:20', arrival_terminal: 'T3', staff: '• Joko Santoso', tour_leader: 'Siti Rahmawati', pax: 110 })])];
+  const c = S.buildSpotlightContent({ date: '2026-11-12', events, todayKey: TODAY, mine: NO_MINE });
+  assert.deepEqual(c.badge, { text: 'H-5', tone: 'kepulangan' });
+  assert.deepEqual(c.sections[0], { type: 'kepulangan', title: '1 kloter pulang tiba', lines: [
+    { icon: 'landing', text: 'Saudia SV 826 · tiba 16:20 · T3' },
+    { icon: 'tl', text: 'TL Siti Rahmawati' },
+    { icon: 'staff', text: 'Dijemput staff Joko Santoso' },
+  ] });
+});
+
+test('isi: berangkat campuran ≤2 kloter ditulis per penerbangan', () => {
+  const events = [
+    ev('2026-11-14', 'keberangkatan', nineNov()[0].details.slice(0, 2)),
+    ev('2026-11-14', 'manasik', [det({ jam: '08:00', paket: '21/11/2026UMROH REGULER' })]),
+  ];
+  const mine = {
+    berangkat: new Map([['2026-11-14', { count: 4, jadwalIds: ['J11'] }]]),
+    manasik: new Map([['2026-11-14', { count: 5, jadwalIds: [] }]]),
+  };
+  const c = S.buildSpotlightContent({ date: '2026-11-14', events, todayKey: TODAY, mine });
+  assert.deepEqual(c.sections[0].lines, [
+    { icon: null, text: 'SV 817 06:45 · GA 980 10:20 · 230 pax' },
+    { icon: null, text: 'TL Hasan Basri +1' },
+  ]);
+  assert.deepEqual(c.mine, [
+    { type: 'keberangkatan', text: '4 jamaah Anda berangkat · Kloter 11' },
+    { type: 'manasik', text: '5 jamaah Anda ikut manasik' },
+  ]);
+});
+
+test('isi: jamaah Anda manasik tidak ditulis bila tanggal itu tak punya event manasik', () => {
+  const mine = { berangkat: new Map(), manasik: new Map([['2026-11-09', { count: 5, jadwalIds: [] }]]) };
+  const c = S.buildSpotlightContent({ date: '2026-11-09', events: nineNov(), todayKey: TODAY, mine });
+  assert.deepEqual(c.mine, []);
+});
+
+test('isi: data legacy bolong tidak memunculkan baris kosong atau undefined', () => {
+  const events = [ev('2026-11-16', 'keberangkatan', [det({ group_number: '16' })])];
+  const c = S.buildSpotlightContent({ date: '2026-11-16', events, todayKey: TODAY, mine: NO_MINE });
+  assert.deepEqual(c.sections, [{ type: 'keberangkatan', title: '1 kloter berangkat', lines: [] }]);
+  assert.doesNotMatch(JSON.stringify(c), /undefined|null[^,}]|TL "/);
+});
+
+test('isi: tanggal tanpa detail tampil → null', () => {
+  const events = [ev('2026-11-20', 'keberangkatan', [det()])];
+  assert.equal(S.buildSpotlightContent({ date: '2026-11-20', events, todayKey: TODAY, mine: NO_MINE }), null);
+});
+
+test('isi: lencana BESOK, dan tanggal lewat tanpa lencana', () => {
+  const events = [
+    ev('2026-11-08', 'kepulangan', [det({ group_number: '8' })]),
+    ev('2026-11-03', 'kepulangan', [det({ group_number: '3' })]),
+  ];
+  assert.deepEqual(S.buildSpotlightContent({ date: '2026-11-08', events, todayKey: TODAY, mine: NO_MINE }).badge, { text: 'BESOK', tone: 'kepulangan' });
+  assert.equal(S.buildSpotlightContent({ date: '2026-11-03', events, todayKey: TODAY, mine: NO_MINE }).badge, null);
+});
+
+test('isi: manasik untuk beberapa tanggal keberangkatan', () => {
+  const pk = (p, jam) => det({ paket: p, jam });
+  const two = [ev('2026-11-21', 'manasik', [pk('14/11/2026A', '08:30'), pk('21/11/2026B', '08:00')])];
+  const c2 = S.buildSpotlightContent({ date: '2026-11-21', events: two, todayKey: TODAY, mine: NO_MINE });
+  assert.equal(c2.sections[0].title, 'Manasik 08:00');
+  assert.deepEqual(c2.sections[0].lines[0], { icon: 'manasik', text: 'Untuk keberangkatan 14 & 21 Nov' });
+  const cross = [ev('2026-11-21', 'manasik', [pk('28/11/2026A'), pk('05/12/2026B')])];
+  assert.equal(S.buildSpotlightContent({ date: '2026-11-21', events: cross, todayKey: TODAY, mine: NO_MINE }).sections[0].lines[0].text, 'Untuk keberangkatan 28 Nov & 5 Des');
+  const three = [ev('2026-11-21', 'manasik', [pk('14/11/2026A'), pk('21/11/2026B'), pk('28/11/2026C')])];
+  const c3 = S.buildSpotlightContent({ date: '2026-11-21', events: three, todayKey: TODAY, mine: NO_MINE });
+  assert.equal(c3.sections[0].title, 'Manasik');
+  assert.equal(c3.sections[0].lines[0].text, 'Untuk keberangkatan 14 & 21 Nov +1');
+});
