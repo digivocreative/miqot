@@ -1,7 +1,11 @@
-# Spec: Sorotan Bergilir di Kalender Dashboard
+# Spec: Sorotan Agenda di Kalender Dashboard
 
 **Tanggal:** 2026-11-07
 **Status:** Disetujui di chat (brainstorm + iterasi mockup Opsi A); user meminta langsung lanjut implementasi.
+**Revisi 2026-11-07 (dari user, saat implementasi):** gelembung **tidak bergilir**. Cukup satu gelembung di
+**hari ini** bila ada agenda; bila hari ini kosong, di **tanggal berjadwal terdekat berikutnya**. Tampilan wajib
+mengikuti design system, dan warnanya **harus beda dari latar kalender** (tidak boleh menyatu saat terbuka). Bagian yang terdampak (2, 4.2–4.5, 5, 6, 8) sudah ditulis ulang di bawah;
+mockup Beskem.pen masih menggambarkan versi bergilir.
 **Mockup:** Pencil `Beskem.pen` (`~/.pencil/documents/bc2ca188-3652-45c8-932c-4588bfb09a8c/Beskem.pen`)
 — papan **Rencana**, **Opsi A — Sorotan Bergilir**, **A1 Alur Giliran**, **A2 Anatomi**, **A3 Isi per Jenis**,
 **A4 Interaksi & Gerak**, **A5 Mode Gelap**. Nama/angka di mockup karangan.
@@ -20,7 +24,8 @@ melompat ke detail satu tanggal dengan satu ketukan.
 
 | Hal | Keputusan |
 |---|---|
-| Arah | **Opsi A, Sorotan Bergilir**: satu gelembung gelap yang singgah dari tanggal ke tanggal. |
+| Arah | Gelembung info dari Opsi A, tetapi **satu tanggal saja**: hari ini bila ada agenda, kalau tidak tanggal berjadwal terdekat berikutnya. **Tidak bergilir.** |
+| Tampilan | **Sesuai design system** dan **warnanya beda dari latar kalender** supaya tidak menyatu: pola tooltip yang sudah ada (`AvailabilityCoachMark`) — warna dibalik terhadap kartu. |
 | Jamaah agent | **Teks saja**, mis. "3 jamaah Anda berangkat · Kloter 12". **Tanpa avatar/inisial.** |
 | Tour leader | **Nama TL wajib** tampil. |
 | Tanggal Hijriah | **Tidak ditampilkan.** |
@@ -53,71 +58,63 @@ Putaran otomatis dimulai bila SEMUA terpenuhi:
 
 Gerbang hari ini ditandai **saat gelembung benar-benar tampil**, bukan saat syarat terpenuhi.
 
-### 4.2 Urutan singgah
+### 4.2 Tanggal yang disorot
 
-Daftar *tanggal sorotan* = tanggal di bulan berjalan, `>= hari ini (WIB)`, yang punya minimal satu event
-dengan detail tampil (`hasDisplayableDetail`, aturan yang sama dengan titik di grid). Diurutkan:
-1. **Hari ini** (bila berjadwal).
-2. Tanggal yang punya **jamaah Anda** (berangkat atau manasik, lihat 5.4), kronologis.
-3. Sisanya, kronologis.
+Satu tanggal, `pickSpotlightDate()`: tanggal paling awal di bulan berjalan yang `>= hari ini (WIB)` dan punya
+minimal satu event dengan detail tampil (`hasDisplayableDetail`, aturan yang sama dengan titik di grid). Jadi
+hari ini bila ada agenda, selain itu agenda terdekat berikutnya. Bila agenda bulan berjalan sudah habis, tidak ada
+gelembung (tidak melompat ke bulan berikutnya, karena gelembung harus menunjuk titik yang terlihat).
 
-- Pindah otomatis setiap **3 detik** (`SPOTLIGHT_DWELL_MS = 3000`), paling banyak **6 tanggal**
-  (`SPOTLIGHT_AUTO_STOPS = 6`). Setelah singgah ke-6 selesai (atau daftar habis lebih dulu), gelembung pamit.
-- Tombol ‹ › menjangkau **semua** tanggal di daftar (bukan cuma 6). Penomoran gelembung `n/total` memakai total
-  seluruh daftar (mis. "2/11").
-- ‹ › mengikuti **urutan sorotan yang sama** (bukan urutan kalender), jadi `n/total` selalu naik saat
-  berganti otomatis. ‹ di posisi pertama dan › di posisi terakhir nonaktif (tidak berputar balik).
-- Hanya tanggal yang **punya titik di kalender** yang disinggahi. Tanggal jamaah Anda yang tidak punya event
-  kalender sama sekali (sumber `umroh_schedules` vs `calendar_events` kadang tidak sepakat) **tidak** disinggahi:
-  gelembung harus selalu menunjuk sebuah titik. Tanggal jamaah Anda hanya menaikkan prioritas tanggal yang
-  memang berjadwal.
+Tidak ada pergantian otomatis, garis waktu, maupun navigasi ‹ ›. Gelembung tetap tampil sampai ditutup.
 
 ### 4.3 Interaksi
 
 | Aksi agent | Hasil |
 |---|---|
-| Menyentuh/menahan gelembung (pointer down) atau kursor di atasnya | Garis waktu berhenti; lanjut saat dilepas/kursor keluar. |
-| Ketuk ‹ › | Pindah ke tanggal sebelum/sesudahnya. **Mode otomatis berhenti** (garis waktu disembunyikan); gelembung tetap sampai ditutup. |
-| Ketuk **Detail** atau badan gelembung | Bottom sheet tanggal itu terbuka (sama dengan mengetuk tanggalnya); gelembung pamit. |
+| Ketuk **Lihat detail** | Bottom sheet tanggal itu terbuka (sama dengan mengetuk tanggalnya); gelembung pamit. |
+| Ketuk **×** | Gelembung pamit. |
 | Ketuk tanggal mana pun di grid | Perilaku lama (buka sheet bila berjadwal); gelembung pamit. |
 | Ketuk di luar gelembung | Gelembung pamit. |
 | Bagian kalender turun ke <20% terlihat (gulir lewat) | Gelembung pamit. |
 | Ganti bulan di header kalender | Gelembung pamit. |
 | Escape | Gelembung pamit; `preventDefault()` di listener `document` supaya pintasan Escape App tidak ikut jalan. |
-| Ketuk **Sorot lagi** | Putaran otomatis baru dari awal daftar. |
+| Ketuk **Sorot lagi** | Gelembung muncul lagi di tanggal yang sama. |
 
 Gelembung yang sudah pamit tidak muncul lagi otomatis hari itu. Tombol kecil **"Sorot lagi"** muncul di baris
-legenda (kanan) bila: bulan berjalan sedang tampil, daftar tanggal sorotan tidak kosong, dan gelembung sedang
-tidak tampil. Tombol ini tidak bergantung pada gerbang harian.
+legenda (kanan) bila bulan berjalan sedang tampil, ada tanggal untuk disorot, dan gelembung sedang tidak tampil.
+Tombol ini tidak bergantung pada gerbang harian.
 
-### 4.4 Desktop (pointer halus)
+### 4.4 Desktop
 
-Pada perangkat `(hover: hover) and (pointer: fine)`: mengarahkan kursor ke tanggal berjadwal mana pun (bulan
-mana pun, termasuk tanggal lewat) menampilkan gelembung tanggal itu dalam **mode diam**: tanpa garis waktu dan
-tanpa navigasi ‹ ›, tombol Detail tetap ada. Hilang 150 ms setelah kursor meninggalkan tanggal dan gelembung.
-Bila putaran otomatis sedang jalan, hover menghentikannya dan mengambil alih.
+Tidak ada perilaku hover khusus (dibuang bersama versi bergilir).
 
 ### 4.5 Gerak
 
-| Momen | Gerak |
-|---|---|
-| Masuk | Tumbuh dari ekor: skala 0,94 → 1 + opacity 0 → 1, 220 ms ease-out. |
-| Pindah tanggal | Gelembung meluncur ke posisi baru (spring ±350 ms, tanpa pantulan); isi berganti silang 120 ms. |
-| Singgah | Garis waktu (2 px, hijau) terisi linear 3 detik. |
-| Pamit | Opacity → 0 sambil turun 4 px, 180 ms. |
-| `prefers-reduced-motion` | Tanpa skala/luncur; hanya ganti silang 120 ms. **Tidak berganti otomatis**: tampil di tanggal pertama, garis waktu disembunyikan, sisanya lewat ‹ ›. Gerbang harian tetap berlaku. |
+Durasi kontrol design system: masuk opacity 0 → 1 + skala 0,96 → 1, keluar kebalikannya, **150 ms ease-out**,
+bertumbuh dari ekor. `prefers-reduced-motion`: hanya opacity.
 
 ## 5. Isi gelembung
 
-Acuan visual: papan A2 & A3. Lebar 244 px (menyusut bila kartu lebih sempit, sisa margin 8 px kiri-kanan),
-sudut 14, latar slate-900; di mode gelap slate-950 + garis tepi slate-700. Bayangan 0/10/28 28% (gelap: 50%).
+Kulit = pola tooltip yang sudah ada di aplikasi (`src/components/AvailabilityCoachMark.tsx`): warna **dibalik**
+terhadap kartu — kartu terang → `bg-slate-900 text-white`, kartu gelap → `dark:bg-slate-50 dark:text-slate-900`;
+`rounded-xl`; ekor 12 px `rounded-[2px]` polos tanpa garis tepi; bayangan `drop-shadow` di pembungkus (bukan
+box-shadow/ring). Kulit popover putih/slate-800 (`docs/DESIGN-SYSTEM.md`, Custom Dropdown) sempat dicoba dan
+ditolak user karena menyatu dengan kartu kalender. Lebar 244 px (menyusut bila kartu lebih sempit, margin 8 px).
+Tipografi:
+- tanggal `text-[10px] font-bold uppercase tracking-wide`; lencana `text-[9px] font-bold uppercase tracking-wide`
+  solid putih-di-atas-warna (HARI INI emerald; BESOK/H-n warna jenis);
+- judul satu jenis `text-sm font-bold`, judul campuran `text-xs font-bold`; baris info `text-[10px]–[11px] font-medium`;
+- baris jamaah Anda: pil solid `bg-emerald-500`/`bg-violet-500` teks putih `text-[11px] font-semibold`;
+- kaki: tombol penuh **"Lihat detail ›"** ber-`border-t`, warna teks mewarisi teks utama gelembung;
+- tombol **×** (`aria-label="Tutup"`) di kanan baris tanggal.
+Warna yang menentukan keterbacaan hanya memakai kelas yang sudah ada di build lama (lihat §7).
 
 ### 5.1 Baris atas
 `SEN, 9 NOV` (hari 3 huruf + tanggal + bulan 3 huruf, huruf besar) + lencana:
 - `HARI INI` (selalu hijau, sama dengan lingkaran hari ini),
 - `BESOK` (H-1),
 - `H-n` untuk n ≥ 2,
-- tanggal lewat (hanya mungkin di hover desktop): tanpa lencana.
+- tanggal lewat: tanpa lencana (tidak terjadi di jalur normal).
 Warna `BESOK`/`H-n` ikut jenis event pertama di tanggal itu (urutan berangkat → pulang → manasik):
 hijau / biru / ungu.
 
@@ -172,8 +169,7 @@ Per jenis: kumpulkan nama TL unik dari `details` (`formatCalendarPrimaryPerson(d
 - Tidak ada TL sama sekali → baris dihilangkan.
 
 ### 5.6 Kaki
-`‹ 2/11 ›` (tombol 22 px; target sentuh diperbesar dengan pola `touch-hit` yang sudah ada) + `Detail ›` hijau.
-Mode diam (hover desktop) → hanya `Detail ›`.
+Tombol **Lihat detail ›** selebar gelembung (lihat §5).
 
 ## 6. Arsitektur
 
@@ -182,11 +178,11 @@ Mode diam (hover desktop) → hanya `Detail ›`.
   `displayPax`, `hasDisplayableDetail`, `parsePaket` dari `UpcomingSchedule.tsx`, supaya dipakai bersama.
   Pemanggilan di komponen tetap bernama sama (tes penjaga sumber `tests/upcoming-schedule-*.test.js`
   mencocokkan teks seperti `{displayPax(detail)}` dan `formatCalendarPrimaryPerson(detail.tour_leader)`).
-- `src/lib/calendarSpotlight.ts` (baru, murni, tanpa DOM): konstanta, `buildSpotlightDates(...)` (urutan 4.2),
-  `buildSpotlightContent(...)` (model isi 5.x), gerbang harian (6.3).
-- `src/components/calendar/CalendarSpotlight.tsx` (baru): render gelembung + timer + navigasi + penempatan.
+- `src/lib/calendarSpotlight.ts` (baru, murni, tanpa DOM): `pickSpotlightDate(...)` (4.2), `buildSpotlightMine`,
+  `buildSpotlightContent(...)` (model isi 5.x), `computeBubblePosition`, gerbang harian (6.3).
+- `src/components/calendar/CalendarSpotlight.tsx` (baru): render gelembung + penempatan + penutupan.
 - `src/components/UpcomingSchedule.tsx`: pembungkus `relative`, atribut `data-cal-day` di sel, cincin sorotan
-  di sel aktif, pemicu IntersectionObserver, tombol "Sorot lagi", hover desktop, penghubung ke sheet.
+  di sel aktif, pemicu IntersectionObserver, tombol "Sorot lagi", penghubung ke sheet.
 - `server.js`: label `FEATURE_LABELS.view_calendar_spotlight`.
 - `tests/calendar-spotlight.test.js` (baru): uji fungsi murni, di-bundle dengan esbuild seperti
   `tests/jadwal-availability-hint.test.js`.
@@ -212,15 +208,15 @@ nilainya ≠ hari ini. Akses dibungkus try/catch; bila storage melempar, pakai c
 `src/lib/availability-hint.ts`). Fungsi gerbang menerima storage sebagai argumen agar teruji tanpa DOM.
 
 ### 6.4 Analitik
-Satu event fitur: `trackEvent('feature', 'view_calendar_spotlight', { trigger: 'auto' | 'replay', stops: <total>,
-mine: <boolean> })` saat gelembung tampil di awal putaran. Ketuk Detail memakai event yang sudah ada
+Satu event fitur: `trackEvent('feature', 'view_calendar_spotlight', { trigger: 'auto' | 'replay', today: <boolean>,
+mine: <boolean> })` saat gelembung tampil. Ketuk Detail memakai event yang sudah ada
 `open_calendar_day` dengan meta tambahan `source: 'spotlight'`. Daftarkan label `view_calendar_spotlight:
 'Kalender: Sorotan Tanggal'` di `FEATURE_LABELS` (server.js). Meta tanpa PII.
 
 ### 6.5 Aksesibilitas
 - Gelembung `role="group"` dengan `aria-label` berisi tanggal; tidak merebut fokus, tidak memakai `aria-live`
   (pergantian otomatis tidak diumumkan).
-- Tombol ‹ › dan Detail dapat difokus dengan Tab dan punya `aria-label` ("Tanggal sebelumnya", dst.).
+- Tombol × (`aria-label="Tutup"`) dan Lihat detail dapat difokus dengan Tab.
 - Fokus di dalam gelembung juga menjeda garis waktu.
 
 ## 7. Batasan teknis
@@ -232,23 +228,23 @@ mine: <boolean> })` saat gelembung tampil di awal putaran. Ketuk Detail memakai 
 - Hari ini dihitung WIB untuk sorotan; grid lama tetap memakai jam lokal (tidak diubah).
 - Tidak mengubah perilaku `inert`/fokus sheet yang sudah ada; gelembung pamit sebelum sheet mana pun terbuka.
 
-## 8. Keputusan builder (dari builder check, bukan dari user)
-- ‹ › mengikuti urutan sorotan, bukan urutan kalender (4.2).
+## 8. Keputusan builder (bukan dari user)
 - Yang diamati IntersectionObserver = bagian kalender (header–legenda), bukan seluruh kartu (4.1).
-- Tanggal jamaah Anda tanpa event kalender tidak disinggahi; baris jamaah Anda hanya untuk jenis yang ada di
-  tanggal itu (4.2, 5.4).
-- Penempatan memperhitungkan viewport (6.2). Tanggal lewat di hover desktop tanpa lencana (5.1).
+- Bila agenda bulan berjalan habis, tidak ada gelembung; tidak melompat ke bulan berikutnya (4.2).
+- Gelembung tetap tampil sampai ditutup (tanpa batas waktu), karena tidak ada lagi pergantian otomatis (4.2).
+- Gerbang sekali-sehari dan tombol "Sorot lagi" dipertahankan dari versi bergilir (4.3).
+- Hover desktop dibuang: user meminta gelembung hanya di satu tanggal (4.4).
+- Baris jamaah Anda hanya untuk jenis yang ada di tanggal itu (5.4). Penempatan memperhitungkan viewport (6.2).
 - Nama TL dipotong maksimal 3 kata (sheet memakai 2) supaya gelar seperti "Ust." tidak memakan nama.
 
 ## 9. Diserahkan ke builder
 - Pembagian komponen internal dan nama state.
-- Teknik timer (motion value framer `animate()` dengan `pause()/play()` atau rAF sendiri) asal bisa dijeda.
 - Penanganan teks kepanjangan: `truncate` satu baris untuk baris info; judul boleh membungkus.
 - Detail ikon (lucide yang sudah dipakai: `PlaneTakeoff`, `PlaneLanding`, `Clock`, `User`, `IdCard`,
-  `ChevronLeft/Right`, `RotateCcw`).
+  `ChevronRight`, `X`, `RotateCcw`).
 
 ## 10. Verifikasi
-- Tes unit `tests/calendar-spotlight.test.js` (urutan, batas otomatis, isi per jenis, jamaah Anda, TL, lencana,
+- Tes unit `tests/calendar-spotlight.test.js` (tanggal yang disorot, isi per jenis, jamaah Anda, TL, lencana, posisi,
   gerbang harian dengan storage normal & melempar).
 - `npx tsc --noEmit` (bandingkan dengan baseline error lama), `npm run build`, tes penjaga
   `tests/upcoming-schedule-*.test.js` dan `tests/manasik-sessions.test.js` tetap hijau.

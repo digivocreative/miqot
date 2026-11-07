@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, IdCard, Plane, PlaneTakeoff, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, FileText, IdCard, Plane, PlaneTakeoff, RotateCcw, User, UserCheck, Users, Clock, X, MapPin } from 'lucide-react';
 import KaabaIcon from './bio/KaabaIcon';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { getAuthHeaders } from '../lib/authSession';
 import { airportTerminalLabel } from '../lib/calendarTerminal';
 import { formatCalendarMeetingPoint, formatCalendarPrimaryPerson } from '../lib/calendarPeople';
@@ -18,6 +18,14 @@ import { lockDocumentScroll } from '../lib/scrollLock';
 import { trackEvent } from '../utils/analytics';
 import { displayPax, hasDisplayableDetail, parsePaket } from '../lib/calendarEvents';
 import type { CalendarEvent, EventDetail } from '../lib/calendarEvents';
+import {
+  buildSpotlightContent,
+  buildSpotlightMine,
+  canAutoStartSpotlight,
+  markSpotlightShown,
+  pickSpotlightDate,
+} from '../lib/calendarSpotlight';
+import CalendarSpotlight from './calendar/CalendarSpotlight';
 
 const ItineraryModal = lazy(() => import('./ItineraryModal').then(module => ({ default: module.ItineraryModal })));
 
@@ -106,6 +114,9 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   const [monthErrors, setMonthErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [activeItinerary, setActiveItinerary] = useState<{ url: string; title: string; jadwalId: string | null } | null>(null);
+  // Sorotan: satu gelembung info di hari ini (atau agenda terdekat berikutnya)
+  // saat kalender terlihat. Keputusannya ada di src/lib/calendarSpotlight.ts.
+  const [spotlightDate, setSpotlightDate] = useState<string | null>(null);
   const calendarDataRef = useRef(calendarData);
   calendarDataRef.current = calendarData;
 
@@ -122,6 +133,11 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   const [showAllList, setShowAllList] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // Kartu ber-overflow-hidden (sudut membulat), jadi gelembung sorotan hidup di
+  // pembungkus ini, di luar kartu. calendarRef = header s.d. legenda saja: itu
+  // yang harus terlihat, bukan daftar Berangkat Mendatang di bawahnya.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const calendarRef = useRef<HTMLDivElement | null>(null);
   const dayCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const listCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -322,6 +338,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
 
   function prevMonth() {
     setSelectedDay(null);
+    setSpotlightDate(null);
     setCurrentMonth(prev => ({
       year: prev.month === 1 ? prev.year - 1 : prev.year,
       month: prev.month === 1 ? 12 : prev.month - 1,
@@ -330,6 +347,7 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
 
   function nextMonth() {
     setSelectedDay(null);
+    setSpotlightDate(null);
     setCurrentMonth(prev => ({
       year: prev.month === 12 ? prev.year + 1 : prev.year,
       month: prev.month === 12 ? 1 : prev.month + 1,
@@ -398,6 +416,75 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
     }
   }, [selectedDay, selectedEventsByType]);
 
+  // ── Sorotan ──
+  // Hari ini WIB (sama dengan sesi manasik), bukan jam lokal perangkat.
+  const todayKey = useMemo(() => wibTodayKey(), []);
+  const reducedMotion = !!useReducedMotion();
+  const monthPrefix = `${currentMonth.year}-${String(currentMonth.month).padStart(2, '0')}-`;
+  const spotlightMine = useMemo(
+    () => buildSpotlightMine(berangkatGroups, manasikSessions),
+    [berangkatGroups, manasikSessions],
+  );
+  const spotlightTarget = useMemo(
+    () => pickSpotlightDate({ events: monthEvents, year: currentMonth.year, month: currentMonth.month, todayKey }),
+    [monthEvents, currentMonth.year, currentMonth.month, todayKey],
+  );
+  // Tunggu data bulan DAN berangkat-mendatang: tanpa yang kedua, baris
+  // "jamaah Anda" belum bisa ditulis.
+  const spotlightReady = !!calendarData[key] && !loading && !berangkatLoading;
+  const spotlightContent = useMemo(
+    () => (spotlightDate ? buildSpotlightContent({ date: spotlightDate, events: monthEvents, todayKey, mine: spotlightMine }) : null),
+    [spotlightDate, monthEvents, todayKey, spotlightMine],
+  );
+  const spotlightDay = spotlightDate?.startsWith(monthPrefix) ? Number(spotlightDate.slice(8)) : null;
+  const [calendarRatio, setCalendarRatio] = useState(0);
+
+  const showSpotlight = useCallback((trigger: 'auto' | 'replay') => {
+    if (!spotlightTarget) return;
+    setSpotlightDate(spotlightTarget);
+    trackEvent('feature', 'view_calendar_spotlight', {
+      trigger,
+      today: spotlightTarget === todayKey,
+      mine: (spotlightMine.berangkat.get(spotlightTarget)?.count || 0) + (spotlightMine.manasik.get(spotlightTarget)?.count || 0) > 0,
+    });
+  }, [spotlightTarget, todayKey, spotlightMine]);
+
+  useEffect(() => {
+    const el = calendarRef.current;
+    if (!el || !spotlightReady || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([entry]) => setCalendarRatio(entry.intersectionRatio),
+      { threshold: [0, 0.2, 0.6] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [spotlightReady]);
+
+  // Sekali sehari per perangkat, saat bagian kalender ±60% terlihat.
+  useEffect(() => {
+    if (calendarRatio < 0.6 || !spotlightReady || spotlightDate || anySheetOpen || !spotlightTarget) return;
+    if (!canAutoStartSpotlight(todayKey)) return;
+    markSpotlightShown(todayKey);
+    showSpotlight('auto');
+  }, [calendarRatio, spotlightReady, spotlightDate, anySheetOpen, spotlightTarget, todayKey, showSpotlight]);
+
+  // Gulir lewat kalender, atau sheet mana pun terbuka → gelembung pamit.
+  useEffect(() => {
+    if (spotlightDate && (calendarRatio < 0.2 || anySheetOpen)) setSpotlightDate(null);
+  }, [spotlightDate, calendarRatio, anySheetOpen]);
+
+  const openSpotlightDetail = useCallback(() => {
+    if (spotlightDay === null) return;
+    trackEvent('feature', 'open_calendar_day', {
+      has_departure: !!eventMap[spotlightDay]?.has('keberangkatan'),
+      source: 'spotlight',
+    });
+    setSpotlightDate(null);
+    setSelectedDay(spotlightDay);
+  }, [spotlightDay, eventMap]);
+
+  const canReplaySpotlight = spotlightReady && !spotlightDate && !!spotlightTarget;
+
   // Loading skeleton
   if (loading && monthEvents.length === 0) {
     return (
@@ -429,7 +516,9 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
   return (
     <>
       {/* ── Calendar Card (fixed size) ── */}
+      <div ref={wrapperRef} className="relative">
       <div ref={cardRef} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div ref={calendarRef}>
         {/* Header */}
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -463,10 +552,12 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
             const hasEvent = types && types.size > 0;
             const today = isToday(day);
             const selected = selectedDay === day;
+            const spotlit = spotlightDay === day;
 
             return (
               <button
                 key={day}
+                data-cal-day={day}
                 onClick={() => {
                   if (!hasEvent) return;
                   if (!selected) trackEvent('feature', 'open_calendar_day', { has_departure: types.has('keberangkatan') });
@@ -475,7 +566,15 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
                 className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''} ${hasEvent ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/30' : 'cursor-default'}`}
               >
                 {today ? (
-                  <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold">{day}</div>
+                  <div
+                    className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-semibold"
+                    style={spotlit ? { boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.35)' } : undefined}
+                  >{day}</div>
+                ) : spotlit ? (
+                  <div
+                    className="w-6 h-6 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-semibold"
+                    style={{ boxShadow: '0 0 0 2px #10b981' }}
+                  >{day}</div>
                 ) : (
                   <span className={`text-xs font-semibold leading-6 ${selected ? 'text-emerald-600 dark:text-emerald-400' : hasEvent ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500'}`}>{day}</span>
                 )}
@@ -508,13 +607,24 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
         )}
 
         {/* Legend */}
-        <div className="px-4 py-2 border-t border-gray-50 dark:border-slate-700/50 flex gap-3">
+        <div className="px-4 py-2 border-t border-gray-50 dark:border-slate-700/50 flex items-center gap-3">
           {TAB_ORDER.map(t => (
             <div key={t} className="flex items-center gap-1">
               <div className={`w-1.5 h-1.5 rounded-full ${TAB_CONFIG[t].dotColor}`} />
               <span className="text-[8px] font-semibold text-gray-400 dark:text-slate-500 uppercase">{TAB_CONFIG[t].label}</span>
             </div>
           ))}
+          {canReplaySpotlight && (
+            <button
+              type="button"
+              onClick={() => showSpotlight('replay')}
+              className="relative touch-hit ml-auto flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600 transition-colors hover:bg-emerald-100 active:scale-95 dark:bg-emerald-900/20 dark:text-emerald-400"
+            >
+              <RotateCcw size={10} strokeWidth={2.5} />
+              Sorot lagi
+            </button>
+          )}
+        </div>
         </div>
 
         {/* ── Berangkat Mendatang (jendela tetap 60 hari; bukan turunan bulan aktif) ── */}
@@ -583,6 +693,20 @@ export default function UpcomingSchedule({ agentSlug }: { agentSlug?: string | n
             )}
           </>
         ) : null}
+      </div>
+
+      <AnimatePresence>
+        {spotlightContent && (
+          <CalendarSpotlight
+            key="calendar-spotlight"
+            wrapperRef={wrapperRef}
+            content={spotlightContent}
+            reducedMotion={reducedMotion}
+            onOpenDetail={openSpotlightDetail}
+            onDismiss={() => setSpotlightDate(null)}
+          />
+        )}
+      </AnimatePresence>
       </div>
 
       {/* ── Bottom Sheet ── */}

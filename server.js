@@ -19211,6 +19211,7 @@ const FEATURE_LABELS = {
   // Audit tracking 2026-10
   open_dashboard: 'Beranda Dashboard', open_from_telegram: 'Buka dari Notif Telegram',
   open_calendar_day: 'Kalender: Detail Tanggal', open_berangkat_detail: 'Detail Keberangkatan/Manasik',
+  view_calendar_spotlight: 'Kalender: Sorotan Tanggal',
   open_portal_invite_teaser: 'Minat Portal Jamaah (Segera Hadir)',
   open_haji_plus_statistik: 'Haji Plus: Statistik', open_brosur_paket: 'Brosur Paket',
   open_sticker_studio: 'Studio Sticker', open_caption_ai: 'Caption AI',

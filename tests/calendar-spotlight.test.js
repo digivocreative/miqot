@@ -64,11 +64,6 @@ function novemberEvents() {
   return events;
 }
 
-function mineFrom({ berangkat = {}, manasik = {} } = {}) {
-  const toMap = obj => new Map(Object.entries(obj).map(([d, count]) => [`2026-11-${String(d).padStart(2, '0')}`, { count, jadwalIds: [] }]));
-  return { berangkat: toMap(berangkat), manasik: toMap(manasik) };
-}
-
 function memoryStorage() {
   const data = new Map();
   return { getItem: k => (data.has(k) ? data.get(k) : null), setItem: (k, v) => data.set(k, String(v)) };
@@ -79,38 +74,27 @@ const throwingStorage = {
   setItem() { throw new Error('SecurityError'); },
 };
 
-// ── Urutan tanggal ──
+// ── Tanggal yang disorot ──
+// Revisi user 2026-11-07: tidak bergilir. Satu gelembung saja, di hari ini bila
+// ada agenda; bila tidak, di tanggal berjadwal terdekat berikutnya.
 
-test('buildSpotlightDates: hari ini, lalu tanggal jamaah Anda, lalu sisanya; tanggal lewat & kosong dilewati', () => {
-  const dates = S.buildSpotlightDates({
-    events: novemberEvents(), year: 2026, month: 11, todayKey: TODAY,
-    mine: mineFrom({ berangkat: { 9: 3, 14: 4, 21: 5 }, manasik: { 7: 4, 14: 5 } }),
-  });
-  assert.deepEqual(dates, [
-    '2026-11-07', '2026-11-09', '2026-11-14', '2026-11-21',
-    '2026-11-12', '2026-11-16', '2026-11-18', '2026-11-23', '2026-11-25', '2026-11-28', '2026-11-30',
-  ]);
+test('pickSpotlightDate: hari ini bila ada agenda', () => {
+  assert.equal(S.pickSpotlightDate({ events: novemberEvents(), year: 2026, month: 11, todayKey: TODAY }), '2026-11-07');
 });
 
-test('buildSpotlightDates: jamaah Anda di tanggal tanpa event kalender tidak menambah tanggal', () => {
-  const dates = S.buildSpotlightDates({
-    events: novemberEvents(), year: 2026, month: 11, todayKey: TODAY,
-    mine: mineFrom({ berangkat: { 19: 2 } }),
-  });
-  assert.equal(dates.includes('2026-11-19'), false);
-  assert.equal(dates.length, 11);
+test('pickSpotlightDate: hari ini kosong → tanggal berjadwal terdekat berikutnya', () => {
+  assert.equal(S.pickSpotlightDate({ events: novemberEvents(), year: 2026, month: 11, todayKey: '2026-11-08' }), '2026-11-09');
 });
 
-test('buildSpotlightDates: kosong bila bulan tampil bukan bulan berjalan WIB', () => {
-  const args = { events: novemberEvents(), mine: mineFrom() };
-  assert.deepEqual(S.buildSpotlightDates({ ...args, year: 2026, month: 12, todayKey: TODAY }), []);
-  assert.deepEqual(S.buildSpotlightDates({ ...args, year: 2026, month: 11, todayKey: '2026-12-01' }), []);
+test('pickSpotlightDate: placeholder kosong dari sync legacy dilewati', () => {
+  assert.equal(S.pickSpotlightDate({ events: novemberEvents(), year: 2026, month: 11, todayKey: '2026-11-19' }), '2026-11-21');
 });
 
-test('buildSpotlightDates: kosong bila semua jadwal bulan ini sudah lewat', () => {
-  const dates = S.buildSpotlightDates({ events: novemberEvents(), mine: mineFrom(), year: 2026, month: 11, todayKey: '2026-11-30' });
-  assert.deepEqual(dates, ['2026-11-30']);
-  assert.deepEqual(S.buildSpotlightDates({ events: novemberEvents().filter(e => e.date < '2026-11-30'), mine: mineFrom(), year: 2026, month: 11, todayKey: '2026-11-30' }), []);
+test('pickSpotlightDate: null bila bulan tampil bukan bulan berjalan atau agenda bulan ini habis', () => {
+  const events = novemberEvents();
+  assert.equal(S.pickSpotlightDate({ events, year: 2026, month: 12, todayKey: TODAY }), null);
+  assert.equal(S.pickSpotlightDate({ events, year: 2026, month: 11, todayKey: '2026-12-01' }), null);
+  assert.equal(S.pickSpotlightDate({ events: events.filter(e => e.date < '2026-11-30'), year: 2026, month: 11, todayKey: '2026-11-30' }), null);
 });
 
 test('buildSpotlightMine: kelompokkan jumlah jamaah agent per tanggal berangkat & manasik', () => {
@@ -144,56 +128,6 @@ test('gerbang harian: storage yang melempar jatuh ke cadangan memori, bukan tamp
   S.markSpotlightShown('2031-01-01', throwingStorage);
   assert.equal(S.canAutoStartSpotlight('2031-01-01', throwingStorage), false);
   assert.equal(S.canAutoStartSpotlight('2031-01-02', throwingStorage), true);
-});
-
-// ── Mesin status ──
-
-const ELEVEN = Array.from({ length: 11 }, (_, i) => `2026-11-${String(i + 7).padStart(2, '0')}`);
-
-test('reducer: start memulai mode auto; gerak dikurangi langsung manual; daftar kosong = null', () => {
-  assert.equal(S.SPOTLIGHT_AUTO_STOPS, 6);
-  assert.equal(S.SPOTLIGHT_DWELL_MS, 3000);
-  const auto = S.spotlightReducer(null, { type: 'start', dates: ELEVEN, trigger: 'auto', reducedMotion: false });
-  assert.deepEqual(auto, { mode: 'auto', dates: ELEVEN, index: 0, shown: 1, trigger: 'auto' });
-  const reduced = S.spotlightReducer(null, { type: 'start', dates: ELEVEN, trigger: 'replay', reducedMotion: true });
-  assert.equal(reduced.mode, 'manual');
-  assert.equal(reduced.trigger, 'replay');
-  assert.equal(S.spotlightReducer(null, { type: 'start', dates: [], trigger: 'auto', reducedMotion: false }), null);
-});
-
-test('reducer: advance berhenti setelah 6 singgah', () => {
-  let s = S.spotlightReducer(null, { type: 'start', dates: ELEVEN, trigger: 'auto', reducedMotion: false });
-  for (let i = 0; i < 5; i++) s = S.spotlightReducer(s, { type: 'advance' });
-  assert.equal(s.index, 5);
-  assert.equal(s.shown, 6);
-  assert.equal(S.spotlightReducer(s, { type: 'advance' }), null);
-});
-
-test('reducer: advance berhenti di akhir daftar yang lebih pendek dari 6', () => {
-  let s = S.spotlightReducer(null, { type: 'start', dates: ELEVEN.slice(0, 2), trigger: 'auto', reducedMotion: false });
-  s = S.spotlightReducer(s, { type: 'advance' });
-  assert.equal(s.index, 1);
-  assert.equal(S.spotlightReducer(s, { type: 'advance' }), null);
-});
-
-test('reducer: ‹ › memindah manual, mematikan mode auto, dan tidak melewati ujung', () => {
-  const start = S.spotlightReducer(null, { type: 'start', dates: ELEVEN, trigger: 'auto', reducedMotion: false });
-  assert.equal(S.spotlightReducer(start, { type: 'go', delta: -1 }), start);
-  const next = S.spotlightReducer(start, { type: 'go', delta: 1 });
-  assert.equal(next.mode, 'manual');
-  assert.equal(next.index, 1);
-  assert.equal(S.spotlightReducer(next, { type: 'advance' }), next);
-  const last = { ...next, index: 10 };
-  assert.equal(S.spotlightReducer(last, { type: 'go', delta: 1 }), last);
-});
-
-test('reducer: hover desktop menggantikan putaran; hoverEnd hanya menutup mode hover', () => {
-  const start = S.spotlightReducer(null, { type: 'start', dates: ELEVEN, trigger: 'auto', reducedMotion: false });
-  const hover = S.spotlightReducer(start, { type: 'hover', date: '2026-11-03' });
-  assert.deepEqual(hover, { mode: 'hover', dates: ['2026-11-03'], index: 0, shown: 0, trigger: 'hover' });
-  assert.equal(S.spotlightReducer(hover, { type: 'hoverEnd' }), null);
-  assert.equal(S.spotlightReducer(start, { type: 'hoverEnd' }), start);
-  assert.equal(S.spotlightReducer(start, { type: 'dismiss' }), null);
 });
 
 // ── Posisi ──

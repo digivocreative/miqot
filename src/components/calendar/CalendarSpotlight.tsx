@@ -1,23 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { animate, motion, useMotionValue, type AnimationPlaybackControls } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Clock, IdCard, PlaneLanding, PlaneTakeoff, User } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ChevronRight, Clock, IdCard, PlaneLanding, PlaneTakeoff, User, X } from 'lucide-react';
 import KaabaIcon from '../bio/KaabaIcon';
-import {
-  computeBubblePosition,
-  SPOTLIGHT_DWELL_MS,
-  type SpotlightContent,
-  type SpotlightIcon,
-  type SpotlightState,
-} from '../../lib/calendarSpotlight';
+import { computeBubblePosition, type SpotlightContent, type SpotlightIcon } from '../../lib/calendarSpotlight';
 import type { CalendarEventType } from '../../lib/calendarEvents';
 
-// Gelembung sorotan bergilir di kartu kalender. Keputusannya (urutan, isi,
-// posisi) sudah dihitung di src/lib/calendarSpotlight.ts; komponen ini hanya
-// merender, menjalankan garis waktu, dan menutup diri saat agent ke tempat lain.
+// Gelembung sorotan di kartu kalender: satu tanggal (hari ini, atau agenda
+// terdekat berikutnya). Keputusan isi & posisi ada di
+// src/lib/calendarSpotlight.ts; komponen ini merender dan menutup diri saat
+// agent ke tempat lain.
 //
-// Posisi, lebar, dan warna tint ditulis inline: service worker bisa masih
-// memegang CSS build lama yang belum kenal kelas Tailwind baru (lihat
-// spec §7), dan properti inilah yang menentukan gelembung terlihat atau tidak.
+// Kulitnya mengikuti tooltip yang sudah ada di aplikasi (AvailabilityCoachMark):
+// warna DIBALIK terhadap kartu — kartu terang → gelembung slate-900, kartu
+// gelap → gelembung slate-50 — supaya tidak menyatu dengan latar kalender.
+// Ekor & badan polos; bayangannya drop-shadow di pembungkus.
+//
+// Posisi & lebar ditulis inline, dan warna yang menentukan keterbacaan hanya
+// memakai kelas yang sudah ada di build lama (service worker bisa masih
+// memegang CSS lama): teks utama mewarisi text-white/dark:text-slate-900, baris
+// jamaah Anda berupa pil solid ber-teks putih.
 
 const DOT: Record<CalendarEventType, string> = {
   keberangkatan: 'bg-emerald-500',
@@ -26,9 +27,9 @@ const DOT: Record<CalendarEventType, string> = {
 };
 
 const ICON_TONE: Record<CalendarEventType, string> = {
-  keberangkatan: 'text-emerald-400',
-  kepulangan: 'text-blue-400',
-  manasik: 'text-violet-400',
+  keberangkatan: 'text-emerald-400 dark:text-emerald-600',
+  kepulangan: 'text-blue-400 dark:text-blue-600',
+  manasik: 'text-violet-400 dark:text-violet-600',
 };
 
 const BADGE_TONE: Record<'today' | CalendarEventType, string> = {
@@ -39,8 +40,8 @@ const BADGE_TONE: Record<'today' | CalendarEventType, string> = {
 };
 
 const MINE_TONE = {
-  keberangkatan: { tint: 'rgba(16, 185, 129, 0.15)', text: 'text-emerald-300' },
-  manasik: { tint: 'rgba(139, 92, 246, 0.2)', text: 'text-violet-300' },
+  keberangkatan: 'bg-emerald-500',
+  manasik: 'bg-violet-500',
 } as const;
 
 function LineIcon({ icon, type }: { icon: SpotlightIcon; type: CalendarEventType }) {
@@ -65,54 +66,28 @@ interface Position {
 
 interface CalendarSpotlightProps {
   wrapperRef: RefObject<HTMLDivElement | null>;
-  state: SpotlightState;
   content: SpotlightContent;
   reducedMotion: boolean;
-  onAdvance(): void;
-  onGo(delta: -1 | 1): void;
   onOpenDetail(): void;
   onDismiss(): void;
-  onPointerEnter?(): void;
-  onPointerLeave?(): void;
 }
 
-export default function CalendarSpotlight({
-  wrapperRef,
-  state,
-  content,
-  reducedMotion,
-  onAdvance,
-  onGo,
-  onOpenDetail,
-  onDismiss,
-  onPointerEnter,
-  onPointerLeave,
-}: CalendarSpotlightProps) {
+export default function CalendarSpotlight({ wrapperRef, content, reducedMotion, onOpenDetail, onDismiss }: CalendarSpotlightProps) {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<Position | null>(null);
-  const left = useMotionValue(0);
-  const top = useMotionValue(0);
-  const placedRef = useRef(false);
-  const progress = useMotionValue(0);
-  const [held, setHeld] = useState(false);
-  const timerRef = useRef<AnimationPlaybackControls | null>(null);
-
-  const callbacks = useRef({ onAdvance, onDismiss });
-  callbacks.current = { onAdvance, onDismiss };
-
-  const running = state.mode === 'auto' && !reducedMotion;
-  const total = state.dates.length;
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   // ── Posisi ──
-  // Diukur sebelum dicat (useLayoutEffect), lalu diulang saat tanggal
-  // berganti, kartu berubah ukuran, atau jendela digulir/diubah ukurannya.
+  // Diukur sebelum dicat, lalu diulang saat kartu berubah ukuran atau jendela
+  // digulir (ruang terlihat menentukan gelembung di bawah atau di atas tanggal).
   useLayoutEffect(() => {
     const wrapper = wrapperRef.current;
     const bubble = bubbleRef.current;
     if (!wrapper || !bubble) return;
 
     let frame = 0;
-    const place = (glide: boolean) => {
+    const place = () => {
       const cell = wrapper.querySelector<HTMLElement>(`[data-cal-day="${content.day}"]`);
       if (!cell) return;
       const w = wrapper.getBoundingClientRect();
@@ -127,21 +102,13 @@ export default function CalendarSpotlight({
       });
       setPos(prev => (prev && prev.left === next.left && prev.top === next.top && prev.width === next.width
         && prev.arrowLeft === next.arrowLeft && prev.placement === next.placement ? prev : next));
-      if (!placedRef.current || !glide || reducedMotion) {
-        left.set(next.left);
-        top.set(next.top);
-        placedRef.current = true;
-      } else {
-        animate(left, next.left, { type: 'spring', stiffness: 420, damping: 40 });
-        animate(top, next.top, { type: 'spring', stiffness: 420, damping: 40 });
-      }
     };
     const schedule = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => place(false));
+      frame = requestAnimationFrame(place);
     };
 
-    place(true);
+    place();
     const ro = new ResizeObserver(schedule);
     ro.observe(wrapper);
     ro.observe(bubble);
@@ -153,36 +120,13 @@ export default function CalendarSpotlight({
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };
-  }, [content.date, content.day, wrapperRef, reducedMotion, left, top]);
-
-  // ── Garis waktu ──
-  useEffect(() => {
-    if (!running) return;
-    progress.set(0);
-    const controls = animate(progress, 1, {
-      duration: SPOTLIGHT_DWELL_MS / 1000,
-      ease: 'linear',
-      onComplete: () => callbacks.current.onAdvance(),
-    });
-    timerRef.current = controls;
-    return () => {
-      controls.stop();
-      timerRef.current = null;
-    };
-  }, [running, content.date, progress]);
-
-  useEffect(() => {
-    const controls = timerRef.current;
-    if (!controls) return;
-    if (held) controls.pause();
-    else controls.play();
-  }, [held, content.date, running]);
+  }, [content.day, wrapperRef]);
 
   // ── Tutup saat agent ke tempat lain ──
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (bubbleRef.current?.contains(event.target as Node)) return;
-      callbacks.current.onDismiss();
+      onDismissRef.current();
     };
     // Listener document + preventDefault: pintasan Escape App (listener
     // window) melewati event yang sudah defaultPrevented, jadi satu Escape
@@ -190,7 +134,7 @@ export default function CalendarSpotlight({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
-      callbacks.current.onDismiss();
+      onDismissRef.current();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown);
@@ -208,58 +152,58 @@ export default function CalendarSpotlight({
     <motion.div
       ref={bubbleRef}
       role="group"
-      aria-label={`Sorotan ${content.dayLabel}`}
-      className="absolute cursor-pointer"
+      aria-label={`Agenda ${content.dayLabel}`}
+      className="absolute drop-shadow-[0_6px_12px_rgba(15,23,42,0.22)] dark:drop-shadow-[0_6px_14px_rgba(0,0,0,0.55)]"
       style={{
-        left,
-        top,
+        left: pos?.left ?? 0,
+        top: pos?.top ?? 0,
         width: pos?.width ?? 244,
         zIndex: 30,
         visibility: pos ? 'visible' : 'hidden',
         transformOrigin: `${arrowLeft}px ${below ? '0%' : '100%'}`,
       }}
-      initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94 }}
+      initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, y: reducedMotion ? 0 : 4, transition: { duration: 0.18 } }}
-      transition={{ duration: reducedMotion ? 0.12 : 0.22, ease: 'easeOut' }}
-      onClick={onOpenDetail}
-      onPointerEnter={() => { setHeld(true); onPointerEnter?.(); }}
-      onPointerLeave={() => { setHeld(false); onPointerLeave?.(); }}
-      onFocus={() => setHeld(true)}
-      onBlur={event => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeld(false);
-      }}
+      exit={{ opacity: 0, scale: reducedMotion ? 1 : 0.96 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
     >
-      <div
-        className="overflow-hidden border border-slate-900 bg-slate-900 text-white dark:border-slate-700 dark:bg-slate-950"
-        style={{ borderRadius: 14, boxShadow: '0 10px 28px rgba(15, 23, 42, 0.32)' }}
-      >
-        {running && (
-          <div className="bg-slate-800" style={{ height: 2 }}>
-            <motion.div className="h-full bg-emerald-400" style={{ scaleX: progress, transformOrigin: '0% 50%' }} />
-          </div>
-        )}
-        <motion.div
-          key={content.date}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.12 }}
-          className="space-y-2 px-3 pb-3 pt-2.5"
-        >
+      {/* Ekor di belakang badan, polos tanpa garis tepi: menyatu dengan badan. */}
+      <span
+        aria-hidden="true"
+        className="absolute rounded-[2px] bg-slate-900 dark:bg-slate-50"
+        style={{
+          left: arrowLeft,
+          marginLeft: -6,
+          width: 12,
+          height: 12,
+          transform: 'rotate(45deg)',
+          ...(below ? { top: -5 } : { bottom: -5 }),
+        }}
+      />
+      <div className="relative overflow-hidden rounded-xl bg-slate-900 text-white dark:bg-slate-50 dark:text-slate-900">
+        <div className="space-y-2 px-3 pb-2 pt-2.5">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold tracking-wide text-slate-200">{content.dayLabel}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-300 dark:text-slate-600">{content.dayLabel}</span>
             {content.badge && (
-              <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-extrabold text-white ${BADGE_TONE[content.badge.tone]}`}>
+              <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white ${BADGE_TONE[content.badge.tone]}`}>
                 {content.badge.text}
               </span>
             )}
+            <button
+              type="button"
+              aria-label="Tutup"
+              onClick={onDismiss}
+              className="relative touch-hit ml-auto -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-white dark:text-slate-500 dark:hover:bg-black/10 dark:hover:text-slate-900"
+            >
+              <X size={14} />
+            </button>
           </div>
 
           {single ? (
-            <div className="space-y-1.5">
-              <p className="text-base font-bold leading-tight text-white">{content.sections[0].title}</p>
+            <div className="space-y-1">
+              <p className="text-sm font-bold leading-snug">{content.sections[0].title}</p>
               {content.sections[0].lines.map(line => (
-                <div key={line.text} className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400">
+                <div key={line.text} className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-slate-400 dark:text-slate-500">
                   {line.icon && <LineIcon icon={line.icon} type={content.sections[0].type} />}
                   <span className="truncate">{line.text}</span>
                 </div>
@@ -270,9 +214,9 @@ export default function CalendarSpotlight({
               <div key={section.type} className="flex gap-2">
                 <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${DOT[section.type]}`} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-bold leading-tight text-white">{section.title}</p>
+                  <p className="text-xs font-bold leading-snug">{section.title}</p>
                   {section.lines.map(line => (
-                    <p key={line.text} className="mt-0.5 truncate text-[10px] text-slate-400">{line.text}</p>
+                    <p key={line.text} className="mt-0.5 truncate text-[10px] font-medium text-slate-400 dark:text-slate-500">{line.text}</p>
                   ))}
                 </div>
               </div>
@@ -280,63 +224,22 @@ export default function CalendarSpotlight({
           )}
 
           {content.mine.length > 0 && (
-            <div className="space-y-0.5 rounded-xl px-2.5 py-1.5" style={{ backgroundColor: MINE_TONE[content.mine[0].type].tint }}>
+            <div className="space-y-1">
               {content.mine.map(line => (
-                <p key={line.type} className={`text-[11px] font-semibold leading-snug ${MINE_TONE[line.type].text}`}>{line.text}</p>
+                <p key={line.type} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-white ${MINE_TONE[line.type]}`}>{line.text}</p>
               ))}
             </div>
           )}
+        </div>
 
-          <div className="flex items-center justify-between pt-0.5">
-            {state.mode !== 'hover' ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  aria-label="Tanggal sebelumnya"
-                  disabled={state.index === 0}
-                  onClick={event => { event.stopPropagation(); onGo(-1); }}
-                  className="touch-hit relative flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-30"
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                <span className="text-[10px] font-bold tabular-nums text-slate-200">{state.index + 1}/{total}</span>
-                <button
-                  type="button"
-                  aria-label="Tanggal berikutnya"
-                  disabled={state.index >= total - 1}
-                  onClick={event => { event.stopPropagation(); onGo(1); }}
-                  className="touch-hit relative flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-30"
-                >
-                  <ChevronRight size={12} />
-                </button>
-              </div>
-            ) : <span />}
-            <button
-              type="button"
-              onClick={event => { event.stopPropagation(); onOpenDetail(); }}
-              className="flex items-center gap-0.5 text-[10px] font-bold text-emerald-300"
-            >
-              Detail <ChevronRight size={12} />
-            </button>
-          </div>
-        </motion.div>
+        <button
+          type="button"
+          onClick={onOpenDetail}
+          className="flex w-full items-center justify-center gap-1 border-t border-white/10 py-2 text-[11px] font-semibold transition-colors hover:bg-white/10 dark:border-slate-200 dark:hover:bg-black/10"
+        >
+          Lihat detail <ChevronRight size={12} />
+        </button>
       </div>
-
-      {/* Ekor di atas kotak supaya menutup garis tepinya di pangkal ekor. */}
-      <span
-        aria-hidden="true"
-        className="absolute border-slate-900 bg-slate-900 dark:border-slate-700 dark:bg-slate-950"
-        style={{
-          left: arrowLeft - 6,
-          width: 12,
-          height: 12,
-          transform: 'rotate(45deg)',
-          borderStyle: 'solid',
-          ...(below
-            ? { top: -6, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 0, borderBottomWidth: 0 }
-            : { bottom: -6, borderBottomWidth: 1, borderRightWidth: 1, borderTopWidth: 0, borderLeftWidth: 0 }),
-        }}
-      />
     </motion.div>
   );
 }

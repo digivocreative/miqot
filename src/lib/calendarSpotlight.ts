@@ -1,8 +1,9 @@
 /**
- * Sorotan bergilir di kartu kalender Dashboard: gelembung yang singgah dari
- * tanggal ke tanggal saat kalender terlihat. Semua keputusannya murni di sini
- * (urutan tanggal, isi gelembung, mesin status, posisi, gerbang harian) supaya
- * bisa diuji tanpa DOM — lihat tests/calendar-spotlight.test.js.
+ * Sorotan di kartu kalender Dashboard: satu gelembung info yang muncul saat
+ * kalender terlihat — di hari ini bila ada agenda, kalau tidak di tanggal
+ * berjadwal terdekat berikutnya. Semua keputusannya murni di sini (tanggal,
+ * isi gelembung, posisi, gerbang harian) supaya bisa diuji tanpa DOM — lihat
+ * tests/calendar-spotlight.test.js.
  *
  * Spec: docs/superpowers/specs/2026-11-07-kalender-sorotan-bergilir-design.md
  */
@@ -16,8 +17,6 @@ import type { CalendarEvent, CalendarEventType, EventDetail } from './calendarEv
 import { formatCalendarPrimaryPerson } from './calendarPeople';
 import { formatTerminal } from './calendarTerminal';
 
-export const SPOTLIGHT_DWELL_MS = 3000;
-export const SPOTLIGHT_AUTO_STOPS = 6;
 export const SPOTLIGHT_GATE_KEY = 'calendar-spotlight-v1';
 
 // ── Jamaah milik agent per tanggal ──
@@ -50,7 +49,7 @@ export function buildSpotlightMine(groups: readonly MineGroup[], sessions: reado
   return mine;
 }
 
-// ── Urutan tanggal ──
+// ── Tanggal yang disorot ──
 
 /** Jenis event yang punya detail tampil per tanggal — sama dengan titik di grid. */
 export function displayableTypesByDate(events: readonly CalendarEvent[]): Map<string, Set<CalendarEventType>> {
@@ -65,33 +64,23 @@ export function displayableTypesByDate(events: readonly CalendarEvent[]): Map<st
 }
 
 /**
- * Baris "jamaah Anda" hanya ditulis untuk jenis yang memang ada di tanggal itu,
- * jadi prioritas tanggal pun mengikuti aturan yang sama.
+ * Hari ini bila ada agenda; kalau tidak, tanggal berjadwal terdekat sesudahnya
+ * di bulan yang sedang tampil. Null bila bulan tampil bukan bulan berjalan
+ * (WIB) atau agendanya sudah habis — gelembung harus menunjuk titik yang
+ * terlihat, jadi tidak melompat ke bulan berikutnya.
  */
-export function hasMineOn(date: string, types: ReadonlySet<CalendarEventType> | undefined, mine: SpotlightMine): boolean {
-  if (!types) return false;
-  return (types.has('keberangkatan') && (mine.berangkat.get(date)?.count || 0) > 0)
-    || (types.has('manasik') && (mine.manasik.get(date)?.count || 0) > 0);
-}
-
-export function buildSpotlightDates(a: {
+export function pickSpotlightDate(a: {
   events: readonly CalendarEvent[];
   year: number;
   month: number;
   todayKey: string;
-  mine: SpotlightMine;
-}): string[] {
+}): string | null {
   const monthPrefix = `${a.year}-${String(a.month).padStart(2, '0')}-`;
-  if (!a.todayKey.startsWith(monthPrefix)) return [];
-  const byDate = displayableTypesByDate(a.events);
-  const upcoming = [...byDate.keys()]
+  if (!a.todayKey.startsWith(monthPrefix)) return null;
+  const upcoming = [...displayableTypesByDate(a.events).keys()]
     .filter(d => d.startsWith(monthPrefix) && d >= a.todayKey)
     .sort();
-  const today = upcoming.filter(d => d === a.todayKey);
-  const rest = upcoming.filter(d => d !== a.todayKey);
-  const mineDates = rest.filter(d => hasMineOn(d, byDate.get(d), a.mine));
-  const others = rest.filter(d => !mineDates.includes(d));
-  return [...today, ...mineDates, ...others];
+  return upcoming[0] ?? null;
 }
 
 // ── Gerbang harian ──
@@ -136,53 +125,6 @@ export function markSpotlightShown(todayKey: string, storage?: SpotlightStorage 
     s.setItem(SPOTLIGHT_GATE_KEY, todayKey);
   } catch {
     // Cadangan memori di atas sudah mencatatnya.
-  }
-}
-
-// ── Mesin status ──
-
-export type SpotlightMode = 'auto' | 'manual' | 'hover';
-
-export interface SpotlightState {
-  mode: SpotlightMode;
-  dates: string[];
-  index: number;
-  /** Jumlah tanggal yang sudah disinggahi dalam mode auto. */
-  shown: number;
-  trigger: 'auto' | 'replay' | 'hover';
-}
-
-export type SpotlightAction =
-  | { type: 'start'; dates: string[]; trigger: 'auto' | 'replay'; reducedMotion: boolean }
-  | { type: 'advance' }
-  | { type: 'go'; delta: -1 | 1 }
-  | { type: 'hover'; date: string }
-  | { type: 'hoverEnd' }
-  | { type: 'dismiss' };
-
-export function spotlightReducer(state: SpotlightState | null, action: SpotlightAction): SpotlightState | null {
-  switch (action.type) {
-    case 'start':
-      if (action.dates.length === 0) return null;
-      return { mode: action.reducedMotion ? 'manual' : 'auto', dates: action.dates, index: 0, shown: 1, trigger: action.trigger };
-    case 'advance':
-      if (!state || state.mode !== 'auto') return state;
-      if (state.shown >= SPOTLIGHT_AUTO_STOPS || state.index >= state.dates.length - 1) return null;
-      return { ...state, index: state.index + 1, shown: state.shown + 1 };
-    case 'go': {
-      if (!state || state.mode === 'hover') return state;
-      const index = state.index + action.delta;
-      if (index < 0 || index >= state.dates.length) return state;
-      return { ...state, mode: 'manual', index };
-    }
-    case 'hover':
-      return { mode: 'hover', dates: [action.date], index: 0, shown: 0, trigger: 'hover' };
-    case 'hoverEnd':
-      return state?.mode === 'hover' ? null : state;
-    case 'dismiss':
-      return null;
-    default:
-      return state;
   }
 }
 
