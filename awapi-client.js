@@ -26,6 +26,7 @@
  */
 
 import { createUpstreamFetch, networkErrorCode } from './lib/upstream-fetch.js';
+import { parseDokumenText } from './lib/jamaah-kelengkapan.js';
 import {
   PAYMENT_SOURCE_AWAPI,
   isAwapiPaymentSource,
@@ -378,12 +379,14 @@ function hasReadyDocument(v) {
 }
 
 function normalizeUmrohDokumen(raw) {
+  // AIW kini mengirim `dokumen` sebagai teks ("fc paspor, fc ktp"); objek centang
+  // hanya datang dari jalur lama. Lihat lib/jamaah-kelengkapan.js.
   const dokumen = raw?.dokumen && typeof raw.dokumen === 'object' && !Array.isArray(raw.dokumen)
     ? { ...raw.dokumen }
-    : {};
+    : (parseDokumenText(raw?.dokumen) || {});
 
   if (Object.hasOwn(raw || {}, 'dokumen_pernyataan')) {
-    dokumen.pernyataan = hasReadyDocument(raw.dokumen_pernyataan);
+    dokumen.pernyataan = dokumen.pernyataan === true || hasReadyDocument(raw.dokumen_pernyataan);
   }
 
   return Object.keys(dokumen).length > 0 ? dokumen : null;

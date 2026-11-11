@@ -2353,7 +2353,8 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                               </div>
                             )}
                             {/* Warnings (passport-related, below perlengkapan if applicable) */}
-                            {!item.no_paspor && !pendingEnrichment && item.tgl_berangkat && (() => {
+                            {/* AIW tak lagi mengirim nomor paspor; centang dokumen ('fc paspor') ikut dihitung. */}
+                            {!item.no_paspor && item.dokumen?.paspor !== true && !pendingEnrichment && item.tgl_berangkat && (() => {
                               const dep = new Date(item.tgl_berangkat);
                               const now = new Date();
                               const monthsUntil = (dep.getFullYear() - now.getFullYear()) * 12 + dep.getMonth() - now.getMonth();
@@ -2366,7 +2367,7 @@ export default function JamaahPage({ agentSlug, jamaahConnected, jamaahUser, ini
                               }
                               return null;
                             })()}
-                            {item.no_paspor && item.paspor_expired && item.tgl_berangkat && (() => {
+                            {(item.no_paspor || item.dokumen?.paspor === true) && item.paspor_expired && item.tgl_berangkat && (() => {
                               const exp = new Date(item.paspor_expired);
                               const dep = new Date(item.tgl_berangkat);
                               const sixMonthsBefore = new Date(dep);

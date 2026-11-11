@@ -36,6 +36,7 @@ import {
 } from './lib/jamaah-count-audit.js';
 import { getActiveHijriahYears, getFrozenHijriahYears, getHijriahYearFromGregorian } from './lib/hijriah-years.js';
 import { fetchAllRows } from './lib/fetch-all-rows.js';
+import { isPasporCollected, isPerlengkapanIncomplete, missingPerlengkapan } from './lib/jamaah-kelengkapan.js';
 import { dedupeJamaahSyncEvents, hasJamaahSyncEvents, toMoney } from './lib/jamaah-sync-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -961,6 +962,16 @@ async function sendDepartureReminders() {
 
 const BULAN_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 
+// Tanggal kalender (YYYY-MM-DD) + N hari, murni aritmetika UTC. Versi lama
+// (`new Date(tgl + 'T00:00:00+07:00')` lalu `toISOString()`) selalu kurang satu
+// hari: tengah malam WIB = 17:00 UTC hari sebelumnya, jadi "H-3" manasik
+// terkirim saat H-2 dan jendela 30 hari jadi 29.
+function addCalendarDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function formatTanggalID(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return `${d.getDate()} ${BULAN_ID[d.getMonth()]} ${d.getFullYear()}`;
@@ -1289,11 +1300,7 @@ async function passportReminder() {
     if (!supabaseAdmin) { warn('passportReminder: no supabaseAdmin'); return; }
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-    const addDays = (dateStr, days) => {
-      const d = new Date(dateStr + 'T00:00:00+07:00');
-      d.setDate(d.getDate() + days);
-      return d.toISOString().split('T')[0];
-    };
+    const addDays = addCalendarDays;
     const maxDate = addDays(today, 30);
 
     // Query jamaah berangkat dalam 30 hari ke depan
@@ -1311,7 +1318,7 @@ async function passportReminder() {
     //   - dokumen.paspor === true (checkbox di legacy system), ATAU
     //   - no_paspor ada isi (nomor paspor sudah di-input)
     const problemJamaah = jamaahData.filter(j => {
-      const pasporCollected = j.dokumen?.paspor === true || (j.no_paspor && j.no_paspor.trim() !== '');
+      const pasporCollected = isPasporCollected(j);
       const pasporExpiredBeforeDepart = j.paspor_expired && j.tgl_berangkat
         && j.paspor_expired < j.tgl_berangkat;
       return !pasporCollected || pasporExpiredBeforeDepart;
@@ -1353,10 +1360,9 @@ async function passportReminder() {
       if (agent.notification_prefs?.paspor === false) continue;
 
       // Paspor dianggap collected jika checkbox ATAU nomor paspor ada
-      const belumKumpul = jamaahList.filter(j => j.dokumen?.paspor !== true && !(j.no_paspor && j.no_paspor.trim() !== ''));
+      const belumKumpul = jamaahList.filter(j => !isPasporCollected(j));
       const expired = jamaahList.filter(j => {
-        const collected = j.dokumen?.paspor === true || (j.no_paspor && j.no_paspor.trim() !== '');
-        return collected
+        return isPasporCollected(j)
           && j.paspor_expired
           && j.paspor_expired < j.tgl_berangkat;
       });
@@ -1732,11 +1738,7 @@ async function manasikReminder() {
     if (!supabaseAdmin) { warn('manasikReminder: no supabaseAdmin'); return; }
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-    const addDays = (dateStr, days) => {
-      const d = new Date(dateStr + 'T00:00:00+07:00');
-      d.setDate(d.getDate() + days);
-      return d.toISOString().split('T')[0];
-    };
+    const addDays = addCalendarDays;
     const targetDate = addDays(today, 3);
 
     // Query manasik events H-3
@@ -1802,19 +1804,15 @@ function buildPerlengkapanMessage(agentName, jamaahList, today) {
     return Math.ceil((d - t) / (1000 * 60 * 60 * 24));
   };
 
-  const getMissing = (perlengkapan) => {
-    if (!perlengkapan) return ['semua'];
-    return Object.entries(perlengkapan)
-      .filter(([, v]) => v === false)
-      .map(([k]) => k.replace(/_/g, ' '));
-  };
+  // null = belum ada catatan perlengkapan sama sekali untuk jamaah ini.
+  const getMissing = (j) => missingPerlengkapan(j) ?? ['semua'];
 
   const shown = jamaahList.slice(0, 5);
   const remaining = jamaahList.length - shown.length;
 
   const lines = shown.map(j => {
     const hari = daysLeft(j.tgl_berangkat);
-    const missing = getMissing(j.perlengkapan);
+    const missing = getMissing(j);
     const missingStr = missing.length <= 3
       ? missing.join(', ')
       : `${missing.slice(0, 3).join(', ')} +${missing.length - 3} lainnya`;
@@ -1835,16 +1833,12 @@ async function perlengkapanReminder() {
     if (!supabaseAdmin) { warn('perlengkapanReminder: no supabaseAdmin'); return; }
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-    const addDays = (dateStr, days) => {
-      const d = new Date(dateStr + 'T00:00:00+07:00');
-      d.setDate(d.getDate() + days);
-      return d.toISOString().split('T')[0];
-    };
+    const addDays = addCalendarDays;
     const maxDate = addDays(today, 30);
 
     const { data: jamaahData, error: jError } = await supabaseAdmin
       .from('jamaah')
-      .select('agent_id, nama, tgl_berangkat, perlengkapan')
+      .select('agent_id, nama, jk, tgl_berangkat, perlengkapan')
       .gte('tgl_berangkat', today)
       .lte('tgl_berangkat', maxDate);
 
@@ -1852,10 +1846,7 @@ async function perlengkapanReminder() {
     if (!jamaahData || jamaahData.length === 0) { log('[perlengkapan] No jamaah departing within 30 days'); return; }
 
     // Filter: perlengkapan belum lengkap
-    const incomplete = jamaahData.filter(j => {
-      if (!j.perlengkapan) return true;
-      return Object.values(j.perlengkapan).some(v => v === false);
-    });
+    const incomplete = jamaahData.filter(isPerlengkapanIncomplete);
 
     if (incomplete.length === 0) { log('[perlengkapan] All equipment complete'); return; }
 
@@ -1966,11 +1957,7 @@ async function weeklySummary() {
     if (!supabaseAdmin) { warn('weeklySummary: no supabaseAdmin'); return; }
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-    const addDays = (dateStr, days) => {
-      const d = new Date(dateStr + 'T00:00:00+07:00');
-      d.setDate(d.getDate() + days);
-      return d.toISOString().split('T')[0];
-    };
+    const addDays = addCalendarDays;
     const endOfWeek = addDays(today, 7);
     const endOfMonth = addDays(today, 30);
 
@@ -1993,7 +1980,7 @@ async function weeklySummary() {
 
       const { data: jamaahData, error: jError } = await supabaseAdmin
         .from('jamaah')
-        .select('nama, sisa, tgl_berangkat, dokumen, perlengkapan, no_paspor')
+        .select('nama, jk, sisa, tgl_berangkat, dokumen, perlengkapan, no_paspor')
         .eq('agent_id', agent.id);
 
       if (jError) { warn(`[weekly] Error fetching jamaah for ${agent.slug}:`, jError.message); continue; }
@@ -2010,11 +1997,8 @@ async function weeklySummary() {
       const berangkatBulanIni = jamaahData.filter(j =>
         j.tgl_berangkat && j.tgl_berangkat >= today && j.tgl_berangkat <= endOfMonth
       );
-      const belumPaspor = berangkatBulanIni.filter(j => j.dokumen?.paspor !== true && !(j.no_paspor && j.no_paspor.trim() !== ''));
-      const belumPerlengkapan = berangkatBulanIni.filter(j => {
-        if (!j.perlengkapan) return true;
-        return Object.values(j.perlengkapan).some(v => v === false);
-      });
+      const belumPaspor = berangkatBulanIni.filter(j => !isPasporCollected(j));
+      const belumPerlengkapan = berangkatBulanIni.filter(isPerlengkapanIncomplete);
 
       const { data: events } = await supabaseAdmin
         .from('calendar_events')
@@ -3331,7 +3315,7 @@ async function runBirthdayDigest() {
 
 // ─── Init ────────────────────────────────────────────
 
-export { loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas, hasAggregateBayarShape, bookingProvenOutstanding, bookingAggregateOutstanding, collapsePelunasanBookings, buildPelunasanMessage };
+export { addCalendarDays, buildPassportMessage, buildPerlengkapanMessage, loadConfig, sendDailyBriefing, sendWeeklyReport, sendDepartureReminders, sendHotDeals, checkAndNotify, sendDailyTips, sendPeriodicUpdate, sendAgentDepartureReminders, departureReminderSore, passportReminder, pelunasanReminder, manasikReminder, perlengkapanReminder, weeklySummary, notifyJamaahSyncEvents, notifyPembayaranMasuk, runBirthdayDigest, isUpstreamLunas, hasAggregateBayarShape, bookingProvenOutstanding, bookingAggregateOutstanding, collapsePelunasanBookings, buildPelunasanMessage };
 
 export function initNotifier() {
   loadConfig();
