@@ -13,7 +13,6 @@ const BADGE_PRESETS: string[] = [
   '💯 25+ Tahun Pengalaman',
   '🤝 Konsultan Pribadi',
   '📞 Respon Cepat 24/7',
-  '💎 Umroh Bintang 5',
   '🎓 Tour Leader BNSP',
   '✈️ Pasti Berangkat',
   '📋 Visa Resmi',

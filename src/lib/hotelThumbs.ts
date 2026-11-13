@@ -6,7 +6,6 @@ export interface PublicHotel {
   /** Nama lain seperti tertulis di jadwal ("ELIFIM RESOT"); diuji sama persis dengan name. */
   aliases?: string[];
   city?: string | null;
-  stars?: string | number | null;
   distance_label?: string | null;
   walk_label?: string | null;
   area?: string | null;

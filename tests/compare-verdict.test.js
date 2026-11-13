@@ -11,17 +11,17 @@ import {
 
 // JBU1569 "HEMAT PLUS DUBAI 10HR" tier HEMAT lawan JBU1491 "REGULER 9HR" tier
 // UHUD — pasangan nyata dari jadwal 1448. A lebih murah di ketiga tipe kamar,
-// B hotelnya lebih tinggi bintang dan lebih dekat. Bentuk sisi sengaja sudah
-// diresolusi pemanggil (bintang & jarak angka/teks jadi), supaya modul ini
+// B hotelnya lebih dekat. Bentuk sisi sengaja sudah
+// diresolusi pemanggil (jarak teks jadi), supaya modul ini
 // bebas dari lookup metadata hotel yang tinggal di berkas .ts.
 const A = {
   prices: { Quard: 31200000, Triple: 32200000, Double: 34200000 },
-  hotels: { mekkah: { stars: 4, distance: '±400m' }, madinah: { stars: 3, distance: '±200m' } },
+  hotels: { mekkah: { distance: '±400m' }, madinah: { distance: '±200m' } },
   seatSisa: 26,
 };
 const B = {
   prices: { Quard: 33900000, Triple: 35700000, Double: 38700000 },
-  hotels: { mekkah: { stars: 5, distance: '±300m' }, madinah: { stars: 4, distance: '±150m' } },
+  hotels: { mekkah: { distance: '±300m' }, madinah: { distance: '±150m' } },
   seatSisa: 12,
 };
 
@@ -32,7 +32,7 @@ test('parseDistanceMeters: km, koma desimal, dan format asing', () => {
   assert.equal(parseDistanceMeters('1.5km'), 1500);
   assert.equal(parseDistanceMeters('300 meter'), 300);
   // Tak terbaca berarti TIDAK DIKETAHUI, bukan nol — kalau nol, hotel tanpa
-  // data jarak akan selalu menang saat bintangnya seri.
+  // data jarak akan selalu menang.
   assert.equal(parseDistanceMeters('dekat masjid'), null);
   assert.equal(parseDistanceMeters(''), null);
   assert.equal(parseDistanceMeters(null), null);
@@ -68,27 +68,34 @@ test('priceWinner: seri dan tanpa data sama-sama tak berpemenang', () => {
   assert.equal(priceWinner({ prices: { Quard: 0 } }, { prices: { Quard: 30000000 } }), null);
 });
 
-test('hotelWinner: jumlah bintang Mekkah + Madinah', () => {
-  // A 4+3=7, B 5+4=9
-  assert.deepEqual(hotelWinner(A, B), { side: 'b', reason: 'bintang' });
+test('hotelWinner: hotel yang lebih dekat ke masjid', () => {
+  assert.deepEqual(hotelWinner(A, B), { side: 'b', reason: 'jarak' });
 });
 
-test('hotelWinner: bintang seri diputus jarak, Mekkah lebih dulu', () => {
-  const a = { hotels: { mekkah: { stars: 5, distance: '±300m' }, madinah: { stars: 4, distance: '±150m' } } };
-  const b = { hotels: { mekkah: { stars: 4, distance: '±100m' }, madinah: { stars: 5, distance: '±500m' } } };
+test('hotelWinner: Mekkah diperiksa lebih dulu, Madinah memutus bila Mekkah seri', () => {
+  const a = { hotels: { mekkah: { distance: '±300m' }, madinah: { distance: '±150m' } } };
+  const b = { hotels: { mekkah: { distance: '±100m' }, madinah: { distance: '±500m' } } };
+  assert.deepEqual(hotelWinner(a, b), { side: 'b', reason: 'jarak' });
+  const c = { hotels: { mekkah: { distance: '±300m' }, madinah: { distance: '±100m' } } };
+  assert.deepEqual(hotelWinner(a, c), { side: 'b', reason: 'jarak' });
+});
+
+test('hotelWinner: bintang di data diabaikan — hanya jarak yang menentukan', () => {
+  const a = { hotels: { mekkah: { stars: 5, distance: '±400m' } } };
+  const b = { hotels: { mekkah: { stars: 3, distance: '±100m' } } };
   assert.deepEqual(hotelWinner(a, b), { side: 'b', reason: 'jarak' });
 });
 
-test('hotelWinner: bintang tak lengkap di salah satu sisi tak berpemenang', () => {
-  const b = { hotels: { mekkah: { stars: 5, distance: '±300m' }, madinah: { stars: 4, distance: '±150m' } } };
-  assert.equal(hotelWinner({ hotels: { mekkah: { stars: 4 } } }, b), null);
+test('hotelWinner: data jarak kosong di salah satu sisi tak berpemenang', () => {
+  const b = { hotels: { mekkah: { distance: '±300m' }, madinah: { distance: '±150m' } } };
+  assert.equal(hotelWinner({ hotels: { mekkah: {} } }, b), null);
   assert.equal(hotelWinner({ hotels: {} }, b), null);
   assert.equal(hotelWinner(null, b), null);
 });
 
-test('hotelWinner: bintang seri dan jarak tak terbaca tak berpemenang', () => {
-  const a = { hotels: { mekkah: { stars: 5, distance: 'dekat' }, madinah: { stars: 4, distance: '' } } };
-  const b = { hotels: { mekkah: { stars: 5, distance: '' }, madinah: { stars: 4, distance: 'strategis' } } };
+test('hotelWinner: jarak tak terbaca tak berpemenang', () => {
+  const a = { hotels: { mekkah: { distance: 'dekat' }, madinah: { distance: '' } } };
+  const b = { hotels: { mekkah: { distance: '' }, madinah: { distance: 'strategis' } } };
   assert.equal(hotelWinner(a, b), null);
 });
 
@@ -102,7 +109,7 @@ test('buildCompareVerdict: merangkai keempatnya', () => {
   assert.deepEqual(buildCompareVerdict(A, B), {
     gap: { room: 'Quard', diff: 2700000, cheaper: 'a' },
     price: { side: 'a', wins: 3, total: 3 },
-    hotel: { side: 'b', reason: 'bintang' },
+    hotel: { side: 'b', reason: 'jarak' },
     seat: { side: 'a', a: 26, b: 12 },
   });
 });

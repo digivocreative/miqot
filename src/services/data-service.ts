@@ -145,10 +145,11 @@ export function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo 
   if ('mekkah' in rawHotel || 'madinah' in rawHotel) {
     for (const [city, value] of Object.entries(rawHotel)) {
       if (city.endsWith('_hotel') || city.endsWith('_bintang') || city.endsWith('_jarak')) continue;
-      const { name, star } = parseHotelString(value);
+      // "(★5)" di belakang nama dibuang; bintangnya sengaja tidak disimpan
+      // (klasifikasi bintang di Saudi berubah-ubah, tidak ditampilkan lagi).
+      const { name } = parseHotelString(value);
       const metadata = lookupHotelMetadata(name);
       result[`${city}_hotel`] = name;
-      result[`${city}_bintang`] = star !== '0' ? star : (metadata.stars || '0');
       if (rawHotel[`${city}_jarak`] || metadata.distance) {
         result[`${city}_jarak`] = rawHotel[`${city}_jarak`] || metadata.distance || '';
       }
@@ -156,7 +157,7 @@ export function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo 
     return result as unknown as HotelInfo;
   }
 
-  // Old format: preserve source fields, filling metadata only when missing.
+  // Old format: preserve source fields, filling distance metadata only when missing.
   for (const [key, value] of Object.entries(rawHotel)) {
     result[key] = value;
   }
@@ -164,9 +165,6 @@ export function transformHotelInfo(rawHotel: Record<string, string>): HotelInfo 
     if (!key.endsWith('_hotel') || !value) continue;
     const city = key.replace(/_hotel$/, '');
     const metadata = lookupHotelMetadata(value);
-    if (!result[`${city}_bintang`] && metadata.stars) {
-      result[`${city}_bintang`] = metadata.stars;
-    }
     if (!result[`${city}_jarak`] && metadata.distance) {
       result[`${city}_jarak`] = metadata.distance;
     }

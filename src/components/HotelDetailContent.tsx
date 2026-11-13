@@ -7,7 +7,7 @@
 // berbeda. Varian dark: tetap ada — halaman publik melepas kelas `dark` dari
 // <html>, jadi di sana otomatis terang.
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Building2, Star, Footprints, MapPin, Play, ImageOff, ChevronDown } from 'lucide-react';
+import { Building2, Footprints, MapPin, Play, ImageOff, ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { HOTEL_RATING_PLATFORMS } from '../../lib/hotel-directory.js';
 
@@ -40,7 +40,6 @@ export interface HotelDetail {
   slug: string;
   name: string;
   city: string;
-  stars: number | null;
   distance_label: string | null;
   walk_label: string | null;
   area: string | null;
@@ -75,31 +74,6 @@ export const HOTEL_CITY_LANDMARKS: Record<string, string> = {
 export type HotelDetailView = Omit<HotelDetail, 'id' | 'aliases'>;
 
 export type HotelLinkClick = { kind: 'maps' | 'rating'; platform?: string };
-
-// Hanya bintang terisi (tanpa slot abu-abu — terlihat kusam terutama di dark
-// mode), solid penuh tanpa stroke — outline terlihat "kurang menarik" (feedback).
-//
-// Warna WAJIB lewat `fill="currentColor"` + text-amber-400, BUKAN kelas
-// `fill-amber-400`: kelas fill-* itu baru lahir bersama fitur hotel, sehingga
-// perangkat yang service worker-nya masih memegang CSS lama merender bintang
-// tanpa warna isi — tak berwarna saat masih ada stroke, hilang sama sekali
-// setelah stroke dinolkan. `text-amber-400` sudah ada di CSS lama.
-export function StarRow({ stars, size = 13 }: { stars: number | null; size?: number }) {
-  if (!stars) return null;
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: Math.min(stars, 5) }, (_, i) => (
-        <Star
-          key={i}
-          size={size}
-          strokeWidth={0}
-          fill="currentColor"
-          className="text-amber-400"
-        />
-      ))}
-    </div>
-  );
-}
 
 // Daftar FAQ = garis pemisah tipis, TANPA kartu/bingkai (varian pilihan user
 // dari mockup Pencil ~/Downloads/hotel-faq-style.pen). Kartu putih dulu dibuang
@@ -424,12 +398,6 @@ export default function HotelDetailContent({ detail, onOpenViewer, onOpenAll, on
             <Building2 size={10} />
             {HOTEL_CITY_LABELS[detail.city]}
           </span>
-          {detail.stars ? (
-            <>
-              <StarRow stars={detail.stars} />
-              <span className="text-xs text-gray-500 dark:text-slate-400">Hotel bintang {detail.stars}</span>
-            </>
-          ) : null}
         </div>
         </div>
         {titleAction}

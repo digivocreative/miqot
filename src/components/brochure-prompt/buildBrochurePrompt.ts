@@ -50,9 +50,9 @@ export interface BrochurePromptPkg {
   tgl?: string;
   /** Harga paket; builder menormalkannya menjadi format seperti "mulai Rp 30.5 Juta". */
   harga?: string;
-  /** Hotel Mekkah + bintang (mis. "Movenpick (★★★★★)"). */
+  /** Nama hotel Mekkah (tanpa bintang). */
   mekkah?: string;
-  /** Hotel Madinah + bintang. */
+  /** Nama hotel Madinah (tanpa bintang). */
   madinah?: string;
   maskapai?: string;
 }
@@ -70,7 +70,7 @@ export interface BrochurePromptSchedulePackage {
   harga?: string;
   maskapai?: string;
   landing?: string;
-  /** Hotel ringkas, mis. "Makkah: Movenpick (★★★★★)". */
+  /** Hotel ringkas, mis. "Makkah: Movenpick". */
   hotel?: string[];
   soldOut?: boolean;
 }
@@ -257,7 +257,7 @@ export function buildNativeSharePrompt(input: BrochurePromptInput): string {
     task,
     `GAYA — ${selectedStyle.label}: ${selectedStyle.phrase}.`,
     sourceHint,
-    'AKURASI — jangan mengubah angka atau mengarang diskon, tanggal, hotel, maskapai, fasilitas, maupun klaim.',
+    'AKURASI — jangan mengubah angka atau mengarang diskon, tanggal, hotel, maskapai, fasilitas, maupun klaim; jangan menulis bintang/kelas hotel.',
     'HARGA — tampilkan dalam jutaan, satu desimal pakai titik (pola “Rp <nilai> Juta”); ambil nilai dari SUMBER, jangan pakai angka contoh sebagai harga.',
     contact,
     `OUTPUT — rasio ${ratioOut}, Bahasa Indonesia, ejaan benar, hierarki jelas, safe margin, resolusi tinggi; bukan mockup/kolase, tanpa watermark AI atau penjelasan di luar artwork.`,
@@ -322,8 +322,9 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
       '- HEADLINE harus MENARIK & menggugah — emosional / hook / urgensi (mis. rindu Baitullah, ' +
       'panggilan ke Tanah Suci, kesempatan terbatas), BUKAN sekadar menyalin nama paket.\n' +
       '- SUB-HEADLINE pendek mendukung headline (boleh memuat nama paket / keunggulan utama).\n' +
-      '- BENEFIT berupa poin singkat & menjual (mis. "Hotel ⭐5 dekat Masjid", "Penerbangan langsung", ' +
+      '- BENEFIT berupa poin singkat & menjual (mis. "Hotel dekat Masjid", "Penerbangan langsung", ' +
       '"Bimbingan ibadah", "Kuota terbatas") — olah dari keunggulan paket di bawah, JANGAN mengarang fakta/angka.\n' +
+      '- JANGAN menulis bintang/kelas hotel (mis. "Hotel ⭐5", "bintang 5") — klasifikasinya sering berubah.\n' +
       "- Satu fokus visual yang kuat & memukau (Ka'bah / Masjid Nabawi / suasana Tanah Suci), komposisi rapi & lega.\n" +
       '- Hierarki: visual dominan → headline → sub-headline → benefit singkat → harga.\n' +
       '- Tetap berhenti-scroll & terbaca cepat; layak jadi materi iklan berbayar.';
@@ -451,6 +452,7 @@ export function buildBrochurePrompt(input: BrochurePromptInput): string {
     '- Bahasa Indonesia; pastikan tidak ada teks yang salah eja.',
     PRICE_FORMAT_RULE,
     '- Salin semua fakta dari blok sumber kebenaran secara presisi. Jangan menambah diskon, tanggal, hotel, maskapai, fasilitas, atau klaim yang tidak diberikan.',
+    '- Jangan menulis bintang/kelas hotel (mis. "⭐5", "bintang 5") — klasifikasinya sering berubah.',
     '- Pastikan teks penting kontras dan terbaca pada layar ponsel; jangan menaruh teks terlalu dekat tepi artwork.',
   ];
   if (useAttachedContact) {

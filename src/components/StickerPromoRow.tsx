@@ -194,7 +194,7 @@ export function StickerPromoRow({ onOpen, disabled = false, allowCallout = true,
             Tempel sticker ke brosur
           </span>
           <span className={`block text-[10px] leading-tight mt-0.5 truncate ${cls.sub}`}>
-            Sisa seat, promo, hotel bintang 5
+            Sisa seat, promo, hotel dekat Haram
           </span>
         </span>
 

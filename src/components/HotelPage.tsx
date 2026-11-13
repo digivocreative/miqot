@@ -19,13 +19,13 @@ import {
   HotelSkeletonKategori, HotelSkeletonList, HotelSkeletonDetail,
 } from './HotelSkeletons';
 import HotelDetailContent, {
-  StarRow, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, type HotelDetail, type HotelLinkClick,
+  HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS, type HotelDetail, type HotelLinkClick,
 } from './HotelDetailContent';
 
 // Tampilan detail kini tinggal di HotelDetailContent (dipakai juga halaman
 // share publik); nama-nama ini tetap diekspor dari sini demi pemakai lama
 // (HotelKelolaPage).
-export { StarRow, HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS } from './HotelDetailContent';
+export { HOTEL_CITY_LABELS, HOTEL_CITY_LANDMARKS } from './HotelDetailContent';
 export type { HotelDetail, HotelMediaItem, HotelRatingItem, HotelFaqItemData } from './HotelDetailContent';
 
 export interface HotelListItem {
@@ -33,7 +33,6 @@ export interface HotelListItem {
   slug: string;
   name: string;
   city: string;
-  stars: number | null;
   distance_label: string | null;
   walk_label: string | null;
   area: string | null;
@@ -206,7 +205,6 @@ export default function HotelPage({ onNavigate, agentSlug }: {
   const [detailData, setDetailData] = useState<HotelDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [starFilter, setStarFilter] = useState<number | null>(null);
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const [sortByDistance, setSortByDistance] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -286,7 +284,6 @@ export default function HotelPage({ onNavigate, agentSlug }: {
   // Ganti kota (termasuk via back/forward browser) = mulai dari saringan kosong.
   useEffect(() => {
     setQuery('');
-    setStarFilter(null);
     setAreaFilter(null);
     setSortByDistance(false);
     setFilterOpen(false);
@@ -327,25 +324,20 @@ export default function HotelPage({ onNavigate, agentSlug }: {
   );
 
   // Chip hanya muncul kalau benar-benar memilah: satu nilai saja tidak menyaring apa pun.
-  const starOptions = useMemo(() => {
-    const values = [...new Set(cityPool.map(h => h.stars).filter((s): s is number => !!s))];
-    return values.length > 1 ? values.sort((a, b) => b - a) : [];
-  }, [cityPool]);
-
+  // (Chip bintang sengaja dicabut — klasifikasi bintang di Saudi berubah-ubah.)
   const areaOptions = useMemo(() => {
     const values = [...new Set(cityPool.map(h => hotelAreaCity(h.area)).filter((v): v is string => !!v))];
     return values.length > 1 ? values.sort((a, b) => a.localeCompare(b)) : [];
   }, [cityPool]);
 
   const canSortByDistance = cityPool.some(h => parseHotelDistanceMeters(h.distance_label) !== null);
-  const hasFilterChips = canSortByDistance || starOptions.length > 0 || areaOptions.length > 0;
-  const activeFilterCount = (sortByDistance ? 1 : 0) + (starFilter !== null ? 1 : 0) + (areaFilter !== null ? 1 : 0);
+  const hasFilterChips = canSortByDistance || areaOptions.length > 0;
+  const activeFilterCount = (sortByDistance ? 1 : 0) + (areaFilter !== null ? 1 : 0);
 
   const cityHotels = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = cityPool
       .filter(h => !q || h.name.toLowerCase().includes(q))
-      .filter(h => starFilter === null || h.stars === starFilter)
       .filter(h => areaFilter === null || hotelAreaCity(h.area) === areaFilter);
     if (!sortByDistance) return rows;
     // Hotel tanpa jarak terbaca didorong ke belakang, bukan dianggap 0 meter.
@@ -357,7 +349,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
       if (db === null) return -1;
       return da - db || a.name.localeCompare(b.name);
     });
-  }, [cityPool, query, starFilter, areaFilter, sortByDistance]);
+  }, [cityPool, query, areaFilter, sortByDistance]);
 
   const viewKey =
     view.kind === 'kategori' ? 'kategori'
@@ -493,7 +485,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
           )}
         </div>
 
-        {(starFilter !== null || areaFilter !== null || query.trim()) && (
+        {(areaFilter !== null || query.trim()) && (
           <p className="mt-1.5 text-[11px] font-medium text-gray-400 dark:text-slate-500">
             {cityHotels.length} dari {cityPool.length} hotel
           </p>
@@ -504,7 +496,7 @@ export default function HotelPage({ onNavigate, agentSlug }: {
             <div className="py-10 text-center">
               <Building2 size={32} className="mx-auto text-gray-300 dark:text-slate-600" />
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
-                {query || starFilter !== null || areaFilter !== null
+                {query || areaFilter !== null
                   ? 'Tidak ada hotel yang cocok dengan saringan ini.'
                   : 'Belum ada hotel di kategori ini.'}
               </p>
@@ -525,7 +517,6 @@ export default function HotelPage({ onNavigate, agentSlug }: {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{hotel.name}</p>
-                <div className="mt-1"><StarRow stars={hotel.stars} /></div>
                 {hotel.distance_label ? (
                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                     <Footprints size={10} />
@@ -549,17 +540,14 @@ export default function HotelPage({ onNavigate, agentSlug }: {
           <HotelFilterSheet
             landmark={HOTEL_CITY_LANDMARKS[view.city]}
             canSortByDistance={canSortByDistance}
-            starOptions={starOptions}
             areaOptions={areaOptions}
             sortByDistance={sortByDistance}
-            starFilter={starFilter}
             areaFilter={areaFilter}
             resultCount={cityHotels.length}
             activeCount={activeFilterCount}
             onChangeSort={setSortByDistance}
-            onChangeStar={setStarFilter}
             onChangeArea={setAreaFilter}
-            onReset={() => { setSortByDistance(false); setStarFilter(null); setAreaFilter(null); }}
+            onReset={() => { setSortByDistance(false); setAreaFilter(null); }}
             onClose={() => setFilterOpen(false)}
           />
         )}

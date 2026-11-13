@@ -413,12 +413,6 @@ function hotelNameFontSize(name: string): number {
   return 21;
 }
 
-function starCount(stars: number | null | undefined): number {
-  const n = Number(stars);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(5, Math.round(n)));
-}
-
 // Phrases below are surfaced as pills under the package name; strip them from
 // the title so they don't appear twice. Keep this list aligned with PILL_TAGS.
 export function cleanPackageDisplayName(name: string): string {
@@ -429,7 +423,6 @@ export function cleanPackageDisplayName(name: string): string {
     .replace(/\bUMR[OA]H\s+DULU\b/gi, '')
     .replace(/\bMEK+AH\s+DULU\b/gi, '')
     .replace(/\s*\(?\s*KERETA\s+CEPAT\s*\)?\s*/gi, ' ')
-    .replace(/\bRAHMAH\b/gi, '')
     .replace(/\bJUM['‘’]?ATAIN\b/gi, '')
     // Tidy parens, plus signs, and whitespace left behind by the strips.
     .replace(/\s+\(/g, ' (')
@@ -451,6 +444,8 @@ export function cleanPackageDisplayName(name: string): string {
 }
 
 // Order of definitions = display order of pills under the title.
+// Pil "Hotel Bintang 5" (dulu menempel pada RAHMAH) sengaja dicabut: klasifikasi
+// bintang hotel di Saudi berubah-ubah. RAHMAH kini tetap tertulis di judul.
 export type PillTag = { label: string; pattern: RegExp; bg: string; fg: string };
 const UMROH_DULU_PILL: PillTag = {
   label: 'Umroh Dulu',
@@ -459,7 +454,6 @@ const UMROH_DULU_PILL: PillTag = {
   fg: DARK_RED,
 };
 const PILL_TAGS: ReadonlyArray<PillTag> = [
-  { label: 'Hotel Bintang 5', pattern: /\bRAHMAH\b/i,            bg: '#7A4F12', fg: '#FFFFFF' },
   UMROH_DULU_PILL,
   { label: 'Kereta Cepat',    pattern: KERETA_CEPAT_PATTERN,     bg: '#0F766E', fg: '#FFFFFF' },
   { label: '2x Jumatan',      pattern: /\bJUM['‘’]?ATAIN\b/i,    bg: DARK_RED,  fg: '#FFFFFF' },

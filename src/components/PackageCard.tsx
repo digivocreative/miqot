@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useRef, useEffect, useMemo, Suspense, lazy, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight } from 'lucide-react';
+import { PlaneTakeoff, PlaneLanding, Building2, Camera, Loader2, X, Share2, Sun, CloudSun, Thermometer, Sparkles, FileText, Maximize2, Download, Link as LinkIcon, CheckCircle2, Check, Route, ChevronRight, Footprints } from 'lucide-react';
 import { isViaCustomDomain, readAgentContext } from '@/lib/agent-context';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { UmrohPackage, RoomPricing, HotelInfo } from '@/types';
@@ -29,7 +29,7 @@ import logoAlhijaz from '@/logo-alhijaz.webp';
 import { getTemperature } from '@/data/temperatureData';
 import { sendCapiEvent } from '@/lib/capi';
 import { cheapestTierOf, minPriceInTier } from '@/lib/packagePricing';
-import { extraHotelsOf, formatHargaCell, hotelDistanceOf, hotelStarsOf, tiersOf } from '@/lib/packageDetail';
+import { extraHotelsOf, formatHargaCell, hotelDistanceOf, tiersOf } from '@/lib/packageDetail';
 import { trackEvent, trackPublicEvent } from '@/utils/analytics';
 import { getLandingCityName, getLandingStepIndex, getPackageJourneySteps } from '@/utils/journey';
 import { isSessionValid } from '@/utils/authUtils';
@@ -318,9 +318,7 @@ function PackageCardImpl({
         seatTotal: pkg.seatTotal,
         hotel: {
           mekkah_hotel: hotelData?.mekkah_hotel,
-          mekkah_bintang: hotelData?.mekkah_bintang,
           madinah_hotel: hotelData?.madinah_hotel,
-          madinah_bintang: hotelData?.madinah_bintang,
         },
         harga: tierPricing ? {
           Quard: tierPricing.Quard,
@@ -375,9 +373,8 @@ function PackageCardImpl({
       .filter((n: number) => Number.isFinite(n) && n > 0);
     const harga = priceNums.length ? formatBrochurePrice(`mulai Rp ${Math.min(...priceNums).toLocaleString('id-ID')}`) : undefined;
 
-    const star = (b: any) => { const n = parseInt(b || '0', 10); return n > 0 ? ` (${'★'.repeat(n)})` : ''; };
-    const mekkah = hotelData?.mekkah_hotel ? `${hotelData.mekkah_hotel}${star(hotelData.mekkah_bintang)}` : undefined;
-    const madinah = hotelData?.madinah_hotel ? `${hotelData.madinah_hotel}${star(hotelData.madinah_bintang)}` : undefined;
+    const mekkah = hotelData?.mekkah_hotel || undefined;
+    const madinah = hotelData?.madinah_hotel || undefined;
 
     return { nama: pkg.nama, tgl, harga, mekkah, madinah, maskapai: pkg.maskapai || undefined };
   };
@@ -465,22 +462,31 @@ function PackageCardImpl({
     const buildHotelList = (): string => {
       const hotels: string[] = [];
       
+      // Bintang hotel sengaja tidak ditulis: klasifikasi bintang di Saudi
+      // berubah-ubah dan jadi bahan komplain. Jarak ke masjid yang dipakai.
+      const holyHotel = (label: string, name: string, distance: string, masjid: string) => {
+        // "±50m" → "±50m ke Masjidil Haram"; teks bebas dari API (mis.
+        // "Shuttle") ditulis apa adanya supaya tidak jadi kalimat aneh.
+        const dist = !distance ? ''
+          : /^[±~]?\s*\d/.test(distance) ? `\n${distance} ke ${masjid}` : `\n${distance}`;
+        return `\`\`\`HOTEL ${label}\`\`\`\n*${name}*${dist}`;
+      };
+
       // Madinah
       if (hotelInfo?.madinah_hotel) {
-        const stars = parseInt(hotelInfo.madinah_bintang || '0');
-        hotels.push(`\`\`\`HOTEL MADINAH\`\`\`\n*${hotelInfo.madinah_hotel}* [ *${'★'.repeat(stars)}* ]`);
+        const dist = hotelDistanceOf(hotelInfo.madinah_hotel, hotelInfo.madinah_jarak);
+        hotels.push(holyHotel('MADINAH', hotelInfo.madinah_hotel, dist, 'Masjid Nabawi'));
       }
-      
+
       // Mekkah
       if (hotelInfo?.mekkah_hotel) {
-        const stars = parseInt(hotelInfo.mekkah_bintang || '0');
-        hotels.push(`\`\`\`HOTEL MEKKAH\`\`\`\n*${hotelInfo.mekkah_hotel}* [ *${'★'.repeat(stars)}* ]`);
+        const dist = hotelDistanceOf(hotelInfo.mekkah_hotel, hotelInfo.mekkah_jarak);
+        hotels.push(holyHotel('MEKKAH', hotelInfo.mekkah_hotel, dist, 'Masjidil Haram'));
       }
-      
+
       // Extra hotels (Turkey, Cairo, etc.)
       extraHotels.forEach(hotel => {
-        const stars = parseInt(hotel.star || '0');
-        hotels.push(`\`\`\`HOTEL ${hotel.city.toUpperCase()}\`\`\`\n*${hotel.name}* [ *${'★'.repeat(stars)}* ]`);
+        hotels.push(`\`\`\`HOTEL ${hotel.city.toUpperCase()}\`\`\`\n*${hotel.name}*`);
       });
       
       return hotels.join('\n\n');
@@ -821,9 +827,9 @@ _________________________
 
         /* === FIX 1: TEXT OVERLAPPING === */
         /* Flight info: times, codes, routes — harus satu baris */
-        /* Exclude star (text-amber-400) and distance (text-emerald-600) spans */
+        /* Exclude distance (text-emerald-600) spans */
         [data-cloned="true"] .grid-cols-2 p,
-        [data-cloned="true"] .grid-cols-2 span:not(.text-amber-400):not(.text-emerald-600) {
+        [data-cloned="true"] .grid-cols-2 span:not(.text-emerald-600) {
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
@@ -831,8 +837,7 @@ _________________________
           line-height: 1.4 !important;
         }
 
-        /* Star + distance row: keep inline flex layout */
-        [data-cloned="true"] .grid-cols-2 .text-amber-400,
+        /* Distance row: keep inline flex layout */
         [data-cloned="true"] .grid-cols-2 .text-emerald-600 {
           display: inline !important;
           overflow: visible !important;
@@ -840,12 +845,12 @@ _________________________
         }
 
         /* Flight info container — jangan sampai flex items overlap */
-        /* Exclude the star+distance flex container from overflow hidden */
+        /* Exclude the distance flex container from overflow hidden */
         [data-cloned="true"] .grid-cols-2 > div {
           min-width: 0 !important;
           overflow: hidden !important;
         }
-        [data-cloned="true"] .grid-cols-2 [data-stars-row] {
+        [data-cloned="true"] .grid-cols-2 [data-distance-row] {
           overflow: visible !important;
           display: flex !important;
           flex-wrap: nowrap !important;
@@ -1097,7 +1102,7 @@ _________________________
         });
       });
 
-      // D1e. STYLE HOTEL NAMES (red-orange gradient) + STARS (bright gold)
+      // D1e. STYLE HOTEL NAMES (red-orange gradient)
       // Hotel names are the <p> with hotel name text (font-medium, line-clamp-1)
       clone.querySelectorAll('p').forEach(p => {
         const el = p as HTMLElement;
@@ -1109,45 +1114,21 @@ _________________________
           el.style.setProperty('font-weight', '700', 'important');
         }
       });
-      // Star icons (★) — bright gold (handled below in nuclear rebuild)
-
-      // D1f. NUCLEAR FIX: Replace star+distance flex rows with single <p> text
+      // D1f. NUCLEAR FIX: Replace distance flex rows with single <p> text
       // snapdom clips flex items at computed width, so flex layout doesn't work.
-      // Solution: rebuild as a single <p> with all text inline.
-      clone.querySelectorAll('[data-stars-row]').forEach(row => {
+      // Solution: rebuild as a single <p> with the text inline (ikon jejak
+      // kaki ikut dibuang — di gambar ekspor cukup teksnya).
+      clone.querySelectorAll('[data-distance-row]').forEach(row => {
         const el = row as HTMLElement;
-        // Collect stars (read the text; stars now render as one span "★★★★")
-        const stars = [...el.querySelectorAll('.text-amber-400')].map(s => s.textContent || '').join('');
-        
-        // Collect distance text
-        let distText = '';
-        el.querySelectorAll('span').forEach(span => {
-          const s = span as HTMLElement;
-          const txt = s.textContent?.trim() || '';
-          if (txt.startsWith('±') || s.classList.contains('text-emerald-600')) {
-            distText = txt;
-          }
-        });
-        
-        // Replace the div with a single <p>
+        const distText = el.textContent?.trim() || '';
+        if (!distText) { el.remove(); return; }
+
         const p = document.createElement('p');
         p.style.cssText = 'margin:0; line-height:1.4; white-space:nowrap; overflow:visible;';
-        
-        // Stars part
-        const starsSpan = document.createElement('span');
-        starsSpan.textContent = stars;
-        starsSpan.style.cssText = 'color:#E8A200; font-size:11px; letter-spacing:-1px;';
-        p.appendChild(starsSpan);
-        
-        // Distance part
-        if (distText) {
-          const distSpan = document.createElement('span');
-          distSpan.textContent = `  ${distText}`;
-          distSpan.style.cssText = 'color:#059669; font-size:11px; font-weight:400; margin-left:4px;';
-          p.appendChild(distSpan);
-        }
-        
-        // Replace the original div
+        const distSpan = document.createElement('span');
+        distSpan.textContent = distText;
+        distSpan.style.cssText = 'color:#059669; font-size:11px; font-weight:400;';
+        p.appendChild(distSpan);
         el.replaceWith(p);
       });
 
@@ -1811,16 +1792,11 @@ _________________________
                 {hotelInfo?.mekkah_hotel || '-'}
               </p>
               {(() => {
-                const stars = hotelStarsOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_bintang);
                 const dist = hotelDistanceOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_jarak);
-                return stars || dist ? (
-                  <div className="flex items-center gap-0.5" data-stars-row>
-                    {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
-                    {dist && (
-                      <span className="text-[11px] font-semibold ml-2 text-emerald-600">
-                        {dist}
-                      </span>
-                    )}
+                return dist ? (
+                  <div className="flex items-center gap-1 text-emerald-600" data-distance-row>
+                    <Footprints size={11} className="shrink-0" aria-hidden="true" />
+                    <span className="text-[11px] font-semibold text-emerald-600">{dist}</span>
                   </div>
                 ) : null;
               })()}
@@ -1844,16 +1820,11 @@ _________________________
                 {hotelInfo?.madinah_hotel || '-'}
               </p>
               {(() => {
-                const stars = hotelStarsOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_bintang);
                 const dist = hotelDistanceOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_jarak);
-                return stars || dist ? (
-                  <div className="flex items-center gap-0.5" data-stars-row>
-                    {stars && <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(stars))}</span>}
-                    {dist && (
-                      <span className="text-[11px] font-semibold ml-2 text-emerald-600">
-                        {dist}
-                      </span>
-                    )}
+                return dist ? (
+                  <div className="flex items-center gap-1 text-emerald-600" data-distance-row>
+                    <Footprints size={11} className="shrink-0" aria-hidden="true" />
+                    <span className="text-[11px] font-semibold text-emerald-600">{dist}</span>
                   </div>
                 ) : null;
               })()}
@@ -2120,11 +2091,6 @@ _________________________
                       >
                         {hotel.name}
                       </p>
-                      {parseInt(hotel.star) > 0 && (
-                        <div className="flex items-center gap-0.5 mt-0.5" data-stars-row>
-                          <span className="text-[11px] text-amber-400 tracking-[-1px]">{'★'.repeat(parseInt(hotel.star))}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))}

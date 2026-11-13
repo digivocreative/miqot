@@ -220,7 +220,6 @@ import { createRateLimiter, rateLimitMiddleware } from './lib/request-rate-limit
 import { createCredentialCipher } from './lib/credential-cipher.js';
 import { readResponseBuffer } from './lib/bounded-response.js';
 import { browserCapiEventKey, BROWSER_CAPI_EVENTS } from './lib/capi-browser-events.js';
-import { fillPackageHotelStars } from './lib/hotel-stars.js';
 import { cleanBrochurePackageName, countBrochureTripDays, extractDurationFromName, isUmrohFirstRoute, isWaitingListPackageName, landingCityFromRoute, listBrochureTiers, parseSeatSisa, pickBrochurePackageDetails, groupPackagesByMonth } from './lib/brochure-schedule.js';
 import {
   inferJourneyOrderFromItinerary,
@@ -2041,15 +2040,15 @@ function inferItineraryOrder(pkg) {
 }
 
 function parseHotelString(s) {
-  // e.g. "PRESTIGE EX ELAF AL MASHAER/SETARAF (★4)" → { name: "PRESTIGE EX ELAF AL MASHAER", star: "4" }
-  if (!s || typeof s !== 'string') return { name: '', star: '' };
-  const starMatch = s.match(/★\s*(\d+)/);
-  const star = starMatch ? starMatch[1] : '';
+  // e.g. "PRESTIGE EX ELAF AL MASHAER/SETARAF (★4)" → { name: "PRESTIGE EX ELAF AL MASHAER" }
+  // Bintangnya sengaja dibuang, bukan dikembalikan: klasifikasi bintang hotel
+  // di Saudi berubah-ubah dan tidak boleh sampai ke jamaah (termasuk lewat AI).
+  if (!s || typeof s !== 'string') return { name: '' };
   const name = s
-    .replace(/\(★\s*\d+\)/g, '')
+    .replace(/\(\s*[★⭐]\uFE0F?\s*\d+\s*\)/gu, '')
     .replace(/\/SETARAF.*$/i, '')
     .trim();
-  return { name, star };
+  return { name };
 }
 
 function lookupHotelDistance(hotelName) {
@@ -2141,7 +2140,6 @@ function buildHotelContext(pkg) {
       const parsed = parseHotelString(info.mekkah);
       tierOut.mekkah = {
         hotel: parsed.name,
-        bintang: parsed.star,
         jarak_ke_masjidil_haram: lookupHotelDistance(parsed.name),
       };
     }
@@ -2149,14 +2147,13 @@ function buildHotelContext(pkg) {
       const parsed = parseHotelString(info.madinah);
       tierOut.madinah = {
         hotel: parsed.name,
-        bintang: parsed.star,
         jarak_ke_masjid_nabawi: lookupHotelDistance(parsed.name),
       };
     }
     for (const city of ['cairo', 'bursa', 'istanbul', 'cappadocia', 'ankara', 'dubai']) {
       if (info[city]) {
         const parsed = parseHotelString(info[city]);
-        tierOut[city] = { hotel: parsed.name, bintang: parsed.star };
+        tierOut[city] = { hotel: parsed.name };
       }
     }
     if (Object.keys(tierOut).length > 0) out[tierName] = tierOut;
@@ -2376,6 +2373,7 @@ ${JSON.stringify(packageCtx)}
 
 DATA HOTEL:
 ${JSON.stringify(hotelCtx)}
+(Bintang/kelas hotel sengaja TIDAK dicantumkan — klasifikasinya di Saudi sering berubah. Kalau ditanya bintang hotel, JANGAN menyebut angka bintang atau "hotel berbintang"; jelaskan singkat alasannya, sebut jarak hotel ke masjid bila ada di data, lalu arahkan ke **${agentFirstName}**.)
 
 ITINERARY (jika tersedia):
 ${itineraryCtx ? JSON.stringify(itineraryCtx) : 'tidak tersedia'}
@@ -7498,7 +7496,7 @@ app.get('/api/hotels', dbLoadShedGuard, authMiddleware, async (req, res) => {
     if (!(await requireHotelAgent(req, res))) return;
     const { data, error } = await supabase
       .from('hotels')
-      .select('id, slug, name, city, stars, distance_label, walk_label, area, media')
+      .select('id, slug, name, city, distance_label, walk_label, area, media')
       .order('city', { ascending: true })
       .order('name', { ascending: true });
     if (error) {
@@ -7602,7 +7600,7 @@ app.put('/api/hotels/banners/:city', dbLoadShedGuard, authMiddleware, adminOnly,
 // jamaah tanpa login — /api/hotels yang lain ber-authMiddleware, KECUALI
 // '/api/hotels/public/:slug' di bawah (halaman Detail Hotel yang dibagikan).
 //
-// Daftar ini SENGAJA minimum: nama, kota, bintang, jarak, area, dan foto. Isi
+// Daftar ini SENGAJA minimum: nama, kota, jarak, area, dan foto. Isi
 // lengkap satu hotel hanya lewat endpoint detail publik yang berdaftar-putih.
 //
 // Rute ini WAJIB terdaftar sebelum '/api/hotels/:slug' — kalau tidak, 'public'
@@ -7622,7 +7620,7 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
     }
     const { data, error } = await supabase
       .from('hotels')
-      .select('name, aliases, city, stars, distance_label, walk_label, area, media')
+      .select('name, aliases, city, distance_label, walk_label, area, media')
       .order('name', { ascending: true });
     if (error) {
       // Migrasi belum jalan = fitur belum ada, bukan galat server. Rail kanan
@@ -7642,7 +7640,6 @@ app.get('/api/hotels/public', dbLoadShedGuard, async (_req, res) => {
         name: row.name,
         aliases: Array.isArray(row.aliases) ? row.aliases : [],
         city: row.city,
-        stars: row.stars ?? null,
         distance_label: row.distance_label ?? null,
         walk_label: row.walk_label ?? null,
         area: row.area ?? null,
@@ -7676,7 +7673,7 @@ async function loadPublicHotelRow(rawSlug) {
   if (cached && Date.now() - cached.at < PUBLIC_HOTEL_DETAIL_CACHE_MS) return cached.row;
   const { data, error } = await supabase
     .from('hotels')
-    .select('slug, name, city, stars, distance_label, walk_label, area, address, gmaps_url, description, facilities, media, faq, ratings, updated_at')
+    .select('slug, name, city, distance_label, walk_label, area, address, gmaps_url, description, facilities, media, faq, ratings, updated_at')
     .eq('slug', slug)
     .maybeSingle();
   if (error) {
@@ -22037,53 +22034,10 @@ async function fetchScheduleYear(year) {
   throw lastError || new Error(`No schedule source available for ${year}`);
 }
 
-// Direktori Hotel terakhir yang berhasil dibaca. Kalau pembacaan gagal sesaat,
-// sync memakai salinan ini — tanpanya semua bintang hasil direktori lenyap dari
-// paket sampai siklus berikutnya.
-let scheduleHotelDirectory = [];
-// Hotel tanpa bintang yang sudah dilaporkan ke admin di proses ini, supaya
-// sync 30 menitan tidak mengirim pesan yang sama berulang-ulang.
-const reportedHotelsWithoutStars = new Set();
-
-async function loadScheduleHotelDirectory() {
-  const { data, error } = await supabase.from('hotels').select('name, aliases, city, stars');
-  if (error) {
-    if (!hotelTableMissing(error)) console.warn('[ScheduleSync] Direktori Hotel gagal dibaca:', error.message);
-    return scheduleHotelDirectory;
-  }
-  scheduleHotelDirectory = data || [];
-  return scheduleHotelDirectory;
-}
-
-async function reportHotelsWithoutStars(missingByKey) {
-  const fresh = [...missingByKey.entries()].filter(([key]) => !reportedHotelsWithoutStars.has(key));
-  if (!fresh.length) return;
-  const lines = fresh.map(([, m]) => `• ${escapeHtml(m.name)} (${escapeHtml(m.city)}) — ${[...m.jadwalIds].slice(0, 3).join(', ')}`);
-  console.warn(`[ScheduleSync] Hotel tanpa bintang (tidak dikenal Direktori Hotel): ${fresh.map(([, m]) => m.name).join(', ')}`);
-  const { data: admins, error } = await supabase
-    .from('agents')
-    .select('telegram_chat_id')
-    .eq('role', 'admin')
-    .not('telegram_chat_id', 'is', null);
-  if (error) {
-    console.warn('[ScheduleSync] Gagal membaca admin untuk laporan hotel:', error.message);
-    return;
-  }
-  const text = `<b>Hotel paket tanpa bintang</b>\n\nHotel berikut muncul di jadwal tapi belum dikenal Direktori Hotel, jadi bintangnya kosong di paket:\n${lines.join('\n')}\n\nTambahkan hotelnya (beserta bintang) di Direktori Hotel, atau isi "Nama lain" hotel yang sudah ada dengan ejaan di atas. Bintang terisi otomatis di sync berikutnya.`;
-  let delivered = false;
-  for (const admin of admins || []) {
-    if (await sendTelegramMessageDirect(admin.telegram_chat_id, text).catch(() => false)) delivered = true;
-  }
-  // Ditandai terlapor hanya bila pesan benar-benar sampai ke minimal satu admin.
-  if (delivered) fresh.forEach(([key]) => reportedHotelsWithoutStars.add(key));
-}
-
 async function syncUmrohSchedules() {
   console.log('[ScheduleSync] Starting...');
   const startTime = Date.now();
   let totalSynced = 0;
-  const hotelDirectory = await loadScheduleHotelDirectory();
-  const hotelsWithoutStars = new Map();
 
   for (const year of SCHEDULE_YEAR_CODES) {
     try {
@@ -22128,13 +22082,6 @@ async function syncUmrohSchedules() {
       const brochureCacheResets = new Map();
 
       const rows = includedPackages.map(p => {
-        // Hulu jarang menyertakan bintang hotel; isi yang kosong dari Direktori Hotel.
-        const { paketHotel, missing } = fillPackageHotelStars(p.paket_hotel, hotelDirectory);
-        for (const m of missing) {
-          const key = `${m.city}|${m.name.toUpperCase()}`;
-          if (!hotelsWithoutStars.has(key)) hotelsWithoutStars.set(key, { ...m, jadwalIds: new Set() });
-          hotelsWithoutStars.get(key).jadwalIds.add(p.jadwal_id);
-        }
         const brochureSource = resolveScheduleBrochureSource(p);
         const brochureReset = buildBrochureCacheReset(previousById.get(String(p.jadwal_id)), brochureSource);
         if (Object.keys(brochureReset).length) brochureCacheResets.set(p.jadwal_id, brochureReset);
@@ -22160,7 +22107,7 @@ async function syncUmrohSchedules() {
           itinerary: p.itinerary,
           perlengkapan_harga: p.perlengkapan_harga,
           paket_harga: p.paket_harga,
-          paket_hotel: paketHotel,
+          paket_hotel: p.paket_hotel,
           synced_at: new Date().toISOString(),
         };
       });
@@ -22229,12 +22176,6 @@ async function syncUmrohSchedules() {
     } catch (err) {
       console.error(`[ScheduleSync] Year ${year} failed:`, err.message);
     }
-  }
-
-  try {
-    await reportHotelsWithoutStars(hotelsWithoutStars);
-  } catch (e) {
-    console.warn('[ScheduleSync] Laporan hotel tanpa bintang gagal:', e.message);
   }
 
   // Reap rows for decommissioned year_codes (years no longer in SCHEDULE_YEAR_CODES).
@@ -24262,7 +24203,6 @@ app.get('/og/hotel/:slug/:hotelSlug.jpg', async (req, res) => {
     const jpg = await generateHotelOgPng({
       hotelName: hotel.name,
       cityLabel: HOTEL_CITY_LABELS[hotel.city] || '',
-      stars: hotel.stars,
       distanceLabel: hotel.distance_label,
       landmark: HOTEL_CITY_LANDMARKS[hotel.city] || '',
       walkLabel: hotel.walk_label,

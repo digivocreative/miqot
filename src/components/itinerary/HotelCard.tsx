@@ -1,21 +1,24 @@
 import { useState } from 'react';
-import { BedDouble, Star } from 'lucide-react';
+import { BedDouble } from 'lucide-react';
 import type { PackageHotels } from '@/types';
+import { hotelDistanceOf } from '@/lib/packageDetail';
 import { cityKeyForLocation } from '../../../lib/itinerary-view.js';
 import { CITY_HEX, DEFAULT_CITY, type CityKey } from './cityTheme';
 
 // Runtime shape per tier (transformHotelInfo): kunci `<city>_hotel`, `<city>_bintang`, `<city>_jarak`.
+// Bintang sengaja tidak ditampilkan (klasifikasinya di Saudi berubah-ubah);
+// yang tampil di kanan adalah jarak ke masjid.
 function tierRows(tier: object) {
   const fields: Record<string, unknown> = { ...tier };
   return Object.entries(fields)
     .filter(([key, value]) => key.endsWith('_hotel') && typeof value === 'string' && !!value)
     .map(([key, value]) => {
       const city = key.replace(/_hotel$/, '');
-      const stars = fields[`${city}_bintang`];
+      const jarak = fields[`${city}_jarak`];
       return {
         city,
         name: value as string,
-        stars: typeof stars === 'string' && stars !== '0' ? stars : null,
+        distance: hotelDistanceOf(value as string, typeof jarak === 'string' ? jarak : ''),
       };
     });
 }
@@ -61,7 +64,6 @@ export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
       <div className="px-3.5 py-0.5">
         {rows.map((row, i) => {
           const key = (cityKeyForLocation(row.city) || DEFAULT_CITY) as CityKey;
-          const starCount = row.stars ? Math.min(parseInt(row.stars, 10) || 0, 5) : 0;
           return (
             <div
               key={row.city}
@@ -77,14 +79,8 @@ export default function HotelCard({ hotel }: { hotel: PackageHotels }) {
                   {row.name.toLowerCase()}
                 </span>
               </span>
-              {starCount > 0 ? (
-                <span className="flex shrink-0 items-center gap-0.5">
-                  {Array.from({ length: starCount }, (_, s) => (
-                    <Star key={s} size={12} fill="#D4AF37" className="text-[#D4AF37]" />
-                  ))}
-                </span>
-              ) : row.stars ? (
-                <span className="shrink-0 text-[11.5px] font-semibold text-itin-ink2">{row.stars}</span>
+              {row.distance ? (
+                <span className="shrink-0 text-[11.5px] font-semibold text-itin-ink2">{row.distance}</span>
               ) : null}
             </div>
           );

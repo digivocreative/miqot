@@ -143,7 +143,7 @@ test('buildHotelPayload: input valid menghasilkan data whitelist', () => {
   assert.equal(result.ok, true);
   assert.equal(result.data.name, 'Makkah Towers');
   assert.equal(result.data.city, 'mekkah');
-  assert.equal(result.data.stars, 5);
+  assert.equal('stars' in result.data, false, 'bintang tidak boleh ikut payload — kolom DB dibiarkan utuh');
   assert.equal(result.data.distance_label, '±250 m');
   assert.deepEqual(result.data.facilities, ['Wi-Fi', 'Lift']);
   assert.deepEqual(result.data.media, [{ type: 'image', url: IMG_URL }]);
@@ -165,15 +165,12 @@ test('buildHotelPayload: kategori di luar 4 kota ditolak', () => {
   assert.match(result.error, /kategori/i);
 });
 
-test('buildHotelPayload: bintang harus integer 1-5 atau null', () => {
-  for (const stars of [0, 6, 2.5, '4']) {
+test('buildHotelPayload: bintang diabaikan apa pun nilainya (klien lama tidak ditolak)', () => {
+  for (const stars of [0, 6, 2.5, '4', null, 5]) {
     const result = buildHotelPayload(validInput({ stars }), OPTS);
-    assert.equal(result.ok, false, `stars=${JSON.stringify(stars)} harusnya ditolak`);
-    assert.match(result.error, /bintang/i);
+    assert.equal(result.ok, true, `stars=${JSON.stringify(stars)} tidak boleh menggagalkan simpan`);
+    assert.equal('stars' in result.data, false);
   }
-  const nullStars = buildHotelPayload(validInput({ stars: null }), OPTS);
-  assert.equal(nullStars.ok, true);
-  assert.equal(nullStars.data.stars, null);
 });
 
 test('buildHotelPayload: turki/dubai/kairo/haikou dipaksa tanpa jarak', () => {
@@ -281,6 +278,7 @@ test('hotelListItem: proyeksi ringan dengan cover foto pertama dan hitungan medi
   assert.equal(item.video_count, 1);
   assert.equal(item.slug, 'makkah-towers');
   assert.equal('media' in item, false);
+  assert.equal('stars' in item, false);
 
   const emptyItem = hotelListItem({ ...row, media: [] });
   assert.equal(emptyItem.cover, null);
@@ -569,7 +567,7 @@ test('publicHotelDetail: daftar-putih kolom — agent_note, editor, dan video ti
     faq: [{ q: 'Ada lift?', a: 'Ada.' }],
     ratings: [{ platform: 'google', score: 3.5, reviews: 10, url: null }],
   });
-  for (const key of ['id', 'agent_note', 'created_by', 'updated_by']) assert.equal(key in detail, false, key);
+  for (const key of ['id', 'agent_note', 'created_by', 'updated_by', 'stars']) assert.equal(key in detail, false, key);
   assert.deepEqual(detail.media, [
     { type: 'image', url: IMG_URL, category: 'Kamar' },
     { type: 'image', url: IMG_URL_2 },
@@ -595,7 +593,7 @@ test('buildHotelShareMeta: kalimat pertama Tentang Hotel + nama agent, maks 160 
 
   // Tanpa deskripsi → kalimat dari jarak + landmark.
   const bare = buildHotelShareMeta({ ...hotel, description: null }, '');
-  assert.equal(bare.description, 'Hotel bintang 5 ±450m dari Masjidil Haram. Alhijaz Indowisata.');
+  assert.equal(bare.description, 'Hotel ±450m dari Masjidil Haram. Alhijaz Indowisata.');
 
   const long = buildHotelShareMeta({ ...hotel, description: `${'kata '.repeat(60)}akhir.` }, 'Nikita');
   assert.ok(long.description.length <= 160, long.description);

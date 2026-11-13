@@ -101,7 +101,6 @@ test('generateHotelOgPng survives emoji in every free-text field', async () => {
   const jpg = await generateHotelOgPng({
     hotelName: 'Movenpick 🕋 Hajar Tower ⭐',
     cityLabel: 'Mekkah',
-    stars: 5,
     distanceLabel: '±100m 🚶',
     landmark: 'Masjidil Haram',
     walkLabel: '±4 menit jalan kaki ✨ via Gerbang King Abdul Aziz',

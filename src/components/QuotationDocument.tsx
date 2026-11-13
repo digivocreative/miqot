@@ -219,7 +219,6 @@ export function QuotationDocument({ pkg, tier, summary, namaLengkap, agent, agen
   // bukan kunci pertama menurut urutan API (lihat src/lib/packageTiers.js).
   const activeTier = pkg ? resolvePackageTier(pkg, tier) : null;
   const hotelData = pkg && activeTier ? tierHotelInfo(pkg, activeTier) : null;
-  const starLabel = hotelData?.mekkah_bintang ? `AKOMODASI HOTEL` : 'AKOMODASI HOTEL';
   const hotelNames = hotelData ? [hotelData.mekkah_hotel, hotelData.madinah_hotel].filter(Boolean).join(' / ') : '—';
 
   // ── Dynamic page height ──
@@ -306,7 +305,7 @@ export function QuotationDocument({ pkg, tier, summary, namaLengkap, agent, agen
               </View>
               {/* Col 3: Hotel */}
               <View style={s.infoCol}>
-                <Text style={s.infoTitle}>{starLabel}</Text>
+                <Text style={s.infoTitle}>AKOMODASI HOTEL</Text>
                 <Text style={s.infoMain}>Makkah &amp; Madinah</Text>
                 <Text style={s.infoSub}>{hotelNames}</Text>
               </View>

@@ -8,6 +8,7 @@ import type { ComponentProps, ComponentType, ReactElement } from 'react';
 import { Document, Page, View, Text, Image, StyleSheet, Font, Svg, Path, Rect } from '@react-pdf/renderer';
 import { normalizeWaNumber, formatWaDisplay } from '@/utils/phone';
 import type { UmrohPackage } from '@/types';
+import { hotelDistanceOf } from '@/lib/packageDetail';
 import type { AgentData } from '@/data/agents';
 import {
   classifyActivity,
@@ -193,7 +194,7 @@ const s = StyleSheet.create({
   kotaDot: { width: P(7), height: P(7), borderRadius: P(4) },
   kotaLabel: { fontSize: P(10), fontWeight: 'bold', letterSpacing: P(0.8), color: C.ink3 },
   hotelNama: { fontSize: P(13.5), fontWeight: 'bold', color: C.ink, marginTop: P(2) },
-  bintang: { fontSize: P(12), letterSpacing: P(1.5), color: C.gold },
+  hotelJarak: { fontSize: P(11.5), fontWeight: 'bold', color: C.ink2 },
 
   tierNama: { fontSize: P(12.5), fontWeight: 'bold', color: C.ink2 },
   tierHarga: { fontSize: P(16), fontWeight: 'bold', color: C.burgundy },
@@ -569,8 +570,9 @@ function KartuHotel({ paket }: { paket: UmrohPackage }) {
     .filter(([k, v]) => k.endsWith('_hotel') && Boolean(v))
     .map(([k, v]) => {
       const city = k.replace(/_hotel$/, '');
-      const bintang = parseInt(String(info[`${city}_bintang`] ?? ''), 10);
-      return { city, nama: String(v), bintang: Number.isFinite(bintang) ? Math.min(bintang, 5) : 0 };
+      // Bintang sengaja tidak dicetak (klasifikasinya di Saudi berubah-ubah);
+      // sama dengan kartu Hotel di tampilan web, kanan berisi jarak ke masjid.
+      return { city, nama: String(v), jarak: hotelDistanceOf(String(v), info[`${city}_jarak`]) };
     });
   if (!rows.length) return null;
   return (
@@ -598,7 +600,7 @@ function KartuHotel({ paket }: { paket: UmrohPackage }) {
                 </View>
                 <Text style={s.hotelNama}>{r.nama}</Text>
               </View>
-              {r.bintang > 0 ? <Text style={s.bintang}>{'★'.repeat(r.bintang)}</Text> : null}
+              {r.jarak ? <Text style={s.hotelJarak}>{r.jarak}</Text> : null}
             </View>
           ))}
         </View>

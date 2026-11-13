@@ -1,22 +1,19 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { X, Star, Footprints, MapPin, ArrowDownAZ } from 'lucide-react';
+import { X, Footprints, MapPin, ArrowDownAZ } from 'lucide-react';
 import { useBackToClose } from '../hooks/useBackToClose';
 import { lockDocumentScroll } from '../lib/scrollLock';
 
 interface HotelFilterSheetProps {
   landmark?: string;
   canSortByDistance: boolean;
-  starOptions: number[];
   areaOptions: string[];
   sortByDistance: boolean;
-  starFilter: number | null;
   areaFilter: string | null;
   resultCount: number;
   activeCount: number;
   onChangeSort: (value: boolean) => void;
-  onChangeStar: (value: number | null) => void;
   onChangeArea: (value: string | null) => void;
   onReset: () => void;
   onClose: () => void;
@@ -32,15 +29,12 @@ const SECTION_LABEL = 'text-[9px] font-bold uppercase tracking-wide text-gray-40
 export default function HotelFilterSheet({
   landmark,
   canSortByDistance,
-  starOptions,
   areaOptions,
   sortByDistance,
-  starFilter,
   areaFilter,
   resultCount,
   activeCount,
   onChangeSort,
-  onChangeStar,
   onChangeArea,
   onReset,
   onClose,
@@ -126,35 +120,6 @@ export default function HotelFilterSheet({
                   <ArrowDownAZ size={13} />
                   Nama A-Z
                 </button>
-              </div>
-            </div>
-          )}
-
-          {starOptions.length > 0 && (
-            <div>
-              <p className={SECTION_LABEL}>Bintang</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={() => onChangeStar(null)}
-                  aria-pressed={starFilter === null}
-                  className={`${OPTION_CLASS} ${starFilter === null ? OPTION_ACTIVE : OPTION_IDLE}`}
-                >
-                  Semua
-                </button>
-                {starOptions.map(star => {
-                  const active = starFilter === star;
-                  return (
-                    <button
-                      key={star}
-                      onClick={() => onChangeStar(active ? null : star)}
-                      aria-pressed={active}
-                      className={`${OPTION_CLASS} ${active ? OPTION_ACTIVE : OPTION_IDLE}`}
-                    >
-                      {star}
-                      <Star size={12} strokeWidth={0} fill="currentColor" className={active ? '' : 'text-amber-400'} />
-                    </button>
-                  );
-                })}
               </div>
             </div>
           )}

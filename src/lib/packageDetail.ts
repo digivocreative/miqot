@@ -14,7 +14,6 @@ import type { PackagePricing } from '@/types';
 export interface ExtraHotel {
   city: string;
   name: string;
-  star: string;
 }
 
 /**
@@ -71,27 +70,16 @@ export function extraHotelsOf(
 
   for (const city of PLUS_CITIES) {
     let hotelName = info[`${city.key}_hotel`];
-    let hotelStar = info[`${city.key}_bintang`] || '0';
 
     if (!hotelName) {
       const fallback = otherTiers.find((tier) => tier && tier[`${city.key}_hotel`]);
-      if (fallback) {
-        hotelName = fallback[`${city.key}_hotel`];
-        hotelStar = fallback[`${city.key}_bintang`] || '0';
-      }
+      if (fallback) hotelName = fallback[`${city.key}_hotel`];
     }
 
-    if (hotelName) extras.push({ city: city.label, name: hotelName, star: hotelStar });
+    if (hotelName) extras.push({ city: city.label, name: hotelName });
   }
 
   return extras;
-}
-
-/** Bintang hotel — payload menang, "0" dianggap kosong lalu jatuh ke metadata lokal. */
-export function hotelStarsOf(name?: string, stars?: string): string {
-  const raw = String(stars || '').trim();
-  if (raw && raw !== '0') return raw;
-  return lookupHotelMetadata(name || '').stars || '';
 }
 
 /** Jarak ke pelataran masjid — payload menang, lalu metadata lokal, lalu tabel hotel. */

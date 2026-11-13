@@ -12,14 +12,14 @@ function loadDirectory(): Promise<PublicHotel[]> {
   inflight ??= fetch('/api/hotels/public')
     .then((r) => (r.ok ? r.json() : null))
     .then((body) => (Array.isArray(body?.data) ? (body.data as PublicHotel[]) : []))
-    // Direktori adalah pemanis: tanpa foto, rail tetap menampilkan nama,
-    // bintang, dan jarak. Kegagalan di sini tidak boleh merah di halaman publik.
+    // Direktori adalah pemanis: tanpa foto, rail tetap menampilkan nama
+    // dan jarak. Kegagalan di sini tidak boleh merah di halaman publik.
     .catch(() => []);
   return inflight;
 }
 
 /**
- * Direktori hotel publik (nama, kota, bintang, jarak, area, satu foto sampul).
+ * Direktori hotel publik (nama, kota, jarak, area, satu foto sampul).
  * Array kosong saat belum termuat atau saat pengambilan gagal.
  */
 export function usePublicHotels(): PublicHotel[] {

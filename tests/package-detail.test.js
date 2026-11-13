@@ -13,7 +13,7 @@ import { loadTs } from './fixtures/load-ts.js';
  * transit/plus (Cairo, Dubai, Istanbul) bersifat itinerary-wide, BUKAN per-tier,
  * tapi upstream kadang hanya mengisinya di salah satu tier.
  */
-const { tiersOf, extraHotelsOf, hotelStarsOf, hotelDistanceOf, formatHargaCell } =
+const { tiersOf, extraHotelsOf, hotelDistanceOf, formatHargaCell } =
   await loadTs('src/lib/packageDetail.ts');
 
 test('tier "Hemat" selalu di depan, sisanya mempertahankan urutan asli', () => {
@@ -34,14 +34,14 @@ test('hotel kota plus diambil dari tier aktif', () => {
   const tierAktif = { cairo_hotel: 'STEIGENBERGER', cairo_bintang: '5' };
   assert.deepEqual(
     extraHotelsOf(tierAktif, { UHUD: tierAktif }),
-    [{ city: 'Cairo', name: 'STEIGENBERGER', star: '5' }],
+    [{ city: 'Cairo', name: 'STEIGENBERGER' }],
   );
 });
 
 test('kota plus kosong di tier aktif diambil dari tier lain — kota transit bukan per-tier', () => {
   const tierAktif = {};
   const semua = { HEMAT: tierAktif, UHUD: { dubai_hotel: 'ROVE', dubai_bintang: '4' } };
-  assert.deepEqual(extraHotelsOf(tierAktif, semua), [{ city: 'Dubai', name: 'ROVE', star: '4' }]);
+  assert.deepEqual(extraHotelsOf(tierAktif, semua), [{ city: 'Dubai', name: 'ROVE' }]);
 });
 
 test('tier aktif menang atas tier lain saat keduanya punya isi', () => {
@@ -50,9 +50,9 @@ test('tier aktif menang atas tier lain saat keduanya punya isi', () => {
   assert.equal(extraHotelsOf(tierAktif, semua)[0].name, 'HILTON');
 });
 
-test('bintang yang hilang jadi "0", bukan undefined', () => {
-  const tierAktif = { dubai_hotel: 'ROVE' };
-  assert.equal(extraHotelsOf(tierAktif, { HEMAT: tierAktif })[0].star, '0');
+test('bintang hotel tidak ikut dibawa ke kota plus — klasifikasinya tidak dipercaya', () => {
+  const tierAktif = { dubai_hotel: 'ROVE', dubai_bintang: '4' };
+  assert.equal('star' in extraHotelsOf(tierAktif, { HEMAT: tierAktif })[0], false);
 });
 
 test('urutan kota mengikuti daftar tetap, bukan urutan kunci payload', () => {
@@ -68,19 +68,12 @@ test('hotelInfo kosong = tidak ada kota plus, bukan lempar galat', () => {
   assert.deepEqual(extraHotelsOf(undefined, undefined), []);
 });
 
-test('bintang dari payload menang; "0" dianggap kosong lalu jatuh ke metadata', () => {
-  assert.equal(hotelStarsOf('ANJUM', '4'), '4');
-  assert.equal(hotelStarsOf('ANJUM', '0'), '5');
-  assert.equal(hotelStarsOf('ANJUM', ''), '5');
-});
-
 test('jarak dari payload menang; kosong jatuh ke metadata', () => {
   assert.equal(hotelDistanceOf('ANJUM', '±99m'), '±99m');
   assert.equal(hotelDistanceOf('ANJUM', ''), '±450m');
 });
 
-test('hotel tak dikenal tidak mengarang bintang atau jarak', () => {
-  assert.equal(hotelStarsOf('HOTEL YANG TIDAK ADA', ''), '');
+test('hotel tak dikenal tidak mengarang jarak', () => {
   assert.equal(hotelDistanceOf('HOTEL YANG TIDAK ADA', ''), '');
 });
 

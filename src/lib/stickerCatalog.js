@@ -22,6 +22,8 @@ export const STICKER_GROUPS = [
 // gambar sudah termuat atau belum, dan pratinjau (thumbnail lokal 256px)
 // dijamin memakai rasio yang sama dengan komposit (PNG Bunny 1254px).
 // Semua sticker saat ini 1254×1254 — diverifikasi 2026-09-18.
+// Sticker "Hotel Bintang 5" dicabut 2026-11-13: klasifikasi bintang hotel di
+// Saudi berubah-ubah dan jadi bahan komplain jamaah. Jangan dikembalikan.
 export const STICKERS = [
   { id: 'sisa-1-seat',       label: 'Sisa 1 Seat',       group: 'ketersediaan', aspect: 1 },
   { id: 'sisa-2-seat',       label: 'Sisa 2 Seat',       group: 'ketersediaan', aspect: 1 },
@@ -37,7 +39,6 @@ export const STICKERS = [
   { id: 'favorit-jamaah',    label: 'Favorit Jamaah',    group: 'populer',      aspect: 1 },
   { id: 'jadwal-favorit',    label: 'Jadwal Favorit',    group: 'populer',      aspect: 1 },
   { id: 'pilihan-keluarga',  label: 'Pilihan Keluarga',  group: 'populer',      aspect: 1 },
-  { id: 'hotel-bintang-5',   label: 'Hotel Bintang 5',   group: 'fasilitas',    aspect: 1 },
   { id: 'hotel-dekat-haram', label: 'Hotel Dekat Haram', group: 'fasilitas',    aspect: 1 },
   { id: 'direct-flight',     label: 'Direct Flight',     group: 'fasilitas',    aspect: 1 },
   { id: 'plus-dubai',        label: 'Plus Dubai',        group: 'plus',         aspect: 1 },
@@ -49,7 +50,7 @@ export const STICKERS = [
 // Empat sticker yang dipamerkan di baris ajakan. Sengaja mewakili empat alasan
 // berbeda (sisa seat, promo, fasilitas, populer) supaya agent langsung paham
 // cakupannya, bukan mengira fiturnya cuma soal seat.
-export const STICKER_PROMO_PREVIEW = ['sisa-1-seat', 'promo-terbatas', 'hotel-bintang-5', 'best-seller'];
+export const STICKER_PROMO_PREVIEW = ['sisa-1-seat', 'promo-terbatas', 'hotel-dekat-haram', 'best-seller'];
 
 const BY_ID = new Map(STICKERS.map(s => [s.id, s]));
 

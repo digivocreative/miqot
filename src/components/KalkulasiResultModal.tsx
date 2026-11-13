@@ -93,21 +93,22 @@ export function buildKalkulasiWaText({
     if (activeTier && h) {
       lines.push(`*PAKET ${activeTier}*`);
       lines.push('─────────────');
-      const hotelKeys: { key: string; starKey: string; label: string }[] = [
-        { key: 'mekkah_hotel', starKey: 'mekkah_bintang', label: '🇸🇦 HOTEL MEKKAH' },
-        { key: 'madinah_hotel', starKey: 'madinah_bintang', label: '🇸🇦 HOTEL MADINAH' },
-        { key: 'cairo_hotel', starKey: 'cairo_bintang', label: '🇪🇬 HOTEL CAIRO' },
-        { key: 'istanbul_hotel', starKey: 'istanbul_bintang', label: '🇹🇷 HOTEL ISTANBUL' },
-        { key: 'bursa_hotel', starKey: 'bursa_bintang', label: '🇹🇷 HOTEL BURSA' },
-        { key: 'cappadocia_hotel', starKey: 'cappadocia_bintang', label: '🇹🇷 HOTEL CAPPADOCIA' },
-        { key: 'ankara_hotel', starKey: 'ankara_bintang', label: '🇹🇷 HOTEL ANKARA' },
+      // Bintang hotel sengaja tidak ditulis (klasifikasinya di Saudi
+      // berubah-ubah dan jadi bahan komplain jamaah).
+      const hotelKeys: { key: string; label: string }[] = [
+        { key: 'mekkah_hotel', label: '🇸🇦 HOTEL MEKKAH' },
+        { key: 'madinah_hotel', label: '🇸🇦 HOTEL MADINAH' },
+        { key: 'cairo_hotel', label: '🇪🇬 HOTEL CAIRO' },
+        { key: 'istanbul_hotel', label: '🇹🇷 HOTEL ISTANBUL' },
+        { key: 'bursa_hotel', label: '🇹🇷 HOTEL BURSA' },
+        { key: 'cappadocia_hotel', label: '🇹🇷 HOTEL CAPPADOCIA' },
+        { key: 'ankara_hotel', label: '🇹🇷 HOTEL ANKARA' },
       ];
-      hotelKeys.forEach(({ key, starKey, label }, idx) => {
+      hotelKeys.forEach(({ key, label }, idx) => {
         if (h[key]) {
           if (idx > 0) lines.push('');
           lines.push(`\`\`\`${label}\`\`\``);
-          const star = h[starKey] ? ` ⭐${h[starKey]}` : '';
-          lines.push(`*${h[key]}*${star}`);
+          lines.push(`*${h[key]}*`);
         }
       });
       lines.push('');

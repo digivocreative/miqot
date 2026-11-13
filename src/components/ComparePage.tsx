@@ -32,7 +32,7 @@ import {
   tierStartingPrice,
   packageCityHotels,
 } from '@/lib/packageTiers';
-import { hotelStars } from '@/utils/hotelDisplay';
+import { hotelDistance } from '@/utils/hotelDisplay';
 import { canShareFiles, downloadBlob, isTouchPrimary } from '../utils/share';
 import { generateComparePdfBlob } from './CompareDocument';
 import { hasInAppHistory } from '../lib/appHistory';
@@ -251,8 +251,9 @@ function TierPicker({
       <div className="grid grid-cols-2 gap-2">
         {tiers.map((tier) => {
           const hotel = tierHotelInfo(pkg, tier);
-          const mekkahStar = hotel?.mekkah_hotel ? hotelStars(hotel.mekkah_hotel, hotel.mekkah_bintang) : 0;
-          const madinahStar = hotel?.madinah_hotel ? hotelStars(hotel.madinah_hotel, hotel.madinah_bintang) : 0;
+          // Pembeda antar tipe = jarak hotel ke masjid (bintang tidak dipakai lagi).
+          const mekkahJarak = hotel?.mekkah_hotel ? hotelDistance(hotel.mekkah_hotel, hotel.mekkah_jarak) : '';
+          const madinahJarak = hotel?.madinah_hotel ? hotelDistance(hotel.madinah_hotel, hotel.madinah_jarak) : '';
           const startingFrom = tierStartingPrice(pkg, tier);
           const isSelected = value === tier;
           return (
@@ -272,26 +273,18 @@ function TierPicker({
               }`}>
                 {tier}
               </p>
-              {(mekkahStar > 0 || madinahStar > 0) && (
+              {(mekkahJarak || madinahJarak) && (
                 <div className="mt-2 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                  {mekkahStar > 0 && (
+                  {mekkahJarak && (
                     <div className="flex items-center justify-between gap-2">
                       <span>Mekkah</span>
-                      <span className="flex tracking-tight">
-                        {Array.from({ length: mekkahStar }).map((_, i) => (
-                          <span key={i} className="text-amber-400 leading-none">★</span>
-                        ))}
-                      </span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{mekkahJarak}</span>
                     </div>
                   )}
-                  {madinahStar > 0 && (
+                  {madinahJarak && (
                     <div className="flex items-center justify-between gap-2">
                       <span>Madinah</span>
-                      <span className="flex tracking-tight">
-                        {Array.from({ length: madinahStar }).map((_, i) => (
-                          <span key={i} className="text-amber-400 leading-none">★</span>
-                        ))}
-                      </span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{madinahJarak}</span>
                     </div>
                   )}
                 </div>

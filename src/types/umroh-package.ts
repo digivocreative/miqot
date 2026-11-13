@@ -38,10 +38,11 @@ export type PackagePricing = Record<string, RoomPricing>;
  */
 export interface SaudiHotelInfo {
   mekkah_hotel: string;
-  mekkah_bintang: string; // Star rating (e.g., "4", "5")
+  /** Bintang dari hulu — TIDAK ditampilkan (klasifikasinya di Saudi berubah-ubah). */
+  mekkah_bintang?: string;
   mekkah_jarak?: string;  // Distance to Masjidil Haram (e.g., "100m", "300m")
   madinah_hotel: string;
-  madinah_bintang: string;
+  madinah_bintang?: string;
   madinah_jarak?: string; // Distance to Masjid Nabawi
 }
 
@@ -50,7 +51,7 @@ export interface SaudiHotelInfo {
  */
 export interface CairoHotelInfo extends SaudiHotelInfo {
   cairo_hotel: string;
-  cairo_bintang: string;
+  cairo_bintang?: string;
 }
 
 /**

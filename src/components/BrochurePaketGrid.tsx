@@ -131,9 +131,7 @@ function buildCaptionPayload(pkg: BrochurePackage, agent: BrochureAgent): Record
       seatSisa: pkg.seatSisa,
       hotel: {
         mekkah_hotel: mekkah?.name,
-        mekkah_bintang: mekkah?.stars,
         madinah_hotel: madinah?.name,
-        madinah_bintang: madinah?.stars,
       },
       harga: buildHargaFromTier(pkg),
     },
@@ -142,10 +140,9 @@ function buildCaptionPayload(pkg: BrochurePackage, agent: BrochureAgent): Record
   };
 }
 
-/** Bintang ditulis simbol, mengikuti buildBrochurePromptData di PackageCard. */
-function hotelLabel(h?: { name: string; stars: number | null } | null): string | undefined {
-  if (!h?.name) return undefined;
-  return h.stars && h.stars > 0 ? `${h.name} (${'★'.repeat(h.stars)})` : h.name;
+/** Nama hotel saja — bintang sengaja tidak ditulis, mengikuti PackageCard. */
+function hotelLabel(h?: { name: string } | null): string | undefined {
+  return h?.name || undefined;
 }
 
 function buildPromptPkg(pkg: BrochurePackage): BrochurePromptPkg {

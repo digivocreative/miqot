@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
-  Plus, Trash2, ImageOff, ImagePlus, Star, X, AlertTriangle,
+  Plus, Trash2, ImageOff, ImagePlus, X, AlertTriangle,
   Loader2, Play, ChevronDown, Search, CheckCircle2, FileText,
 } from 'lucide-react';
 import { getAuthHeaders } from '../lib/authSession';
@@ -46,7 +46,6 @@ interface FormState {
   name: string;
   aliases: string[];
   city: string;
-  stars: number | null;
   distance_label: string;
   walk_label: string;
   area: string;
@@ -63,7 +62,7 @@ interface FormState {
 
 function emptyForm(): FormState {
   return {
-    name: '', aliases: [], city: 'mekkah', stars: null,
+    name: '', aliases: [], city: 'mekkah',
     distance_label: '', walk_label: '', area: '', address: '', gmaps_url: '',
     description: '', facilities: [], media: [], ratings: {}, faq: [],
   };
@@ -80,7 +79,6 @@ function formFromDetail(detail: HotelDetail): FormState {
     name: detail.name,
     aliases: detail.aliases || [],
     city: detail.city,
-    stars: detail.stars,
     distance_label: detail.distance_label || '',
     walk_label: detail.walk_label || '',
     area: detail.area || '',
@@ -545,7 +543,6 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
       name: form.name,
       aliases: form.aliases,
       city: form.city,
-      stars: form.stars,
       distance_label: cityHasDistance ? form.distance_label : null,
       walk_label: cityHasDistance ? form.walk_label : null,
       area: form.area,
@@ -786,33 +783,10 @@ export default function HotelKelolaPage({ onNavigate }: { onNavigate: (path: str
                   />
                 </div>
               </div>
-              <div>
-                <label className={LABEL_CLASS}>Bintang</label>
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <button
-                      key={i}
-                      onClick={() => setForm(prev => ({ ...prev, stars: prev.stars === i ? null : i }))}
-                      aria-label={`${i} bintang`}
-                      className="p-0.5 active:scale-90 transition-transform"
-                    >
-                      <Star
-                        size={24}
-                        // fill lewat atribut (bukan kelas fill-*) — lihat catatan StarRow.
-                        fill={form.stars && i <= form.stars ? 'currentColor' : 'none'}
-                        className={form.stars && i <= form.stars ? 'text-amber-400' : 'text-gray-200 dark:text-slate-700'}
-                      />
-                    </button>
-                  ))}
-                  <span className="ml-1 text-xs text-gray-500 dark:text-slate-400">
-                    {form.stars ? `${form.stars} bintang` : 'Belum diatur'}
-                  </span>
-                </div>
-              </div>
             </section>
 
-            {/* RATING PLATFORM — tepat setelah Info Dasar: rating platform
-                dan bintang hotel sama-sama penilaian, jadi diisi berdampingan.
+            {/* RATING PLATFORM — tepat setelah Info Dasar, sebagai satu-satunya
+                penilaian hotel (bintang hotel sengaja dicabut).
                 Tiap kotak diberi label sendiri; placeholder saja hilang begitu
                 kotaknya terisi sehingga isian lama jadi tak jelas maksudnya. */}
             <section className="space-y-3">

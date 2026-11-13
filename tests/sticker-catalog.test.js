@@ -16,9 +16,13 @@ import {
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
-test('21 sticker, id unik', () => {
-  assert.equal(STICKERS.length, 21);
-  assert.equal(new Set(STICKERS.map(s => s.id)).size, 21);
+test('20 sticker, id unik', () => {
+  assert.equal(STICKERS.length, 20);
+  assert.equal(new Set(STICKERS.map(s => s.id)).size, 20);
+});
+
+test('sticker bintang hotel tidak ada di katalog — klasifikasinya jadi bahan komplain', () => {
+  assert.equal(STICKERS.some(s => /bintang/i.test(`${s.id} ${s.label}`)), false);
 });
 
 test('tiap sticker punya thumbnail yang benar-benar ada di public/img-sticker', () => {

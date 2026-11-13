@@ -1,11 +1,11 @@
 import { AnimatePresence } from 'framer-motion';
-import { Footprints, Images, MapPin, Star } from 'lucide-react';
+import { Footprints, Images, MapPin } from 'lucide-react';
 import { Suspense, lazy, useState } from 'react';
 
 import { agentWatermarkText } from '@/components/PhotoWatermark';
 import { usePublicHotels } from '@/hooks/usePublicHotels';
 import { matchHotelPhoto } from '@/lib/hotelThumbs';
-import { extraHotelsOf, hotelDistanceOf, hotelStarsOf } from '@/lib/packageDetail';
+import { extraHotelsOf, hotelDistanceOf } from '@/lib/packageDetail';
 import { cheapestTierOf } from '@/lib/packagePricing';
 import type { UmrohPackage } from '@/types';
 import { trackPublicEvent } from '@/utils/analytics';
@@ -39,16 +39,14 @@ function distanceSentence(city: string, distance: string): string | null {
 interface HotelBlockProps {
   city: string;
   name: string;
-  stars: string;
   distance: string;
   photos: string[];
   area: string | null;
   onOpenGallery: () => void;
 }
 
-function HotelBlock({ city, name, stars, distance, photos, area, onOpenGallery }: HotelBlockProps) {
+function HotelBlock({ city, name, distance, photos, area, onOpenGallery }: HotelBlockProps) {
   const [failed, setFailed] = useState(false);
-  const count = Number.parseInt(stars, 10);
   const sentence = distanceSentence(city, distance);
   const cover = photos[0] ?? null;
 
@@ -79,20 +77,10 @@ function HotelBlock({ city, name, stars, distance, photos, area, onOpenGallery }
         </button>
       )}
       <div className="p-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-2 flex items-center">
           <span className="rounded-[5px] bg-emerald-50 px-2 py-[3px] text-[8.5px] font-extrabold uppercase tracking-[0.09em] text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
             {city}
           </span>
-          {Number.isFinite(count) && count > 0 && (
-            <span className="flex gap-[2px]">
-              {Array.from({ length: count }).map((_, i) => (
-                // fill lewat ATRIBUT + currentColor, bukan kelas fill-amber-400:
-                // kelas yang baru lahir bareng fitur tidak ada di CSS lama yang
-                // masih dipegang service worker di perangkat user.
-                <Star key={i} size={12} fill="currentColor" className="text-amber-400" />
-              ))}
-            </span>
-          )}
         </div>
 
         <p className="text-[14.5px] font-bold leading-tight text-gray-900 dark:text-white">{name}</p>
@@ -140,19 +128,16 @@ export default function DetailRail({ pkg, agentSlug }: Props) {
     {
       city: 'MEKKAH',
       name: hotelInfo?.mekkah_hotel || '',
-      stars: hotelStarsOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_bintang),
       distance: hotelDistanceOf(hotelInfo?.mekkah_hotel, hotelInfo?.mekkah_jarak),
     },
     {
       city: 'MADINAH',
       name: hotelInfo?.madinah_hotel || '',
-      stars: hotelStarsOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_bintang),
       distance: hotelDistanceOf(hotelInfo?.madinah_hotel, hotelInfo?.madinah_jarak),
     },
     ...extraHotelsOf(hotelInfo, pkg.hotel).map((h) => ({
       city: h.city.toUpperCase(),
       name: h.name,
-      stars: h.star,
       distance: '',
     })),
   ].filter((r) => r.name);
@@ -169,7 +154,6 @@ export default function DetailRail({ pkg, agentSlug }: Props) {
             key={`${row.city}-${row.name}`}
             city={row.city}
             name={row.name}
-            stars={row.stars}
             distance={row.distance}
             photos={photos}
             area={hit?.area ?? null}

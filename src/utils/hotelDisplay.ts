@@ -2,16 +2,10 @@ import { getDistance } from '@/data/hotelService';
 import { lookupHotelMetadata } from '@/data/hotelMetadata';
 
 /**
- * Bintang hotel: pakai angka dari API bila ada, selain itu jatuh ke metadata
- * lokal. Dipakai bersama halaman Bandingkan Paket dan dokumen PDF-nya supaya
- * angka di layar dan di berkas yang dikirim ke jamaah tidak pernah berbeda.
+ * Jarak hotel ke masjid: payload menang, lalu metadata lokal, lalu tabel hotel.
+ * Dipakai bersama halaman Bandingkan Paket dan dokumen PDF-nya supaya angka
+ * di layar dan di berkas yang dikirim ke jamaah tidak pernah berbeda.
  */
-export function hotelStars(name: string, stars?: string): number {
-  const raw = String(stars || '').trim();
-  const value = raw && raw !== '0' ? raw : (lookupHotelMetadata(name).stars || '0');
-  return parseInt(value) || 0;
-}
-
 export function hotelDistance(name: string, distance?: string): string {
   return String(distance || '').trim() || lookupHotelMetadata(name).distance || getDistance(name);
 }

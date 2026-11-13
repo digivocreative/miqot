@@ -6,7 +6,7 @@ import type { AgentData } from '@/data/agents';
 import { tierRoomPrice, tierHotelInfo, packageCityHotels } from '@/lib/packageTiers';
 import { buildCompareVerdict } from '@/lib/compareVerdict';
 import type { CompareVerdict } from '@/lib/compareVerdict';
-import { hotelStars, hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
+import { hotelDistance, COMPARE_CITIES } from '@/utils/hotelDisplay';
 import { formatCalendarMeetingPoint } from '@/lib/calendarPeople';
 import { getPackageJourneySteps, getLandingStepIndex, getLandingCityName, airportCityName } from '@/utils/journey';
 import { getTemperature } from '@/data/temperatureData';
@@ -143,7 +143,6 @@ const s = StyleSheet.create({
   langsung: { ...b, fontSize: 7.5, color: C.goldInk },
   rute: { fontSize: 7.5, color: C.gray },
   hotelNama: { ...b, fontSize: 10, color: C.ink },
-  bintangRow: { flexDirection: 'row', gap: 1 },
   jarak: { fontSize: 8.5, color: C.gray },
   kosong: { fontSize: 10, color: C.grayLight },
   seatAngka: { ...b, fontSize: 14, color: C.ink },
@@ -235,30 +234,6 @@ const renggangkanJarak = (teks: string) =>
   String(teks || '').replace(/(\d)\s*(km|m)\b/gi, '$1 $2');
 
 /**
- * Bintang digambar SVG supaya ukuran dan warnanya lepas dari metrik font —
- * deretan ★ 8pt di dalam baris teks 8.5pt duduknya tidak rata.
- *
- * Inter yang di-embed SENDIRI punya glyph ★ (U+2605), sudah diperiksa dengan
- * fontkit; pita Kesimpulan memakai karakternya langsung. Yang perlu diingat
- * untuk simbol lain: glyph yang tidak ada di font ter-embed hilang diam-diam di
- * react-pdf, jadi periksa dulu sebelum memakai simbol yang tidak umum.
- */
-const STAR_PATH = 'M12 2l2.94 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.06-1.01L12 2z';
-
-function Bintang({ jumlah }: { jumlah: number }) {
-  if (jumlah <= 0) return null;
-  return (
-    <View style={s.bintangRow}>
-      {Array.from({ length: jumlah }).map((_, i) => (
-        <Svg key={i} width={8.5} height={8.5} viewBox="0 0 24 24">
-          <Path d={STAR_PATH} fill={C.gold} />
-        </Svg>
-      ))}
-    </View>
-  );
-}
-
-/**
  * Nama dari hulu sering membawa spasi ganda dan tanda kurung yang renggang —
  * "PLUS TURKEY 15HR ( KERETA  CEPAT)", "AL RITZ AL MADINAH /SETARAF". Di layar
  * tak terlalu terlihat, di PDF cetak jadi mencolok.
@@ -299,12 +274,11 @@ function hotelDiKota(pkg: UmrohPackage, tier: string, cityKey: string) {
   if (!nama) return null;
   return {
     nama,
-    stars: hotelStars(nama, info?.[`${cityKey}_bintang`]),
     jarak: hotelDistance(nama, info?.[`${cityKey}_jarak`]),
   };
 }
 
-/** Sisi untuk compareVerdict — bintang & jarak sudah diresolusi di sini. */
+/** Sisi untuk compareVerdict — jarak sudah diresolusi di sini. */
 function verdictSide(side: ComparePdfSide) {
   const prices: Record<string, number> = {};
   for (const room of ROOMS) prices[room] = tierRoomPrice(side.pkg, side.tier, room);
@@ -313,8 +287,8 @@ function verdictSide(side: ComparePdfSide) {
   return {
     prices,
     hotels: {
-      mekkah: mekkah ? { stars: mekkah.stars, distance: mekkah.jarak } : undefined,
-      madinah: madinah ? { stars: madinah.stars, distance: madinah.jarak } : undefined,
+      mekkah: mekkah ? { distance: mekkah.jarak } : undefined,
+      madinah: madinah ? { distance: madinah.jarak } : undefined,
     },
     seatSisa: side.pkg.seatSisa,
   };
@@ -431,10 +405,7 @@ function poinKesimpulan(verdict: CompareVerdict, a: ComparePdfSide, b: ComparePd
     const ringkas = (side: ComparePdfSide, kota: string) => {
       const h = hotelDiKota(side.pkg, side.tier, kota);
       if (!h) return '';
-      const jarak = renggangkanJarak(h.jarak).replace(/^±\s*/, 'sekitar ');
-      const bintang = h.stars > 0 ? `${h.stars} bintang` : '';
-      if (bintang && jarak) return `${bintang} (${jarak})`;
-      return bintang || jarak;
+      return renggangkanJarak(h.jarak).replace(/^±\s*/, 'sekitar ');
     };
     const rincian = (['mekkah', 'madinah'] as const)
       .map(kota => {
@@ -751,7 +722,6 @@ export function CompareDocument({ a, b, agent, agentPhotoBase64 }: CompareDocume
                     <>
                       <Text style={s.hotelNama}>{rapikanNama(hotel.nama)}</Text>
                       <View style={s.cellLine}>
-                        <Bintang jumlah={hotel.stars} />
                         {/* Jarak hanya bermakna di kota kiblat: "±400 m ke
                             Masjidil Haram" menolong keputusan, "±2 km" di Cairo
                             tidak menjelaskan ke mana. */}

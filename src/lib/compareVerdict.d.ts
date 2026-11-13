@@ -2,8 +2,8 @@
 export interface CompareSide {
   prices: { Quard?: number; Triple?: number; Double?: number };
   hotels?: {
-    mekkah?: { stars?: number; distance?: string };
-    madinah?: { stars?: number; distance?: string };
+    mekkah?: { distance?: string };
+    madinah?: { distance?: string };
   };
   seatSisa?: number;
 }
@@ -18,7 +18,7 @@ export interface PriceGap {
 }
 
 export interface PriceVerdict { side: CompareSideKey; wins: number; total: number }
-export interface HotelVerdict { side: CompareSideKey; reason: 'bintang' | 'jarak' }
+export interface HotelVerdict { side: CompareSideKey; reason: 'jarak' }
 export interface SeatVerdict { side: CompareSideKey; a: number; b: number }
 
 export interface CompareVerdict {
@@ -47,7 +47,7 @@ export function priceWinner(
   b: CompareSide | null | undefined,
 ): PriceVerdict | null;
 
-/** Jumlah bintang Mekkah + Madinah; seri diputus jarak, Mekkah lebih dulu. */
+/** Hotel yang lebih dekat ke masjid; Mekkah lebih dulu, lalu Madinah. */
 export function hotelWinner(
   a: CompareSide | null | undefined,
   b: CompareSide | null | undefined,

@@ -7,7 +7,7 @@
 // bagus" yang salah lebih merusak daripada chip yang kosong.
 //
 // Sisi (`a`/`b`) sengaja diterima dalam bentuk yang SUDAH diresolusi — harga per
-// tipe kamar, bintang, jarak, sisa seat — bukan (pkg, tier). Bintang & jarak
+// tipe kamar, jarak hotel, sisa seat — bukan (pkg, tier). Jarak
 // butuh lookupHotelMetadata yang tinggal di berkas .ts; menariknya ke sini akan
 // membuat modul ini tak bisa diuji `node --test`. Lihat packageTiers.js untuk
 // aturan tier yang menghasilkan angka-angka itu.
@@ -71,21 +71,13 @@ export function priceWinner(a, b) {
   return winsA > winsB ? { side: 'a', wins: winsA, total } : { side: 'b', wins: winsB, total };
 }
 
-function starSum(side) {
-  const mekkah = num(side?.hotels?.mekkah?.stars);
-  const madinah = num(side?.hotels?.madinah?.stars);
-  if (!mekkah || !madinah) return null;
-  return mekkah + madinah;
-}
-
 /**
+ * Hotel dibandingkan lewat jarak ke masjid saja. Bintang hotel sengaja tidak
+ * dipakai: klasifikasinya di Saudi berubah-ubah dan jadi bahan komplain jamaah.
+ *
  * @type {import('./compareVerdict').hotelWinner}
  */
 export function hotelWinner(a, b) {
-  const sa = starSum(a);
-  const sb = starSum(b);
-  if (sa === null || sb === null) return null;
-  if (sa !== sb) return { side: sa > sb ? 'a' : 'b', reason: 'bintang' };
   for (const kota of ['mekkah', 'madinah']) {
     const da = parseDistanceMeters(a?.hotels?.[kota]?.distance);
     const db = parseDistanceMeters(b?.hotels?.[kota]?.distance);

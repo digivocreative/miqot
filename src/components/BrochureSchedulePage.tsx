@@ -370,8 +370,7 @@ function formatPromptHotels(hotels?: BrochureHotel[]): string[] {
     .filter(h => h?.name?.trim())
     .map(h => {
       const city = h.city?.trim() || 'Hotel';
-      const stars = typeof h.stars === 'number' && h.stars > 0 ? ` (${'★'.repeat(Math.min(5, h.stars))})` : '';
-      return `${city}: ${h.name.trim()}${stars}`;
+      return `${city}: ${h.name.trim()}`;
     });
 }
 
