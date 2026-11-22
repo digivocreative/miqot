@@ -12,6 +12,11 @@ export interface CatalogCoverPickerProps {
   onDownload: () => void;
   description?: string;
   downloadLabel?: string;
+  /** Pilihan cakupan isi katalog (mis. "bulan ini" vs "semua bulan"). Tanpa
+   * ini, sheet hanya memilih cover. */
+  scopeOptions?: Array<{ value: string; label: string; hint?: string }>;
+  scopeValue?: string;
+  onScopeChange?: (value: string) => void;
 }
 
 /**
@@ -30,6 +35,9 @@ export function CatalogCoverPicker({
   onDownload,
   description = 'Dipakai untuk PDF & diingat di perangkat ini',
   downloadLabel = 'Unduh Katalog (PDF)',
+  scopeOptions,
+  scopeValue,
+  onScopeChange,
 }: CatalogCoverPickerProps) {
   return createPortal(
     <AnimatePresence>
@@ -73,6 +81,36 @@ export function CatalogCoverPicker({
                 <X size={18} />
               </button>
             </div>
+
+            {scopeOptions && scopeOptions.length > 1 && (
+              <div className="px-5 pt-3">
+                <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Isi katalog</div>
+                <div role="radiogroup" aria-label="Isi katalog" className="grid grid-cols-2 gap-2">
+                  {scopeOptions.map((opt) => {
+                    const active = opt.value === scopeValue;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => onScopeChange?.(opt.value)}
+                        className={`min-w-0 rounded-xl border-2 px-3 py-2 text-left transition-colors ${
+                          active
+                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                            : 'border-gray-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <div className={`truncate text-sm font-bold ${active ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-800 dark:text-white'}`}>
+                          {opt.label}
+                        </div>
+                        {opt.hint && <div className="truncate text-[11px] text-gray-500 dark:text-slate-400">{opt.hint}</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="overflow-y-auto px-5 py-4">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

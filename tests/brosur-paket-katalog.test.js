@@ -96,8 +96,30 @@ test('nama berkas & ringkasan cover Brosur Paket ikut bulan terpilih', () => {
   assert.doesNotMatch(body, /catalogFilterLabel/);
 });
 
-test('Brosur Jadwal tetap membentang semua bulan pada dimensi Bulan', () => {
-  // Perbedaan dua mode itu disengaja; jangan ikut "diperbaiki" bersama paket.
+test('Brosur Jadwal: "Semua bulan" hanya bila dipilih eksplisit, default bulan terpilih', () => {
+  // Dulu katalog jadwal pada dimensi Bulan DIAM-DIAM selalu semua bulan, dan
+  // agent mengeluh PDF-nya tidak sesuai filter. Sekarang cakupan itu opsi di
+  // sheet cover; membuka sheet selalu kembali ke bulan terpilih.
   const plan = pageSource.slice(pageSource.indexOf('function buildCatalogPlan('));
-  assert.match(plan.slice(0, plan.indexOf('\n  // Ringkasan cover')), /catalogMonthEntries/);
+  const allMonthsBranch = plan.slice(0, plan.indexOf('const label = catalogFilterLabel'));
+  assert.match(allMonthsBranch, /if \(catalogSpansAllMonths\)/);
+  assert.match(allMonthsBranch, /catalogMonthEntries/);
+
+  assert.match(
+    declarationBody(pageSource, 'catalogSpansAllMonths'),
+    /filterDim === 'bulan' && jadwalCatalogScope === 'all'/,
+  );
+  assert.match(
+    declarationBody(pageSource, 'openCatalogPicker'),
+    /setJadwalCatalogScope\('month'\)/,
+  );
+});
+
+test('analytics katalog mencatat filter aktif di kedua mode', () => {
+  const meta = declarationBody(pageSource, 'catalogTrackingMeta');
+  for (const key of ['filter_dim', 'filter_value', 'available_only', 'scope']) {
+    assert.match(meta, new RegExp(key), `metadata katalog kehilangan ${key}`);
+  }
+  const calls = pageSource.match(/trackEvent\('action', 'download_katalog_pdf', \{\s*\.\.\.catalogTrackingMeta\(\)/g) ?? [];
+  assert.equal(calls.length, 2);
 });

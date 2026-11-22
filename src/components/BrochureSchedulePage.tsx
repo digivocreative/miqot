@@ -180,6 +180,8 @@ const BROCHURE_DESIGN_OPTIONS: ReadonlyArray<FilterDropdownOption> = BROCHURE_DE
   swatch: d.swatch,
 }));
 
+type JadwalCatalogScope = 'month' | 'all';
+
 type CatalogStage =
   | { kind: 'cover' }
   | { kind: 'page'; page: BrochureMonth; showFullDate: boolean; variant: 'default' | 'winter' }
@@ -431,10 +433,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
   }, [mode]);
 
   // ── "Unduh Katalog" (multi-page PDF) state ──
-  // Catalog export follows the active on-screen filter. Brosur Jadwal makes ONE
-  // exception — the Bulan dimension spans every available month there (the month
-  // dropdown only picks the on-screen preview); Brosur Paket has no exception,
-  // one selected month = one month in the PDF. Pages are rendered one at a time
+  // Catalog export follows the active on-screen filter. Brosur Jadwal on the
+  // Bulan dimension additionally offers an explicit "Semua bulan" scope in the
+  // cover sheet (default = the selected month); Brosur Paket always follows the
+  // filter as-is. Pages are rendered one at a time
   // into a dedicated off-screen stage to cap memory; catalogStage drives that stage.
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null);
@@ -450,7 +452,15 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     setCoverId(id);
     try { localStorage.setItem('catalogCoverId', id); } catch { /* private mode: ignore */ }
   };
-  const openCatalogPicker = () => setCoverPickerOpen(true);
+  // Cakupan katalog Brosur Jadwal pada dimensi Bulan — dipilih EKSPLISIT di
+  // sheet cover. Default selalu "bulan ini" (= yang tampil di layar) setiap
+  // kali sheet dibuka; dulu katalognya diam-diam selalu semua bulan dan agent
+  // mengira PDF-nya tidak sesuai filter.
+  const [jadwalCatalogScope, setJadwalCatalogScope] = useState<JadwalCatalogScope>('month');
+  const openCatalogPicker = () => {
+    setJadwalCatalogScope('month');
+    setCoverPickerOpen(true);
+  };
 
   // ── Desain brosur: klasik default + 3 desain alternatif (opsi, dipilih via
   // chip picker). Berlaku untuk preview & export gambar bulanan; katalog PDF
@@ -665,11 +675,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     () => splitPackagesIntoPages(filteredPackages, `${filterDim}-${filterValue ?? 'none'}${availableOnly ? '-available' : ''}`, filterLabel),
     [filteredPackages, filterDim, filterValue, filterLabel, availableOnly],
   );
-  // Khusus katalog Brosur JADWAL: pada filter Bulan, katalog PDF memuat SEMUA
-  // bulan yang masih punya paket tersedia (aturan visibilitas yang sama dengan
-  // dropdown bulan) — dropdown bulan hanya memilih pratinjau di layar, bukan
-  // cakupan katalog. Dimensi lain (tipe/maskapai/landing) tetap memotong
-  // katalog sesuai pilihannya. Katalog Brosur PAKET tidak memakai ini.
+  // Cakupan "Semua bulan" katalog Brosur JADWAL (opsi eksplisit di sheet cover,
+  // hanya pada filter Bulan): semua bulan yang masih punya paket tersedia —
+  // aturan visibilitas yang sama dengan dropdown bulan. Katalog Brosur PAKET
+  // tidak memakai ini.
   const catalogMonthEntries = useMemo(
     () => months
       .filter(m => m.packages.some(p => !p.soldOut))
@@ -697,10 +706,30 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     return `${base}${pageCount > 1 ? `-gambar-${pageIndex}` : ''}.${ext}`;
   };
   const exportLabel = availableOnly && filterLabel ? `${filterLabel} tersedia` : filterLabel;
-  // Label katalog Brosur Jadwal — "Semua Bulan" karena katalognya memang
-  // membentang seluruh bulan. Brosur Paket memakai packageCatalogScope.label
+  // Label katalog Brosur Jadwal — "Semua Bulan" hanya bila agent memilih
+  // cakupan itu; selain itu label filter aktif. Brosur Paket memakai packageCatalogScope.label
   // (bulan yang sedang dipilih), jangan tertukar.
-  const catalogFilterLabel = filterDim === 'bulan' ? 'Semua Bulan' : (filterLabel || 'Filter aktif');
+  const catalogSpansAllMonths = filterDim === 'bulan' && jadwalCatalogScope === 'all';
+  const catalogFilterLabel = catalogSpansAllMonths ? 'Semua Bulan' : (filterLabel || 'Filter aktif');
+  const jadwalCatalogScopeOptions = useMemo(() => {
+    if (mode !== 'jadwal' || filterDim !== 'bulan') return undefined;
+    const allCount = catalogMonthEntries.reduce((n, e) => n + e.packages.length, 0);
+    return [
+      { value: 'month', label: filterLabel || 'Bulan ini', hint: `${filteredPackages.length} paket` },
+      { value: 'all', label: 'Semua bulan', hint: `${catalogMonthEntries.length} bulan · ${allCount} paket` },
+    ];
+  }, [mode, filterDim, filterLabel, filteredPackages.length, catalogMonthEntries]);
+
+  /** Metadata analytics katalog — cukup untuk mencocokkan keluhan "tidak
+   * sesuai filter" dengan filter yang benar-benar aktif saat unduh. */
+  const catalogTrackingMeta = () => ({
+    cover: coverId,
+    mode,
+    filter_dim: filterDim,
+    filter_value: filterValue,
+    available_only: availableOnly,
+    ...(mode === 'jadwal' && filterDim === 'bulan' ? { scope: jadwalCatalogScope } : {}),
+  });
 
   useEffect(() => {
     if (promptPageIndex !== null && !activeImagePages[promptPageIndex]) {
@@ -806,7 +835,7 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
     emptyMessage: string;
     filenameLabel: string;
   } {
-    if (filterDim === 'bulan') {
+    if (catalogSpansAllMonths) {
       const summary: Array<{ label: string; count: number }> = [];
       const pages: BrochureMonth[] = [];
       for (const { month, packages } of catalogMonthEntries) {
@@ -903,7 +932,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       if (addedPackages === 0) throw new Error('semua gambar brosur gagal dimuat');
       pdf.save(packageCatalogFilename(agent, packageCatalogScope.label));
-      trackEvent('action', 'download_katalog_pdf', { cover: coverId, mode: 'paket' });
+      trackEvent('action', 'download_katalog_pdf', {
+        ...catalogTrackingMeta(),
+        packages: packageCatalogPackages.length,
+        pages: added,
+        failed,
+      });
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -990,7 +1024,12 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
 
       if (added === 0) throw new Error('semua halaman gagal dibuat');
       pdf.save(catalogFilenameWithLabel(agent, plan.filenameLabel));
-      trackEvent('action', 'download_katalog_pdf', { cover: coverId, mode: 'jadwal' });
+      trackEvent('action', 'download_katalog_pdf', {
+        ...catalogTrackingMeta(),
+        packages: plan.summary.reduce((n, row) => n + row.count, 0),
+        pages: added,
+        failed,
+      });
       showToast(failed > 0 ? `Katalog selesai — ${failed} halaman dilewati` : 'Katalog PDF berhasil diunduh');
       setCatalogResult({ status: 'success' });
     } catch (e) {
@@ -1564,6 +1603,9 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         description={mode === 'paket'
           ? `Filter: ${packageCatalogScope.label} · ${packageCatalogPackages.length} brosur`
           : `Filter: ${catalogFilterLabel}`}
+        scopeOptions={jadwalCatalogScopeOptions}
+        scopeValue={jadwalCatalogScope}
+        onScopeChange={(v) => setJadwalCatalogScope(v === 'all' ? 'all' : 'month')}
         downloadLabel="Unduh Katalog PDF"
         onDownload={() => { setCoverPickerOpen(false); handleDownloadCatalog(); }}
       />
