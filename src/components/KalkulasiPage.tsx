@@ -1274,7 +1274,7 @@ export default function KalkulasiPage({ agent, agentSlug, hideHeader = false, hi
                           value={discountAmount ? discountAmount.toLocaleString('id-ID') : ''}
                           onChange={(e) => {
                             const raw = e.target.value.replace(/\D/g, '');
-                            setDiscountAmount(Math.min(parseInt(raw) || 0, 19_999_999));
+                            setDiscountAmount(Math.min(parseInt(raw) || 0, 50_000_000));
                           }}
                           placeholder="Masukkan nominal"
                           className="flex-1 py-3.5 pr-4 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none tabular-nums"
