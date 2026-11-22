@@ -890,20 +890,10 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
         added += 1;
       };
 
-      try {
-        flushSync(() => {
-          setCatalogMeta({ summary: packageCatalogScope.summary, dateLabel });
-          setCatalogStage({ kind: 'cover' });
-        });
-        const el = catalogStageRef.current;
-        if (!el) throw new Error('catalog-stage-missing');
-        addCanvas(await captureCanvasFromElement(el, CATALOG_SCALE));
-      } catch (e) {
-        failed += 1;
-        console.error('[katalog-paket] cover failed:', e);
-      }
-      setCatalogProgress({ done: 1, total });
-
+      // Cover dirender TERAKHIR lalu dipindah ke halaman 1: jumlah brosur di
+      // cover harus = halaman brosur yang benar-benar masuk PDF. Brosur yang
+      // gagal diambil (CDN 404/timeout) dilewati, dan dulu cover tetap
+      // menghitungnya — cover bilang 12, isinya 10.
       for (let offset = 0; offset < packageCatalogPackages.length; offset += PACKAGE_CATALOG_FETCH_BATCH) {
         const batch = packageCatalogPackages.slice(offset, offset + PACKAGE_CATALOG_FETCH_BATCH);
         flushSync(() => setCatalogStage({
@@ -926,11 +916,26 @@ export default function BrochureSchedulePage({ agent: agentProp, displayMode = '
             failed += 1;
             console.error(`[katalog-paket] ${pkg.id} failed:`, e);
           }
-          setCatalogProgress({ done: offset + index + 2, total });
+          setCatalogProgress({ done: offset + index + 1, total });
         }
       }
 
       if (addedPackages === 0) throw new Error('semua gambar brosur gagal dimuat');
+
+      try {
+        flushSync(() => {
+          setCatalogMeta({ summary: [{ label: packageCatalogScope.label, count: addedPackages }], dateLabel });
+          setCatalogStage({ kind: 'cover' });
+        });
+        const el = catalogStageRef.current;
+        if (!el) throw new Error('catalog-stage-missing');
+        addCanvas(await captureCanvasFromElement(el, CATALOG_SCALE));
+        pdf.movePage(pdf.getNumberOfPages(), 1);
+      } catch (e) {
+        failed += 1;
+        console.error('[katalog-paket] cover failed:', e);
+      }
+      setCatalogProgress({ done: total, total });
       pdf.save(packageCatalogFilename(agent, packageCatalogScope.label));
       trackEvent('action', 'download_katalog_pdf', {
         ...catalogTrackingMeta(),

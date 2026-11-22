@@ -92,7 +92,10 @@ test('nama berkas & ringkasan cover Brosur Paket ikut bulan terpilih', () => {
   const body = paketFlow.slice(0, paketFlow.indexOf('\n  // Build the catalog PDF'));
 
   assert.match(body, /packageCatalogFilename\(agent, packageCatalogScope\.label\)/);
-  assert.match(body, /summary: packageCatalogScope\.summary/);
+  // Ringkasan cover = label filter aktif × brosur yang BERHASIL masuk PDF
+  // (bukan jumlah rencana) — cover dirender terakhir lalu dipindah ke hal. 1.
+  assert.match(body, /summary: \[\{ label: packageCatalogScope\.label, count: addedPackages \}\]/);
+  assert.match(body, /pdf\.movePage\(pdf\.getNumberOfPages\(\), 1\)/);
   assert.doesNotMatch(body, /catalogFilterLabel/);
 });
 
